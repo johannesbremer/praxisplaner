@@ -32,6 +32,8 @@ describe("TelefonKI instructions", () => {
     expect(instructions).toContain("appointmentTypes_dynamic");
     expect(instructions).toContain("locations_dynamic");
     expect(instructions).toContain("practitioners_dynamic");
+    expect(instructions).toContain("telefonnummer_speichern");
+    expect(instructions).toContain("offerId");
     expect(instructions).not.toContain("mx41grkuwysmzha");
     expect(instructions).not.toContain("nmgcj70h2l4rxbd");
     expect(instructions).not.toContain("lteonvjyshdvfh6");

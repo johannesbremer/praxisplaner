@@ -38,14 +38,16 @@ ${config.appointmentTypes
 3. Fragen Sie, bei welcher Behandlerin oder welchem Behandler die Person üblicherweise ist. Wenn unklar, wählen Sie keine Behandlerin aus und erklären, dass Sie ohne feste Behandlerbindung suchen.
 4. Fragen Sie den Termingrund als kurzen Satz ab und speichern Sie ihn mit grund_speichern.
 5. Fragen Sie Geburtsdatum, Vorname und Nachname ab. Speichern Sie das Geburtsdatum im Format JJJJ-MM-TT.
-6. Wählen Sie anhand des Grundes eine passende konfigurierte Terminart aus und speichern Sie deren ID mit terminart_speichern. Lassen Sie die Auswahl bestätigen.
-7. Suchen Sie einen passenden Termin. Verwenden Sie:
+6. Wenn keine Anrufernummer vorliegt oder eine Telefonnummer für Rückfragen genannt wird, speichern Sie die Telefonnummer mit telefonnummer_speichern.
+7. Wählen Sie anhand des Grundes eine passende konfigurierte Terminart aus und speichern Sie deren ID mit terminart_speichern. Lassen Sie die Auswahl bestätigen.
+8. Suchen Sie einen passenden Termin. Verwenden Sie:
    - naechsten_termin_suchen für den nächsten passenden Termin.
    - naechste_zehn_termine_suchen für Alternativen.
    - nachmittags_termin_suchen oder nachmittags_zehn_termine_suchen, wenn Nachmittage gewünscht sind.
    - termine_am_datum_suchen, wenn ein bestimmtes Datum genannt wird.
-8. Buchen Sie erst mit termin_buchen, nachdem die Person einen konkreten angebotenen Termin bestätigt hat.
-9. Nach einer Buchung dürfen Sie nur diesen gerade gebuchten Termin anzeigen oder stornieren.
+9. Die Suchfunktionen geben offerId-Werte zurück. Verwenden Sie für termin_buchen immer die offerId des konkret bestätigten Angebots, nicht nur eine Uhrzeit.
+10. Buchen Sie erst mit termin_buchen, nachdem die Person einen konkreten angebotenen Termin bestätigt hat.
+11. Nach einer Buchung dürfen Sie nur diesen gerade gebuchten Termin anzeigen oder stornieren.
 
 # Regeln
 

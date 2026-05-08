@@ -20,6 +20,11 @@ import { z } from "zod";
 import type { Id } from "../../convex/_generated/dataModel";
 
 import { api as convexApi } from "../../convex/_generated/api";
+import {
+  listMissingBookingPrerequisites,
+  renderOfferedSlots,
+  sanitizePhoneNumber,
+} from "./agent-state";
 import { resolveCallRouting } from "./call-routing";
 import { buildTelefonkiInstructions } from "./instructions";
 
@@ -119,52 +124,6 @@ function loadDotenv(): void {
 
 async function markAsyncBoundary(): Promise<void> {
   await Promise.resolve();
-}
-
-function requireBookingPrerequisites(state: CallState): string[] {
-  const missing: string[] = [];
-  if (state.isNewPatient === undefined) {
-    missing.push("Patientenstatus");
-  }
-  if (!state.location) {
-    missing.push("Standort");
-  }
-  if (!state.reason) {
-    missing.push("Termingrund");
-  }
-  if (!state.birthDate) {
-    missing.push("Geburtsdatum");
-  }
-  if (!state.firstName) {
-    missing.push("Vorname");
-  }
-  if (!state.lastName) {
-    missing.push("Nachname");
-  }
-  if (!state.appointmentType) {
-    missing.push("Terminart");
-  }
-  return missing;
-}
-
-function slotListResponse(
-  slots: readonly TelefonkiSlot[],
-  state: CallState,
-): string {
-  if (slots.length === 0) {
-    return "Es wurden keine passenden freien Termine gefunden.";
-  }
-
-  for (const slot of slots) {
-    state.offeredSlots.set(slot.startTime, slot);
-  }
-
-  return slots
-    .map(
-      (slot, index) =>
-        `${index + 1}. ${formatSlot(slot)} (startTime: ${slot.startTime})`,
-    )
-    .join("; ");
 }
 
 loadDotenv();
@@ -302,7 +261,11 @@ export default defineAgent({
                 simulatedContext: buildSimulatedContext(state),
               },
             );
-            return slotListResponse(slot ? [slot] : [], state);
+            return renderOfferedSlots({
+              formatSlot,
+              slots: slot ? [slot] : [],
+              store: state.offeredSlots,
+            });
           },
         }),
         nachmittags_zehn_termine_suchen: llm.tool({
@@ -321,7 +284,11 @@ export default defineAgent({
                 simulatedContext: buildSimulatedContext(state),
               },
             );
-            return slotListResponse(slots, state);
+            return renderOfferedSlots({
+              formatSlot,
+              slots,
+              store: state.offeredSlots,
+            });
           },
         }),
         naechste_zehn_termine_suchen: llm.tool({
@@ -340,7 +307,11 @@ export default defineAgent({
                 simulatedContext: buildSimulatedContext(state),
               },
             );
-            return slotListResponse(slots, state);
+            return renderOfferedSlots({
+              formatSlot,
+              slots,
+              store: state.offeredSlots,
+            });
           },
         }),
         naechsten_termin_suchen: llm.tool({
@@ -358,7 +329,11 @@ export default defineAgent({
                 simulatedContext: buildSimulatedContext(state),
               },
             );
-            return slotListResponse(slot ? [slot] : [], state);
+            return renderOfferedSlots({
+              formatSlot,
+              slots: slot ? [slot] : [],
+              store: state.offeredSlots,
+            });
           },
         }),
         patient_status_speichern: llm.tool({
@@ -416,6 +391,25 @@ export default defineAgent({
               .describe("Die Standort-Lineage-ID aus der Konfigurationsliste."),
           }),
         }),
+        telefonnummer_speichern: llm.tool({
+          description:
+            "Speichert die Telefonnummer des Patienten. Verwenden Sie diese Funktion besonders dann, wenn keine Anrufernummer vorliegt.",
+          execute: async ({ phoneNumber }) => {
+            await markAsyncBoundary();
+            try {
+              state.phoneNumber = sanitizePhoneNumber(phoneNumber);
+            } catch (error) {
+              if (error instanceof Error) {
+                return `Fehler: ${error.message}`;
+              }
+              return "Fehler: Telefonnummer konnte nicht gespeichert werden.";
+            }
+            return `Telefonnummer gespeichert: ${state.phoneNumber}.`;
+          },
+          parameters: z.object({
+            phoneNumber: z.string().describe("Telefonnummer des Patienten."),
+          }),
+        }),
         termin_anzeigen: llm.tool({
           description:
             "Zeigt ausschließlich den Termin an, der in diesem Anruf gebucht wurde.",
@@ -438,8 +432,8 @@ export default defineAgent({
         }),
         termin_buchen: llm.tool({
           description:
-            "Bucht einen zuvor angebotenen Termin. Nur mit einem startTime-Wert aus einer Suchfunktion aufrufen.",
-          execute: async ({ startTime }) => {
+            "Bucht einen zuvor angebotenen Termin. Nur mit einer offerId aus einer Suchfunktion aufrufen.",
+          execute: async ({ offerId }) => {
             if (!state.phoneBookingIdentityId) {
               return "Fehler: Die Telefonidentität wurde noch nicht angelegt.";
             }
@@ -447,7 +441,7 @@ export default defineAgent({
             if (missing.length > 0) {
               return `Bitte zuerst speichern: ${missing.join(", ")}.`;
             }
-            const slot = state.offeredSlots.get(startTime);
+            const slot = state.offeredSlots.get(offerId);
             if (!slot) {
               return "Fehler: Dieser Termin wurde in diesem Gespräch nicht angeboten. Bitte suchen Sie erneut.";
             }
@@ -480,9 +474,9 @@ export default defineAgent({
             return `Der Termin wurde gebucht: ${formatSlot(slot)}. Termin-ID: ${booking.appointmentId}.`;
           },
           parameters: z.object({
-            startTime: z
+            offerId: z
               .string()
-              .describe("Der startTime-Wert eines zuvor angebotenen Termins."),
+              .describe("Die offerId eines zuvor angebotenen Termins."),
           }),
         }),
         termin_stornieren: llm.tool({
@@ -550,7 +544,11 @@ export default defineAgent({
                 simulatedContext: buildSimulatedContext(state),
               },
             );
-            return slotListResponse(slots, state);
+            return renderOfferedSlots({
+              formatSlot,
+              slots,
+              store: state.offeredSlots,
+            });
           },
           parameters: z.object({
             date: z.string().describe("Datum im Format JJJJ-MM-TT."),
@@ -633,6 +631,10 @@ export default defineAgent({
     }
   },
 });
+
+function requireBookingPrerequisites(state: CallState): string[] {
+  return listMissingBookingPrerequisites(state);
+}
 
 cli.runApp(
   new ServerOptions({
