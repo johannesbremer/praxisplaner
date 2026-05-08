@@ -274,6 +274,98 @@ describe("TelefonKI availability", () => {
     expect(afternoonSlot?.startTime).toBe(afternoonSlots[0]?.startTime);
   });
 
+  test("honors a selected practitioner when searching", async () => {
+    const t = createTestContext();
+    const fixture = await createTelefonkiFixture(t);
+    const secondPractitionerId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const practitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          name: "Dr. Wunsch",
+          practiceId: fixture.practiceId,
+          ruleSetId: fixture.ruleSetId,
+        },
+      );
+
+      await ctx.db.patch("appointmentTypes", fixture.appointmentTypeId, {
+        allowedPractitionerLineageKeys: [
+          fixture.practitionerId,
+          practitionerId,
+        ],
+      });
+
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+        dayOfWeek: 1,
+        endTime: "16:00",
+        locationLineageKey: fixture.locationId,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: practitionerId,
+        ruleSetId: fixture.ruleSetId,
+        startTime: "08:00",
+      });
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+        dayOfWeek: 2,
+        endTime: "16:00",
+        locationLineageKey: fixture.locationId,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: practitionerId,
+        ruleSetId: fixture.ruleSetId,
+        startTime: "08:00",
+      });
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+        dayOfWeek: 3,
+        endTime: "16:00",
+        locationLineageKey: fixture.locationId,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: practitionerId,
+        ruleSetId: fixture.ruleSetId,
+        startTime: "08:00",
+      });
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+        dayOfWeek: 4,
+        endTime: "16:00",
+        locationLineageKey: fixture.locationId,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: practitionerId,
+        ruleSetId: fixture.ruleSetId,
+        startTime: "08:00",
+      });
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+        dayOfWeek: 5,
+        endTime: "16:00",
+        locationLineageKey: fixture.locationId,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: practitionerId,
+        ruleSetId: fixture.ruleSetId,
+        startTime: "08:00",
+      });
+
+      void now;
+      return practitionerId;
+    });
+
+    const slots = await t.query(api.telefonki.nextAvailableSlots, {
+      limit: 10,
+      practiceId: fixture.practiceId,
+      simulatedContext: {
+        ...simulatedContext({
+          appointmentTypeId: fixture.appointmentTypeId,
+          locationId: fixture.locationId,
+        }),
+        practitionerLineageKey: secondPractitionerId,
+      },
+    });
+
+    expect(slots).toHaveLength(10);
+    expect(
+      slots.every(
+        (slot) => slot.practitionerLineageKey === secondPractitionerId,
+      ),
+    ).toBe(true);
+  });
+
   test("searches a specific date only", async () => {
     const t = createTestContext();
     const fixture = await createTelefonkiFixture(t);
@@ -373,6 +465,21 @@ describe("TelefonKI booking ownership", () => {
       startTime: slot.startTime,
     });
     expect(booking.appointmentId).toBeDefined();
+
+    const persisted = await t.run(async (ctx) => {
+      const appointment = await ctx.db.get(
+        "appointments",
+        booking.appointmentId,
+      );
+      const patient = appointment?.patientId
+        ? await ctx.db.get("patients", appointment.patientId)
+        : null;
+      return { appointment, patient };
+    });
+    expect(persisted.appointment?.patientId).toBeDefined();
+    expect(persisted.patient?.name).toBe("Ada Lovelace");
+    expect(persisted.patient?.phoneNumber).toBe("+491701234567");
+    expect(persisted.patient?.recordType).toBe("temporary");
 
     await expect(
       t.mutation(api.telefonki.book, {

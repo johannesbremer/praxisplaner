@@ -21,6 +21,7 @@ import {
 } from "./identity";
 import { requireLineageKey } from "./lineage";
 import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
+import { createTemporaryPatientRecord } from "./temporaryPatients";
 import {
   asIsoDateString,
   asZonedDateTimeString,
@@ -79,6 +80,7 @@ interface AvailabilityArgs {
       dateOfBirth?: string;
       isNew: boolean;
     };
+    practitionerLineageKey?: Id<"practitioners">;
     requestedAt?: string;
   };
 }
@@ -156,6 +158,8 @@ async function getAvailableSlots(args: {
     getSearchStartDate(args.search.date),
   );
   const maxOffset = args.searchDateOnly ? 0 : MAX_SEARCH_DAYS;
+  const requestedPractitionerLineageKey =
+    args.search.simulatedContext.practitionerLineageKey;
 
   for (
     let offset = 0;
@@ -185,6 +189,12 @@ async function getAvailableSlots(args: {
         !allowedPractitionerLineageKeys.has(
           asPractitionerLineageKey(slot.practitionerLineageKey),
         )
+      ) {
+        continue;
+      }
+      if (
+        requestedPractitionerLineageKey !== undefined &&
+        slot.practitionerLineageKey !== requestedPractitionerLineageKey
       ) {
         continue;
       }
@@ -671,6 +681,17 @@ export const book = mutation({
 
     const patientName =
       `${args.patient.firstName.trim()} ${args.patient.lastName.trim()}`.trim();
+    const patientPhoneNumber = args.patient.phoneNumber?.trim();
+    if (!patientPhoneNumber) {
+      throw new Error(
+        "TelefonKI bookings require the caller phone number to persist the patient record.",
+      );
+    }
+    const temporaryPatientId = await createTemporaryPatientRecord(ctx, {
+      name: patientName,
+      phoneNumber: patientPhoneNumber,
+      practiceId: active.practiceId,
+    });
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
       appointmentTypeId,
       isNewPatient: args.patient.isNew,
@@ -678,6 +699,7 @@ export const book = mutation({
       ...(args.patient.dateOfBirth !== undefined && {
         patientDateOfBirth: args.patient.dateOfBirth,
       }),
+      patientId: temporaryPatientId,
       phoneBookingIdentityId: args.phoneBookingIdentityId,
       practiceId: active.practiceId,
       practitionerId,

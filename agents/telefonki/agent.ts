@@ -64,6 +64,9 @@ function buildSimulatedContext(state: CallState) {
       ...(state.birthDate && { dateOfBirth: state.birthDate }),
       isNew: state.isNewPatient ?? false,
     },
+    ...(state.practitioner && {
+      practitionerLineageKey: state.practitioner.lineageKey,
+    }),
   };
 }
 

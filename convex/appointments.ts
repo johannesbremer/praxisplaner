@@ -1312,7 +1312,6 @@ export const createAppointment = mutation({
     locationId: v.id("locations"),
     patientDateOfBirth: v.optional(v.string()),
     patientId: v.optional(v.id("patients")),
-    phoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
     practiceId: v.id("practices"),
     practitionerId: v.optional(v.id("practitioners")),
     replacesAppointmentId: v.optional(v.id("appointments")),
