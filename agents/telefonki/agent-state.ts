@@ -1,4 +1,5 @@
 import { Temporal } from "temporal-polyfill";
+import { z } from "zod";
 
 export interface OfferedTelefonkiSlot {
   locationLineageKey: string;
@@ -97,5 +98,11 @@ export function sanitizePhoneNumber(rawPhoneNumber: string): string {
   if (phoneNumber.length === 0) {
     throw new Error("Telefonnummer darf nicht leer sein.");
   }
-  return phoneNumber;
+  const parsedPhoneNumber = z.e164().safeParse(phoneNumber);
+  if (!parsedPhoneNumber.success) {
+    throw new Error(
+      "Telefonnummer muss im E.164-Format angegeben werden, zum Beispiel +491701234567.",
+    );
+  }
+  return parsedPhoneNumber.data;
 }

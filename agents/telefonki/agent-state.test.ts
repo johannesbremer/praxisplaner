@@ -69,6 +69,9 @@ describe("TelefonKI agent state helpers", () => {
     expect(() => sanitizePhoneNumber("   ")).toThrow(
       "Telefonnummer darf nicht leer sein.",
     );
+    expect(() => sanitizePhoneNumber("01701234567")).toThrow(
+      "Telefonnummer muss im E.164-Format angegeben werden",
+    );
   });
 
   test("formats Temporal zoned slot strings without using Date parsing", () => {

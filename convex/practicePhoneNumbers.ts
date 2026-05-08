@@ -1,28 +1,19 @@
+import { z } from "zod";
+
+const e164PhoneNumberSchema = z.e164();
+
 export function normalizePracticePhoneNumber(rawPhoneNumber: string): string {
   const trimmedPhoneNumber = rawPhoneNumber.trim();
   if (trimmedPhoneNumber.length === 0) {
     throw new Error("Practice phone number is required.");
   }
 
-  let digits = "";
-  for (const character of trimmedPhoneNumber) {
-    if (character >= "0" && character <= "9") {
-      digits += character;
-    }
-  }
-  if (digits.length < 7) {
+  const parsedPhoneNumber = e164PhoneNumberSchema.safeParse(trimmedPhoneNumber);
+  if (!parsedPhoneNumber.success) {
     throw new Error(
-      "Practice phone number must contain at least 7 digits after normalization.",
+      "Practice phone number must be provided in E.164 format, for example +495421000000.",
     );
   }
 
-  if (trimmedPhoneNumber.startsWith("+")) {
-    return `+${digits}`;
-  }
-
-  if (trimmedPhoneNumber.startsWith("00")) {
-    return `+${digits.slice(2)}`;
-  }
-
-  return `+${digits}`;
+  return parsedPhoneNumber.data;
 }

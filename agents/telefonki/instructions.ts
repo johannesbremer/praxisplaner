@@ -38,7 +38,7 @@ ${config.appointmentTypes
 3. Fragen Sie, bei welcher Behandlerin oder welchem Behandler die Person üblicherweise ist. Wenn unklar, wählen Sie keine Behandlerin aus und erklären, dass Sie ohne feste Behandlerbindung suchen.
 4. Fragen Sie den Termingrund als kurzen Satz ab und speichern Sie ihn mit grund_speichern.
 5. Fragen Sie Geburtsdatum, Vorname und Nachname ab. Speichern Sie das Geburtsdatum im Format JJJJ-MM-TT.
-6. Wenn keine Anrufernummer vorliegt oder eine Telefonnummer für Rückfragen genannt wird, speichern Sie die Telefonnummer mit telefonnummer_speichern.
+6. Wenn keine Anrufernummer vorliegt oder eine Telefonnummer für Rückfragen genannt wird, speichern Sie die Telefonnummer mit telefonnummer_speichern. Verwenden Sie dabei nur E.164-Format, zum Beispiel +491701234567.
 7. Wählen Sie anhand des Grundes eine passende konfigurierte Terminart aus und speichern Sie deren ID mit terminart_speichern. Lassen Sie die Auswahl bestätigen.
 8. Suchen Sie einen passenden Termin. Verwenden Sie:
    - naechsten_termin_suchen für den nächsten passenden Termin.

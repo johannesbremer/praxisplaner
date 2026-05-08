@@ -166,12 +166,23 @@ describe("TelefonKI availability", () => {
     const resolved = await t.query(
       api.telefonki.resolvePracticeByDialedPhoneNumber,
       {
-        dialedPracticePhoneNumber: " +49 5421 000000 ",
+        dialedPracticePhoneNumber: "+495421000000",
       },
     );
 
     expect(resolved.practiceId).toBe(fixture.practiceId);
     expect(resolved.dialedPracticePhoneNumber).toBe("+495421000000");
+  });
+
+  test("rejects non-E.164 dialed practice phone numbers", async () => {
+    const t = createTestContext();
+    await createTelefonkiFixture(t);
+
+    await expect(
+      t.query(api.telefonki.resolvePracticeByDialedPhoneNumber, {
+        dialedPracticePhoneNumber: "05421 000000",
+      }),
+    ).rejects.toThrow("Practice phone number must be provided in E.164 format");
   });
 
   test("rejects unknown dialed phone numbers", async () => {
