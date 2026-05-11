@@ -735,6 +735,7 @@ function getSimulationScopeRuleSetId(args: {
 async function includeSameDayReplacementAncestors(
   db: DatabaseReader,
   appointments: AppointmentDoc[],
+  accessiblePracticeIds: ReadonlySet<Id<"practices">>,
 ): Promise<AppointmentDoc[]> {
   const appointmentsById = new Map(
     appointments.map((appointment) => [appointment._id, appointment] as const),
@@ -770,6 +771,7 @@ async function includeSameDayReplacementAncestors(
     const previousAppointment = await db.get("appointments", previousId);
     if (
       !previousAppointment ||
+      !accessiblePracticeIds.has(previousAppointment.practiceId) ||
       !isSameAppointmentReplacementDay(appointment, previousAppointment)
     ) {
       continue;
@@ -1099,6 +1101,7 @@ export const getAppointmentsInRange = query({
     const appointmentsWithAncestors = await includeSameDayReplacementAncestors(
       ctx.db,
       filteredAppointments,
+      accessiblePracticeIds,
     );
     const scopedAppointments = filterAppointmentsForVisibleScope(
       appointmentsWithAncestors,

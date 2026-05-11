@@ -3208,6 +3208,81 @@ describe("calendar day appointment queries", () => {
     ).resolves.toEqual([]);
   });
 
+  test('getAppointmentsInRange with scope "real" ignores fetched ancestors from inaccessible practices', async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignPracticeData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_range_inaccessible_ancestor",
+      "range-inaccessible-ancestor@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "range-inaccessible-ancestor@example.com",
+      subject: "workos_range_inaccessible_ancestor",
+    });
+    const targetRange = makeDayRange(15);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const foreignRootId = await insertAppointmentRecord(t, {
+      ...foreignPracticeData,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      isSimulation: true,
+      replacesAppointmentId: foreignRootId,
+      simulationRuleSetId: baseData.ruleSetId,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getAppointmentsInRange, {
+        activeRuleSetId: baseData.ruleSetId,
+        end: targetRange.dayEnd,
+        scope: "real",
+        start: targetRange.dayStart,
+      }),
+    ).resolves.toEqual([]);
+  });
+
   test("getCalendarDayBlockedSlots filters by location lineage and remaps ids after filtering", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
