@@ -726,15 +726,70 @@ function getSimulationScopeRuleSetId(args: {
   return args.selectedRuleSetId ?? args.activeRuleSetId;
 }
 
-function isAppointmentInCalendarDayQuery(
-  appointment: AppointmentDoc,
+async function includeSameDayReplacementAncestors(
+  db: DatabaseReader,
+  appointments: AppointmentDoc[],
+): Promise<AppointmentDoc[]> {
+  const appointmentsById = new Map(
+    appointments.map((appointment) => [appointment._id, appointment] as const),
+  );
+  const pendingAppointments = [...appointments];
+  const processedIds = new Set<Id<"appointments">>();
+
+  while (pendingAppointments.length > 0) {
+    const appointment = pendingAppointments.pop();
+    if (!appointment || processedIds.has(appointment._id)) {
+      continue;
+    }
+    processedIds.add(appointment._id);
+
+    const previousId = appointment.replacesAppointmentId;
+    if (!previousId) {
+      continue;
+    }
+
+    const existingPreviousAppointment = appointmentsById.get(previousId);
+    if (existingPreviousAppointment) {
+      if (
+        isSameAppointmentReplacementDay(
+          appointment,
+          existingPreviousAppointment,
+        )
+      ) {
+        pendingAppointments.push(existingPreviousAppointment);
+      }
+      continue;
+    }
+
+    const previousAppointment = await db.get("appointments", previousId);
+    if (
+      !previousAppointment ||
+      !isSameAppointmentReplacementDay(appointment, previousAppointment)
+    ) {
+      continue;
+    }
+
+    appointmentsById.set(previousAppointment._id, previousAppointment);
+    pendingAppointments.push(previousAppointment);
+  }
+
+  return [...appointmentsById.values()];
+}
+
+function isAppointmentInCalendarDayRange(
+  appointment: Pick<AppointmentDoc, "start">,
   args: { dayEnd: string; dayStart: string },
+) {
+  return isCalendarDayRangeMatch(args, appointment.start);
+}
+
+function isAppointmentInSelectedLocation(
+  appointment: Pick<AppointmentDoc, "locationLineageKey">,
   selectedLocationLineageKey: LocationLineageKey | undefined,
 ): boolean {
   return (
-    isCalendarDayRangeMatch(args, appointment.start) &&
-    (selectedLocationLineageKey === undefined ||
-      appointment.locationLineageKey === selectedLocationLineageKey)
+    selectedLocationLineageKey === undefined ||
+    appointment.locationLineageKey === selectedLocationLineageKey
   );
 }
 
@@ -955,11 +1010,7 @@ export const getCalendarDayAppointments = query({
       .collect();
 
     const dayAppointments = appointmentDocs.filter((appointment) =>
-      isAppointmentInCalendarDayQuery(
-        appointment,
-        args,
-        selectedLocationLineageKey,
-      ),
+      isAppointmentInCalendarDayRange(appointment, args),
     );
     const dayScopedAppointments = filterAppointmentsForScope(
       dayAppointments,
@@ -990,20 +1041,19 @@ export const getCalendarDayAppointments = query({
     const resolvedAppointments =
       scope === "simulation"
         ? combineForSimulationScope(scopedAppointments).filter((appointment) =>
-            isAppointmentInCalendarDayQuery(
-              appointment,
-              args,
-              selectedLocationLineageKey,
-            ),
+            isAppointmentInCalendarDayRange(appointment, args),
           )
         : scopedAppointments.toSorted((left, right) =>
             left.start.localeCompare(right.start),
           );
+    const visibleAppointments = resolvedAppointments.filter((appointment) =>
+      isAppointmentInSelectedLocation(appointment, selectedLocationLineageKey),
+    );
     const displayRuleSetId = getDisplayRuleSetId(args);
 
     return displayRuleSetId
-      ? await remapAppointmentIds(ctx, resolvedAppointments, displayRuleSetId)
-      : resolvedAppointments.map((appointment) =>
+      ? await remapAppointmentIds(ctx, visibleAppointments, displayRuleSetId)
+      : visibleAppointments.map((appointment) =>
           toAppointmentListItem(appointment),
         );
   },
@@ -1039,10 +1089,17 @@ export const getAppointmentsInRange = query({
         accessiblePracticeIds.has(appointment.practiceId),
     );
     const scope: AppointmentScope = args.scope ?? "real";
-    const scopedAppointments = filterAppointmentsForVisibleScope(
+    const appointmentsWithAncestors = await includeSameDayReplacementAncestors(
+      ctx.db,
       filteredAppointments,
+    );
+    const scopedAppointments = filterAppointmentsForVisibleScope(
+      appointmentsWithAncestors,
       args,
       scope,
+    ).filter(
+      (appointment) =>
+        appointment.start >= args.start && appointment.start <= args.end,
     );
 
     const displayRuleSetId = getDisplayRuleSetId(args);
