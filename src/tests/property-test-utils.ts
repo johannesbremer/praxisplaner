@@ -88,7 +88,7 @@ export async function checkAsyncProperty<T extends [unknown, ...unknown[]]>(
     }),
     parameters,
   );
-  assertRunCompleted(result, label, parameters);
+  await assertAsyncRunSucceeded(result, label, parameters);
   return result;
 }
 
@@ -105,7 +105,7 @@ export function checkProperty<T extends [unknown, ...unknown[]]>(
     }),
     parameters,
   );
-  assertRunCompleted(result, label, parameters);
+  assertRunSucceeded(result, label, parameters);
   return result;
 }
 
@@ -168,18 +168,6 @@ async function assertAsyncRunSucceeded<T extends [unknown, ...unknown[]]>(
   throw new Error(reportMessage ?? `Property "${label}" failed.`, {
     cause: result.errorInstance,
   });
-}
-
-function assertRunCompleted<T extends [unknown, ...unknown[]]>(
-  result: RunDetails<T>,
-  label: string,
-  parameters: Parameters<T>,
-) {
-  if (result.interrupted && shouldFailOnInterrupt(parameters)) {
-    throw new Error(
-      `Property "${label}" was interrupted before completing its configured run count.`,
-    );
-  }
 }
 
 function assertRunSucceeded<T extends [unknown, ...unknown[]]>(

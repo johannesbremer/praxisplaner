@@ -15,62 +15,86 @@ describe("appointment conflict occupancy properties", () => {
     await assertAsyncProperty(
       fc.asyncProperty(
         fc.integer({ max: 25, min: 0 }),
-        fc.boolean(),
-        async (startOffsetMinutes, useBlockedSlot) => {
-          const t = createPropertyTestContext();
-          const fixture = await createPropertySchedulingFixture(t);
-          const now = BigInt(Date.now());
-          const window = zonedWindow(fixture.date, {
+        async (startOffsetMinutes) => {
+          const window = zonedWindow("2026-06-15", {
             durationMinutes: 10,
             hour: 9,
             minute: startOffsetMinutes,
           });
 
-          const result = await t.run(async (ctx) => {
-            if (useBlockedSlot) {
-              await ctx.db.insert("blockedSlots", {
-                createdAt: now,
-                end: window.end,
-                lastModified: now,
-                locationLineageKey: fixture.locationId,
-                practiceId: fixture.practiceId,
-                practitionerLineageKey: fixture.practitionerId,
-                start: window.start,
-                title: "Property block",
-              });
-            } else {
+          const appointmentContext = createPropertyTestContext();
+          const appointmentFixture =
+            await createPropertySchedulingFixture(appointmentContext);
+          const appointmentConflict = await appointmentContext.run(
+            async (ctx) => {
+              const now = BigInt(Date.now());
               await ctx.db.insert("appointments", {
-                appointmentTypeLineageKey: fixture.appointmentTypeId,
+                appointmentTypeLineageKey: appointmentFixture.appointmentTypeId,
                 appointmentTypeTitle: "Property Checkup",
                 createdAt: now,
                 end: window.end,
                 lastModified: now,
-                locationLineageKey: fixture.locationId,
-                practiceId: fixture.practiceId,
-                practitionerLineageKey: fixture.practitionerId,
+                locationLineageKey: appointmentFixture.locationId,
+                practiceId: appointmentFixture.practiceId,
+                practitionerLineageKey: appointmentFixture.practitionerId,
                 start: window.start,
                 title: "Property appointment",
-                userId: fixture.userId,
+                userId: appointmentFixture.userId,
               });
-            }
 
-            return await findConflictingCalendarOccupancy(ctx.db, {
-              candidate: {
-                end: window.end,
-                locationLineageKey: asLocationLineageKey(fixture.locationId),
-                practitionerLineageKey: asPractitionerLineageKey(
-                  fixture.practitionerId,
-                ),
-                start: window.start,
-              },
-              occupancyView: "live",
-              practiceId: fixture.practiceId,
-            });
-          });
-
-          expect(result?.kind).toBe(
-            useBlockedSlot ? "blockedSlot" : "appointment",
+              return await findConflictingCalendarOccupancy(ctx.db, {
+                candidate: {
+                  end: window.end,
+                  locationLineageKey: asLocationLineageKey(
+                    appointmentFixture.locationId,
+                  ),
+                  practitionerLineageKey: asPractitionerLineageKey(
+                    appointmentFixture.practitionerId,
+                  ),
+                  start: window.start,
+                },
+                occupancyView: "live",
+                practiceId: appointmentFixture.practiceId,
+              });
+            },
           );
+
+          const blockedSlotContext = createPropertyTestContext();
+          const blockedSlotFixture =
+            await createPropertySchedulingFixture(blockedSlotContext);
+          const blockedSlotConflict = await blockedSlotContext.run(
+            async (ctx) => {
+              const now = BigInt(Date.now());
+              await ctx.db.insert("blockedSlots", {
+                createdAt: now,
+                end: window.end,
+                lastModified: now,
+                locationLineageKey: blockedSlotFixture.locationId,
+                practiceId: blockedSlotFixture.practiceId,
+                practitionerLineageKey: blockedSlotFixture.practitionerId,
+                start: window.start,
+                title: "Property block",
+              });
+
+              return await findConflictingCalendarOccupancy(ctx.db, {
+                candidate: {
+                  end: window.end,
+                  locationLineageKey: asLocationLineageKey(
+                    blockedSlotFixture.locationId,
+                  ),
+                  practitionerLineageKey: asPractitionerLineageKey(
+                    blockedSlotFixture.practitionerId,
+                  ),
+                  start: window.start,
+                },
+                occupancyView: "live",
+                practiceId: blockedSlotFixture.practiceId,
+              });
+            },
+          );
+
+          expect(appointmentConflict?.kind).toBe("appointment");
+          expect(blockedSlotConflict?.kind).toBe("blockedSlot");
         },
       ),
       "appointment conflicts appointment blocked-slot symmetry",

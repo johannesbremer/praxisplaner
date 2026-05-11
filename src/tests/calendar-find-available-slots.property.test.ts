@@ -1,13 +1,11 @@
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
-import {
-  checkCollision,
-  findAvailableSlots,
-} from "../utils/collision-detection";
+import { findAvailableSlots } from "../utils/collision-detection";
 import { SLOT_DURATION } from "../utils/time-calculations";
 import {
   BUSINESS_START_HOUR,
+  overlaps,
   slotIntervalArbitrary,
   TEST_COLUMN,
   toAppointment,
@@ -29,16 +27,15 @@ describe("calendar findAvailableSlots property", () => {
           const expected = Array.from(
             { length: TOTAL_SLOTS - requestedDurationSlots + 1 },
             (_, slot) => slot,
-          ).filter(
-            (slot) =>
-              !checkCollision(
-                appointments,
-                TEST_COLUMN,
-                slot,
-                duration,
-                BUSINESS_START_HOUR,
-              ),
-          );
+          ).filter((slot) => {
+            const candidateInterval = {
+              durationSlots: requestedDurationSlots,
+              startSlot: slot,
+            };
+            return !appointmentIntervals.some((interval) =>
+              overlaps(interval, candidateInterval),
+            );
+          });
 
           expect(
             findAvailableSlots(
