@@ -686,6 +686,23 @@ async function getOptionalLocationLineageKey(
   });
 }
 
+function getRangeDayBounds(args: { end: string; start: string }): {
+  dayEndExclusive: string;
+  dayStart: string;
+} {
+  const dayStart = Temporal.ZonedDateTime.from(args.start)
+    .toPlainDate()
+    .toZonedDateTime(APPOINTMENT_TIMEZONE)
+    .toString();
+  const dayEndExclusive = Temporal.ZonedDateTime.from(args.end)
+    .toPlainDate()
+    .add({ days: 1 })
+    .toZonedDateTime(APPOINTMENT_TIMEZONE)
+    .toString();
+
+  return { dayEndExclusive, dayStart };
+}
+
 async function getSimulationAppointmentReplacements(
   ctx: QueryCtx,
   practiceId: Id<"practices">,
@@ -744,80 +761,6 @@ function getSimulationScopeRuleSetId(args: {
   selectedRuleSetId?: Id<"ruleSets">;
 }) {
   return args.selectedRuleSetId ?? args.activeRuleSetId;
-}
-
-async function includeSameDayReplacementChainAppointments(
-  db: DatabaseReader,
-  appointments: AppointmentDoc[],
-  accessiblePracticeIds: ReadonlySet<Id<"practices">>,
-): Promise<AppointmentDoc[]> {
-  const appointmentsById = new Map(
-    appointments.map((appointment) => [appointment._id, appointment] as const),
-  );
-  const pendingAppointments = [...appointments];
-  const processedIds = new Set<Id<"appointments">>();
-
-  while (pendingAppointments.length > 0) {
-    const appointment = pendingAppointments.pop();
-    if (!appointment || processedIds.has(appointment._id)) {
-      continue;
-    }
-    processedIds.add(appointment._id);
-
-    const previousId = appointment.replacesAppointmentId;
-    if (!previousId) {
-      continue;
-    }
-
-    const existingPreviousAppointment = appointmentsById.get(previousId);
-    if (existingPreviousAppointment) {
-      if (
-        isSameAppointmentReplacementDay(
-          appointment,
-          existingPreviousAppointment,
-        )
-      ) {
-        pendingAppointments.push(existingPreviousAppointment);
-      }
-      continue;
-    }
-
-    const previousAppointment = await db.get("appointments", previousId);
-    if (
-      !previousAppointment ||
-      !accessiblePracticeIds.has(previousAppointment.practiceId) ||
-      !isSameAppointmentReplacementDay(appointment, previousAppointment)
-    ) {
-      continue;
-    }
-
-    appointmentsById.set(previousAppointment._id, previousAppointment);
-    pendingAppointments.push(previousAppointment);
-  }
-
-  for (const appointment of appointmentsById.values()) {
-    const nextAppointments = await db
-      .query("appointments")
-      .withIndex("by_replacesAppointmentId", (q) =>
-        q.eq("replacesAppointmentId", appointment._id),
-      )
-      .collect();
-
-    for (const nextAppointment of nextAppointments) {
-      if (
-        !accessiblePracticeIds.has(nextAppointment.practiceId) ||
-        !isSameAppointmentReplacementDay(appointment, nextAppointment) ||
-        appointmentsById.has(nextAppointment._id)
-      ) {
-        continue;
-      }
-
-      appointmentsById.set(nextAppointment._id, nextAppointment);
-      pendingAppointments.push(nextAppointment);
-    }
-  }
-
-  return [...appointmentsById.values()];
 }
 
 function isAppointmentInCalendarDayRange(
@@ -1123,27 +1066,22 @@ export const getAppointmentsInRange = query({
     const accessiblePracticeIds = new Set(
       await getAccessiblePracticeIdsForQuery(ctx),
     );
-    // Use index range query instead of filter for better performance
+    const rangeDayBounds = getRangeDayBounds(args);
     const appointmentDocs = await ctx.db
       .query("appointments")
-      .withIndex("by_start", (q) => q.gte("start", args.start))
+      .withIndex("by_start", (q) =>
+        q
+          .gte("start", rangeDayBounds.dayStart)
+          .lt("start", rangeDayBounds.dayEndExclusive),
+      )
       .collect();
 
-    // Filter in code for end date (more efficient than .filter())
-    const filteredAppointments = appointmentDocs.filter(
-      (appointment) =>
-        appointment.start <= args.end &&
-        accessiblePracticeIds.has(appointment.practiceId),
+    const filteredAppointments = appointmentDocs.filter((appointment) =>
+      accessiblePracticeIds.has(appointment.practiceId),
     );
     const scope: AppointmentScope = args.scope ?? "real";
-    const appointmentsWithChain =
-      await includeSameDayReplacementChainAppointments(
-        ctx.db,
-        filteredAppointments,
-        accessiblePracticeIds,
-      );
     const scopedAppointments = filterAppointmentsForVisibleScope(
-      appointmentsWithChain,
+      filteredAppointments,
       args,
       scope,
     ).filter(
