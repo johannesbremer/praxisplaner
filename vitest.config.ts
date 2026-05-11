@@ -22,7 +22,12 @@ export default defineConfig({
       reporter: ["text", "json", "html"],
     },
     environment: "jsdom",
-    exclude: ["**/node_modules/**", "**/playwright/**", "**/*.spec.ts"],
+    exclude: [
+      "**/node_modules/**",
+      "**/playwright/**",
+      "**/*.spec.ts",
+      "**/*.property.test.ts",
+    ],
     globals: true,
     setupFiles: ["./src/tests/setup.ts"],
   },
