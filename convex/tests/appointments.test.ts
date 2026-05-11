@@ -2098,6 +2098,15 @@ describe("appointments update safety", () => {
         start: replacementStart.toString(),
       },
     });
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      cancelledAt: BigInt(Date.now()),
+      userId,
+      window: {
+        end: replacementStart.add({ hours: 2, minutes: 30 }).toString(),
+        start: replacementStart.add({ hours: 2 }).toString(),
+      },
+    });
 
     await expect(
       authed.query(api.appointments.getAppointments, {
@@ -2108,6 +2117,12 @@ describe("appointments update safety", () => {
       { _id: realAppointmentId },
       { _id: simulationReplacementId },
     ]);
+    await expect(
+      authed.query(api.appointments.getAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        scope: "all",
+      }),
+    ).resolves.toHaveLength(2);
   });
 
   test("getAppointments remaps through soft-deleted entities in the displayed rule set", async () => {

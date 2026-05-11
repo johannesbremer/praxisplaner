@@ -631,7 +631,9 @@ function filterAppointmentsForVisibleScope<T extends AppointmentDoc>(
     scope,
   );
   if (scope === "all") {
-    return scopedAppointments;
+    return scopedAppointments.filter((appointment) =>
+      isVisibleAppointment(appointment),
+    );
   }
   return filterCurrentAppointmentReplacementTails(scopedAppointments);
 }
