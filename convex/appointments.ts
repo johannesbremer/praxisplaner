@@ -746,7 +746,7 @@ function getSimulationScopeRuleSetId(args: {
   return args.selectedRuleSetId ?? args.activeRuleSetId;
 }
 
-async function includeSameDayReplacementAncestors(
+async function includeSameDayReplacementChainAppointments(
   db: DatabaseReader,
   appointments: AppointmentDoc[],
   accessiblePracticeIds: ReadonlySet<Id<"practices">>,
@@ -793,6 +793,28 @@ async function includeSameDayReplacementAncestors(
 
     appointmentsById.set(previousAppointment._id, previousAppointment);
     pendingAppointments.push(previousAppointment);
+  }
+
+  for (const appointment of appointmentsById.values()) {
+    const nextAppointments = await db
+      .query("appointments")
+      .withIndex("by_replacesAppointmentId", (q) =>
+        q.eq("replacesAppointmentId", appointment._id),
+      )
+      .collect();
+
+    for (const nextAppointment of nextAppointments) {
+      if (
+        !accessiblePracticeIds.has(nextAppointment.practiceId) ||
+        !isSameAppointmentReplacementDay(appointment, nextAppointment) ||
+        appointmentsById.has(nextAppointment._id)
+      ) {
+        continue;
+      }
+
+      appointmentsById.set(nextAppointment._id, nextAppointment);
+      pendingAppointments.push(nextAppointment);
+    }
   }
 
   return [...appointmentsById.values()];
@@ -1114,13 +1136,14 @@ export const getAppointmentsInRange = query({
         accessiblePracticeIds.has(appointment.practiceId),
     );
     const scope: AppointmentScope = args.scope ?? "real";
-    const appointmentsWithAncestors = await includeSameDayReplacementAncestors(
-      ctx.db,
-      filteredAppointments,
-      accessiblePracticeIds,
-    );
+    const appointmentsWithChain =
+      await includeSameDayReplacementChainAppointments(
+        ctx.db,
+        filteredAppointments,
+        accessiblePracticeIds,
+      );
     const scopedAppointments = filterAppointmentsForVisibleScope(
-      appointmentsWithAncestors,
+      appointmentsWithChain,
       args,
       scope,
     ).filter(

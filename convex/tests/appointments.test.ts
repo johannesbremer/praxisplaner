@@ -3393,6 +3393,87 @@ describe("calendar day appointment queries", () => {
     ).resolves.toEqual([]);
   });
 
+  test("getAppointmentsInRange hides an in-range appointment when its later same-day replacement falls outside the range end", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_range_later_replacement_after_end",
+      "range-later-replacement-after-end@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "range-later-replacement-after-end@example.com",
+      subject: "workos_range_later_replacement_after_end",
+    });
+    const targetRange = makeDayRange(15);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const rootAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 8, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 8, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      replacesAppointmentId: rootAppointmentId,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getAppointmentsInRange, {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 9, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        scope: "real",
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 8, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      }),
+    ).resolves.toEqual([]);
+  });
+
   test('getAppointmentsInRange with scope "real" ignores fetched ancestors from inaccessible practices', async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
