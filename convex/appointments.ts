@@ -271,6 +271,7 @@ function filterCurrentAppointmentReplacementTails<T extends AppointmentDoc>(
     const replacedAppointment = appointmentsById.get(replacedAppointmentId);
     if (
       replacedAppointment &&
+      isSameAppointmentReplacementPractice(appointment, replacedAppointment) &&
       isSameAppointmentReplacementDay(appointment, replacedAppointment)
     ) {
       hiddenIds.add(replacedAppointmentId);
@@ -296,7 +297,11 @@ function findReplacementRoot<T extends AppointmentDoc>(
     }
     visitedIds.add(current._id);
     const previous = appointmentsById.get(current.replacesAppointmentId);
-    if (!previous || !isSameAppointmentReplacementDay(current, previous)) {
+    if (
+      !previous ||
+      !isSameAppointmentReplacementPractice(current, previous) ||
+      !isSameAppointmentReplacementDay(current, previous)
+    ) {
       return current;
     }
     current = previous;
@@ -374,6 +379,13 @@ function isSameAppointmentReplacementDay(
     Temporal.ZonedDateTime.from(replacement.start).toPlainDate().toString() ===
     Temporal.ZonedDateTime.from(replaced.start).toPlainDate().toString()
   );
+}
+
+function isSameAppointmentReplacementPractice(
+  replacement: Pick<AppointmentDoc, "practiceId">,
+  replaced: Pick<AppointmentDoc, "practiceId">,
+): boolean {
+  return replacement.practiceId === replaced.practiceId;
 }
 
 function isVisibleAppointment(
