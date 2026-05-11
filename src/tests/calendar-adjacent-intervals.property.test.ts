@@ -11,34 +11,41 @@ import {
 } from "./calendar-collision-property-utils";
 import { assertProperty } from "./property-test-utils";
 
-describe("calendar adjacent interval property", () => {
-  test("adjacent intervals do not collide", () => {
-    assertProperty(
-      fc.property(
-        fc.integer({ max: TOTAL_SLOTS - 2, min: 0 }),
-        fc.integer({ max: 12, min: 1 }),
-        (startSlot, requestedDurationSlots) => {
-          const durationSlots = Math.min(
-            requestedDurationSlots,
-            TOTAL_SLOTS - startSlot - 1,
-          );
-          const appointment = toAppointment({
-            durationSlots,
-            startSlot,
-          });
+export function runProperty() {
+  assertProperty(
+    fc.property(
+      fc.integer({ max: TOTAL_SLOTS - 2, min: 0 }),
+      fc.integer({ max: 12, min: 1 }),
+      (startSlot, requestedDurationSlots) => {
+        const durationSlots = Math.min(
+          requestedDurationSlots,
+          TOTAL_SLOTS - startSlot - 1,
+        );
+        const appointment = toAppointment({
+          durationSlots,
+          startSlot,
+        });
 
-          expect(
-            checkCollision(
-              [appointment],
-              TEST_COLUMN,
-              startSlot + durationSlots,
-              SLOT_DURATION,
-              BUSINESS_START_HOUR,
-            ),
-          ).toBe(false);
-        },
-      ),
-      "calendar adjacent intervals",
-    );
+        expect(
+          checkCollision(
+            [appointment],
+            TEST_COLUMN,
+            startSlot + durationSlots,
+            SLOT_DURATION,
+            BUSINESS_START_HOUR,
+          ),
+        ).toBe(false);
+      },
+    ),
+    "calendar adjacent intervals",
+  );
+}
+
+if (process.env["VITEST"]) {
+  describe("calendar adjacent interval property", () => {
+    test("adjacent intervals do not collide", () => {
+      expect.hasAssertions();
+      runProperty();
+    });
   });
-});
+}

@@ -10,21 +10,28 @@ import { assertProperty } from "./property-test-utils";
 
 const SLOTS_PER_DAY = (24 * 60) / SLOT_DURATION;
 
-describe("calendar time slot round-trip property", () => {
-  test("timeToSlot(slotToTime(slot)) returns the original slot", () => {
-    assertProperty(
-      fc.property(
-        fc.integer({ max: 23, min: 0 }),
-        fc.integer({ max: SLOTS_PER_DAY - 1, min: 0 }),
-        (businessStartHour, slot) => {
-          fc.pre(businessStartHour * 60 + slot * SLOT_DURATION < 24 * 60);
+export function runProperty() {
+  assertProperty(
+    fc.property(
+      fc.integer({ max: 23, min: 0 }),
+      fc.integer({ max: SLOTS_PER_DAY - 1, min: 0 }),
+      (businessStartHour, slot) => {
+        fc.pre(businessStartHour * 60 + slot * SLOT_DURATION < 24 * 60);
 
-          expect(
-            timeToSlot(slotToTime(slot, businessStartHour), businessStartHour),
-          ).toBe(slot);
-        },
-      ),
-      "calendar time slot round-trip",
-    );
+        expect(
+          timeToSlot(slotToTime(slot, businessStartHour), businessStartHour),
+        ).toBe(slot);
+      },
+    ),
+    "calendar time slot round-trip",
+  );
+}
+
+if (process.env["VITEST"]) {
+  describe("calendar time slot round-trip property", () => {
+    test("timeToSlot(slotToTime(slot)) returns the original slot", () => {
+      expect.hasAssertions();
+      runProperty();
+    });
   });
-});
+}

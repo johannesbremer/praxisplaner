@@ -1,6 +1,6 @@
 import { err, ok, type Result, ResultAsync } from "neverthrow";
 
-import { captureErrorGlobal } from "./error-tracking";
+import { captureErrorGlobal } from "./error-tracking-global";
 
 export interface FrontendError {
   cause?: unknown;

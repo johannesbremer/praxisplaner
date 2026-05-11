@@ -26,6 +26,8 @@ interface PropertyProgress {
 }
 
 export default class PropertyProgressReporter extends DefaultReporter {
+  private readonly externalProgress =
+    process.env["FAST_CHECK_EXTERNAL_PROGRESS"] === "1";
   private readonly progressByLabel = new Map<string, PropertyProgress>();
   private renderedProgressLines = 0;
 
@@ -42,6 +44,15 @@ export default class PropertyProgressReporter extends DefaultReporter {
     const progresses = parseProgressLogs(log.content);
     if (progresses.length === 0) {
       super.onUserConsoleLog(log);
+      return;
+    }
+
+    if (this.externalProgress) {
+      for (const progress of progresses) {
+        process.stdout.write(
+          `${PROPERTY_PROGRESS_EVENT_PREFIX}${JSON.stringify(progress)}\n`,
+        );
+      }
       return;
     }
 

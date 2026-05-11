@@ -13,33 +13,38 @@ import {
 } from "./calendar-collision-property-utils";
 import { assertProperty } from "./property-test-utils";
 
-describe("calendar collision overlap property", () => {
-  test("collision detection matches interval overlap semantics", () => {
-    assertProperty(
-      fc.property(
-        slotIntervalArbitrary,
-        slotIntervalArbitrary,
-        fc.boolean(),
-        (appointmentInterval, candidateInterval, sameColumn) => {
-          const appointment = toAppointment(
-            appointmentInterval,
-            sameColumn ? TEST_COLUMN : OTHER_COLUMN,
-          );
+export function runProperty() {
+  assertProperty(
+    fc.property(
+      slotIntervalArbitrary,
+      slotIntervalArbitrary,
+      fc.boolean(),
+      (appointmentInterval, candidateInterval, sameColumn) => {
+        const appointment = toAppointment(
+          appointmentInterval,
+          sameColumn ? TEST_COLUMN : OTHER_COLUMN,
+        );
 
-          expect(
-            checkCollision(
-              [appointment],
-              TEST_COLUMN,
-              candidateInterval.startSlot,
-              candidateInterval.durationSlots * SLOT_DURATION,
-              BUSINESS_START_HOUR,
-            ),
-          ).toBe(
-            sameColumn && overlaps(appointmentInterval, candidateInterval),
-          );
-        },
-      ),
-      "calendar collision overlap",
-    );
+        expect(
+          checkCollision(
+            [appointment],
+            TEST_COLUMN,
+            candidateInterval.startSlot,
+            candidateInterval.durationSlots * SLOT_DURATION,
+            BUSINESS_START_HOUR,
+          ),
+        ).toBe(sameColumn && overlaps(appointmentInterval, candidateInterval));
+      },
+    ),
+    "calendar collision overlap",
+  );
+}
+
+if (process.env["VITEST"]) {
+  describe("calendar collision overlap property", () => {
+    test("collision detection matches interval overlap semantics", () => {
+      expect.hasAssertions();
+      runProperty();
+    });
   });
-});
+}

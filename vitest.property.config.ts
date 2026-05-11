@@ -1,4 +1,3 @@
-import react from "@vitejs/plugin-react";
 import { globSync } from "node:fs";
 import { defineConfig } from "vitest/config";
 
@@ -15,16 +14,13 @@ const propertyTestFileCount = globSync(PROPERTY_TEST_INCLUDE, {
   cwd: process.cwd(),
   exclude: PROPERTY_TEST_EXCLUDE,
 }).length;
-const propertyReporters =
-  process.env["FAST_CHECK_EXTERNAL_PROGRESS"] === "1"
-    ? ["default"]
-    : [new PropertyProgressReporter()];
+const propertyWorkerCount =
+  parsePositiveIntegerEnv("FAST_CHECK_MAX_WORKERS") ?? propertyTestFileCount;
 
 export default defineConfig({
   define: {
     __ENABLE_DEVTOOLS__: "false",
   },
-  plugins: [react()],
   resolve: {
     tsconfigPaths: true,
   },
@@ -40,16 +36,13 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json", "html"],
     },
-    environment: "jsdom",
+    environment: "node",
     exclude: PROPERTY_TEST_EXCLUDE,
     fileParallelism: true,
     globals: true,
     include: PROPERTY_TEST_INCLUDE,
-    maxWorkers:
-      parsePositiveIntegerEnv("FAST_CHECK_MAX_WORKERS") ??
-      propertyTestFileCount,
-    reporters: propertyReporters,
-    setupFiles: ["./src/tests/setup.ts"],
+    maxWorkers: propertyWorkerCount,
+    reporters: [new PropertyProgressReporter()],
     testTimeout: 0,
   },
 });

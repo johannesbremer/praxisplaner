@@ -133,7 +133,7 @@ export function propertyTestParameters<T = void>(
   parameters.markInterruptAsFailure ??= shouldFailOnInterrupt(parameters);
   const onRun = () => {
     runs += 1;
-    if (runs % progressEvery === 0) {
+    if (runs === 1 || runs % progressEvery === 0) {
       const elapsedMs = Date.now() - startedAt;
       const ratePerSecond =
         elapsedMs === 0 ? 0 : Math.round((runs * 1000) / elapsedMs);

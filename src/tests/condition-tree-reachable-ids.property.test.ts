@@ -8,23 +8,30 @@ import {
 } from "./condition-tree-property-utils";
 import { assertProperty } from "./property-test-utils";
 
-describe("condition tree reachable ids property", () => {
-  test("serialized transports have unique reachable node ids", () => {
-    assertProperty(
-      fc.property(conditionTreeArbitrary(4), (tree) => {
-        const transport = serializeConditionTreeTransport(tree);
-        const nodeIds = transport.nodes.map((node) => node.nodeId);
-        const uniqueNodeIds = new Set(nodeIds);
-        const nodesById = new Map(
-          transport.nodes.map((node) => [node.nodeId, node]),
-        );
+export function runProperty() {
+  assertProperty(
+    fc.property(conditionTreeArbitrary(4), (tree) => {
+      const transport = serializeConditionTreeTransport(tree);
+      const nodeIds = transport.nodes.map((node) => node.nodeId);
+      const uniqueNodeIds = new Set(nodeIds);
+      const nodesById = new Map(
+        transport.nodes.map((node) => [node.nodeId, node]),
+      );
 
-        expect(uniqueNodeIds.size).toBe(nodeIds.length);
-        expect(
-          collectReachableNodeIds(transport.rootNodeId, nodesById).size,
-        ).toBe(transport.nodes.length);
-      }),
-      "condition tree reachable ids",
-    );
+      expect(uniqueNodeIds.size).toBe(nodeIds.length);
+      expect(
+        collectReachableNodeIds(transport.rootNodeId, nodesById).size,
+      ).toBe(transport.nodes.length);
+    }),
+    "condition tree reachable ids",
+  );
+}
+
+if (process.env["VITEST"]) {
+  describe("condition tree reachable ids property", () => {
+    test("serialized transports have unique reachable node ids", () => {
+      expect.hasAssertions();
+      runProperty();
+    });
   });
-});
+}
