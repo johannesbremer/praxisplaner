@@ -1059,7 +1059,9 @@ export const getCalendarDayAppointments = query({
     ]);
     const scopedAppointments =
       scope === "all"
-        ? candidateAppointments
+        ? candidateAppointments.filter((appointment) =>
+            isVisibleAppointment(appointment),
+          )
         : filterCurrentAppointmentReplacementTails(candidateAppointments);
     const resolvedAppointments =
       scope === "simulation"

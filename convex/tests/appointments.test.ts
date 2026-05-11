@@ -2855,6 +2855,115 @@ describe("calendar day appointment queries", () => {
     ).resolves.toMatchObject([{ _id: replacementAppointmentId }]);
   });
 
+  test('getCalendarDayAppointments with scope "all" keeps non-cancelled rows and drops cancelled rows', async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_query_all_scope_filters_cancelled",
+      "day-query-all-scope-filters-cancelled@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-query-all-scope-filters-cancelled@example.com",
+      subject: "workos_day_query_all_scope_filters_cancelled",
+    });
+    const targetRange = makeDayRange(9);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const realAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 9, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 9, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    const simulationAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      isSimulation: true,
+      simulationRuleSetId: baseData.ruleSetId,
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      cancelledAt: BigInt(Date.now()),
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "all",
+      }),
+    ).resolves.toMatchObject([
+      { _id: realAppointmentId },
+      { _id: simulationAppointmentId },
+    ]);
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        scope: "all",
+      }),
+    ).resolves.toHaveLength(2);
+  });
+
   test("getCalendarDayAppointments with scope real ignores replacements from another simulation rule set", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
