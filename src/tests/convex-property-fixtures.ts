@@ -7,6 +7,9 @@ import { insertSelfLineageEntity } from "../../convex/lineage";
 import schema from "../../convex/schema";
 import { modules } from "../../convex/tests/test.setup";
 
+const PROPERTY_AUTH_ID = "workos_property_owner";
+const PROPERTY_EMAIL = "property-owner@example.com";
+
 export interface PropertySchedulingFixture {
   appointmentTypeId: Id<"appointmentTypes">;
   baseScheduleId: Id<"baseSchedules">;
@@ -34,9 +37,9 @@ export async function createPropertySchedulingFixture(
       name: "Property Practice",
     });
     const userId = await ctx.db.insert("users", {
-      authId: "workos_property_owner",
+      authId: PROPERTY_AUTH_ID,
       createdAt: BigInt(Date.now()),
-      email: "property-owner@example.com",
+      email: PROPERTY_EMAIL,
     });
     await ctx.db.insert("practiceMembers", {
       createdAt: BigInt(Date.now()),
@@ -114,9 +117,13 @@ export async function createPropertySchedulingFixture(
 
 export function createPropertyTestContext() {
   return convexTest(schema, modules).withIdentity({
-    email: "property-owner@example.com",
-    subject: "workos_property_owner",
+    email: PROPERTY_EMAIL,
+    subject: PROPERTY_AUTH_ID,
   });
+}
+
+export function createUnauthenticatedPropertyTestContext() {
+  return convexTest(schema, modules);
 }
 
 export function zonedWindow(

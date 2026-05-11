@@ -32,6 +32,7 @@ import fc, {
  */
 const DEFAULT_FAST_CHECK_TIME_LIMIT_MS = 8 * 60 * 60 * 1000;
 const DEFAULT_FAST_CHECK_PROGRESS_EVERY = 10_000;
+const DEFAULT_FAST_CHECK_PROGRESS_INTERVAL_MS = 5_000;
 
 interface PropertyProgress {
   label: string;
@@ -120,6 +121,7 @@ export function propertyTestParameters<T = void>(
   propertyRunCounter += 1;
   let runs = 0;
   const startedAt = Date.now();
+  let lastProgressAt = 0;
 
   const parameters: Parameters<T> = {
     interruptAfterTimeLimit:
@@ -133,8 +135,14 @@ export function propertyTestParameters<T = void>(
   parameters.markInterruptAsFailure ??= shouldFailOnInterrupt(parameters);
   const onRun = () => {
     runs += 1;
-    if (runs === 1 || runs % progressEvery === 0) {
-      const elapsedMs = Date.now() - startedAt;
+    const now = Date.now();
+    if (
+      runs === 1 ||
+      runs % progressEvery === 0 ||
+      now - lastProgressAt >= DEFAULT_FAST_CHECK_PROGRESS_INTERVAL_MS
+    ) {
+      lastProgressAt = now;
+      const elapsedMs = now - startedAt;
       const ratePerSecond =
         elapsedMs === 0 ? 0 : Math.round((runs * 1000) / elapsedMs);
       renderProgress({

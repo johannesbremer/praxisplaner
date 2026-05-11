@@ -20,7 +20,6 @@ describe("rule set activation lifecycle properties", () => {
         async (suffix) => {
           const t = createPropertyTestContext();
           const fixture = await createPropertySchedulingFixture(t);
-
           const result = await t.run(async (ctx) => {
             const draft = await selectDraftRuleSetForEdit(ctx.db, {
               expectedDraftRevision: null,

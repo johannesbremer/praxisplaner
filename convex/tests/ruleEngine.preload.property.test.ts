@@ -1,28 +1,22 @@
-import { convexTest } from "convex-test";
 import fc from "fast-check";
 import { Temporal } from "temporal-polyfill";
 import { describe, expect, test } from "vitest";
 
+import { createUnauthenticatedPropertyTestContext } from "../../src/tests/convex-property-fixtures";
 import { assertAsyncProperty } from "../../src/tests/property-test-utils";
 import { insertSelfLineageEntity } from "../lineage";
 import { buildPreloadedDayData } from "../ruleEngine";
-import schema from "../schema";
-import { modules } from "./test.setup";
 
 const appointmentFlagsArbitrary = fc.array(fc.boolean(), {
   maxLength: 8,
   minLength: 1,
 });
 
-function createTestContext() {
-  return convexTest(schema, modules);
-}
-
 describe("ruleEngine preloaded day data properties", () => {
   test("cancelled appointments are excluded from preloaded day data", async () => {
     await assertAsyncProperty(
       fc.asyncProperty(appointmentFlagsArbitrary, async (cancelledFlags) => {
-        const t = createTestContext();
+        const t = createUnauthenticatedPropertyTestContext();
         const fixture = await t.run(async (ctx) => {
           const practiceId = await ctx.db.insert("practices", {
             name: "Property Preload Practice",

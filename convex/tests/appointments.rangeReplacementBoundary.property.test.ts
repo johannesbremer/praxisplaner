@@ -79,7 +79,6 @@ describe("appointment range replacement boundary properties", () => {
             start: rangeStart,
           },
         );
-
         expect(
           appointmentsInRange.map((appointment) => appointment._id),
         ).toEqual(cancelRoot ? [] : [replacementId]);

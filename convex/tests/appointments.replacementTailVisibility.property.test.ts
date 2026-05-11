@@ -85,7 +85,6 @@ describe("appointment replacement tail visibility properties", () => {
               start: dayStart.toString(),
             },
           );
-
           expect(dayAppointments.map((appointment) => appointment._id)).toEqual(
             expectedIds,
           );
