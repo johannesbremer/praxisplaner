@@ -2,19 +2,17 @@ import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
 import { parseConditionTreeTransport } from "../../lib/condition-tree";
-import { assertAsyncProperty } from "./property-test-utils";
+import { assertProperty } from "./property-test-utils";
 
 describe("condition tree transport shared child rejection property", () => {
-  test("parseConditionTreeTransport rejects shared child reuse", async () => {
-    await assertAsyncProperty(
-      fc.asyncProperty(
+  test("parseConditionTreeTransport rejects shared child reuse", () => {
+    assertProperty(
+      fc.property(
         fc.uniqueArray(fc.string({ maxLength: 12, minLength: 1 }), {
           maxLength: 4,
           minLength: 4,
         }),
-        async ([rootId, leftId, rightId, childId]) => {
-          await Promise.resolve();
-
+        ([rootId, leftId, rightId, childId]) => {
           expect(() =>
             parseConditionTreeTransport({
               nodes: [

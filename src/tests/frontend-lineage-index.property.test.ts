@@ -6,18 +6,17 @@ import {
   buildFrontendLineageIndex,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
-import { assertAsyncProperty } from "./property-test-utils";
+import { assertProperty } from "./property-test-utils";
 
 describe("frontend lineage index property", () => {
-  test("lineage entities resolve by copied entity id and stable lineage key", async () => {
-    await assertAsyncProperty(
-      fc.asyncProperty(
+  test("lineage entities resolve by copied entity id and stable lineage key", () => {
+    assertProperty(
+      fc.property(
         fc.uniqueArray(fc.string({ maxLength: 12, minLength: 1 }), {
           maxLength: 16,
           minLength: 1,
         }),
-        async (lineageSuffixes) => {
-          await Promise.resolve();
+        (lineageSuffixes) => {
           const entities = requireFrontendLineageEntities({
             entities: lineageSuffixes.map((suffix, index) => ({
               _id: toTableId<"locations">(`location_copy_${index}`),

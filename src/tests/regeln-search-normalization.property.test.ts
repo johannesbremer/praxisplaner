@@ -9,12 +9,12 @@ import {
   NEW_PATIENT_SEGMENT,
   type RegelnTabParam,
 } from "../utils/regeln-url";
-import { assertAsyncProperty } from "./property-test-utils";
+import { assertProperty } from "./property-test-utils";
 
 describe("Regeln search normalization properties", () => {
-  test("buildRegelnSearchFromState omits undefined fields and preserves explicit URL state", async () => {
-    await assertAsyncProperty(
-      fc.asyncProperty(
+  test("buildRegelnSearchFromState omits undefined fields and preserves explicit URL state", () => {
+    assertProperty(
+      fc.property(
         fc.option(
           fc.constantFrom<RegelnTabParam>("debug", "mitarbeiter", "urlaub"),
           {
@@ -30,8 +30,7 @@ describe("Regeln search normalization properties", () => {
         fc.option(fc.string({ maxLength: 16, minLength: 1 }), {
           nil: undefined,
         }),
-        async (tabParam, patientTypeSegment, locationName) => {
-          await Promise.resolve();
+        (tabParam, patientTypeSegment, locationName) => {
           const dateDE = "15.06.2026" as DeDateString;
           const search = buildRegelnSearchFromState({
             dateDE,

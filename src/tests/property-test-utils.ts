@@ -1,4 +1,6 @@
 import fc, {
+  asyncDefaultReportMessage,
+  defaultReportMessage,
   type IAsyncPropertyWithHooks,
   type IPropertyWithHooks,
   type Parameters,
@@ -47,13 +49,14 @@ export async function assertAsyncProperty<T extends [unknown, ...unknown[]]>(
   overrides: Parameters<T> = {},
 ): Promise<void> {
   const { onRun, parameters } = propertyTestParameters(label, overrides);
-  await fc.assert(
+  const result = await fc.check(
     property.beforeEach(async (previousHook) => {
       await previousHook();
       onRun();
     }),
     parameters,
   );
+  await assertAsyncRunSucceeded(result, label, parameters);
 }
 
 export function assertProperty<T extends [unknown, ...unknown[]]>(
@@ -62,13 +65,14 @@ export function assertProperty<T extends [unknown, ...unknown[]]>(
   overrides: Parameters<T> = {},
 ): void {
   const { onRun, parameters } = propertyTestParameters(label, overrides);
-  fc.assert(
+  const result = fc.check(
     property.beforeEach((previousHook) => {
       previousHook();
       onRun();
     }),
     parameters,
   );
+  assertRunSucceeded(result, label, parameters);
 }
 
 export async function checkAsyncProperty<T extends [unknown, ...unknown[]]>(
@@ -84,7 +88,7 @@ export async function checkAsyncProperty<T extends [unknown, ...unknown[]]>(
     }),
     parameters,
   );
-  assertRunCompleted(result, label);
+  assertRunCompleted(result, label, parameters);
   return result;
 }
 
@@ -101,7 +105,7 @@ export function checkProperty<T extends [unknown, ...unknown[]]>(
     }),
     parameters,
   );
-  assertRunCompleted(result, label);
+  assertRunCompleted(result, label, parameters);
   return result;
 }
 
@@ -121,12 +125,12 @@ export function propertyTestParameters<T = void>(
     interruptAfterTimeLimit:
       parsePositiveIntegerEnv("FAST_CHECK_TIME_LIMIT_MS") ??
       DEFAULT_FAST_CHECK_TIME_LIMIT_MS,
-    markInterruptAsFailure: true,
     numRuns:
       parsePositiveIntegerEnv("FAST_CHECK_NUM_RUNS") ??
       Number.POSITIVE_INFINITY,
     ...overrides,
   };
+  parameters.markInterruptAsFailure ??= shouldFailOnInterrupt(parameters);
   const onRun = () => {
     runs += 1;
     if (runs % progressEvery === 0) {
@@ -151,15 +155,53 @@ export function propertyTestParameters<T = void>(
   return { onRun, parameters };
 }
 
+async function assertAsyncRunSucceeded<T extends [unknown, ...unknown[]]>(
+  result: RunDetails<T>,
+  label: string,
+  parameters: Parameters<T>,
+) {
+  if (!result.failed || isAllowedInterruption(result, parameters)) {
+    return;
+  }
+
+  const reportMessage = await asyncDefaultReportMessage(result);
+  throw new Error(reportMessage ?? `Property "${label}" failed.`, {
+    cause: result.errorInstance,
+  });
+}
+
 function assertRunCompleted<T extends [unknown, ...unknown[]]>(
   result: RunDetails<T>,
   label: string,
+  parameters: Parameters<T>,
 ) {
-  if (result.interrupted) {
+  if (result.interrupted && shouldFailOnInterrupt(parameters)) {
     throw new Error(
       `Property "${label}" was interrupted before completing its configured run count.`,
     );
   }
+}
+
+function assertRunSucceeded<T extends [unknown, ...unknown[]]>(
+  result: RunDetails<T>,
+  label: string,
+  parameters: Parameters<T>,
+) {
+  if (!result.failed || isAllowedInterruption(result, parameters)) {
+    return;
+  }
+
+  const reportMessage = defaultReportMessage(result);
+  throw new Error(reportMessage ?? `Property "${label}" failed.`, {
+    cause: result.errorInstance,
+  });
+}
+
+function isAllowedInterruption<T extends [unknown, ...unknown[]]>(
+  result: RunDetails<T>,
+  parameters: Parameters<T>,
+): boolean {
+  return result.interrupted && !shouldFailOnInterrupt(parameters);
 }
 
 function parsePositiveIntegerEnv(name: string): number | undefined {
@@ -178,4 +220,8 @@ function parsePositiveIntegerEnv(name: string): number | undefined {
 
 function renderProgress(progress: PropertyProgress) {
   console.error(`${PROPERTY_PROGRESS_EVENT_PREFIX}${JSON.stringify(progress)}`);
+}
+
+function shouldFailOnInterrupt<T>(parameters: Parameters<T>): boolean {
+  return Number.isFinite(parameters.numRuns ?? Number.POSITIVE_INFINITY);
 }

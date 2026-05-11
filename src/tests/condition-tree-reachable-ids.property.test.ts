@@ -6,13 +6,12 @@ import {
   collectReachableNodeIds,
   conditionTreeArbitrary,
 } from "./condition-tree-property-utils";
-import { assertAsyncProperty } from "./property-test-utils";
+import { assertProperty } from "./property-test-utils";
 
 describe("condition tree reachable ids property", () => {
-  test("serialized transports have unique reachable node ids", async () => {
-    await assertAsyncProperty(
-      fc.asyncProperty(conditionTreeArbitrary(4), async (tree) => {
-        await Promise.resolve();
+  test("serialized transports have unique reachable node ids", () => {
+    assertProperty(
+      fc.property(conditionTreeArbitrary(4), (tree) => {
         const transport = serializeConditionTreeTransport(tree);
         const nodeIds = transport.nodes.map((node) => node.nodeId);
         const uniqueNodeIds = new Set(nodeIds);

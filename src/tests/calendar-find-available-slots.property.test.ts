@@ -13,16 +13,15 @@ import {
   toAppointment,
   TOTAL_SLOTS,
 } from "./calendar-collision-property-utils";
-import { assertAsyncProperty } from "./property-test-utils";
+import { assertProperty } from "./property-test-utils";
 
 describe("calendar findAvailableSlots property", () => {
-  test("findAvailableSlots returns exactly the non-colliding candidate slots", async () => {
-    await assertAsyncProperty(
-      fc.asyncProperty(
+  test("findAvailableSlots returns exactly the non-colliding candidate slots", () => {
+    assertProperty(
+      fc.property(
         fc.array(slotIntervalArbitrary, { maxLength: 16 }),
         fc.integer({ max: 12, min: 1 }),
-        async (appointmentIntervals, requestedDurationSlots) => {
-          await Promise.resolve();
+        (appointmentIntervals, requestedDurationSlots) => {
           const duration = requestedDurationSlots * SLOT_DURATION;
           const appointments = appointmentIntervals.map((interval, index) =>
             toAppointment(interval, TEST_COLUMN, `appointment-${index}`),

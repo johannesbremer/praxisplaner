@@ -2,19 +2,17 @@ import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
 import { parseConditionTreeTransport } from "../../lib/condition-tree";
-import { assertAsyncProperty } from "./property-test-utils";
+import { assertProperty } from "./property-test-utils";
 
 describe("condition tree transport unreachable node rejection property", () => {
-  test("parseConditionTreeTransport rejects unreachable nodes", async () => {
-    await assertAsyncProperty(
-      fc.asyncProperty(
+  test("parseConditionTreeTransport rejects unreachable nodes", () => {
+    assertProperty(
+      fc.property(
         fc.uniqueArray(fc.string({ maxLength: 12, minLength: 1 }), {
           maxLength: 2,
           minLength: 2,
         }),
-        async ([rootId, unreachableId]) => {
-          await Promise.resolve();
-
+        ([rootId, unreachableId]) => {
           expect(() =>
             parseConditionTreeTransport({
               nodes: [

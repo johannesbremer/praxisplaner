@@ -9,16 +9,15 @@ import {
   selectRuleSetLifecycle,
   summarizeRuleSets,
 } from "../routes/regeln/-rule-set-lifecycle";
-import { assertAsyncProperty } from "./property-test-utils";
+import { assertProperty } from "./property-test-utils";
 
 describe("rule set lifecycle draft parent property", () => {
-  test("selectRuleSetLifecycle keeps drafts attached to their parent Rule Set", async () => {
-    await assertAsyncProperty(
-      fc.asyncProperty(
+  test("selectRuleSetLifecycle keeps drafts attached to their parent Rule Set", () => {
+    assertProperty(
+      fc.property(
         fc.integer({ max: 100, min: 1 }),
         fc.integer({ max: 100, min: 1 }),
-        async (activeVersion, draftRevision) => {
-          await Promise.resolve();
+        (activeVersion, draftRevision) => {
           const active = ruleSetDoc({
             id: "active",
             saved: true,

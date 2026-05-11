@@ -11,17 +11,16 @@ import {
   TEST_COLUMN,
   toAppointment,
 } from "./calendar-collision-property-utils";
-import { assertAsyncProperty } from "./property-test-utils";
+import { assertProperty } from "./property-test-utils";
 
 describe("calendar collision overlap property", () => {
-  test("collision detection matches interval overlap semantics", async () => {
-    await assertAsyncProperty(
-      fc.asyncProperty(
+  test("collision detection matches interval overlap semantics", () => {
+    assertProperty(
+      fc.property(
         slotIntervalArbitrary,
         slotIntervalArbitrary,
         fc.boolean(),
-        async (appointmentInterval, candidateInterval, sameColumn) => {
-          await Promise.resolve();
+        (appointmentInterval, candidateInterval, sameColumn) => {
           const appointment = toAppointment(
             appointmentInterval,
             sameColumn ? TEST_COLUMN : OTHER_COLUMN,

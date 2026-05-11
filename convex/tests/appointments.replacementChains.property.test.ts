@@ -13,7 +13,7 @@ import { assertAsyncProperty } from "../../src/tests/property-test-utils";
 import { api } from "../_generated/api";
 
 describe("appointment replacement chain properties", () => {
-  test("day views infer the same-day replacement tail and cancelled roots hide the chain", async () => {
+  test("same-day replacement chains expose only the current tail unless the root is cancelled", async () => {
     await assertAsyncProperty(
       fc.asyncProperty(
         fc.integer({ max: 4, min: 1 }),
@@ -57,7 +57,9 @@ describe("appointment replacement chain properties", () => {
             plainTime: { hour: 0, minute: 0 },
             timeZone: "Europe/Berlin",
           });
-          const appointments = await t.query(
+          const expectedIds = cancelRoot ? [] : [ids[ids.length - 1]];
+
+          const dayAppointments = await t.query(
             api.appointments.getCalendarDayAppointments,
             {
               activeRuleSetId: fixture.ruleSetId,
@@ -68,10 +70,31 @@ describe("appointment replacement chain properties", () => {
               selectedRuleSetId: fixture.ruleSetId,
             },
           );
-
-          expect(appointments.map((appointment) => appointment._id)).toEqual(
-            cancelRoot ? [] : [ids[ids.length - 1]],
+          const appointments = await t.query(api.appointments.getAppointments, {
+            activeRuleSetId: fixture.ruleSetId,
+            scope: "real",
+            selectedRuleSetId: fixture.ruleSetId,
+          });
+          const appointmentsInRange = await t.query(
+            api.appointments.getAppointmentsInRange,
+            {
+              activeRuleSetId: fixture.ruleSetId,
+              end: dayStart.add({ days: 1 }).toString(),
+              scope: "real",
+              selectedRuleSetId: fixture.ruleSetId,
+              start: dayStart.toString(),
+            },
           );
+
+          expect(dayAppointments.map((appointment) => appointment._id)).toEqual(
+            expectedIds,
+          );
+          expect(appointments.map((appointment) => appointment._id)).toEqual(
+            expectedIds,
+          );
+          expect(
+            appointmentsInRange.map((appointment) => appointment._id),
+          ).toEqual(expectedIds);
         },
       ),
       "appointment replacement chain current tail visibility",

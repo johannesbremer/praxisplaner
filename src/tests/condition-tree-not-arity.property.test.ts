@@ -5,16 +5,15 @@ import {
   parseConditionTreeNode,
   parseConditionTreeTransport,
 } from "../../lib/condition-tree";
-import { assertAsyncProperty } from "./property-test-utils";
+import { assertProperty } from "./property-test-utils";
 
 describe("condition tree NOT arity property", () => {
-  test("parsers reject NOT nodes without exactly one child", async () => {
-    await assertAsyncProperty(
-      fc.asyncProperty(
+  test("parsers reject NOT nodes without exactly one child", () => {
+    assertProperty(
+      fc.property(
         fc.array(fc.constant("child"), { maxLength: 4 }),
-        async (children) => {
+        (children) => {
           fc.pre(children.length !== 1);
-          await Promise.resolve();
 
           expect(() =>
             parseConditionTreeNode({

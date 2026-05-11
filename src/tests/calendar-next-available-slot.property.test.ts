@@ -13,17 +13,16 @@ import {
   toAppointment,
   TOTAL_SLOTS,
 } from "./calendar-collision-property-utils";
-import { checkAsyncProperty } from "./property-test-utils";
+import { checkProperty } from "./property-test-utils";
 
 describe("calendar next available slot property", () => {
-  test("findNextAvailableSlot returns a collision-free slot or no slot", async () => {
-    const result = await checkAsyncProperty(
-      fc.asyncProperty(
+  test("findNextAvailableSlot returns a collision-free slot or no slot", () => {
+    const result = checkProperty(
+      fc.property(
         fc.array(slotIntervalArbitrary, { maxLength: 16 }),
         fc.integer({ max: TOTAL_SLOTS - 1, min: 0 }),
         fc.integer({ max: 12, min: 1 }),
-        async (appointmentIntervals, startSlot, requestedDurationSlots) => {
-          await Promise.resolve();
+        (appointmentIntervals, startSlot, requestedDurationSlots) => {
           const durationSlots = Math.min(
             requestedDurationSlots,
             TOTAL_SLOTS - startSlot,

@@ -9,16 +9,15 @@ import {
   toAppointment,
   TOTAL_SLOTS,
 } from "./calendar-collision-property-utils";
-import { assertAsyncProperty } from "./property-test-utils";
+import { assertProperty } from "./property-test-utils";
 
 describe("calendar adjacent interval property", () => {
-  test("adjacent intervals do not collide", async () => {
-    await assertAsyncProperty(
-      fc.asyncProperty(
+  test("adjacent intervals do not collide", () => {
+    assertProperty(
+      fc.property(
         fc.integer({ max: TOTAL_SLOTS - 2, min: 0 }),
         fc.integer({ max: 12, min: 1 }),
-        async (startSlot, requestedDurationSlots) => {
-          await Promise.resolve();
+        (startSlot, requestedDurationSlots) => {
           const durationSlots = Math.min(
             requestedDurationSlots,
             TOTAL_SLOTS - startSlot - 1,
