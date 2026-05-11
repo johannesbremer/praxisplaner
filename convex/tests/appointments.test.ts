@@ -2056,6 +2056,60 @@ describe("appointments update safety", () => {
     ).resolves.toMatchObject([{ _id: realAppointmentId }]);
   });
 
+  test('getAppointments with scope "all" keeps both real and same-day simulation replacement rows', async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_all_scope_replacement",
+      "all-scope-replacement@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "all-scope-replacement@example.com",
+      subject: "workos_all_scope_replacement",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const realWindow = makeSlotWindow(7);
+    const realAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: realWindow,
+    });
+    const replacementStart = Temporal.ZonedDateTime.from(realWindow.start).add({
+      hours: 1,
+    });
+    const simulationReplacementId = await insertAppointmentRecord(t, {
+      ...baseData,
+      isSimulation: true,
+      replacesAppointmentId: realAppointmentId,
+      simulationRuleSetId: baseData.ruleSetId,
+      userId,
+      window: {
+        end: replacementStart.add({ minutes: 30 }).toString(),
+        start: replacementStart.toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        scope: "all",
+      }),
+    ).resolves.toMatchObject([
+      { _id: realAppointmentId },
+      { _id: simulationReplacementId },
+    ]);
+  });
+
   test("getAppointments remaps through soft-deleted entities in the displayed rule set", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);

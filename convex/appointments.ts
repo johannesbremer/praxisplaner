@@ -625,9 +625,15 @@ function filterAppointmentsForVisibleScope<T extends AppointmentDoc>(
   },
   scope: AppointmentScope,
 ) {
-  return filterCurrentAppointmentReplacementTails(
-    filterAppointmentsForScope(appointments, args, scope),
+  const scopedAppointments = filterAppointmentsForScope(
+    appointments,
+    args,
+    scope,
   );
+  if (scope === "all") {
+    return scopedAppointments;
+  }
+  return filterCurrentAppointmentReplacementTails(scopedAppointments);
 }
 
 function filterBlockedSlotsForCalendarDay(
@@ -1035,9 +1041,10 @@ export const getCalendarDayAppointments = query({
       ...dayScopedAppointments,
       ...simulationReplacementAppointments,
     ]);
-    const scopedAppointments = filterCurrentAppointmentReplacementTails(
-      candidateAppointments,
-    );
+    const scopedAppointments =
+      scope === "all"
+        ? candidateAppointments
+        : filterCurrentAppointmentReplacementTails(candidateAppointments);
     const resolvedAppointments =
       scope === "simulation"
         ? combineForSimulationScope(scopedAppointments).filter((appointment) =>
