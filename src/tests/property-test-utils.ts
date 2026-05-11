@@ -121,6 +121,7 @@ export function propertyTestParameters<T = void>(
     interruptAfterTimeLimit:
       parsePositiveIntegerEnv("FAST_CHECK_TIME_LIMIT_MS") ??
       DEFAULT_FAST_CHECK_TIME_LIMIT_MS,
+    markInterruptAsFailure: true,
     numRuns:
       parsePositiveIntegerEnv("FAST_CHECK_NUM_RUNS") ??
       Number.POSITIVE_INFINITY,

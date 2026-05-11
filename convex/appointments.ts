@@ -260,6 +260,10 @@ function filterCurrentAppointmentReplacementTails<T extends AppointmentDoc>(
       continue;
     }
 
+    if (!isVisibleAppointment(appointment)) {
+      continue;
+    }
+
     const replacedAppointmentId = appointment.replacesAppointmentId;
     if (!replacedAppointmentId) {
       continue;
@@ -273,7 +277,10 @@ function filterCurrentAppointmentReplacementTails<T extends AppointmentDoc>(
     }
   }
 
-  return appointments.filter((appointment) => !hiddenIds.has(appointment._id));
+  return appointments.filter(
+    (appointment) =>
+      isVisibleAppointment(appointment) && !hiddenIds.has(appointment._id),
+  );
 }
 
 function findReplacementRoot<T extends AppointmentDoc>(
@@ -610,6 +617,19 @@ function filterAppointmentsForScope<T extends AppointmentDoc>(
   );
 }
 
+function filterAppointmentsForVisibleScope<T extends AppointmentDoc>(
+  appointments: T[],
+  args: {
+    activeRuleSetId?: Id<"ruleSets">;
+    selectedRuleSetId?: Id<"ruleSets">;
+  },
+  scope: AppointmentScope,
+) {
+  return filterCurrentAppointmentReplacementTails(
+    filterAppointmentsForScope(appointments, args, scope),
+  );
+}
+
 function filterBlockedSlotsForCalendarDay(
   blockedSlots: BlockedSlotDoc[],
   args: {
@@ -881,13 +901,11 @@ export const getAppointments = query({
       .query("appointments")
       .order("asc")
       .collect();
-    const visibleAppointments = appointmentDocs.filter(
-      (appointment) =>
-        accessiblePracticeIds.has(appointment.practiceId) &&
-        isVisibleAppointment(appointment),
+    const accessibleAppointments = appointmentDocs.filter((appointment) =>
+      accessiblePracticeIds.has(appointment.practiceId),
     );
-    const scopedAppointments = filterAppointmentsForScope(
-      filterCurrentAppointmentReplacementTails(visibleAppointments),
+    const scopedAppointments = filterAppointmentsForVisibleScope(
+      accessibleAppointments,
       args,
       scope,
     );
@@ -943,35 +961,31 @@ export const getCalendarDayAppointments = query({
         selectedLocationLineageKey,
       ),
     );
-    const visibleAppointments = filterCurrentAppointmentReplacementTails(
+    const dayScopedAppointments = filterAppointmentsForScope(
       dayAppointments,
-    ).filter(
-      (appointment) =>
-        isVisibleAppointment(appointment) &&
-        isAppointmentInCalendarDayQuery(
-          appointment,
-          args,
-          selectedLocationLineageKey,
-        ),
+      args,
+      scope,
     );
     const simulationReplacementAppointments =
       scope === "simulation"
-        ? await getSimulationAppointmentReplacements(
-            ctx,
-            args.practiceId,
-            visibleAppointments
-              .filter((appointment) => appointment.isSimulation !== true)
-              .map((appointment) => appointment._id),
+        ? filterAppointmentsForScope(
+            await getSimulationAppointmentReplacements(
+              ctx,
+              args.practiceId,
+              dayAppointments
+                .filter((appointment) => appointment.isSimulation !== true)
+                .map((appointment) => appointment._id),
+            ),
+            args,
+            scope,
           )
         : [];
     const candidateAppointments = dedupeById([
-      ...visibleAppointments,
+      ...dayScopedAppointments,
       ...simulationReplacementAppointments,
     ]);
-    const scopedAppointments = filterAppointmentsForScope(
-      filterCurrentAppointmentReplacementTails(candidateAppointments),
-      args,
-      scope,
+    const scopedAppointments = filterCurrentAppointmentReplacementTails(
+      candidateAppointments,
     );
     const resolvedAppointments =
       scope === "simulation"
@@ -1022,12 +1036,11 @@ export const getAppointmentsInRange = query({
     const filteredAppointments = appointmentDocs.filter(
       (appointment) =>
         appointment.start <= args.end &&
-        accessiblePracticeIds.has(appointment.practiceId) &&
-        isVisibleAppointment(appointment),
+        accessiblePracticeIds.has(appointment.practiceId),
     );
     const scope: AppointmentScope = args.scope ?? "real";
-    const scopedAppointments = filterAppointmentsForScope(
-      filterCurrentAppointmentReplacementTails(filteredAppointments),
+    const scopedAppointments = filterAppointmentsForVisibleScope(
+      filteredAppointments,
       args,
       scope,
     );
