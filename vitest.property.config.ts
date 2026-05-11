@@ -15,6 +15,10 @@ const propertyTestFileCount = globSync(PROPERTY_TEST_INCLUDE, {
   cwd: process.cwd(),
   exclude: PROPERTY_TEST_EXCLUDE,
 }).length;
+const propertyReporters =
+  process.env["FAST_CHECK_EXTERNAL_PROGRESS"] === "1"
+    ? ["default"]
+    : [new PropertyProgressReporter()];
 
 export default defineConfig({
   define: {
@@ -44,7 +48,7 @@ export default defineConfig({
     maxWorkers:
       parsePositiveIntegerEnv("FAST_CHECK_MAX_WORKERS") ??
       propertyTestFileCount,
-    reporters: [new PropertyProgressReporter()],
+    reporters: propertyReporters,
     setupFiles: ["./src/tests/setup.ts"],
     testTimeout: 0,
   },

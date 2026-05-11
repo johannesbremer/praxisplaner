@@ -27,7 +27,7 @@
     "start": "vite start",
     "test": "VITE_ENABLE_POSTHOG_IN_DEV=true vitest --run",
     "test:property": "sh -c 'FAST_CHECK_NUM_RUNS=\"${FAST_CHECK_NUM_RUNS:-100}\" VITE_ENABLE_POSTHOG_IN_DEV=true pnpm exec vitest --run --config vitest.property.config.ts'",
-    "test:property:overnight": "VITE_ENABLE_POSTHOG_IN_DEV=true pnpm exec vitest --run --config vitest.property.config.ts"
+    "test:property:overnight": "VITE_ENABLE_POSTHOG_IN_DEV=true node scripts/run-property-overnight.mjs"
   },
   "dependencies": {
     "@convex-dev/react-query": "0.1.0",
