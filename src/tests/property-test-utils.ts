@@ -5,6 +5,29 @@ import fc, {
   type RunDetails,
 } from "fast-check";
 
+/**
+ * Property-test lanes:
+ *
+ * - `pnpm test:property` is the bounded lane. The script injects
+ *   `FAST_CHECK_NUM_RUNS=100` unless you override it explicitly.
+ * - `pnpm ci-check` runs the bounded lane with `FAST_CHECK_SEED=1` unless CI
+ *   overrides it explicitly, so failures are reproducible by default.
+ * - `pnpm test:property:overnight` is the fuzzing lane. It relies on the
+ *   defaults below: unbounded `numRuns` plus `interruptAfterTimeLimit`.
+ *
+ * Environment overrides:
+ *
+ * - `FAST_CHECK_NUM_RUNS`: explicit bounded run count.
+ * - `FAST_CHECK_TIME_LIMIT_MS`: total fuzzing budget for the overnight lane.
+ * - `FAST_CHECK_SEED`: fixed seed for reproducible failures.
+ * - `FAST_CHECK_TIMEOUT_MS`: per-run timeout passed through to fast-check.
+ *
+ * Reproduce a failure by rerunning the same lane with the reported seed, for
+ * example:
+ *
+ * `FAST_CHECK_SEED=12345 pnpm --silent test:property`
+ * `FAST_CHECK_SEED=12345 FAST_CHECK_TIME_LIMIT_MS=28800000 pnpm --silent test:property:overnight`
+ */
 const DEFAULT_FAST_CHECK_TIME_LIMIT_MS = 8 * 60 * 60 * 1000;
 const DEFAULT_FAST_CHECK_PROGRESS_EVERY = 10_000;
 
