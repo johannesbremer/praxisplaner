@@ -14,13 +14,14 @@ import fc, {
  *   `FAST_CHECK_NUM_RUNS=100` unless you override it explicitly.
  * - `pnpm ci-check` runs the bounded lane with `FAST_CHECK_SEED=1` unless CI
  *   overrides it explicitly, so failures are reproducible by default.
- * - `pnpm test:property:overnight` is the fuzzing lane. It relies on the
- *   defaults below: unbounded `numRuns` plus `interruptAfterTimeLimit`.
+ * - `pnpm test:property:overnight` is the fuzzing lane. It defaults to
+ *   unbounded `numRuns` and runs until interrupted.
  *
  * Environment overrides:
  *
  * - `FAST_CHECK_NUM_RUNS`: explicit bounded run count.
- * - `FAST_CHECK_TIME_LIMIT_MS`: total fuzzing budget for the overnight lane.
+ * - `FAST_CHECK_TIME_LIMIT_MS`: optional total fuzzing budget for the
+ *   overnight lane.
  * - `FAST_CHECK_SEED`: fixed seed for reproducible failures.
  * - `FAST_CHECK_TIMEOUT_MS`: per-run timeout passed through to fast-check.
  *
@@ -30,7 +31,6 @@ import fc, {
  * `FAST_CHECK_SEED=12345 pnpm --silent test:property`
  * `FAST_CHECK_SEED=12345 FAST_CHECK_TIME_LIMIT_MS=28800000 pnpm --silent test:property:overnight`
  */
-const DEFAULT_FAST_CHECK_TIME_LIMIT_MS = 8 * 60 * 60 * 1000;
 const DEFAULT_FAST_CHECK_PROGRESS_EVERY = 10_000;
 const DEFAULT_FAST_CHECK_PROGRESS_INTERVAL_MS = 5_000;
 
@@ -123,13 +123,14 @@ export function propertyTestParameters<T = void>(
   const startedAt = Date.now();
   let lastProgressAt = 0;
 
+  const timeLimitMs = parsePositiveIntegerEnv("FAST_CHECK_TIME_LIMIT_MS");
   const parameters: Parameters<T> = {
-    interruptAfterTimeLimit:
-      parsePositiveIntegerEnv("FAST_CHECK_TIME_LIMIT_MS") ??
-      DEFAULT_FAST_CHECK_TIME_LIMIT_MS,
     numRuns:
       parsePositiveIntegerEnv("FAST_CHECK_NUM_RUNS") ??
       Number.POSITIVE_INFINITY,
+    ...(timeLimitMs === undefined
+      ? {}
+      : { interruptAfterTimeLimit: timeLimitMs }),
     ...overrides,
   };
   parameters.markInterruptAsFailure ??= shouldFailOnInterrupt(parameters);
