@@ -400,6 +400,7 @@ export default defineSchema({
     // Additional fields
     appointmentTypeLineageKey: v.id("appointmentTypes"), // Stable reference across rule set versions
     appointmentTypeTitle: v.string(), // Snapshot of appointment type name at booking time
+    bookingIdentityId: v.optional(v.id("bookingIdentities")),
     calendarResourceColumn: v.optional(
       v.union(v.literal("ekg"), v.literal("labor")),
     ),
@@ -427,6 +428,8 @@ export default defineSchema({
     lastModified: v.int64(),
   })
     .index("by_start", ["start"])
+    .index("by_bookingIdentityId", ["bookingIdentityId"])
+    .index("by_bookingIdentityId_start", ["bookingIdentityId", "start"])
     .index("by_patientId", ["patientId"])
     .index("by_practitionerLineageKey", ["practitionerLineageKey"])
     .index("by_isSimulation", ["isSimulation"])
@@ -463,6 +466,65 @@ export default defineSchema({
     .index("by_practiceId", ["practiceId"])
     .index("by_rootAppointmentId", ["rootAppointmentId"])
     .index("by_seriesId", ["seriesId"]),
+
+  bookingIdentities: defineTable({
+    createdAt: v.int64(),
+    dateOfBirth: v.optional(v.string()),
+    email: v.optional(v.string()),
+    firstName: v.optional(v.string()),
+    kind: v.union(
+      v.literal("online"),
+      v.literal("telefonki"),
+      v.literal("temporary"),
+    ),
+    lastModified: v.int64(),
+    lastName: v.optional(v.string()),
+    phoneNumber: v.optional(v.string()),
+    practiceId: v.id("practices"),
+    searchFirstName: v.string(),
+    searchLastName: v.string(),
+    sourceIdentityId: v.optional(v.string()),
+    sourceSystem: v.optional(
+      v.union(v.literal("legacy-pocketbase"), v.literal("telefonki")),
+    ),
+    userId: v.optional(v.id("users")),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_userId", ["userId"])
+    .index("by_sourceIdentity", ["sourceSystem", "sourceIdentityId"]),
+
+  bookingIdentityPatientAssociations: defineTable({
+    bookingIdentityId: v.id("bookingIdentities"),
+    confidence: v.union(v.literal("exact"), v.literal("manual")),
+    createdAt: v.int64(),
+    createdByUserId: v.optional(v.id("users")),
+    evidence: v.object({
+      legacyAppointmentId: v.optional(v.string()),
+      legacyIdentityId: v.optional(v.string()),
+      matchedAppointmentStart: v.optional(v.string()),
+      matchedFirstName: v.string(),
+      matchedLastName: v.string(),
+      pvsAppointmentSourceKey: v.optional(v.string()),
+      pvsPatientNumber: v.optional(v.number()),
+    }),
+    method: v.union(
+      v.literal("migration-exact-appointment-name"),
+      v.literal("staff-confirmed"),
+      v.literal("staff-corrected"),
+    ),
+    patientId: v.id("patients"),
+    practiceId: v.id("practices"),
+    status: v.union(
+      v.literal("active"),
+      v.literal("superseded"),
+      v.literal("rejected"),
+    ),
+    supersededAt: v.optional(v.int64()),
+    supersededByUserId: v.optional(v.id("users")),
+  })
+    .index("by_bookingIdentityId_status", ["bookingIdentityId", "status"])
+    .index("by_patientId_status", ["patientId", "status"])
+    .index("by_practiceId_status", ["practiceId", "status"]),
 
   // ================================================================
   // BOOKING WIZARD PERSISTENCE (per-step tables)

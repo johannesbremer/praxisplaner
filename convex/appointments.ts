@@ -89,6 +89,7 @@ const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 
 interface TrustedAppointmentInput {
   appointmentTypeId: Id<"appointmentTypes">;
+  bookingIdentityId?: Id<"bookingIdentities">;
   isNewPatient?: boolean;
   isSimulation?: boolean;
   locationId: Id<"locations">;
@@ -112,6 +113,7 @@ const appointmentResultValidator = v.object({
   appointmentTypeId: v.id("appointmentTypes"),
   appointmentTypeLineageKey: v.id("appointmentTypes"),
   appointmentTypeTitle: v.string(),
+  bookingIdentityId: v.optional(v.id("bookingIdentities")),
   calendarResourceColumn: v.optional(
     v.union(v.literal("ekg"), v.literal("labor")),
   ),
@@ -1257,6 +1259,7 @@ export async function createAppointmentFromTrustedSource(
   const now = BigInt(Date.now());
   const {
     appointmentTypeId,
+    bookingIdentityId,
     isNewPatient,
     isSimulation,
     locationId,
@@ -1337,6 +1340,18 @@ export async function createAppointmentFromTrustedSource(
       } else {
         throw new Error(`User with ID ${resolvedUserId} not found`);
       }
+    }
+  }
+
+  if (bookingIdentityId) {
+    const bookingIdentity = await ctx.db.get(
+      "bookingIdentities",
+      bookingIdentityId,
+    );
+    if (!bookingIdentity && !allowsMissingLinkedRecords) {
+      throw new Error(
+        `Booking Identity with ID ${bookingIdentityId} not found`,
+      );
     }
   }
 
@@ -1451,6 +1466,7 @@ export async function createAppointmentFromTrustedSource(
     ...rest,
     ...storedReferences,
     appointmentTypeTitle: activeAppointmentType.name,
+    ...(bookingIdentityId && { bookingIdentityId }),
     createdAt: now,
     end,
     isSimulation: isSimulation ?? false,
@@ -1476,6 +1492,7 @@ export async function createAppointmentFromTrustedSource(
 export const createAppointment = mutation({
   args: {
     appointmentTypeId: v.id("appointmentTypes"),
+    bookingIdentityId: v.optional(v.id("bookingIdentities")),
     isNewPatient: v.optional(v.boolean()),
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),

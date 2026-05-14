@@ -21,7 +21,7 @@ Legacy online booking / TelefonKI backup:
 
 Explicit non-import scope:
 
-- Do not import legacy tables `cowmwindex`, `deletedTermine`, `error`, `meds`, `mustermonat`, `musterwoche`, `mwindex`, `oldDocs`, or `pdfs`.
+- Do not import legacy tables `cowmwindex`, `deletedTermine`, `error`, `freedTermine`, `meds`, `mustermonat`, `musterwoche`, `mwindex`, `oldDocs`, or `pdfs`.
 - Do not import files or file storage from the PocketBase backup. This includes `storage/*` and any file metadata that only exists to reference those files.
 - Keep excluded table and file counts in a retained migration report so the omission is deliberate and auditable.
 
@@ -30,7 +30,7 @@ Explicit non-import scope:
 The existing ADRs are the correct migration boundary:
 
 - PVS/Praxistimer patient IDs are canonical patient identities. They become `patients` rows with `recordType: "pvs"` and `patientId` populated.
-- Online booking and TelefonKI identities are not automatically canonical patients. They become WorkOS users plus Convex `users` and booking-history data, then are correlated to PVS patients through explicit, reviewable match decisions.
+- Online booking and TelefonKI identities are not automatically canonical patients. They become WorkOS users plus Convex `users`, `bookingIdentities`, and booking-history data, then are correlated to PVS patients through explicit, reviewable `bookingIdentityPatientAssociations`.
 - Appointments are append-only records. The historical Praxistimer export should import as initial immutable appointment facts, not as a replay of edits.
 
 The current Convex schema requires appointments to reference `practiceId`, `locationLineageKey`, `appointmentTypeLineageKey`, and optionally `practitionerLineageKey` and `patientId`. That means raw CSV appointment rows cannot be imported directly into `appointments`; they must first be normalized through stable reference mapping tables. `Raum` must not be treated as a Convex practice location. The practice locations are the two sites, `Dissen a.T.W.` and `Bad Iburg`; `Raum` is a room/resource signal used to infer the site, while EKG/Labor/resource labels belong with operational practitioner/resource mapping.
@@ -138,8 +138,7 @@ Map legacy tables to current booking concepts:
 - `datenweitergabe`: data-sharing contacts. Map to data-sharing step tables.
 - `anamnese` and `anamnesetexte`: map to `medicalHistory` fields.
 - `pkv`: map to PKV detail step fields.
-- `termine`: legacy online-booked appointments. Correlate to imported Praxistimer appointments, which are the canonical appointment source of truth, by exact appointment facts plus exact patient-name identity rules. Do not create duplicates without a conflict report.
-- `oldTermine` and `freedTermine`: summarize in a retained migration report unless a later legal/audit decision explicitly brings them into scope.
+- `termine` and `oldTermine`: legacy online-booked appointments. Correlate to imported Praxistimer appointments, which are the canonical appointment source of truth, by exact appointment facts plus exact patient-name identity rules. Do not create duplicates without a conflict report.
 - `phoneusers`: TelefonKI identities and requested appointment metadata. Correlate to PVS patients with the same conservative matching pipeline.
 
 If the existing booking step tables are too tied to active 30-minute sessions, add a new explicit `importedBookingRecords` or `legacyBookingProfiles` table rather than distorting active booking workflow tables.
@@ -150,7 +149,7 @@ Use deterministic tiers and produce a manual review file for everything below ex
 
 1. Exact Praxistimer ID: automatic.
 2. Exact normalized first name + exact normalized last name + date of birth: automatic only if unique.
-3. Exact appointment correlation: legacy online/TelefonKI appointment matches one imported Praxistimer appointment by datetime, practitioner/resource, location, appointment type where available, and exact normalized first name + exact normalized last name. Automatic only if unique.
+3. Exact appointment correlation: legacy online/TelefonKI appointment matches one imported Praxistimer appointment by datetime, practitioner/resource, location, appointment type where available, and exact normalized first name + exact normalized last name. Automatic only if unique. Exclude Praxistimer resource-room rows such as EKG, Labor, and Mufu from automatic candidate matching because they often represent operational companion rows for the same patient and start time rather than the canonical booked appointment.
 4. Exact phone or email plus exact normalized first name + exact normalized last name: review unless it also satisfies an automatic tier.
 5. Similar names, partial names, swapped names, phonetic matches, shared phone/email without exact first and last name, multiple candidates, or missing required facts: no automatic correlation; emit to manual review.
 
@@ -168,6 +167,14 @@ Persist match decisions as data, not code. The system should retain source ident
 - legacy PocketBase user ID
 - legacy `phoneusers.id`
 - legacy appointment IDs
+
+The migration correlation script writes source-keyed, ignored JSONL inputs for this:
+
+- `.cache/migration/reports/booking-identities.source.jsonl`
+- `.cache/migration/reports/booking-identity-patient-associations.source.jsonl`
+- `.cache/migration/reports/booking-identity-patient-association-conflicts.source.jsonl`
+
+Only non-conflicting identity-to-PVS associations belong in the append-only association candidate list. If one Booking Identity source key points at multiple PVS patient numbers, keep it out of automatic import and send it to the conflict report.
 
 ## Phase 7: rehearsal and import order
 

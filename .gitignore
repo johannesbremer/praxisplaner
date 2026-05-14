@@ -13,6 +13,9 @@ package-lock.json
 
 # Local data exports and backups; do not commit.
 *.csv
+*.db
+*.db-shm
+*.db-wal
 *.zip
 
 src/routeTree.gen.ts
