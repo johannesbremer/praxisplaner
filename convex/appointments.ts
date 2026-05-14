@@ -246,6 +246,71 @@ function calculateShiftedEnd(
   );
 }
 
+function filterCurrentAppointmentReplacementTails<T extends AppointmentDoc>(
+  appointments: T[],
+): T[] {
+  const appointmentsById = new Map(
+    appointments.map((appointment) => [appointment._id, appointment] as const),
+  );
+  const hiddenIds = new Set<Id<"appointments">>();
+
+  for (const appointment of appointments) {
+    const replacementRoot = findReplacementRoot(appointment, appointmentsById);
+    if (replacementRoot?.cancelledAt !== undefined) {
+      hiddenIds.add(appointment._id);
+      continue;
+    }
+
+    if (!isVisibleAppointment(appointment)) {
+      continue;
+    }
+
+    const replacedAppointmentId = appointment.replacesAppointmentId;
+    if (!replacedAppointmentId) {
+      continue;
+    }
+    const replacedAppointment = appointmentsById.get(replacedAppointmentId);
+    if (
+      replacedAppointment &&
+      isSameAppointmentReplacementPractice(appointment, replacedAppointment) &&
+      isSameAppointmentReplacementDay(appointment, replacedAppointment)
+    ) {
+      hiddenIds.add(replacedAppointmentId);
+    }
+  }
+
+  return appointments.filter(
+    (appointment) =>
+      isVisibleAppointment(appointment) && !hiddenIds.has(appointment._id),
+  );
+}
+
+function findReplacementRoot<T extends AppointmentDoc>(
+  appointment: T,
+  appointmentsById: ReadonlyMap<Id<"appointments">, T>,
+): T | undefined {
+  let current: T | undefined = appointment;
+  const visitedIds = new Set<Id<"appointments">>();
+
+  while (current.replacesAppointmentId) {
+    if (visitedIds.has(current._id)) {
+      return current;
+    }
+    visitedIds.add(current._id);
+    const previous = appointmentsById.get(current.replacesAppointmentId);
+    if (
+      !previous ||
+      !isSameAppointmentReplacementPractice(current, previous) ||
+      !isSameAppointmentReplacementDay(current, previous)
+    ) {
+      return current;
+    }
+    current = previous;
+  }
+
+  return current;
+}
+
 async function getAppointmentSeriesRecord(
   db: DatabaseReader,
   seriesId: string,
@@ -305,6 +370,23 @@ function isAppointmentInFuture(
   } catch {
     return false;
   }
+}
+
+function isSameAppointmentReplacementDay(
+  replacement: Pick<AppointmentDoc, "start">,
+  replaced: Pick<AppointmentDoc, "start">,
+): boolean {
+  return (
+    Temporal.ZonedDateTime.from(replacement.start).toPlainDate().toString() ===
+    Temporal.ZonedDateTime.from(replaced.start).toPlainDate().toString()
+  );
+}
+
+function isSameAppointmentReplacementPractice(
+  replacement: Pick<AppointmentDoc, "practiceId">,
+  replaced: Pick<AppointmentDoc, "practiceId">,
+): boolean {
+  return replacement.practiceId === replaced.practiceId;
 }
 
 function isVisibleAppointment(
@@ -548,6 +630,27 @@ function filterAppointmentsForScope<T extends AppointmentDoc>(
   );
 }
 
+function filterAppointmentsForVisibleScope<T extends AppointmentDoc>(
+  appointments: T[],
+  args: {
+    activeRuleSetId?: Id<"ruleSets">;
+    selectedRuleSetId?: Id<"ruleSets">;
+  },
+  scope: AppointmentScope,
+) {
+  const scopedAppointments = filterAppointmentsForScope(
+    appointments,
+    args,
+    scope,
+  );
+  if (scope === "all") {
+    return scopedAppointments.filter((appointment) =>
+      isVisibleAppointment(appointment),
+    );
+  }
+  return filterCurrentAppointmentReplacementTails(scopedAppointments);
+}
+
 function filterBlockedSlotsForCalendarDay(
   blockedSlots: BlockedSlotDoc[],
   args: {
@@ -582,6 +685,23 @@ async function getOptionalLocationLineageKey(
   return await resolveLocationLineageKey(db, asLocationId(locationId), {
     allowDeleted: true,
   });
+}
+
+function getRangeDayBounds(args: { end: string; start: string }): {
+  dayEndExclusive: string;
+  dayStart: string;
+} {
+  const dayStart = Temporal.ZonedDateTime.from(args.start)
+    .toPlainDate()
+    .toZonedDateTime(APPOINTMENT_TIMEZONE)
+    .toString();
+  const dayEndExclusive = Temporal.ZonedDateTime.from(args.end)
+    .toPlainDate()
+    .add({ days: 1 })
+    .toZonedDateTime(APPOINTMENT_TIMEZONE)
+    .toString();
+
+  return { dayEndExclusive, dayStart };
 }
 
 async function getSimulationAppointmentReplacements(
@@ -644,15 +764,20 @@ function getSimulationScopeRuleSetId(args: {
   return args.selectedRuleSetId ?? args.activeRuleSetId;
 }
 
-function isAppointmentInCalendarDayQuery(
-  appointment: AppointmentDoc,
+function isAppointmentInCalendarDayRange(
+  appointment: Pick<AppointmentDoc, "start">,
   args: { dayEnd: string; dayStart: string },
+) {
+  return isCalendarDayRangeMatch(args, appointment.start);
+}
+
+function isAppointmentInSelectedLocation(
+  appointment: Pick<AppointmentDoc, "locationLineageKey">,
   selectedLocationLineageKey: LocationLineageKey | undefined,
 ): boolean {
   return (
-    isCalendarDayRangeMatch(args, appointment.start) &&
-    (selectedLocationLineageKey === undefined ||
-      appointment.locationLineageKey === selectedLocationLineageKey)
+    selectedLocationLineageKey === undefined ||
+    appointment.locationLineageKey === selectedLocationLineageKey
   );
 }
 
@@ -819,13 +944,11 @@ export const getAppointments = query({
       .query("appointments")
       .order("asc")
       .collect();
-    const visibleAppointments = appointmentDocs.filter(
-      (appointment) =>
-        accessiblePracticeIds.has(appointment.practiceId) &&
-        isVisibleAppointment(appointment),
+    const accessibleAppointments = appointmentDocs.filter((appointment) =>
+      accessiblePracticeIds.has(appointment.practiceId),
     );
-    const scopedAppointments = filterAppointmentsForScope(
-      visibleAppointments,
+    const scopedAppointments = filterAppointmentsForVisibleScope(
+      accessibleAppointments,
       args,
       scope,
     );
@@ -874,51 +997,54 @@ export const getCalendarDayAppointments = query({
       )
       .collect();
 
-    const visibleAppointments = appointmentDocs.filter(
-      (appointment) =>
-        isVisibleAppointment(appointment) &&
-        isAppointmentInCalendarDayQuery(
-          appointment,
-          args,
-          selectedLocationLineageKey,
-        ),
+    const dayAppointments = appointmentDocs.filter((appointment) =>
+      isAppointmentInCalendarDayRange(appointment, args),
     );
-    const simulationReplacementAppointments =
-      scope === "simulation"
-        ? await getSimulationAppointmentReplacements(
-            ctx,
-            args.practiceId,
-            visibleAppointments
-              .filter((appointment) => appointment.isSimulation !== true)
-              .map((appointment) => appointment._id),
-          )
-        : [];
-    const candidateAppointments = dedupeById([
-      ...visibleAppointments,
-      ...simulationReplacementAppointments,
-    ]);
-    const scopedAppointments = filterAppointmentsForScope(
-      candidateAppointments,
+    const dayScopedAppointments = filterAppointmentsForScope(
+      dayAppointments,
       args,
       scope,
     );
+    const simulationReplacementAppointments =
+      scope === "simulation"
+        ? filterAppointmentsForScope(
+            await getSimulationAppointmentReplacements(
+              ctx,
+              args.practiceId,
+              dayAppointments
+                .filter((appointment) => appointment.isSimulation !== true)
+                .map((appointment) => appointment._id),
+            ),
+            args,
+            scope,
+          )
+        : [];
+    const candidateAppointments = dedupeById([
+      ...dayScopedAppointments,
+      ...simulationReplacementAppointments,
+    ]);
+    const scopedAppointments =
+      scope === "all"
+        ? candidateAppointments.filter((appointment) =>
+            isVisibleAppointment(appointment),
+          )
+        : filterCurrentAppointmentReplacementTails(candidateAppointments);
     const resolvedAppointments =
       scope === "simulation"
         ? combineForSimulationScope(scopedAppointments).filter((appointment) =>
-            isAppointmentInCalendarDayQuery(
-              appointment,
-              args,
-              selectedLocationLineageKey,
-            ),
+            isAppointmentInCalendarDayRange(appointment, args),
           )
         : scopedAppointments.toSorted((left, right) =>
             left.start.localeCompare(right.start),
           );
+    const visibleAppointments = resolvedAppointments.filter((appointment) =>
+      isAppointmentInSelectedLocation(appointment, selectedLocationLineageKey),
+    );
     const displayRuleSetId = getDisplayRuleSetId(args);
 
     return displayRuleSetId
-      ? await remapAppointmentIds(ctx, resolvedAppointments, displayRuleSetId)
-      : resolvedAppointments.map((appointment) =>
+      ? await remapAppointmentIds(ctx, visibleAppointments, displayRuleSetId)
+      : visibleAppointments.map((appointment) =>
           toAppointmentListItem(appointment),
         );
   },
@@ -941,24 +1067,27 @@ export const getAppointmentsInRange = query({
     const accessiblePracticeIds = new Set(
       await getAccessiblePracticeIdsForQuery(ctx),
     );
-    // Use index range query instead of filter for better performance
+    const rangeDayBounds = getRangeDayBounds(args);
     const appointmentDocs = await ctx.db
       .query("appointments")
-      .withIndex("by_start", (q) => q.gte("start", args.start))
+      .withIndex("by_start", (q) =>
+        q
+          .gte("start", rangeDayBounds.dayStart)
+          .lt("start", rangeDayBounds.dayEndExclusive),
+      )
       .collect();
 
-    // Filter in code for end date (more efficient than .filter())
-    const filteredAppointments = appointmentDocs.filter(
-      (appointment) =>
-        appointment.start <= args.end &&
-        accessiblePracticeIds.has(appointment.practiceId) &&
-        isVisibleAppointment(appointment),
+    const filteredAppointments = appointmentDocs.filter((appointment) =>
+      accessiblePracticeIds.has(appointment.practiceId),
     );
     const scope: AppointmentScope = args.scope ?? "real";
-    const scopedAppointments = filterAppointmentsForScope(
+    const scopedAppointments = filterAppointmentsForVisibleScope(
       filteredAppointments,
       args,
       scope,
+    ).filter(
+      (appointment) =>
+        appointment.start >= args.start && appointment.start <= args.end,
     );
 
     const displayRuleSetId = getDisplayRuleSetId(args);

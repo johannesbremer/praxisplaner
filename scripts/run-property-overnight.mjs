@@ -220,32 +220,33 @@ function printBufferedOutput(propertyFile, lines, streamName) {
     return;
   }
 
-  process.stderr.write(`--- ${propertyFile} ${streamName} ---\n`);
+  process.stderr.write(
+    `--- ${path.basename(propertyFile)} ${streamName} ---\n`,
+  );
   process.stderr.write(`${lines.join("\n")}\n`);
-}
-
-function buildChildArgs(propertyFile, usesDirectRunner) {
-  if (usesDirectRunner) {
-    return [
-      ...childCommandArgs,
-      "run",
-      "--config",
-      "vitest.property.config.ts",
-      propertyFile,
-    ];
-  }
-
-  return [
-    "--import",
-    TSX_LOADER_PATH,
-    ...childCommandArgs,
-    "run",
-    propertyFile,
-  ];
 }
 
 function shutdownChildren(signal) {
   for (const { child } of runningChildren.values()) {
     child.kill(signal);
   }
+}
+
+function buildChildArgs(propertyFile, usesDirectRunner) {
+  if (usesDirectRunner) {
+    return [
+      "--import",
+      path.join(cwd, TSX_LOADER_PATH),
+      path.join(cwd, "scripts/run-property-file.mjs"),
+      propertyFile,
+    ];
+  }
+
+  return [
+    ...childCommandArgs,
+    "--run",
+    "--config",
+    "vitest.property.config.ts",
+    propertyFile,
+  ];
 }

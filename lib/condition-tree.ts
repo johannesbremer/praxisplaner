@@ -178,6 +178,7 @@ export function parseConditionTreeTransport(value: unknown): ConditionTreeNode {
     const children = node.childNodeIds.map((childNodeId, index) =>
       buildNode(childNodeId, `${path}.childNodeIds[${index}]`),
     );
+    assertLogicalNodeArity(node.nodeType, children.length, path);
 
     activeNodeIds.delete(nodeId);
     visitedNodeIds.add(nodeId);
@@ -237,6 +238,16 @@ export function serializeConditionTreeTransport(
     nodes,
     rootNodeId: visit(value),
   };
+}
+
+function assertLogicalNodeArity(
+  nodeType: LogicalNode["nodeType"],
+  childCount: number,
+  path: string,
+) {
+  if (nodeType === "NOT" && childCount !== 1) {
+    throw new TypeError(`${path}.children must contain exactly one NOT child`);
+  }
 }
 
 function isConditionOperator(value: unknown): value is ConditionOperator {
@@ -404,10 +415,13 @@ function parseLogicalNode(
     throw new TypeError(`${path}.children must be an array`);
   }
 
+  const children = rawChildren.map((child, index) =>
+    parseConditionTreeNodeAtPath(child, `${path}.children[${index}]`),
+  );
+  assertLogicalNodeArity(nodeType, children.length, path);
+
   return {
-    children: rawChildren.map((child, index) =>
-      parseConditionTreeNodeAtPath(child, `${path}.children[${index}]`),
-    ),
+    children,
     nodeType,
   };
 }
