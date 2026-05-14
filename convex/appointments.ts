@@ -94,6 +94,7 @@ interface TrustedAppointmentInput {
   locationId: Id<"locations">;
   patientDateOfBirth?: IsoDateString;
   patientId?: Id<"patients">;
+  phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
   practiceId: Id<"practices">;
   practitionerId?: Id<"practitioners">;
   replacesAppointmentId?: Id<"appointments">;
@@ -1174,6 +1175,7 @@ export async function createAppointmentFromTrustedSource(
     locationId: Id<"locations">;
     patientDateOfBirth?: string;
     patientId?: Id<"patients">;
+    phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
@@ -1195,6 +1197,7 @@ export async function createAppointmentFromTrustedSource(
     locationId,
     patientDateOfBirth,
     patientId,
+    phoneBookingIdentityId,
     practiceId,
     practitionerId,
     replacesAppointmentId,
@@ -1216,9 +1219,12 @@ export async function createAppointmentFromTrustedSource(
     temporaryPatientName !== undefined ||
     temporaryPatientPhoneNumber !== undefined;
 
-  if ((patientId || userId) && hasTemporaryPatientData) {
+  if (
+    (patientId || userId || phoneBookingIdentityId) &&
+    hasTemporaryPatientData
+  ) {
     throw new Error(
-      "Temporäre Patientendaten können nicht zusammen mit patientId oder userId übergeben werden.",
+      "Temporäre Patientendaten können nicht zusammen mit patientId, userId oder phoneBookingIdentityId übergeben werden.",
     );
   }
 
@@ -1227,7 +1233,7 @@ export async function createAppointmentFromTrustedSource(
   const allowsMissingLinkedRecords =
     isSimulation === true && replacesAppointmentId !== undefined;
 
-  if (!resolvedPatientId && !resolvedUserId) {
+  if (!resolvedPatientId && !resolvedUserId && !phoneBookingIdentityId) {
     if (
       temporaryPatientName === undefined ||
       temporaryPatientPhoneNumber === undefined
@@ -1270,6 +1276,23 @@ export async function createAppointmentFromTrustedSource(
       } else {
         throw new Error(`User with ID ${resolvedUserId} not found`);
       }
+    }
+  }
+
+  if (phoneBookingIdentityId) {
+    const phoneBookingIdentity = await ctx.db.get(
+      "phoneBookingIdentities",
+      phoneBookingIdentityId,
+    );
+    if (!phoneBookingIdentity) {
+      throw new Error(
+        `Phone booking identity with ID ${phoneBookingIdentityId} not found`,
+      );
+    }
+    if (phoneBookingIdentity.practiceId !== practiceId) {
+      throw new Error(
+        "Phone booking identity does not belong to the appointment practice.",
+      );
     }
   }
 
@@ -1320,6 +1343,9 @@ export async function createAppointmentFromTrustedSource(
     activeAppointmentType.followUpPlan &&
     activeAppointmentType.followUpPlan.length > 0
   ) {
+    if (phoneBookingIdentityId) {
+      throw new Error("TelefonKI can only book a single appointment.");
+    }
     if (!practitionerId) {
       throw new Error(
         "Kettentermine benötigen einen ausgewählten Behandler für den Starttermin.",
@@ -1390,6 +1416,7 @@ export async function createAppointmentFromTrustedSource(
     lastModified: now,
     practiceId,
     ...(resolvedPatientId && { patientId: resolvedPatientId }),
+    ...(phoneBookingIdentityId && { phoneBookingIdentityId }),
     ...(resolvedUserId && { userId: resolvedUserId }),
     ...(replacesAppointmentId !== undefined && {
       replacesAppointmentId,

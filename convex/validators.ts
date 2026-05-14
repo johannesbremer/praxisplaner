@@ -30,6 +30,7 @@ export const simulatedContextValidator = v.object({
     dateOfBirth: v.optional(v.string()),
     isNew: v.boolean(),
   }),
+  practitionerLineageKey: v.optional(v.id("practitioners")),
   requestedAt: v.optional(v.string()), // ISO instant string for when appointment is being requested
 });
 
