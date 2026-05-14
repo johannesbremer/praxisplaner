@@ -19,6 +19,12 @@ Legacy online booking / TelefonKI backup:
 - `may26.zip` contains a PocketBase-style SQLite backup with `data.db`, `auxiliary.db`, file storage, and generated type metadata.
 - Important table counts in `data.db`: `users` 4,636, `personal` 4,250, `datenweitergabe` 984, `anamnese` 1,327, `anamnesetexte` 1,327, `pkv` 91, `termine` 28,073, `deletedTermine` 116, `oldTermine` 4,167, `phoneusers` 942, `baumdiagramm` 4,308, `pdfs` 2, `meds` 2, `docs` 8, `terminarten` 8.
 
+Explicit non-import scope:
+
+- Do not import legacy tables `cowmwindex`, `deletedTermine`, `error`, `meds`, `mustermonat`, `musterwoche`, `mwindex`, `oldDocs`, or `pdfs`.
+- Do not import files or file storage from the PocketBase backup. This includes `storage/*` and any file metadata that only exists to reference those files.
+- Keep excluded table and file counts in a retained migration report so the omission is deliberate and auditable.
+
 ## Target model
 
 The existing ADRs are the correct migration boundary:
@@ -132,22 +138,29 @@ Map legacy tables to current booking concepts:
 - `datenweitergabe`: data-sharing contacts. Map to data-sharing step tables.
 - `anamnese` and `anamnesetexte`: map to `medicalHistory` fields.
 - `pkv`: map to PKV detail step fields.
-- `termine`: legacy online-booked appointments. Correlate to imported Praxistimer appointments by datetime, doctor, location, appointment type, and patient identity. Do not create duplicates without a conflict report.
-- `deletedTermine`, `oldTermine`, `freedTermine`: import only if they support audit or booking UX; otherwise summarize in a retained migration report.
-- `phoneusers`: TelefonKI identities and requested appointment metadata. Correlate to PVS patients with the same matching pipeline.
-- `pdfs`, `meds`, and `storage/*`: evaluate separately for file-storage import and retention requirements.
+- `termine`: legacy online-booked appointments. Correlate to imported Praxistimer appointments, which are the canonical appointment source of truth, by exact appointment facts plus exact patient-name identity rules. Do not create duplicates without a conflict report.
+- `oldTermine` and `freedTermine`: summarize in a retained migration report unless a later legal/audit decision explicitly brings them into scope.
+- `phoneusers`: TelefonKI identities and requested appointment metadata. Correlate to PVS patients with the same conservative matching pipeline.
 
 If the existing booking step tables are too tied to active 30-minute sessions, add a new explicit `importedBookingRecords` or `legacyBookingProfiles` table rather than distorting active booking workflow tables.
 
 ## Phase 6: identity correlation
 
-Use deterministic tiers and produce a manual review file for everything below exact confidence:
+Use deterministic tiers and produce a manual review file for everything below exact confidence. The migration must under-index rather than over-index: a missed automatic correlation is acceptable, but a wrong correlation can apply PVS-history scheduling rules to the wrong online or TelefonKI identity.
 
 1. Exact Praxistimer ID: automatic.
-2. Exact normalized first name + last name + date of birth: automatic if unique.
-3. Exact phone + strong name similarity: review.
-4. Appointment correlation: same datetime + practitioner + similar name: review.
-5. Multiple candidates or missing DOB: manual review.
+2. Exact normalized first name + exact normalized last name + date of birth: automatic only if unique.
+3. Exact appointment correlation: legacy online/TelefonKI appointment matches one imported Praxistimer appointment by datetime, practitioner/resource, location, appointment type where available, and exact normalized first name + exact normalized last name. Automatic only if unique.
+4. Exact phone or email plus exact normalized first name + exact normalized last name: review unless it also satisfies an automatic tier.
+5. Similar names, partial names, swapped names, phonetic matches, shared phone/email without exact first and last name, multiple candidates, or missing required facts: no automatic correlation; emit to manual review.
+
+During the one-time migration, correlate three facts together before associating a legacy booking identity with a PVS patient:
+
+- the source file/table row from the legacy backup
+- the appointment booked in Praxistimer, which is the canonical source of truth for appointments
+- the online-booked or TelefonKI-booked appointment/identity
+
+Only when that correlation proves the same appointment and the same exact first-name/last-name identity may the migration attach the online or TelefonKI booking identity to the PVS patient. This association is what makes future online bookings inherit rules that apply to the PVS patient ID, so it must never be inferred from fuzzy identity data.
 
 Persist match decisions as data, not code. The system should retain source identifiers:
 
@@ -169,7 +182,6 @@ Order:
 5. Convex users and practice memberships
 6. Praxistimer appointments
 7. correlated legacy appointments and booking records
-8. file storage, if retained
 
 Use `npx convex import --replace` only on rehearsal deployments. For a final cutover, use a fresh target deployment or a tightly reviewed import set; avoid appending until duplicate detection reports are clean.
 
@@ -244,8 +256,6 @@ The TypeScript build step should convert normalized JSON into Convex-valid backu
 - Final WorkOS password/invite flow.
 - Whether to represent legacy booking history in existing booking step tables or a dedicated imported-history table.
 - Appointment title policy for historical imports.
-- Whether deleted/freed/old legacy appointment tables have legal/audit value.
-- How much file-storage history to retain and whether PDFs/medication documents belong in Convex file storage.
 - Final manual-review threshold for matching legacy online/TelefonKI identities to PVS patients.
 
 ## Documentation sources checked
