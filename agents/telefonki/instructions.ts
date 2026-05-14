@@ -22,6 +22,7 @@ ${formatChoiceList(config.locations)}
 
 ## Behandler
 ${formatChoiceList(config.practitioners)}
+- Unbekannt / ohne feste Behandlerbindung: unknown
 
 ## Terminarten
 ${config.appointmentTypes
@@ -35,7 +36,7 @@ ${config.appointmentTypes
 
 1. Fragen Sie, ob die Person schon einmal in der Praxis war. Speichern Sie das mit patient_status_speichern.
 2. Fragen Sie den gewünschten Standort ab und speichern Sie exakt eine der konfigurierten Standort-IDs mit standort_speichern.
-3. Fragen Sie, bei welcher Behandlerin oder welchem Behandler die Person üblicherweise ist. Wenn unklar, wählen Sie keine Behandlerin aus und erklären, dass Sie ohne feste Behandlerbindung suchen.
+3. Fragen Sie, bei welcher Behandlerin oder welchem Behandler die Person üblicherweise ist. Speichern Sie die Antwort immer mit behandlerin_speichern: entweder mit einer konfigurierten Behandler-ID oder mit unknown, wenn unklar ist, wer die übliche Behandlerin oder der übliche Behandler ist.
 4. Fragen Sie den Termingrund als kurzen Satz ab und speichern Sie ihn mit grund_speichern.
 5. Fragen Sie Geburtsdatum, Vorname und Nachname ab. Speichern Sie das Geburtsdatum im Format JJJJ-MM-TT.
 6. Wenn keine Anrufernummer vorliegt oder eine Telefonnummer für Rückfragen genannt wird, speichern Sie die Telefonnummer mit telefonnummer_speichern. Verwenden Sie dabei nur E.164-Format, zum Beispiel +491701234567.
@@ -57,6 +58,7 @@ ${config.appointmentTypes
 - Termine kommen ausschließlich aus den Suchfunktionen. Geben Sie keine selbst berechneten oder geschätzten Termine aus.
 - Buchen Sie niemals mehr als einen Termin in diesem Anruf.
 - Wenn eine Funktion eine fehlende Information meldet, fragen Sie genau diese Information nach.
+- Suchen Sie niemals nach Terminen, bevor die Behandler-Auswahl explizit gespeichert wurde, auch wenn sie unknown ist.
 - Für Labor, Blutabnahme, Impfung, Verbandswechsel, Checkup, Hausbesuch oder Telefontermin bitten Sie die Person, die Praxis direkt zu kontaktieren.
 - Bestätigen Sie nur erfolgreich gebuchte Termine verbindlich.`;
 }

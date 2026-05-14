@@ -53,6 +53,7 @@ interface BookingPrerequisiteState {
   lastName?: string;
   location?: unknown;
   phoneNumber?: string;
+  practitionerSelection?: unknown;
   reason?: string;
 }
 
@@ -162,6 +163,9 @@ export function listMissingBookingPrerequisites(
   }
   if (!state.location) {
     missing.push("Standort");
+  }
+  if (!state.practitionerSelection) {
+    missing.push("Behandler");
   }
   if (!state.reason) {
     missing.push("Termingrund");

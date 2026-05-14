@@ -44,6 +44,8 @@ type ActiveConfig = FunctionReturnType<
   typeof convexApi.telefonki.getActiveConfig
 >;
 type AppointmentTypeChoice = ActiveConfig["appointmentTypes"][number];
+const UNKNOWN_PRACTITIONER_SELECTION = "unknown";
+
 interface BookingIntentState {
   appointmentType?: AppointmentTypeChoice;
   birthDate?: string;
@@ -52,7 +54,7 @@ interface BookingIntentState {
   lastName?: string;
   location?: LocationChoice;
   phoneNumber?: string;
-  practitioner?: PractitionerChoice;
+  practitionerSelection?: PractitionerSelection;
   reason?: string;
 }
 interface CallState {
@@ -60,9 +62,17 @@ interface CallState {
   bookingIntent: BookingIntentState;
   phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
 }
-type LocationChoice = ActiveConfig["locations"][number];
 
+type LocationChoice = ActiveConfig["locations"][number];
 type PractitionerChoice = ActiveConfig["practitioners"][number];
+type PractitionerSelection =
+  | {
+      kind: "known";
+      practitioner: PractitionerChoice;
+    }
+  | {
+      kind: "unknown";
+    };
 
 type TelefonkiSlot = NonNullable<
   FunctionReturnType<typeof convexApi.telefonki.nextAvailableSlot>
@@ -85,8 +95,11 @@ function buildCurrentOfferCriteria(state: BookingIntentState) {
     ...(state.birthDate ? { birthDate: state.birthDate } : {}),
     isNewPatient: state.isNewPatient,
     locationLineageKey: state.location.lineageKey,
-    ...(state.practitioner
-      ? { practitionerLineageKey: state.practitioner.lineageKey }
+    ...(state.practitionerSelection?.kind === "known"
+      ? {
+          practitionerLineageKey:
+            state.practitionerSelection.practitioner.lineageKey,
+        }
       : {}),
   });
 }
@@ -105,8 +118,9 @@ function buildSimulatedContext(state: BookingIntentState) {
       ...(state.birthDate && { dateOfBirth: state.birthDate }),
       isNew: state.isNewPatient ?? false,
     },
-    ...(state.practitioner && {
-      practitionerLineageKey: state.practitioner.lineageKey,
+    ...(state.practitionerSelection?.kind === "known" && {
+      practitionerLineageKey:
+        state.practitionerSelection.practitioner.lineageKey,
     }),
   };
 }
@@ -354,27 +368,39 @@ export default defineAgent({
       const tools = {
         behandlerin_speichern: llm.tool({
           description:
-            "Speichert die Behandler-Lineage-ID aus der dynamischen Konfiguration. Nur aufrufen, wenn der Patient eine Behandlerin oder einen Behandler genannt hat.",
-          execute: async ({ practitionerLineageKey }) => {
+            "Speichert die Behandler-Auswahl. Verwenden Sie entweder eine Behandler-Lineage-ID aus der Konfiguration oder 'unknown', wenn der Patient keine feste Behandlerin und keinen festen Behandler angeben kann.",
+          execute: async ({ practitionerSelection }) => {
             await markAsyncBoundary();
+            if (practitionerSelection === UNKNOWN_PRACTITIONER_SELECTION) {
+              state.bookingIntent.practitionerSelection = {
+                kind: "unknown",
+              };
+              invalidateOffersForCriteriaChange(state, ctx.job.id, {
+                practitionerSelection: UNKNOWN_PRACTITIONER_SELECTION,
+              });
+              return "Gespeichert: ohne feste Behandlerbindung.";
+            }
             const practitioner = findChoiceByLineageKey(
               activeConfig.practitioners,
-              practitionerLineageKey,
+              practitionerSelection,
             );
             if (!practitioner) {
-              return "Fehler: Diese Behandler-ID ist in der aktuellen Konfiguration nicht vorhanden.";
+              return `Fehler: Diese Behandler-Auswahl ist in der aktuellen Konfiguration nicht vorhanden. Verwenden Sie eine konfigurierte Behandler-ID oder '${UNKNOWN_PRACTITIONER_SELECTION}'.`;
             }
-            state.bookingIntent.practitioner = practitioner;
+            state.bookingIntent.practitionerSelection = {
+              kind: "known",
+              practitioner,
+            };
             invalidateOffersForCriteriaChange(state, ctx.job.id, {
               practitionerLineageKey: practitioner.lineageKey,
             });
             return `Gespeichert: ${practitioner.name}.`;
           },
           parameters: z.object({
-            practitionerLineageKey: z
+            practitionerSelection: z
               .string()
               .describe(
-                "Die Behandler-Lineage-ID aus der Konfigurationsliste.",
+                `Die Behandler-Lineage-ID aus der Konfigurationsliste oder '${UNKNOWN_PRACTITIONER_SELECTION}' fuer unbekannt.`,
               ),
           }),
         }),

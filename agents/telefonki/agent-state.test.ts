@@ -244,7 +244,24 @@ describe("TelefonKI agent state helpers", () => {
       reason: "Rueckenschmerzen",
     });
 
+    expect(missing).toContain("Behandler");
     expect(missing).toContain("Telefonnummer");
+  });
+
+  test("accepts an explicit unknown practitioner selection as complete", () => {
+    const missing = listMissingBookingPrerequisites({
+      appointmentType: { id: "appointmentType" },
+      birthDate: "1980-01-01",
+      firstName: "Ada",
+      isNewPatient: false,
+      lastName: "Lovelace",
+      location: { id: "location" },
+      phoneNumber: "+491701234567",
+      practitionerSelection: { kind: "unknown" },
+      reason: "Rueckenschmerzen",
+    });
+
+    expect(missing).not.toContain("Behandler");
   });
 
   test("sanitizes a provided phone number", () => {
