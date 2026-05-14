@@ -41,6 +41,7 @@ import {
   appointmentSimulationKindValidator,
   isActivationBoundSimulation,
 } from "./appointmentSimulation";
+import { normalizeFollowUpPlanVariants } from "./followUpPlans";
 import {
   type AppointmentTypeLineageKey,
   asAppointmentTypeId,
@@ -89,6 +90,7 @@ const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 
 interface TrustedAppointmentInput {
   appointmentTypeId: Id<"appointmentTypes">;
+  followUpPlanVariantId?: string;
   isNewPatient?: boolean;
   isSimulation?: boolean;
   locationId: Id<"locations">;
@@ -177,6 +179,7 @@ function appointmentChainError(code: string, message: string) {
 
 function asTrustedAppointmentInput(args: {
   appointmentTypeId: Id<"appointmentTypes">;
+  followUpPlanVariantId?: string;
   isNewPatient?: boolean;
   isSimulation?: boolean;
   locationId: Id<"locations">;
@@ -1169,6 +1172,7 @@ export async function createAppointmentFromTrustedSource(
   ctx: MutationCtx,
   rawArgs: {
     appointmentTypeId: Id<"appointmentTypes">;
+    followUpPlanVariantId?: string;
     isNewPatient?: boolean;
     isSimulation?: boolean;
     locationId: Id<"locations">;
@@ -1190,6 +1194,7 @@ export async function createAppointmentFromTrustedSource(
   const now = BigInt(Date.now());
   const {
     appointmentTypeId,
+    followUpPlanVariantId,
     isNewPatient,
     isSimulation,
     locationId,
@@ -1316,17 +1321,32 @@ export async function createAppointmentFromTrustedSource(
     },
   );
 
-  if (
-    activeAppointmentType.followUpPlan &&
-    activeAppointmentType.followUpPlan.length > 0
-  ) {
+  const followUpPlanVariants =
+    normalizeFollowUpPlanVariants(
+      activeAppointmentType.followUpPlanVariants ?? [],
+    ) ?? [];
+
+  if (followUpPlanVariants.length > 0) {
     if (!practitionerId) {
       throw new Error(
         "Kettentermine benötigen einen ausgewählten Behandler für den Starttermin.",
       );
     }
 
+    const selectedVariantId =
+      followUpPlanVariantId ??
+      (followUpPlanVariants.length === 1
+        ? followUpPlanVariants[0]?.variantId
+        : undefined);
+
+    if (!selectedVariantId) {
+      throw new Error(
+        "Für diese Terminart muss eine Kettentermin-Variante ausgewählt werden.",
+      );
+    }
+
     const result = await createAppointmentSeriesHelper(ctx, {
+      followUpPlanVariantId: selectedVariantId,
       locationId,
       ...(isNewPatient !== undefined && { isNewPatient }),
       ...(patientDateOfBirth && { patientDateOfBirth }),
@@ -1409,6 +1429,7 @@ export async function createAppointmentFromTrustedSource(
 export const createAppointment = mutation({
   args: {
     appointmentTypeId: v.id("appointmentTypes"),
+    followUpPlanVariantId: v.optional(v.string()),
     isNewPatient: v.optional(v.boolean()),
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
@@ -2006,6 +2027,8 @@ async function updateAppointmentByMode(
     await ctx.db.replace("appointmentSeries", seriesRecord._id, {
       createdAt: seriesRecord.createdAt,
       followUpPlanSnapshot: seriesRecord.followUpPlanSnapshot,
+      followUpPlanVariantId: seriesRecord.followUpPlanVariantId,
+      followUpPlanVariantTitle: seriesRecord.followUpPlanVariantTitle,
       lastModified: now,
       ...(resolvedPatientDateOfBirth && {
         patientDateOfBirth: resolvedPatientDateOfBirth,

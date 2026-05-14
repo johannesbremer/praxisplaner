@@ -1643,7 +1643,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         allowedPractitionerLineageKeys: [practitionerLineageKey],
         createdAt: BigInt(Date.now()),
         duration: 30,
-        followUpPlan: [],
+        followUpPlanVariants: [],
         lastModified: BigInt(Date.now()),
         name: "Kontrolle",
         practiceId,

@@ -1906,16 +1906,24 @@ describe("bookingSessions slot selection validation", () => {
       );
 
       await ctx.db.patch("appointmentTypes", appointmentTypeId, {
-        followUpPlan: [
+        followUpPlanVariants: [
           {
-            appointmentTypeLineageKey: followUpAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 2,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
+            steps: [
+              {
+                anchor: {
+                  kind: "previousDate",
+                  offsetDays: 2,
+                },
+                appointmentTypeLineageKey: followUpAppointmentTypeId,
+                locationMode: "inherit_previous",
+                practitionerMode: "inherit_previous",
+                required: true,
+                searchMode: "first_available_on_or_after",
+                stepId: "step-1",
+              },
+            ],
+            title: "Standard",
+            variantId: "variant-1",
           },
         ],
       });
