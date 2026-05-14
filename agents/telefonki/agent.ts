@@ -230,7 +230,7 @@ loadDotenv();
 export default defineAgent({
   entry: async (ctx: JobContext) => {
     const convexUrl = getOptionalEnv("CONVEX_URL") ?? getEnv("VITE_CONVEX_URL");
-    const integrationSecret = getOptionalEnv("TELEFONKI_SHARED_SECRET");
+    const integrationSecret = getEnv("TELEFONKI_SHARED_SECRET");
     const convex = new ConvexHttpClient(convexUrl);
     const state: CallState = {
       activeOffers: {
@@ -263,25 +263,39 @@ export default defineAgent({
       const activeConfig = await convex.query(
         convexApi.telefonki.getActiveConfig,
         {
-          ...(integrationSecret && { integrationSecret }),
+          integrationSecret,
           practiceId,
         },
       );
       const instructions = buildTelefonkiInstructions(activeConfig);
 
+      let callerPhoneNumber: string | undefined;
       if (routing.callerPhoneNumber) {
-        state.bookingIntent.phoneNumber = routing.callerPhoneNumber;
+        try {
+          callerPhoneNumber = sanitizePhoneNumber(routing.callerPhoneNumber);
+          state.bookingIntent.phoneNumber = callerPhoneNumber;
+        } catch (error) {
+          logTelefonkiEvent({
+            callId: ctx.job.id,
+            details: {
+              error: error instanceof Error ? error.message : "unknown_error",
+              routingCallerPhoneNumber: routing.callerPhoneNumber,
+            },
+            event: "telefonki.invalid_caller_phone_number",
+            phoneBookingIdentityId: undefined,
+          });
+        }
       }
       state.phoneBookingIdentityId = await convex.mutation(
         convexApi.telefonki.createOrReusePhoneBookingIdentity,
         {
           callId: ctx.job.id,
-          ...(routing.callerPhoneNumber && {
-            callerPhoneNumber: routing.callerPhoneNumber,
+          ...(callerPhoneNumber && {
+            callerPhoneNumber,
           }),
           dialedPracticePhoneNumber: routing.dialedPracticePhoneNumber,
-          ...(integrationSecret && { integrationSecret }),
           integrationActor: DEFAULT_INTEGRATION_ACTOR,
+          integrationSecret,
           practiceId,
         },
       );

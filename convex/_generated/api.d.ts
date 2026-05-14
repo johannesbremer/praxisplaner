@@ -18,6 +18,7 @@ import type * as auth from "../auth.js";
 import type * as bookingSessions from "../bookingSessions.js";
 import type * as bookingValidators from "../bookingValidators.js";
 import type * as copyOnWrite from "../copyOnWrite.js";
+import type * as e164PhoneNumber from "../e164PhoneNumber.js";
 import type * as entities from "../entities.js";
 import type * as followUpPlans from "../followUpPlans.js";
 import type * as gdt_processing from "../gdt/processing.js";
@@ -68,6 +69,7 @@ declare const fullApi: ApiFromModules<{
   bookingSessions: typeof bookingSessions;
   bookingValidators: typeof bookingValidators;
   copyOnWrite: typeof copyOnWrite;
+  e164PhoneNumber: typeof e164PhoneNumber;
   entities: typeof entities;
   followUpPlans: typeof followUpPlans;
   "gdt/processing": typeof gdt_processing;

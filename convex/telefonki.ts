@@ -14,6 +14,7 @@ import {
   resolvePractitionerIdForRuleSetByLineage,
 } from "./appointmentReferences";
 import { createAppointmentFromTrustedSource } from "./appointments";
+import { normalizeE164PhoneNumber } from "./e164PhoneNumber";
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
@@ -95,12 +96,11 @@ interface AvailableSlot {
 }
 
 function assertTelefonkiAccess(args: { integrationSecret?: string }): void {
-  const expectedSecret = process.env["TELEFONKI_SHARED_SECRET"];
-  if (
-    expectedSecret !== undefined &&
-    expectedSecret.length > 0 &&
-    args.integrationSecret !== expectedSecret
-  ) {
+  const expectedSecret = process.env["TELEFONKI_SHARED_SECRET"]?.trim();
+  if (!expectedSecret) {
+    throw new Error("TelefonKI shared secret is not configured.");
+  }
+  if (args.integrationSecret !== expectedSecret) {
     throw new Error("TelefonKI integration access denied.");
   }
 }
@@ -293,6 +293,15 @@ function isTelefonkiBookableAppointmentType(
   );
 }
 
+function normalizeTelefonkiCallerPhoneNumber(rawPhoneNumber: string): string {
+  return normalizeE164PhoneNumber({
+    emptyMessage: "TelefonKI caller phone number is required.",
+    example: "+491701234567",
+    invalidMessagePrefix: "TelefonKI caller phone number",
+    rawPhoneNumber,
+  });
+}
+
 async function requireActivePracticeContext(
   ctx: MutationCtx | QueryCtx,
   practiceId: Id<"practices">,
@@ -470,7 +479,9 @@ export const createOrReusePhoneBookingIdentity = mutation({
     if (existing) {
       await ctx.db.patch("phoneBookingIdentities", existing._id, {
         ...(args.callerPhoneNumber !== undefined && {
-          callerPhoneNumber: args.callerPhoneNumber,
+          callerPhoneNumber: normalizeTelefonkiCallerPhoneNumber(
+            args.callerPhoneNumber,
+          ),
         }),
         ...(args.dialedPracticePhoneNumber !== undefined && {
           dialedPracticePhoneNumber: normalizePracticePhoneNumber(
@@ -488,7 +499,9 @@ export const createOrReusePhoneBookingIdentity = mutation({
     return await ctx.db.insert("phoneBookingIdentities", {
       callId,
       ...(args.callerPhoneNumber !== undefined && {
-        callerPhoneNumber: args.callerPhoneNumber,
+        callerPhoneNumber: normalizeTelefonkiCallerPhoneNumber(
+          args.callerPhoneNumber,
+        ),
       }),
       createdAt: now,
       ...(args.dialedPracticePhoneNumber !== undefined && {
@@ -770,12 +783,15 @@ export const book = mutation({
 
     const patientName =
       `${args.patient.firstName.trim()} ${args.patient.lastName.trim()}`.trim();
-    const patientPhoneNumber = args.patient.phoneNumber?.trim();
-    if (!patientPhoneNumber) {
+    const rawPatientPhoneNumber = args.patient.phoneNumber?.trim();
+    if (!rawPatientPhoneNumber) {
       throw new Error(
         "TelefonKI bookings require the caller phone number to persist the patient record.",
       );
     }
+    const patientPhoneNumber = normalizeTelefonkiCallerPhoneNumber(
+      rawPatientPhoneNumber,
+    );
     const temporaryPatientId = await createTemporaryPatientRecord(ctx, {
       name: patientName,
       phoneNumber: patientPhoneNumber,
@@ -800,7 +816,7 @@ export const book = mutation({
     await ctx.db.patch("phoneBookingIdentities", args.phoneBookingIdentityId, {
       appointmentId,
       ...(args.patient.phoneNumber !== undefined && {
-        callerPhoneNumber: args.patient.phoneNumber,
+        callerPhoneNumber: patientPhoneNumber,
       }),
       lastModified: now,
     });
@@ -836,7 +852,10 @@ export const viewBookedAppointment = query({
       "appointments",
       identity.appointmentId,
     );
-    if (appointment?.phoneBookingIdentityId !== args.phoneBookingIdentityId) {
+    if (
+      appointment?.phoneBookingIdentityId !== args.phoneBookingIdentityId ||
+      appointment.cancelledAt !== undefined
+    ) {
       return null;
     }
     return toTelefonkiAppointment(appointment);
@@ -866,7 +885,7 @@ export const cancelBookedAppointment = mutation({
       return null;
     }
     if (appointment.cancelledAt !== undefined) {
-      return toTelefonkiAppointment(appointment);
+      return null;
     }
     if (
       Temporal.Instant.compare(

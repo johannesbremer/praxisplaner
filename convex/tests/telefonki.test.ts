@@ -1,6 +1,6 @@
 import { convexTest } from "convex-test";
 import { Temporal } from "temporal-polyfill";
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import type { Id } from "../_generated/dataModel";
 
@@ -11,6 +11,30 @@ import schema from "../schema";
 import { modules } from "./test.setup";
 
 type TestContext = ReturnType<typeof createTestContext>;
+const TEST_TELEFONKI_SECRET = "telefonki-test-secret";
+
+function withTelefonkiSecret<T extends object>(
+  args: T,
+): T & { integrationSecret: string } {
+  return {
+    ...args,
+    integrationSecret: TEST_TELEFONKI_SECRET,
+  };
+}
+
+const originalTelefonkiSecret = process.env["TELEFONKI_SHARED_SECRET"];
+
+beforeEach(() => {
+  process.env["TELEFONKI_SHARED_SECRET"] = TEST_TELEFONKI_SECRET;
+});
+
+afterEach(() => {
+  if (originalTelefonkiSecret === undefined) {
+    delete process.env["TELEFONKI_SHARED_SECRET"];
+    return;
+  }
+  process.env["TELEFONKI_SHARED_SECRET"] = originalTelefonkiSecret;
+});
 
 async function addBlockingHoursAheadRule(
   t: TestContext,
@@ -160,15 +184,31 @@ function simulatedContext(args: {
 }
 
 describe("TelefonKI availability", () => {
+  test("fails closed when the TelefonKI shared secret is not configured", async () => {
+    const t = createTestContext();
+    const fixture = await createTelefonkiFixture(t);
+
+    delete process.env["TELEFONKI_SHARED_SECRET"];
+
+    await expect(
+      t.query(
+        api.telefonki.getActiveConfig,
+        withTelefonkiSecret({
+          practiceId: fixture.practiceId,
+        }),
+      ),
+    ).rejects.toThrow("TelefonKI shared secret is not configured.");
+  });
+
   test("resolves the practice by dialed phone number", async () => {
     const t = createTestContext();
     const fixture = await createTelefonkiFixture(t);
 
     const resolved = await t.query(
       api.telefonki.resolvePracticeByDialedPhoneNumber,
-      {
+      withTelefonkiSecret({
         dialedPracticePhoneNumber: "+495421000000",
-      },
+      }),
     );
 
     expect(resolved.practiceId).toBe(fixture.practiceId);
@@ -180,9 +220,12 @@ describe("TelefonKI availability", () => {
     await createTelefonkiFixture(t);
 
     await expect(
-      t.query(api.telefonki.resolvePracticeByDialedPhoneNumber, {
-        dialedPracticePhoneNumber: "05421 000000",
-      }),
+      t.query(
+        api.telefonki.resolvePracticeByDialedPhoneNumber,
+        withTelefonkiSecret({
+          dialedPracticePhoneNumber: "05421 000000",
+        }),
+      ),
     ).rejects.toThrow("Practice phone number must be provided in E.164 format");
   });
 
@@ -191,9 +234,12 @@ describe("TelefonKI availability", () => {
     await createTelefonkiFixture(t);
 
     await expect(
-      t.query(api.telefonki.resolvePracticeByDialedPhoneNumber, {
-        dialedPracticePhoneNumber: "+495421999999",
-      }),
+      t.query(
+        api.telefonki.resolvePracticeByDialedPhoneNumber,
+        withTelefonkiSecret({
+          dialedPracticePhoneNumber: "+495421999999",
+        }),
+      ),
     ).rejects.toThrow("No practice is configured for the dialed phone number");
   });
 
@@ -215,15 +261,15 @@ describe("TelefonKI availability", () => {
 
     const firstResolved = await t.query(
       api.telefonki.resolvePracticeByDialedPhoneNumber,
-      {
+      withTelefonkiSecret({
         dialedPracticePhoneNumber: "+495421000000",
-      },
+      }),
     );
     const secondResolved = await t.query(
       api.telefonki.resolvePracticeByDialedPhoneNumber,
-      {
+      withTelefonkiSecret({
         dialedPracticePhoneNumber: "+495431000000",
-      },
+      }),
     );
 
     expect(firstResolved.practiceId).toBe(firstFixture.practiceId);
@@ -234,37 +280,43 @@ describe("TelefonKI availability", () => {
     const t = createTestContext();
     const fixture = await createTelefonkiFixture(t);
 
-    const slots = await t.query(api.telefonki.nextAvailableSlots, {
-      limit: 10,
-      practiceId: fixture.practiceId,
-      simulatedContext: simulatedContext({
-        appointmentTypeId: fixture.appointmentTypeId,
-        locationId: fixture.locationId,
-      }),
-    });
-
-    expect(slots).toHaveLength(10);
-    expect(slots[0]?.startTime).toBeDefined();
-
-    const nextSlot = await t.query(api.telefonki.nextAvailableSlot, {
-      practiceId: fixture.practiceId,
-      simulatedContext: simulatedContext({
-        appointmentTypeId: fixture.appointmentTypeId,
-        locationId: fixture.locationId,
-      }),
-    });
-    expect(nextSlot?.startTime).toBe(slots[0]?.startTime);
-
-    const afternoonSlots = await t.query(
-      api.telefonki.nextAvailableAfternoonSlots,
-      {
+    const slots = await t.query(
+      api.telefonki.nextAvailableSlots,
+      withTelefonkiSecret({
         limit: 10,
         practiceId: fixture.practiceId,
         simulatedContext: simulatedContext({
           appointmentTypeId: fixture.appointmentTypeId,
           locationId: fixture.locationId,
         }),
-      },
+      }),
+    );
+
+    expect(slots).toHaveLength(10);
+    expect(slots[0]?.startTime).toBeDefined();
+
+    const nextSlot = await t.query(
+      api.telefonki.nextAvailableSlot,
+      withTelefonkiSecret({
+        practiceId: fixture.practiceId,
+        simulatedContext: simulatedContext({
+          appointmentTypeId: fixture.appointmentTypeId,
+          locationId: fixture.locationId,
+        }),
+      }),
+    );
+    expect(nextSlot?.startTime).toBe(slots[0]?.startTime);
+
+    const afternoonSlots = await t.query(
+      api.telefonki.nextAvailableAfternoonSlots,
+      withTelefonkiSecret({
+        limit: 10,
+        practiceId: fixture.practiceId,
+        simulatedContext: simulatedContext({
+          appointmentTypeId: fixture.appointmentTypeId,
+          locationId: fixture.locationId,
+        }),
+      }),
     );
     expect(afternoonSlots).toHaveLength(10);
     expect(
@@ -275,13 +327,13 @@ describe("TelefonKI availability", () => {
 
     const afternoonSlot = await t.query(
       api.telefonki.nextAvailableAfternoonSlot,
-      {
+      withTelefonkiSecret({
         practiceId: fixture.practiceId,
         simulatedContext: simulatedContext({
           appointmentTypeId: fixture.appointmentTypeId,
           locationId: fixture.locationId,
         }),
-      },
+      }),
     );
     expect(afternoonSlot?.startTime).toBe(afternoonSlots[0]?.startTime);
   });
@@ -304,15 +356,18 @@ describe("TelefonKI availability", () => {
       });
     });
 
-    const slots = await t.query(api.telefonki.availableSlotsOnDate, {
-      date: nextWeekdayDate(1),
-      limit: 10,
-      practiceId: fixture.practiceId,
-      simulatedContext: simulatedContext({
-        appointmentTypeId: fixture.appointmentTypeId,
-        locationId: fixture.locationId,
+    const slots = await t.query(
+      api.telefonki.availableSlotsOnDate,
+      withTelefonkiSecret({
+        date: nextWeekdayDate(1),
+        limit: 10,
+        practiceId: fixture.practiceId,
+        simulatedContext: simulatedContext({
+          appointmentTypeId: fixture.appointmentTypeId,
+          locationId: fixture.locationId,
+        }),
       }),
-    });
+    );
 
     expect(
       slots.some((slot) => slot.startTime === nextWeekdayAt(1, 8, 0)),
@@ -391,17 +446,20 @@ describe("TelefonKI availability", () => {
       return practitionerId;
     });
 
-    const slots = await t.query(api.telefonki.nextAvailableSlots, {
-      limit: 10,
-      practiceId: fixture.practiceId,
-      simulatedContext: {
-        ...simulatedContext({
-          appointmentTypeId: fixture.appointmentTypeId,
-          locationId: fixture.locationId,
-        }),
-        practitionerLineageKey: secondPractitionerId,
-      },
-    });
+    const slots = await t.query(
+      api.telefonki.nextAvailableSlots,
+      withTelefonkiSecret({
+        limit: 10,
+        practiceId: fixture.practiceId,
+        simulatedContext: {
+          ...simulatedContext({
+            appointmentTypeId: fixture.appointmentTypeId,
+            locationId: fixture.locationId,
+          }),
+          practitionerLineageKey: secondPractitionerId,
+        },
+      }),
+    );
 
     expect(slots).toHaveLength(10);
     expect(
@@ -415,15 +473,18 @@ describe("TelefonKI availability", () => {
     const t = createTestContext();
     const fixture = await createTelefonkiFixture(t);
 
-    const mondaySlots = await t.query(api.telefonki.availableSlotsOnDate, {
-      date: nextWeekdayDate(1),
-      limit: 10,
-      practiceId: fixture.practiceId,
-      simulatedContext: simulatedContext({
-        appointmentTypeId: fixture.appointmentTypeId,
-        locationId: fixture.locationId,
+    const mondaySlots = await t.query(
+      api.telefonki.availableSlotsOnDate,
+      withTelefonkiSecret({
+        date: nextWeekdayDate(1),
+        limit: 10,
+        practiceId: fixture.practiceId,
+        simulatedContext: simulatedContext({
+          appointmentTypeId: fixture.appointmentTypeId,
+          locationId: fixture.locationId,
+        }),
       }),
-    });
+    );
     expect(mondaySlots).toHaveLength(10);
     expect(
       mondaySlots.every(
@@ -431,15 +492,18 @@ describe("TelefonKI availability", () => {
       ),
     ).toBe(true);
 
-    const saturdaySlots = await t.query(api.telefonki.availableSlotsOnDate, {
-      date: nextWeekdayDate(6),
-      limit: 10,
-      practiceId: fixture.practiceId,
-      simulatedContext: simulatedContext({
-        appointmentTypeId: fixture.appointmentTypeId,
-        locationId: fixture.locationId,
+    const saturdaySlots = await t.query(
+      api.telefonki.availableSlotsOnDate,
+      withTelefonkiSecret({
+        date: nextWeekdayDate(6),
+        limit: 10,
+        practiceId: fixture.practiceId,
+        simulatedContext: simulatedContext({
+          appointmentTypeId: fixture.appointmentTypeId,
+          locationId: fixture.locationId,
+        }),
       }),
-    });
+    );
     expect(saturdaySlots).toEqual([]);
   });
 
@@ -452,15 +516,18 @@ describe("TelefonKI availability", () => {
       ruleSetId: fixture.ruleSetId,
     });
 
-    const slots = await t.query(api.telefonki.nextAvailableSlots, {
-      date: nextWeekdayDate(1),
-      limit: 10,
-      practiceId: fixture.practiceId,
-      simulatedContext: simulatedContext({
-        appointmentTypeId: fixture.appointmentTypeId,
-        locationId: fixture.locationId,
+    const slots = await t.query(
+      api.telefonki.nextAvailableSlots,
+      withTelefonkiSecret({
+        date: nextWeekdayDate(1),
+        limit: 10,
+        practiceId: fixture.practiceId,
+        simulatedContext: simulatedContext({
+          appointmentTypeId: fixture.appointmentTypeId,
+          locationId: fixture.locationId,
+        }),
       }),
-    });
+    );
     expect(slots).toEqual([]);
   });
 
@@ -492,9 +559,12 @@ describe("TelefonKI availability", () => {
       });
     });
 
-    const config = await t.query(api.telefonki.getActiveConfig, {
-      practiceId: fixture.practiceId,
-    });
+    const config = await t.query(
+      api.telefonki.getActiveConfig,
+      withTelefonkiSecret({
+        practiceId: fixture.practiceId,
+      }),
+    );
     expect(
       config.appointmentTypes.some(
         (appointmentType) =>
@@ -503,29 +573,54 @@ describe("TelefonKI availability", () => {
     ).toBe(false);
 
     await expect(
-      t.query(api.telefonki.nextAvailableSlot, {
-        practiceId: fixture.practiceId,
-        simulatedContext: simulatedContext({
-          appointmentTypeId: followUpAppointmentTypeId,
-          locationId: fixture.locationId,
+      t.query(
+        api.telefonki.nextAvailableSlot,
+        withTelefonkiSecret({
+          practiceId: fixture.practiceId,
+          simulatedContext: simulatedContext({
+            appointmentTypeId: followUpAppointmentTypeId,
+            locationId: fixture.locationId,
+          }),
         }),
-      }),
+      ),
     ).rejects.toThrow("Appointment type is not available.");
   });
 });
 
 describe("TelefonKI booking ownership", () => {
+  test("rejects non-E.164 caller phone numbers when creating a phone booking identity", async () => {
+    const t = createTestContext();
+    const fixture = await createTelefonkiFixture(t);
+
+    await expect(
+      t.mutation(
+        api.telefonki.createOrReusePhoneBookingIdentity,
+        withTelefonkiSecret({
+          callerPhoneNumber: "01701234567",
+          callId: "call-invalid-caller",
+          dialedPracticePhoneNumber: "+495421000000",
+          practiceId: fixture.practiceId,
+        }),
+      ),
+    ).rejects.toThrow(
+      "TelefonKI caller phone number must be provided in E.164 format",
+    );
+  });
+
   test("books, views, cancels, and rejects a second appointment for the same call", async () => {
     const t = createTestContext();
     const fixture = await createTelefonkiFixture(t);
-    const slot = await t.query(api.telefonki.nextAvailableSlot, {
-      date: nextWeekdayDate(1),
-      practiceId: fixture.practiceId,
-      simulatedContext: simulatedContext({
-        appointmentTypeId: fixture.appointmentTypeId,
-        locationId: fixture.locationId,
+    const slot = await t.query(
+      api.telefonki.nextAvailableSlot,
+      withTelefonkiSecret({
+        date: nextWeekdayDate(1),
+        practiceId: fixture.practiceId,
+        simulatedContext: simulatedContext({
+          appointmentTypeId: fixture.appointmentTypeId,
+          locationId: fixture.locationId,
+        }),
       }),
-    });
+    );
     expect(slot).not.toBeNull();
     if (!slot) {
       throw new Error("Expected a TelefonKI slot.");
@@ -533,31 +628,34 @@ describe("TelefonKI booking ownership", () => {
 
     const identityId = await t.mutation(
       api.telefonki.createOrReusePhoneBookingIdentity,
-      {
+      withTelefonkiSecret({
         callerPhoneNumber: "+491701234567",
         callId: "call-1",
         dialedPracticePhoneNumber: "+495421000000",
         integrationActor: "livekit-agent",
         practiceId: fixture.practiceId,
-      },
+      }),
     );
 
-    const booking = await t.mutation(api.telefonki.book, {
-      appointmentTypeLineageKey: fixture.appointmentTypeId,
-      locationLineageKey: fixture.locationId,
-      patient: {
-        dateOfBirth: "1980-01-01",
-        firstName: "Ada",
-        isNew: false,
-        lastName: "Lovelace",
-        phoneNumber: "+491701234567",
-      },
-      phoneBookingIdentityId: identityId,
-      practitionerLineageKey: slot.practitionerLineageKey,
-      practitionerName: slot.practitionerName,
-      reasonDescription: "Rueckenschmerzen",
-      startTime: slot.startTime,
-    });
+    const booking = await t.mutation(
+      api.telefonki.book,
+      withTelefonkiSecret({
+        appointmentTypeLineageKey: fixture.appointmentTypeId,
+        locationLineageKey: fixture.locationId,
+        patient: {
+          dateOfBirth: "1980-01-01",
+          firstName: "Ada",
+          isNew: false,
+          lastName: "Lovelace",
+          phoneNumber: "+491701234567",
+        },
+        phoneBookingIdentityId: identityId,
+        practitionerLineageKey: slot.practitionerLineageKey,
+        practitionerName: slot.practitionerName,
+        reasonDescription: "Rueckenschmerzen",
+        startTime: slot.startTime,
+      }),
+    );
     expect(booking.appointmentId).toBeDefined();
 
     const persisted = await t.run(async (ctx) => {
@@ -576,47 +674,75 @@ describe("TelefonKI booking ownership", () => {
     expect(persisted.patient?.recordType).toBe("temporary");
 
     await expect(
-      t.mutation(api.telefonki.book, {
-        appointmentTypeLineageKey: fixture.appointmentTypeId,
-        locationLineageKey: fixture.locationId,
-        patient: {
-          dateOfBirth: "1980-01-01",
-          firstName: "Ada",
-          isNew: false,
-          lastName: "Lovelace",
-          phoneNumber: "+491701234567",
-        },
-        phoneBookingIdentityId: identityId,
-        practitionerLineageKey: slot.practitionerLineageKey,
-        practitionerName: slot.practitionerName,
-        reasonDescription: "Rueckenschmerzen",
-        startTime: slot.startTime,
-      }),
+      t.mutation(
+        api.telefonki.book,
+        withTelefonkiSecret({
+          appointmentTypeLineageKey: fixture.appointmentTypeId,
+          locationLineageKey: fixture.locationId,
+          patient: {
+            dateOfBirth: "1980-01-01",
+            firstName: "Ada",
+            isNew: false,
+            lastName: "Lovelace",
+            phoneNumber: "+491701234567",
+          },
+          phoneBookingIdentityId: identityId,
+          practitionerLineageKey: slot.practitionerLineageKey,
+          practitionerName: slot.practitionerName,
+          reasonDescription: "Rueckenschmerzen",
+          startTime: slot.startTime,
+        }),
+      ),
     ).rejects.toThrow("already has a booked appointment");
 
-    const viewed = await t.query(api.telefonki.viewBookedAppointment, {
-      phoneBookingIdentityId: identityId,
-    });
+    const viewed = await t.query(
+      api.telefonki.viewBookedAppointment,
+      withTelefonkiSecret({
+        phoneBookingIdentityId: identityId,
+      }),
+    );
     expect(viewed?.appointmentId).toBe(booking.appointmentId);
 
-    const cancelled = await t.mutation(api.telefonki.cancelBookedAppointment, {
-      phoneBookingIdentityId: identityId,
-    });
+    const cancelled = await t.mutation(
+      api.telefonki.cancelBookedAppointment,
+      withTelefonkiSecret({
+        phoneBookingIdentityId: identityId,
+      }),
+    );
     expect(cancelled?.appointmentId).toBe(booking.appointmentId);
     expect(cancelled?.cancelledAt).toBeDefined();
+
+    const viewedAfterCancellation = await t.query(
+      api.telefonki.viewBookedAppointment,
+      withTelefonkiSecret({
+        phoneBookingIdentityId: identityId,
+      }),
+    );
+    expect(viewedAfterCancellation).toBeNull();
+
+    const cancelledAgain = await t.mutation(
+      api.telefonki.cancelBookedAppointment,
+      withTelefonkiSecret({
+        phoneBookingIdentityId: identityId,
+      }),
+    );
+    expect(cancelledAgain).toBeNull();
   });
 
   test("rejects booking a stale occupied slot", async () => {
     const t = createTestContext();
     const fixture = await createTelefonkiFixture(t);
-    const slot = await t.query(api.telefonki.nextAvailableSlot, {
-      date: nextWeekdayDate(1),
-      practiceId: fixture.practiceId,
-      simulatedContext: simulatedContext({
-        appointmentTypeId: fixture.appointmentTypeId,
-        locationId: fixture.locationId,
+    const slot = await t.query(
+      api.telefonki.nextAvailableSlot,
+      withTelefonkiSecret({
+        date: nextWeekdayDate(1),
+        practiceId: fixture.practiceId,
+        simulatedContext: simulatedContext({
+          appointmentTypeId: fixture.appointmentTypeId,
+          locationId: fixture.locationId,
+        }),
       }),
-    });
+    );
     expect(slot).not.toBeNull();
     if (!slot) {
       throw new Error("Expected a TelefonKI slot.");
@@ -624,19 +750,19 @@ describe("TelefonKI booking ownership", () => {
 
     const firstIdentityId = await t.mutation(
       api.telefonki.createOrReusePhoneBookingIdentity,
-      {
+      withTelefonkiSecret({
         callId: "call-occupied-1",
         dialedPracticePhoneNumber: "+495421000000",
         practiceId: fixture.practiceId,
-      },
+      }),
     );
     const secondIdentityId = await t.mutation(
       api.telefonki.createOrReusePhoneBookingIdentity,
-      {
+      withTelefonkiSecret({
         callId: "call-occupied-2",
         dialedPracticePhoneNumber: "+495421000000",
         practiceId: fixture.practiceId,
-      },
+      }),
     );
 
     const baseBookingArgs = {
@@ -655,30 +781,92 @@ describe("TelefonKI booking ownership", () => {
       startTime: slot.startTime,
     };
 
-    await t.mutation(api.telefonki.book, {
-      ...baseBookingArgs,
-      phoneBookingIdentityId: firstIdentityId,
-    });
+    await t.mutation(
+      api.telefonki.book,
+      withTelefonkiSecret({
+        ...baseBookingArgs,
+        phoneBookingIdentityId: firstIdentityId,
+      }),
+    );
 
     await expect(
-      t.mutation(api.telefonki.book, {
-        ...baseBookingArgs,
-        phoneBookingIdentityId: secondIdentityId,
-      }),
+      t.mutation(
+        api.telefonki.book,
+        withTelefonkiSecret({
+          ...baseBookingArgs,
+          phoneBookingIdentityId: secondIdentityId,
+        }),
+      ),
     ).rejects.toThrow("Selected slot is no longer available");
+  });
+
+  test("rejects non-E.164 patient phone numbers at booking time", async () => {
+    const t = createTestContext();
+    const fixture = await createTelefonkiFixture(t);
+    const slot = await t.query(
+      api.telefonki.nextAvailableSlot,
+      withTelefonkiSecret({
+        date: nextWeekdayDate(1),
+        practiceId: fixture.practiceId,
+        simulatedContext: simulatedContext({
+          appointmentTypeId: fixture.appointmentTypeId,
+          locationId: fixture.locationId,
+        }),
+      }),
+    );
+    expect(slot).not.toBeNull();
+    if (!slot) {
+      throw new Error("Expected a TelefonKI slot.");
+    }
+
+    const identityId = await t.mutation(
+      api.telefonki.createOrReusePhoneBookingIdentity,
+      withTelefonkiSecret({
+        callId: "call-invalid-phone",
+        dialedPracticePhoneNumber: "+495421000000",
+        practiceId: fixture.practiceId,
+      }),
+    );
+
+    await expect(
+      t.mutation(
+        api.telefonki.book,
+        withTelefonkiSecret({
+          appointmentTypeLineageKey: fixture.appointmentTypeId,
+          locationLineageKey: fixture.locationId,
+          patient: {
+            dateOfBirth: "1980-01-01",
+            firstName: "Ada",
+            isNew: false,
+            lastName: "Lovelace",
+            phoneNumber: "01701234567",
+          },
+          phoneBookingIdentityId: identityId,
+          practitionerLineageKey: slot.practitionerLineageKey,
+          practitionerName: slot.practitionerName,
+          reasonDescription: "Rueckenschmerzen",
+          startTime: slot.startTime,
+        }),
+      ),
+    ).rejects.toThrow(
+      "TelefonKI caller phone number must be provided in E.164 format",
+    );
   });
 
   test("view and cancel stay scoped to the same phone booking identity", async () => {
     const t = createTestContext();
     const fixture = await createTelefonkiFixture(t);
-    const slot = await t.query(api.telefonki.nextAvailableSlot, {
-      date: nextWeekdayDate(1),
-      practiceId: fixture.practiceId,
-      simulatedContext: simulatedContext({
-        appointmentTypeId: fixture.appointmentTypeId,
-        locationId: fixture.locationId,
+    const slot = await t.query(
+      api.telefonki.nextAvailableSlot,
+      withTelefonkiSecret({
+        date: nextWeekdayDate(1),
+        practiceId: fixture.practiceId,
+        simulatedContext: simulatedContext({
+          appointmentTypeId: fixture.appointmentTypeId,
+          locationId: fixture.locationId,
+        }),
       }),
-    });
+    );
     expect(slot).not.toBeNull();
     if (!slot) {
       throw new Error("Expected a TelefonKI slot.");
@@ -686,44 +874,53 @@ describe("TelefonKI booking ownership", () => {
 
     const ownerIdentityId = await t.mutation(
       api.telefonki.createOrReusePhoneBookingIdentity,
-      {
+      withTelefonkiSecret({
         callId: "call-owner",
         dialedPracticePhoneNumber: "+495421000000",
         practiceId: fixture.practiceId,
-      },
+      }),
     );
     const otherIdentityId = await t.mutation(
       api.telefonki.createOrReusePhoneBookingIdentity,
-      {
+      withTelefonkiSecret({
         callId: "call-other",
         dialedPracticePhoneNumber: "+495421000000",
         practiceId: fixture.practiceId,
-      },
+      }),
     );
 
-    await t.mutation(api.telefonki.book, {
-      appointmentTypeLineageKey: fixture.appointmentTypeId,
-      locationLineageKey: fixture.locationId,
-      patient: {
-        dateOfBirth: "1980-01-01",
-        firstName: "Ada",
-        isNew: false,
-        lastName: "Lovelace",
-        phoneNumber: "+491701234567",
-      },
-      phoneBookingIdentityId: ownerIdentityId,
-      practitionerLineageKey: slot.practitionerLineageKey,
-      practitionerName: slot.practitionerName,
-      reasonDescription: "Rueckenschmerzen",
-      startTime: slot.startTime,
-    });
+    await t.mutation(
+      api.telefonki.book,
+      withTelefonkiSecret({
+        appointmentTypeLineageKey: fixture.appointmentTypeId,
+        locationLineageKey: fixture.locationId,
+        patient: {
+          dateOfBirth: "1980-01-01",
+          firstName: "Ada",
+          isNew: false,
+          lastName: "Lovelace",
+          phoneNumber: "+491701234567",
+        },
+        phoneBookingIdentityId: ownerIdentityId,
+        practitionerLineageKey: slot.practitionerLineageKey,
+        practitionerName: slot.practitionerName,
+        reasonDescription: "Rueckenschmerzen",
+        startTime: slot.startTime,
+      }),
+    );
 
-    const viewed = await t.query(api.telefonki.viewBookedAppointment, {
-      phoneBookingIdentityId: otherIdentityId,
-    });
-    const cancelled = await t.mutation(api.telefonki.cancelBookedAppointment, {
-      phoneBookingIdentityId: otherIdentityId,
-    });
+    const viewed = await t.query(
+      api.telefonki.viewBookedAppointment,
+      withTelefonkiSecret({
+        phoneBookingIdentityId: otherIdentityId,
+      }),
+    );
+    const cancelled = await t.mutation(
+      api.telefonki.cancelBookedAppointment,
+      withTelefonkiSecret({
+        phoneBookingIdentityId: otherIdentityId,
+      }),
+    );
 
     expect(viewed).toBeNull();
     expect(cancelled).toBeNull();
