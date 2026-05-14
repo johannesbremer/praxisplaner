@@ -821,32 +821,85 @@ async function remapAppointmentIds(
   appointments: AppointmentDoc[],
   targetRuleSetId: Id<"ruleSets">,
 ): Promise<AppointmentListItem[]> {
+  const appointmentTypeCache = new Map<
+    AppointmentTypeLineageKey,
+    Promise<{
+      appointmentTypeId: Id<"appointmentTypes">;
+      appointmentTypeTitle: string;
+    }>
+  >();
+  const locationCache = new Map<LocationLineageKey, Promise<Id<"locations">>>();
+  const practitionerCache = new Map<
+    PractitionerLineageKey,
+    Promise<Id<"practitioners">>
+  >();
+  const resolveAppointmentType = (
+    lineageKey: AppointmentTypeLineageKey,
+  ): Promise<{
+    appointmentTypeId: Id<"appointmentTypes">;
+    appointmentTypeTitle: string;
+  }> => {
+    const existing = appointmentTypeCache.get(lineageKey);
+    if (existing) {
+      return existing;
+    }
+    const resolved = resolveAppointmentTypeForDisplayRuleSet(
+      ctx.db,
+      lineageKey,
+      targetRuleSetId,
+    );
+    appointmentTypeCache.set(lineageKey, resolved);
+    return resolved;
+  };
+  const resolveLocation = (
+    lineageKey: LocationLineageKey,
+  ): Promise<Id<"locations">> => {
+    const existing = locationCache.get(lineageKey);
+    if (existing) {
+      return existing;
+    }
+    const resolved = resolveLocationIdForDisplayRuleSet(
+      ctx.db,
+      lineageKey,
+      targetRuleSetId,
+    );
+    locationCache.set(lineageKey, resolved);
+    return resolved;
+  };
+  const resolvePractitioner = (
+    lineageKey: PractitionerLineageKey,
+  ): Promise<Id<"practitioners">> => {
+    const existing = practitionerCache.get(lineageKey);
+    if (existing) {
+      return existing;
+    }
+    const resolved = resolvePractitionerIdForDisplayRuleSet(
+      ctx.db,
+      lineageKey,
+      targetRuleSetId,
+    );
+    practitionerCache.set(lineageKey, resolved);
+    return resolved;
+  };
+
   const remappedAppointments = await Promise.all(
     appointments.map(async (appointment) => {
       try {
-        const displayAppointmentType =
-          await resolveAppointmentTypeForDisplayRuleSet(
-            ctx.db,
-            asAppointmentTypeLineageKey(appointment.appointmentTypeLineageKey),
-            targetRuleSetId,
-          );
+        const displayAppointmentType = await resolveAppointmentType(
+          asAppointmentTypeLineageKey(appointment.appointmentTypeLineageKey),
+        );
         const remappedAppointment: AppointmentListItem = {
           ...toAppointmentListItem(appointment),
           appointmentTypeId: displayAppointmentType.appointmentTypeId,
           appointmentTypeTitle: displayAppointmentType.appointmentTypeTitle,
-          locationId: await resolveLocationIdForDisplayRuleSet(
-            ctx.db,
+          locationId: await resolveLocation(
             asLocationLineageKey(appointment.locationLineageKey),
-            targetRuleSetId,
           ),
         };
         if (appointment.practitionerLineageKey) {
-          remappedAppointment.practitionerId =
-            await resolvePractitionerIdForDisplayRuleSet(
-              ctx.db,
-              asPractitionerLineageKey(appointment.practitionerLineageKey),
-              targetRuleSetId,
-            );
+          remappedAppointment.practitionerId = await resolvePractitioner(
+            asPractitionerLineageKey(appointment.practitionerLineageKey),
+          );
         }
         return remappedAppointment;
       } catch (error) {
@@ -998,7 +1051,10 @@ export const getCalendarDayAppointments = query({
     const appointmentDocs = await ctx.db
       .query("appointments")
       .withIndex("by_practiceId_start", (q) =>
-        q.eq("practiceId", args.practiceId).gte("start", args.dayStart),
+        q
+          .eq("practiceId", args.practiceId)
+          .gte("start", args.dayStart)
+          .lt("start", args.dayEnd),
       )
       .collect();
 
@@ -2396,6 +2452,60 @@ export const getBlockedSlots = query({
   returns: v.array(blockedSlotListItemValidator),
 });
 
+export const getBlockedSlotsInRange = query({
+  args: {
+    activeRuleSetId: v.optional(v.id("ruleSets")),
+    end: v.string(),
+    scope: v.optional(
+      v.union(v.literal("real"), v.literal("simulation"), v.literal("all")),
+    ),
+    selectedRuleSetId: v.optional(v.id("ruleSets")),
+    start: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const accessiblePracticeIds = new Set(
+      await getAccessiblePracticeIdsForQuery(ctx),
+    );
+    const rangeDayBounds = getRangeDayBounds(args);
+    const rangeBlockedSlots = await ctx.db
+      .query("blockedSlots")
+      .withIndex("by_start", (q) =>
+        q
+          .gte("start", rangeDayBounds.dayStart)
+          .lt("start", rangeDayBounds.dayEndExclusive),
+      )
+      .collect();
+    const blockedSlots = rangeBlockedSlots.filter(
+      (blockedSlot) =>
+        accessiblePracticeIds.has(blockedSlot.practiceId) &&
+        blockedSlot.start >= args.start &&
+        blockedSlot.start <= args.end,
+    );
+
+    const scope: AppointmentScope = args.scope ?? "real";
+    let resultSlots: BlockedSlotDoc[];
+    if (scope === "simulation") {
+      resultSlots = combineBlockedSlotsForSimulation(blockedSlots);
+    } else if (scope === "real") {
+      resultSlots = blockedSlots.filter(
+        (blockedSlot) => blockedSlot.isSimulation !== true,
+      );
+    } else {
+      resultSlots = blockedSlots;
+    }
+
+    return await mapBlockedSlotsForDisplay(
+      ctx.db,
+      resultSlots.toSorted((left, right) =>
+        left.start.localeCompare(right.start),
+      ),
+      getDisplayRuleSetId(args),
+    );
+  },
+  returns: v.array(blockedSlotListItemValidator),
+});
+
 export const getCalendarDayBlockedSlots = query({
   args: calendarDayQueryArgsValidator,
   handler: async (ctx, args) => {
@@ -2410,7 +2520,10 @@ export const getCalendarDayBlockedSlots = query({
     const blockedSlots = await ctx.db
       .query("blockedSlots")
       .withIndex("by_practiceId_start", (q) =>
-        q.eq("practiceId", args.practiceId).gte("start", args.dayStart),
+        q
+          .eq("practiceId", args.practiceId)
+          .gte("start", args.dayStart)
+          .lt("start", args.dayEnd),
       )
       .collect();
     const visibleBlockedSlots = filterBlockedSlotsForCalendarDay(blockedSlots, {

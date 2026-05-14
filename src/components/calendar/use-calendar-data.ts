@@ -225,12 +225,14 @@ export function useCalendarData(args: {
           : { selectedRuleSetId: args.ruleSetId }),
         start: dayRange.dayStart,
       }),
-      convex.query(api.appointments.getBlockedSlots, {
+      convex.query(api.appointments.getBlockedSlotsInRange, {
         ...(activeRuleSetId === undefined ? {} : { activeRuleSetId }),
+        end: dayRange.dayEnd,
         scope: "all",
         ...(args.ruleSetId === undefined
           ? {}
           : { selectedRuleSetId: args.ruleSetId }),
+        start: dayRange.dayStart,
       }),
     ]);
 
