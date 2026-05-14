@@ -26,6 +26,7 @@ function createActiveOffers(): ActiveTelefonkiOffers<TestSlot> {
   return {
     generatedAt: undefined,
     offers: new Map(),
+    searchRequest: undefined,
     searchVersion: 0,
   };
 }
@@ -57,6 +58,10 @@ describe("TelefonKI agent state helpers", () => {
         locationLineageKey: "locations_a",
       }),
       formatSlot: (slot) => `${slot.startTime} bei ${slot.practitionerName}`,
+      searchRequest: {
+        kind: "nextAvailableSlots",
+        limit: 10,
+      },
       slots: [firstSlot, secondSlot],
     });
 
@@ -70,6 +75,10 @@ describe("TelefonKI agent state helpers", () => {
     expect(activeOffers.offers.get(secondOfferId)?.slot.practitionerName).toBe(
       "Dr. B",
     );
+    expect(activeOffers.searchRequest).toEqual({
+      kind: "nextAvailableSlots",
+      limit: 10,
+    });
     expect(response).toContain(`offerId: ${firstOfferId}`);
     expect(response).toContain(`offerId: ${secondOfferId}`);
   });
@@ -96,6 +105,9 @@ describe("TelefonKI agent state helpers", () => {
       criteria: originalCriteria,
       formatSlot: (slot) => `${slot.startTime} bei ${slot.practitionerName}`,
       now: 100,
+      searchRequest: {
+        kind: "nextAvailableSlot",
+      },
       slots: [createTestSlot("practitioners_a", "Dr. A")],
     });
 
@@ -135,6 +147,9 @@ describe("TelefonKI agent state helpers", () => {
       criteria,
       formatSlot: (slot) => `${slot.startTime} bei ${slot.practitionerName}`,
       now: 100,
+      searchRequest: {
+        kind: "nextAvailableSlot",
+      },
       slots: [createTestSlot("practitioners_a", "Dr. A")],
     });
 
@@ -169,6 +184,9 @@ describe("TelefonKI agent state helpers", () => {
       }),
       formatSlot: (slot) => `${slot.startTime} bei ${slot.practitionerName}`,
       now: 100,
+      searchRequest: {
+        kind: "nextAvailableSlot",
+      },
       slots: [createTestSlot("practitioners_a", "Dr. A")],
     });
 
@@ -176,6 +194,7 @@ describe("TelefonKI agent state helpers", () => {
 
     expect(activeOffers.generatedAt).toBeUndefined();
     expect(activeOffers.offers.size).toBe(0);
+    expect(activeOffers.searchRequest).toBeUndefined();
   });
 
   test("expires stale offers after the ttl", () => {
@@ -191,6 +210,11 @@ describe("TelefonKI agent state helpers", () => {
       criteria,
       formatSlot: (slot) => `${slot.startTime} bei ${slot.practitionerName}`,
       now: 100,
+      searchRequest: {
+        date: "2026-05-11",
+        kind: "availableSlotsOnDate",
+        limit: 10,
+      },
       slots: [createTestSlot("practitioners_a", "Dr. A")],
     });
 

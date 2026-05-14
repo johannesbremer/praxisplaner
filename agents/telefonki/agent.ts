@@ -31,9 +31,11 @@ import {
   listMissingBookingPrerequisites,
   renderOfferedSlots,
   sanitizePhoneNumber,
+  type TelefonkiSearchRequest,
 } from "./agent-state";
 import { resolveCallRouting } from "./call-routing";
 import { buildTelefonkiInstructions } from "./instructions";
+import { executeTelefonkiSearch } from "./search-execution";
 
 const AGENT_NAME = "telefonki-agent";
 const DEFAULT_INTEGRATION_ACTOR = "telefonki-livekit-agent";
@@ -204,6 +206,7 @@ function renderAndLogOfferedSlots(args: {
   callId: string;
   criteria: ReturnType<typeof buildTelefonkiOfferCriteria>;
   phoneBookingIdentityId: Id<"phoneBookingIdentities"> | undefined;
+  searchRequest: TelefonkiSearchRequest;
   slots: readonly TelefonkiSlot[];
   state: CallState;
 }): string {
@@ -211,18 +214,65 @@ function renderAndLogOfferedSlots(args: {
     activeOffers: args.state.activeOffers,
     criteria: args.criteria,
     formatSlot,
+    searchRequest: args.searchRequest,
     slots: args.slots,
   });
   logTelefonkiEvent({
     callId: args.callId,
     details: {
       count: args.slots.length,
+      ...(args.searchRequest.kind === "availableSlotsOnDate" && {
+        date: args.searchRequest.date,
+      }),
+      searchKind: args.searchRequest.kind,
       searchVersion: args.state.activeOffers.searchVersion,
     },
     event: "telefonki.offers_generated",
     phoneBookingIdentityId: args.phoneBookingIdentityId,
   });
   return response;
+}
+
+async function searchTelefonkiSlots(args: {
+  bookingIntent: BookingIntentState;
+  convex: ConvexHttpClient;
+  integrationSecret: string;
+  practiceId: Id<"practices">;
+  searchRequest: TelefonkiSearchRequest;
+}): Promise<TelefonkiSlot[]> {
+  return await executeTelefonkiSearch({
+    executor: {
+      availableSlotsOnDate: async (queryArgs) =>
+        await args.convex.query(
+          convexApi.telefonki.availableSlotsOnDate,
+          queryArgs,
+        ),
+      nextAvailableAfternoonSlot: async (queryArgs) =>
+        await args.convex.query(
+          convexApi.telefonki.nextAvailableAfternoonSlot,
+          queryArgs,
+        ),
+      nextAvailableAfternoonSlots: async (queryArgs) =>
+        await args.convex.query(
+          convexApi.telefonki.nextAvailableAfternoonSlots,
+          queryArgs,
+        ),
+      nextAvailableSlot: async (queryArgs) =>
+        await args.convex.query(
+          convexApi.telefonki.nextAvailableSlot,
+          queryArgs,
+        ),
+      nextAvailableSlots: async (queryArgs) =>
+        await args.convex.query(
+          convexApi.telefonki.nextAvailableSlots,
+          queryArgs,
+        ),
+    },
+    integrationSecret: args.integrationSecret,
+    practiceId: args.practiceId,
+    searchRequest: args.searchRequest,
+    simulatedContext: buildSimulatedContext(args.bookingIntent),
+  });
 }
 
 loadDotenv();
@@ -236,6 +286,7 @@ export default defineAgent({
       activeOffers: {
         generatedAt: undefined,
         offers: new Map(),
+        searchRequest: undefined,
         searchVersion: 0,
       },
       bookingIntent: {},
@@ -375,19 +426,22 @@ export default defineAgent({
             if (missing.length > 0) {
               return `Bitte zuerst speichern: ${missing.join(", ")}.`;
             }
-            const slot = await convex.query(
-              convexApi.telefonki.nextAvailableAfternoonSlot,
-              {
-                ...(integrationSecret && { integrationSecret }),
-                practiceId,
-                simulatedContext: buildSimulatedContext(state.bookingIntent),
-              },
-            );
+            const searchRequest = {
+              kind: "nextAvailableAfternoonSlot",
+            } satisfies TelefonkiSearchRequest;
+            const slots = await searchTelefonkiSlots({
+              bookingIntent: state.bookingIntent,
+              convex,
+              integrationSecret,
+              practiceId,
+              searchRequest,
+            });
             return renderAndLogOfferedSlots({
               callId: ctx.job.id,
               criteria: buildCurrentOfferCriteria(state.bookingIntent),
               phoneBookingIdentityId: state.phoneBookingIdentityId,
-              slots: slot ? [slot] : [],
+              searchRequest,
+              slots,
               state,
             });
           },
@@ -399,19 +453,22 @@ export default defineAgent({
             if (missing.length > 0) {
               return `Bitte zuerst speichern: ${missing.join(", ")}.`;
             }
-            const slots = await convex.query(
-              convexApi.telefonki.nextAvailableAfternoonSlots,
-              {
-                ...(integrationSecret && { integrationSecret }),
-                limit: 10,
-                practiceId,
-                simulatedContext: buildSimulatedContext(state.bookingIntent),
-              },
-            );
+            const searchRequest = {
+              kind: "nextAvailableAfternoonSlots",
+              limit: 10,
+            } satisfies TelefonkiSearchRequest;
+            const slots = await searchTelefonkiSlots({
+              bookingIntent: state.bookingIntent,
+              convex,
+              integrationSecret,
+              practiceId,
+              searchRequest,
+            });
             return renderAndLogOfferedSlots({
               callId: ctx.job.id,
               criteria: buildCurrentOfferCriteria(state.bookingIntent),
               phoneBookingIdentityId: state.phoneBookingIdentityId,
+              searchRequest,
               slots,
               state,
             });
@@ -424,19 +481,22 @@ export default defineAgent({
             if (missing.length > 0) {
               return `Bitte zuerst speichern: ${missing.join(", ")}.`;
             }
-            const slots = await convex.query(
-              convexApi.telefonki.nextAvailableSlots,
-              {
-                ...(integrationSecret && { integrationSecret }),
-                limit: 10,
-                practiceId,
-                simulatedContext: buildSimulatedContext(state.bookingIntent),
-              },
-            );
+            const searchRequest = {
+              kind: "nextAvailableSlots",
+              limit: 10,
+            } satisfies TelefonkiSearchRequest;
+            const slots = await searchTelefonkiSlots({
+              bookingIntent: state.bookingIntent,
+              convex,
+              integrationSecret,
+              practiceId,
+              searchRequest,
+            });
             return renderAndLogOfferedSlots({
               callId: ctx.job.id,
               criteria: buildCurrentOfferCriteria(state.bookingIntent),
               phoneBookingIdentityId: state.phoneBookingIdentityId,
+              searchRequest,
               slots,
               state,
             });
@@ -449,19 +509,22 @@ export default defineAgent({
             if (missing.length > 0) {
               return `Bitte zuerst speichern: ${missing.join(", ")}.`;
             }
-            const slot = await convex.query(
-              convexApi.telefonki.nextAvailableSlot,
-              {
-                ...(integrationSecret && { integrationSecret }),
-                practiceId,
-                simulatedContext: buildSimulatedContext(state.bookingIntent),
-              },
-            );
+            const searchRequest = {
+              kind: "nextAvailableSlot",
+            } satisfies TelefonkiSearchRequest;
+            const slots = await searchTelefonkiSlots({
+              bookingIntent: state.bookingIntent,
+              convex,
+              integrationSecret,
+              practiceId,
+              searchRequest,
+            });
             return renderAndLogOfferedSlots({
               callId: ctx.job.id,
               criteria: buildCurrentOfferCriteria(state.bookingIntent),
               phoneBookingIdentityId: state.phoneBookingIdentityId,
-              slots: slot ? [slot] : [],
+              searchRequest,
+              slots,
               state,
             });
           },
@@ -676,26 +739,31 @@ export default defineAgent({
                 return "Fehler: Termin konnte nicht gebucht werden.";
               }
 
+              const recoverySearchRequest = state.activeOffers.searchRequest;
               clearOfferedSlots(state.activeOffers);
-              const alternativeSlot = await convex.query(
-                convexApi.telefonki.nextAvailableSlot,
-                {
-                  ...(integrationSecret && { integrationSecret }),
-                  practiceId,
-                  simulatedContext: buildSimulatedContext(state.bookingIntent),
-                },
-              );
+              if (!recoverySearchRequest) {
+                return "Der bestätigte Termin ist nicht mehr frei. Bitte suchen Sie erneut.";
+              }
+              const alternativeSlots = await searchTelefonkiSlots({
+                bookingIntent: state.bookingIntent,
+                convex,
+                integrationSecret,
+                practiceId,
+                searchRequest: recoverySearchRequest,
+              });
               const alternativeResponse = renderAndLogOfferedSlots({
                 callId: ctx.job.id,
                 criteria: buildCurrentOfferCriteria(state.bookingIntent),
                 phoneBookingIdentityId: state.phoneBookingIdentityId,
-                slots: alternativeSlot ? [alternativeSlot] : [],
+                searchRequest: recoverySearchRequest,
+                slots: alternativeSlots,
                 state,
               });
               logTelefonkiEvent({
                 callId: ctx.job.id,
                 details: {
-                  recovered: alternativeSlot ? 1 : 0,
+                  recovered: alternativeSlots.length,
+                  searchKind: recoverySearchRequest.kind,
                   searchVersion: state.activeOffers.searchVersion,
                 },
                 event: "telefonki.booking_recovery_search",
@@ -768,20 +836,23 @@ export default defineAgent({
             if (missing.length > 0) {
               return `Bitte zuerst speichern: ${missing.join(", ")}.`;
             }
-            const slots = await convex.query(
-              convexApi.telefonki.availableSlotsOnDate,
-              {
-                date: parsed.data,
-                ...(integrationSecret && { integrationSecret }),
-                limit: 10,
-                practiceId,
-                simulatedContext: buildSimulatedContext(state.bookingIntent),
-              },
-            );
+            const searchRequest = {
+              date: parsed.data,
+              kind: "availableSlotsOnDate",
+              limit: 10,
+            } satisfies TelefonkiSearchRequest;
+            const slots = await searchTelefonkiSlots({
+              bookingIntent: state.bookingIntent,
+              convex,
+              integrationSecret,
+              practiceId,
+              searchRequest,
+            });
             return renderAndLogOfferedSlots({
               callId: ctx.job.id,
               criteria: buildCurrentOfferCriteria(state.bookingIntent),
               phoneBookingIdentityId: state.phoneBookingIdentityId,
+              searchRequest,
               slots,
               state,
             });

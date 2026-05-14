@@ -4,6 +4,7 @@ import { z } from "zod";
 export interface ActiveTelefonkiOffers<T extends OfferedTelefonkiSlot> {
   generatedAt: number | undefined;
   offers: Map<string, StoredTelefonkiOffer<T>>;
+  searchRequest: TelefonkiSearchRequest | undefined;
   searchVersion: number;
 }
 
@@ -36,6 +37,13 @@ export type TelefonkiOfferInvalidationReason =
   | "criteria_changed"
   | "expired"
   | "stale_version";
+
+export type TelefonkiSearchRequest =
+  | { date: string; kind: "availableSlotsOnDate"; limit: number }
+  | { kind: "nextAvailableAfternoonSlot" }
+  | { kind: "nextAvailableAfternoonSlots"; limit: number }
+  | { kind: "nextAvailableSlot" }
+  | { kind: "nextAvailableSlots"; limit: number };
 
 interface BookingPrerequisiteState {
   appointmentType?: unknown;
@@ -101,6 +109,7 @@ export function clearOfferedSlots<T extends OfferedTelefonkiSlot>(
 ): void {
   activeOffers.generatedAt = undefined;
   activeOffers.offers.clear();
+  activeOffers.searchRequest = undefined;
 }
 
 export function formatTelefonkiDate(isoDate: string): string {
@@ -180,6 +189,7 @@ export function renderOfferedSlots<T extends OfferedTelefonkiSlot>(args: {
   criteria: TelefonkiOfferCriteria;
   formatSlot: (slot: T) => string;
   now?: number;
+  searchRequest: TelefonkiSearchRequest;
   slots: readonly T[];
 }): string {
   if (args.slots.length === 0) {
@@ -193,6 +203,7 @@ export function renderOfferedSlots<T extends OfferedTelefonkiSlot>(args: {
     args.criteria,
   );
   args.activeOffers.generatedAt = generatedAt;
+  args.activeOffers.searchRequest = args.searchRequest;
 
   return args.slots
     .map((slot, index) => {
