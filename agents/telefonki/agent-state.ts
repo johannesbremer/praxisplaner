@@ -8,6 +8,19 @@ export interface OfferedTelefonkiSlot {
   startTime: string;
 }
 
+export interface StoredTelefonkiOffer<T extends OfferedTelefonkiSlot> {
+  criteria: TelefonkiOfferCriteria;
+  slot: T;
+}
+
+export interface TelefonkiOfferCriteria {
+  appointmentTypeLineageKey: string;
+  birthDate?: string;
+  isNewPatient: boolean;
+  locationLineageKey: string;
+  practitionerLineageKey?: string;
+}
+
 interface BookingPrerequisiteState {
   appointmentType?: unknown;
   birthDate?: string;
@@ -27,6 +40,30 @@ export function buildOfferedSlotId(slot: OfferedTelefonkiSlot): string {
   ].join("::");
 }
 
+export function buildTelefonkiOfferCriteria(args: {
+  appointmentTypeLineageKey: string;
+  birthDate?: string;
+  isNewPatient: boolean;
+  locationLineageKey: string;
+  practitionerLineageKey?: string;
+}): TelefonkiOfferCriteria {
+  return {
+    appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+    ...(args.birthDate ? { birthDate: args.birthDate } : {}),
+    isNewPatient: args.isNewPatient,
+    locationLineageKey: args.locationLineageKey,
+    ...(args.practitionerLineageKey
+      ? { practitionerLineageKey: args.practitionerLineageKey }
+      : {}),
+  };
+}
+
+export function clearOfferedSlots<T extends OfferedTelefonkiSlot>(
+  store: Map<string, StoredTelefonkiOffer<T>>,
+): void {
+  store.clear();
+}
+
 export function formatTelefonkiDate(isoDate: string): string {
   return Temporal.PlainDate.from(isoDate).toLocaleString("de-DE", {
     dateStyle: "long",
@@ -39,6 +76,21 @@ export function formatTelefonkiDateTime(zonedDateTime: string): string {
     hour12: false,
     timeStyle: "short",
   });
+}
+
+export function isStoredOfferCompatible(
+  currentCriteria: TelefonkiOfferCriteria,
+  storedCriteria: TelefonkiOfferCriteria,
+): boolean {
+  return (
+    currentCriteria.appointmentTypeLineageKey ===
+      storedCriteria.appointmentTypeLineageKey &&
+    currentCriteria.birthDate === storedCriteria.birthDate &&
+    currentCriteria.isNewPatient === storedCriteria.isNewPatient &&
+    currentCriteria.locationLineageKey === storedCriteria.locationLineageKey &&
+    currentCriteria.practitionerLineageKey ===
+      storedCriteria.practitionerLineageKey
+  );
 }
 
 export function listMissingBookingPrerequisites(
@@ -73,9 +125,10 @@ export function listMissingBookingPrerequisites(
 }
 
 export function renderOfferedSlots<T extends OfferedTelefonkiSlot>(args: {
+  criteria: TelefonkiOfferCriteria;
   formatSlot: (slot: T) => string;
   slots: readonly T[];
-  store: Map<string, T>;
+  store: Map<string, StoredTelefonkiOffer<T>>;
 }): string {
   if (args.slots.length === 0) {
     args.store.clear();
@@ -87,7 +140,10 @@ export function renderOfferedSlots<T extends OfferedTelefonkiSlot>(args: {
   return args.slots
     .map((slot, index) => {
       const offerId = buildOfferedSlotId(slot);
-      args.store.set(offerId, slot);
+      args.store.set(offerId, {
+        criteria: args.criteria,
+        slot,
+      });
       return `${index + 1}. ${args.formatSlot(slot)} (offerId: ${offerId})`;
     })
     .join("; ");

@@ -21,11 +21,15 @@ import type { Id } from "../../convex/_generated/dataModel";
 
 import { api as convexApi } from "../../convex/_generated/api";
 import {
+  buildTelefonkiOfferCriteria,
+  clearOfferedSlots,
   formatTelefonkiDate,
   formatTelefonkiDateTime,
+  isStoredOfferCompatible,
   listMissingBookingPrerequisites,
   renderOfferedSlots,
   sanitizePhoneNumber,
+  type StoredTelefonkiOffer,
 } from "./agent-state";
 import { resolveCallRouting } from "./call-routing";
 import { buildTelefonkiInstructions } from "./instructions";
@@ -44,7 +48,7 @@ interface CallState {
   isNewPatient?: boolean;
   lastName?: string;
   location?: LocationChoice;
-  offeredSlots: Map<string, TelefonkiSlot>;
+  offeredSlots: Map<string, StoredTelefonkiOffer<TelefonkiSlot>>;
   phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
   phoneNumber?: string;
   practitioner?: PractitionerChoice;
@@ -57,6 +61,29 @@ type PractitionerChoice = ActiveConfig["practitioners"][number];
 type TelefonkiSlot = NonNullable<
   FunctionReturnType<typeof convexApi.telefonki.nextAvailableSlot>
 >;
+
+function buildCurrentOfferCriteria(state: CallState) {
+  if (!state.appointmentType || !state.location) {
+    throw new Error(
+      "Terminart und Standort müssen vor der Terminsuche gespeichert sein.",
+    );
+  }
+  if (state.isNewPatient === undefined) {
+    throw new Error(
+      "Patientenstatus muss vor der Terminsuche gespeichert sein.",
+    );
+  }
+
+  return buildTelefonkiOfferCriteria({
+    appointmentTypeLineageKey: state.appointmentType.lineageKey,
+    ...(state.birthDate ? { birthDate: state.birthDate } : {}),
+    isNewPatient: state.isNewPatient,
+    locationLineageKey: state.location.lineageKey,
+    ...(state.practitioner
+      ? { practitionerLineageKey: state.practitioner.lineageKey }
+      : {}),
+  });
+}
 
 function buildSimulatedContext(state: CallState) {
   if (!state.appointmentType || !state.location) {
@@ -192,6 +219,7 @@ export default defineAgent({
             if (!practitioner) {
               return "Fehler: Diese Behandler-ID ist in der aktuellen Konfiguration nicht vorhanden.";
             }
+            clearOfferedSlots(state.offeredSlots);
             state.practitioner = practitioner;
             return `Gespeichert: ${practitioner.name}.`;
           },
@@ -211,6 +239,7 @@ export default defineAgent({
             if (!parsed.success) {
               return "Fehler: Bitte speichern Sie das Geburtsdatum im Format JJJJ-MM-TT.";
             }
+            clearOfferedSlots(state.offeredSlots);
             state.birthDate = parsed.data;
             return `Gespeichert: ${formatTelefonkiDate(parsed.data)}.`;
           },
@@ -259,6 +288,7 @@ export default defineAgent({
               },
             );
             return renderOfferedSlots({
+              criteria: buildCurrentOfferCriteria(state),
               formatSlot,
               slots: slot ? [slot] : [],
               store: state.offeredSlots,
@@ -282,6 +312,7 @@ export default defineAgent({
               },
             );
             return renderOfferedSlots({
+              criteria: buildCurrentOfferCriteria(state),
               formatSlot,
               slots,
               store: state.offeredSlots,
@@ -305,6 +336,7 @@ export default defineAgent({
               },
             );
             return renderOfferedSlots({
+              criteria: buildCurrentOfferCriteria(state),
               formatSlot,
               slots,
               store: state.offeredSlots,
@@ -327,6 +359,7 @@ export default defineAgent({
               },
             );
             return renderOfferedSlots({
+              criteria: buildCurrentOfferCriteria(state),
               formatSlot,
               slots: slot ? [slot] : [],
               store: state.offeredSlots,
@@ -338,6 +371,7 @@ export default defineAgent({
             "Speichert, ob der Patient neu ist. true bedeutet noch nie in der Praxis; false bedeutet bereits bekannt.",
           execute: async ({ isNewPatient }) => {
             await markAsyncBoundary();
+            clearOfferedSlots(state.offeredSlots);
             state.isNewPatient = isNewPatient;
             return isNewPatient
               ? "Patient ist neu."
@@ -379,6 +413,7 @@ export default defineAgent({
             if (!location) {
               return "Fehler: Diese Standort-ID ist in der aktuellen Konfiguration nicht vorhanden.";
             }
+            clearOfferedSlots(state.offeredSlots);
             state.location = location;
             return `Gespeichert: ${location.name}.`;
           },
@@ -438,8 +473,8 @@ export default defineAgent({
             if (missing.length > 0) {
               return `Bitte zuerst speichern: ${missing.join(", ")}.`;
             }
-            const slot = state.offeredSlots.get(offerId);
-            if (!slot) {
+            const storedOffer = state.offeredSlots.get(offerId);
+            if (!storedOffer) {
               return "Fehler: Dieser Termin wurde in diesem Gespräch nicht angeboten. Bitte suchen Sie erneut.";
             }
             if (
@@ -451,6 +486,14 @@ export default defineAgent({
             ) {
               return "Fehler: Es fehlen gespeicherte Pflichtdaten.";
             }
+            const currentCriteria = buildCurrentOfferCriteria(state);
+            if (
+              !isStoredOfferCompatible(currentCriteria, storedOffer.criteria)
+            ) {
+              clearOfferedSlots(state.offeredSlots);
+              return "Fehler: Die angebotenen Termine passen nicht mehr zum aktuellen Suchstand. Bitte suchen Sie erneut.";
+            }
+            const slot = storedOffer.slot;
             const booking = await convex.mutation(convexApi.telefonki.book, {
               appointmentTypeLineageKey: state.appointmentType.lineageKey,
               ...(integrationSecret && { integrationSecret }),
@@ -508,6 +551,7 @@ export default defineAgent({
             if (!appointmentType) {
               return "Fehler: Diese Terminart-ID ist in der aktuellen Konfiguration nicht vorhanden.";
             }
+            clearOfferedSlots(state.offeredSlots);
             state.appointmentType = appointmentType;
             return `Gespeichert: ${appointmentType.name}.`;
           },
@@ -542,6 +586,7 @@ export default defineAgent({
               },
             );
             return renderOfferedSlots({
+              criteria: buildCurrentOfferCriteria(state),
               formatSlot,
               slots,
               store: state.offeredSlots,
