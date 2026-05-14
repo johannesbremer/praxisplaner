@@ -27,6 +27,7 @@ import type * as http from "../http.js";
 import type * as identity from "../identity.js";
 import type * as lineage from "../lineage.js";
 import type * as mfas from "../mfas.js";
+import type * as migrationRehearsal from "../migrationRehearsal.js";
 import type * as patientSearch from "../patientSearch.js";
 import type * as patients from "../patients.js";
 import type * as practiceAccess from "../practiceAccess.js";
@@ -75,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   identity: typeof identity;
   lineage: typeof lineage;
   mfas: typeof mfas;
+  migrationRehearsal: typeof migrationRehearsal;
   patientSearch: typeof patientSearch;
   patients: typeof patients;
   practiceAccess: typeof practiceAccess;
