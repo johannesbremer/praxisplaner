@@ -105,6 +105,18 @@ function assertTelefonkiAccess(args: { integrationSecret?: string }): void {
   }
 }
 
+function buildSlotCoverageKey(slot: {
+  locationLineageKey: Id<"locations">;
+  practitionerLineageKey: Id<"practitioners">;
+  startTime: string;
+}): string {
+  return [
+    slot.startTime,
+    slot.locationLineageKey,
+    slot.practitionerLineageKey,
+  ].join("::");
+}
+
 function clampLimit(limit: number | undefined): number {
   if (limit === undefined) {
     return DEFAULT_LIMIT;
@@ -144,7 +156,7 @@ async function getAvailableSlots(args: {
     "appointmentTypes",
     appointmentTypeId,
   );
-  if (!appointmentType?.lineageKey || appointmentType.deleted === true) {
+  if (!isTelefonkiBookableAppointmentType(appointmentType)) {
     throw new Error("Appointment type is not available.");
   }
   const allowedPractitionerLineageKeys = new Set(
@@ -175,6 +187,9 @@ async function getAvailableSlots(args: {
         ruleSetId,
         simulatedContext: args.search.simulatedContext,
       });
+    const slotByCoverageKey = new Map(
+      result.slots.map((slot) => [buildSlotCoverageKey(slot), slot]),
+    );
 
     for (const slot of result.slots.toSorted((left, right) =>
       left.startTime.localeCompare(right.startTime),
@@ -198,10 +213,19 @@ async function getAvailableSlots(args: {
       ) {
         continue;
       }
+      if (
+        !isSlotAvailableForAppointmentDuration({
+          requiredDurationMinutes: appointmentType.duration,
+          slot,
+          slotByCoverageKey,
+        })
+      ) {
+        continue;
+      }
       if (args.afternoonOnly && !isAfternoonSlot(slot)) {
         continue;
       }
-      slots.push(toTelefonkiSlot(slot));
+      slots.push(toTelefonkiSlot(slot, appointmentType.duration));
     }
   }
 
@@ -216,9 +240,56 @@ function getSearchStartDate(date: string | undefined): IsoDateString {
   return asIsoDateString(Temporal.Now.plainDateISO(SEARCH_TIMEZONE).toString());
 }
 
+function hasFollowUpPlan(appointmentType: Doc<"appointmentTypes"> | null) {
+  return (appointmentType?.followUpPlan?.length ?? 0) > 0;
+}
+
 function isAfternoonSlot(slot: Pick<AvailableSlot, "startTime">) {
   return (
     Temporal.ZonedDateTime.from(slot.startTime).hour >= AFTERNOON_START_HOUR
+  );
+}
+
+function isSlotAvailableForAppointmentDuration(args: {
+  requiredDurationMinutes: number;
+  slot: InternalSchedulingResultSlot;
+  slotByCoverageKey: ReadonlyMap<string, InternalSchedulingResultSlot>;
+}): boolean {
+  let coveredDurationMinutes = 0;
+  let currentStartTime = Temporal.ZonedDateTime.from(args.slot.startTime);
+
+  while (coveredDurationMinutes < args.requiredDurationMinutes) {
+    const currentSlot = args.slotByCoverageKey.get(
+      buildSlotCoverageKey({
+        locationLineageKey: args.slot.locationLineageKey,
+        practitionerLineageKey: args.slot.practitionerLineageKey,
+        startTime: currentStartTime.toString(),
+      }),
+    );
+    if (currentSlot?.status !== "AVAILABLE") {
+      return false;
+    }
+    if (currentSlot.duration <= 0) {
+      return false;
+    }
+
+    coveredDurationMinutes += currentSlot.duration;
+    currentStartTime = currentStartTime.add({
+      minutes: currentSlot.duration,
+    });
+  }
+
+  return true;
+}
+
+function isTelefonkiBookableAppointmentType(
+  appointmentType: Doc<"appointmentTypes"> | null,
+): appointmentType is Doc<"appointmentTypes"> {
+  return (
+    appointmentType !== null &&
+    appointmentType.deleted !== true &&
+    appointmentType.lineageKey !== undefined &&
+    !hasFollowUpPlan(appointmentType)
   );
 }
 
@@ -249,6 +320,7 @@ async function requireAvailableSelectedSlot(
     patientIsNew: boolean;
     practiceId: Id<"practices">;
     practitionerLineageKey: Id<"practitioners">;
+    requiredDurationMinutes: number;
     ruleSetId: Id<"ruleSets">;
     startTime: string;
   },
@@ -283,6 +355,9 @@ async function requireAvailableSelectedSlot(
       },
     },
   );
+  const slotByCoverageKey = new Map(
+    result.slots.map((slot) => [buildSlotCoverageKey(slot), slot]),
+  );
 
   const matchingSlot = result.slots.find(
     (slot) =>
@@ -291,7 +366,14 @@ async function requireAvailableSelectedSlot(
       slot.locationLineageKey === args.locationLineageKey &&
       slot.practitionerLineageKey === args.practitionerLineageKey,
   );
-  if (!matchingSlot) {
+  if (
+    !matchingSlot ||
+    !isSlotAvailableForAppointmentDuration({
+      requiredDurationMinutes: args.requiredDurationMinutes,
+      slot: matchingSlot,
+      slotByCoverageKey,
+    })
+  ) {
     throw new Error("Selected slot is no longer available.");
   }
 }
@@ -339,7 +421,10 @@ function toTelefonkiAppointment(appointment: Doc<"appointments">): null | {
   };
 }
 
-function toTelefonkiSlot(slot: AvailableSlot): {
+function toTelefonkiSlot(
+  slot: AvailableSlot,
+  appointmentDuration: number,
+): {
   duration: number;
   locationLineageKey: Id<"locations">;
   practitionerLineageKey: Id<"practitioners">;
@@ -347,7 +432,7 @@ function toTelefonkiSlot(slot: AvailableSlot): {
   startTime: ZonedDateTimeString;
 } {
   return {
-    duration: slot.duration,
+    duration: appointmentDuration,
     locationLineageKey: slot.locationLineageKey,
     practitionerLineageKey: slot.practitionerLineageKey,
     practitionerName: slot.practitionerName,
@@ -489,7 +574,10 @@ export const getActiveConfig = query({
     return {
       appointmentTypes: appointmentTypes
         .filter(
-          (entry) => entry.practiceId === args.practiceId && !entry.deleted,
+          (entry) =>
+            entry.practiceId === args.practiceId &&
+            !entry.deleted &&
+            (entry.followUpPlan?.length ?? 0) === 0,
         )
         .map((entry) => ({
           duration: entry.duration,
@@ -655,7 +743,7 @@ export const book = mutation({
       "appointmentTypes",
       appointmentTypeId,
     );
-    if (!appointmentType || appointmentType.deleted === true) {
+    if (!isTelefonkiBookableAppointmentType(appointmentType)) {
       throw new Error("Appointment type is not available.");
     }
     if (
@@ -675,6 +763,7 @@ export const book = mutation({
       patientIsNew: args.patient.isNew,
       practiceId: active.practiceId,
       practitionerLineageKey: args.practitionerLineageKey,
+      requiredDurationMinutes: appointmentType.duration,
       ruleSetId: active.ruleSetId,
       startTime: args.startTime,
     });

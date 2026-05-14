@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 import type { Id } from "../_generated/dataModel";
 
 import { api } from "../_generated/api";
+import { createAppointmentFromTrustedSource } from "../appointments";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
@@ -285,6 +286,39 @@ describe("TelefonKI availability", () => {
     expect(afternoonSlot?.startTime).toBe(afternoonSlots[0]?.startTime);
   });
 
+  test("only offers slots that cover the full TelefonKI appointment duration", async () => {
+    const t = createTestContext();
+    const fixture = await createTelefonkiFixture(t);
+    const blockedStartTime = nextWeekdayAt(1, 8, 5);
+
+    await t.run(async (ctx) => {
+      await createAppointmentFromTrustedSource(ctx, {
+        appointmentTypeId: fixture.appointmentTypeId,
+        locationId: fixture.locationId,
+        practiceId: fixture.practiceId,
+        practitionerId: fixture.practitionerId,
+        start: blockedStartTime,
+        temporaryPatientName: "Grace Hopper",
+        temporaryPatientPhoneNumber: "+491709999999",
+        title: "Bestehender Termin",
+      });
+    });
+
+    const slots = await t.query(api.telefonki.availableSlotsOnDate, {
+      date: nextWeekdayDate(1),
+      limit: 10,
+      practiceId: fixture.practiceId,
+      simulatedContext: simulatedContext({
+        appointmentTypeId: fixture.appointmentTypeId,
+        locationId: fixture.locationId,
+      }),
+    });
+
+    expect(
+      slots.some((slot) => slot.startTime === nextWeekdayAt(1, 8, 0)),
+    ).toBe(false);
+  });
+
   test("honors a selected practitioner when searching", async () => {
     const t = createTestContext();
     const fixture = await createTelefonkiFixture(t);
@@ -428,6 +462,55 @@ describe("TelefonKI availability", () => {
       }),
     });
     expect(slots).toEqual([]);
+  });
+
+  test("hides appointment series types from TelefonKI config and queries", async () => {
+    const t = createTestContext();
+    const fixture = await createTelefonkiFixture(t);
+    const followUpAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      return await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
+        allowedPractitionerLineageKeys: [fixture.practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: fixture.appointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 7,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "follow-up-1",
+          },
+        ],
+        lastModified: now,
+        name: "Serientermin",
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      });
+    });
+
+    const config = await t.query(api.telefonki.getActiveConfig, {
+      practiceId: fixture.practiceId,
+    });
+    expect(
+      config.appointmentTypes.some(
+        (appointmentType) =>
+          appointmentType.lineageKey === followUpAppointmentTypeId,
+      ),
+    ).toBe(false);
+
+    await expect(
+      t.query(api.telefonki.nextAvailableSlot, {
+        practiceId: fixture.practiceId,
+        simulatedContext: simulatedContext({
+          appointmentTypeId: followUpAppointmentTypeId,
+          locationId: fixture.locationId,
+        }),
+      }),
+    ).rejects.toThrow("Appointment type is not available.");
   });
 });
 
