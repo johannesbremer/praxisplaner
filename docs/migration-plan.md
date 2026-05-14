@@ -181,6 +181,7 @@ pnpm exec convex deployment select local
 pnpm exec convex env set WORKOS_CLIENT_ID client_local_migration_rehearsal
 pnpm exec convex env set WORKOS_API_KEY sk_test_local_migration_rehearsal
 pnpm exec convex env set WORKOS_WEBHOOK_SECRET whsec_local_migration_rehearsal
+pnpm exec convex env set MIGRATION_REHEARSAL_ENABLED true
 pnpm exec convex dev
 ```
 
@@ -189,6 +190,7 @@ Keep `pnpm exec convex dev` running in one terminal. In another terminal:
 ```sh
 pnpm seed:preview
 pnpm exec convex import --replace-all .cache/seed/preview.zip
+node scripts/migration/import-local-reference-rehearsal.mjs
 node scripts/migration/build-local-rehearsal-import.mjs patients
 pnpm exec convex import --replace .cache/migration/rehearsal/patients-rehearsal.zip
 node scripts/migration/build-local-rehearsal-import.mjs appointments

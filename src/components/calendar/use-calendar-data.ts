@@ -121,8 +121,8 @@ export function useCalendarData(args: {
   );
   const allPracticeConflictScopeKey = useMemo(
     () =>
-      `${args.practiceId}:${activeRuleSetId ?? "active"}:${args.ruleSetId ?? "selected"}`,
-    [activeRuleSetId, args.practiceId, args.ruleSetId],
+      `${args.practiceId}:${activeRuleSetId ?? "active"}:${args.ruleSetId ?? "selected"}:${args.selectedDate.toString()}`,
+    [activeRuleSetId, args.practiceId, args.ruleSetId, args.selectedDate],
   );
   const [allPracticeConflictData, setAllPracticeConflictData] = useState<{
     appointments: CalendarAppointmentRecord[] | undefined;

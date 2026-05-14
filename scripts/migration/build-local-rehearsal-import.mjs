@@ -341,12 +341,33 @@ function buildAppointmentsZip() {
     .filter(Boolean)
     .map((column) => `"${column}"`)
     .join(" | ");
+  const patientField =
+    patientIdAlternatives.length === 0
+      ? ""
+      : `, "patientId": ${patientIdAlternatives}`;
+  const baseSchemaPrefix = `{"practiceId": "${practice._id}", "start": string, "end": string, "title": string, "appointmentTypeLineageKey": ${appointmentTypeLineageKeyAlternatives}, "appointmentTypeTitle": string, "locationLineageKey": ${locationLineageKeyAlternatives}`;
+  const baseSchemaSuffix = `, "createdAt": int64, "lastModified": int64}`;
+  const schemaVariants = [
+    ...(practitionerLineageKeyAlternatives.length === 0
+      ? []
+      : [
+          `${baseSchemaPrefix}, "practitionerLineageKey": ${practitionerLineageKeyAlternatives}${patientField}${baseSchemaSuffix}`,
+          `${baseSchemaPrefix}, "practitionerLineageKey": ${practitionerLineageKeyAlternatives}${baseSchemaSuffix}`,
+        ]),
+    ...(calendarResourceColumnAlternatives.length === 0
+      ? []
+      : [
+          `${baseSchemaPrefix}, "calendarResourceColumn": ${calendarResourceColumnAlternatives}${patientField}${baseSchemaSuffix}`,
+          `${baseSchemaPrefix}, "calendarResourceColumn": ${calendarResourceColumnAlternatives}${baseSchemaSuffix}`,
+        ]),
+  ];
+  if (schemaVariants.length === 0) {
+    throw new Error(
+      "Appointment rehearsal import generated no schema variants.",
+    );
+  }
 
-  writeZipTable(
-    "appointments",
-    documents,
-    `{"practiceId": "${practice._id}", "start": string, "end": string, "title": string, "appointmentTypeLineageKey": ${appointmentTypeLineageKeyAlternatives}, "appointmentTypeTitle": string, "locationLineageKey": ${locationLineageKeyAlternatives}, "practitionerLineageKey": ${practitionerLineageKeyAlternatives}, "patientId": ${patientIdAlternatives}, "createdAt": int64, "lastModified": int64} | {"practiceId": "${practice._id}", "start": string, "end": string, "title": string, "appointmentTypeLineageKey": ${appointmentTypeLineageKeyAlternatives}, "appointmentTypeTitle": string, "locationLineageKey": ${locationLineageKeyAlternatives}, "calendarResourceColumn": ${calendarResourceColumnAlternatives}, "patientId": ${patientIdAlternatives}, "createdAt": int64, "lastModified": int64} | {"practiceId": "${practice._id}", "start": string, "end": string, "title": string, "appointmentTypeLineageKey": ${appointmentTypeLineageKeyAlternatives}, "appointmentTypeTitle": string, "locationLineageKey": ${locationLineageKeyAlternatives}, "practitionerLineageKey": ${practitionerLineageKeyAlternatives}, "createdAt": int64, "lastModified": int64} | {"practiceId": "${practice._id}", "start": string, "end": string, "title": string, "appointmentTypeLineageKey": ${appointmentTypeLineageKeyAlternatives}, "appointmentTypeTitle": string, "locationLineageKey": ${locationLineageKeyAlternatives}, "calendarResourceColumn": ${calendarResourceColumnAlternatives}, "createdAt": int64, "lastModified": int64}`,
-  );
+  writeZipTable("appointments", documents, schemaVariants.join(" | "));
 
   createZip("appointments-rehearsal.zip");
   console.log(

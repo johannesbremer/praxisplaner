@@ -689,21 +689,22 @@ async function getOptionalLocationLineageKey(
   });
 }
 
-function getRangeDayBounds(args: { end: string; start: string }): {
-  dayEndExclusive: string;
-  dayStart: string;
+function getRangeOverlapBounds(args: { end: string; start: string }): {
+  queryEndExclusive: string;
+  queryStartInclusive: string;
 } {
   const dayStart = Temporal.ZonedDateTime.from(args.start)
     .toPlainDate()
-    .toZonedDateTime(APPOINTMENT_TIMEZONE)
-    .toString();
+    .toZonedDateTime(APPOINTMENT_TIMEZONE);
   const dayEndExclusive = Temporal.ZonedDateTime.from(args.end)
     .toPlainDate()
     .add({ days: 1 })
-    .toZonedDateTime(APPOINTMENT_TIMEZONE)
-    .toString();
+    .toZonedDateTime(APPOINTMENT_TIMEZONE);
 
-  return { dayEndExclusive, dayStart };
+  return {
+    queryEndExclusive: dayEndExclusive.toString(),
+    queryStartInclusive: dayStart.subtract({ days: 1 }).toString(),
+  };
 }
 
 async function getSimulationAppointmentReplacements(
@@ -814,6 +815,13 @@ function isMissingDisplayLineageMappingError(error: unknown): boolean {
     error.message.includes("im Regelset") &&
     error.message.includes("nicht gefunden")
   );
+}
+
+function isTimeRangeOverlap(
+  record: Pick<AppointmentDoc | BlockedSlotDoc, "end" | "start">,
+  range: { end: string; start: string },
+): boolean {
+  return record.start < range.end && record.end > range.start;
 }
 
 async function remapAppointmentIds(
@@ -1128,13 +1136,13 @@ export const getAppointmentsInRange = query({
     const accessiblePracticeIds = new Set(
       await getAccessiblePracticeIdsForQuery(ctx),
     );
-    const rangeDayBounds = getRangeDayBounds(args);
+    const rangeOverlapBounds = getRangeOverlapBounds(args);
     const appointmentDocs = await ctx.db
       .query("appointments")
       .withIndex("by_start", (q) =>
         q
-          .gte("start", rangeDayBounds.dayStart)
-          .lt("start", rangeDayBounds.dayEndExclusive),
+          .gte("start", rangeOverlapBounds.queryStartInclusive)
+          .lt("start", rangeOverlapBounds.queryEndExclusive),
       )
       .collect();
 
@@ -1146,10 +1154,7 @@ export const getAppointmentsInRange = query({
       filteredAppointments,
       args,
       scope,
-    ).filter(
-      (appointment) =>
-        appointment.start >= args.start && appointment.start <= args.end,
-    );
+    ).filter((appointment) => isTimeRangeOverlap(appointment, args));
 
     const displayRuleSetId = getDisplayRuleSetId(args);
     const appointments: AppointmentListItem[] = displayRuleSetId
@@ -2467,20 +2472,19 @@ export const getBlockedSlotsInRange = query({
     const accessiblePracticeIds = new Set(
       await getAccessiblePracticeIdsForQuery(ctx),
     );
-    const rangeDayBounds = getRangeDayBounds(args);
+    const rangeOverlapBounds = getRangeOverlapBounds(args);
     const rangeBlockedSlots = await ctx.db
       .query("blockedSlots")
       .withIndex("by_start", (q) =>
         q
-          .gte("start", rangeDayBounds.dayStart)
-          .lt("start", rangeDayBounds.dayEndExclusive),
+          .gte("start", rangeOverlapBounds.queryStartInclusive)
+          .lt("start", rangeOverlapBounds.queryEndExclusive),
       )
       .collect();
     const blockedSlots = rangeBlockedSlots.filter(
       (blockedSlot) =>
         accessiblePracticeIds.has(blockedSlot.practiceId) &&
-        blockedSlot.start >= args.start &&
-        blockedSlot.start <= args.end,
+        isTimeRangeOverlap(blockedSlot, args),
     );
 
     const scope: AppointmentScope = args.scope ?? "real";
