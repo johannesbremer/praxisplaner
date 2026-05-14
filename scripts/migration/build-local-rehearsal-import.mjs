@@ -97,20 +97,45 @@ function toIsoDateTime(value) {
   if (!match) {
     throw new Error(`Unsupported date format: ${value}`);
   }
-  return new Date(`${match[1]}T${match[2]}${match[3]}`).toISOString();
+  return `${match[1]}T${match[2]}${match[3]}[Europe/Berlin]`;
+}
+
+function toDate(value) {
+  const match = value.match(
+    /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-]\d{2}:\d{2})$/,
+  );
+  if (!match) {
+    throw new Error(`Unsupported date format: ${value}`);
+  }
+  return new Date(`${match[1]}T${match[2]}${match[3]}`);
 }
 
 function normalizeAppointmentInterval(startValue, endValue) {
   const start = toIsoDateTime(startValue);
   const parsedEnd = toIsoDateTime(endValue);
 
-  if (new Date(parsedEnd).getTime() > new Date(start).getTime()) {
+  if (toDate(endValue).getTime() > toDate(startValue).getTime()) {
     return { end: parsedEnd, inferredDuration: false, start };
   }
 
-  const end = new Date(
-    new Date(start).getTime() + fallbackDurationMinutes * 60 * 1000,
-  ).toISOString();
+  const endDate = new Date(
+    toDate(startValue).getTime() + fallbackDurationMinutes * 60 * 1000,
+  );
+  const localEnd = new Intl.DateTimeFormat("sv-SE", {
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+    minute: "2-digit",
+    month: "2-digit",
+    second: "2-digit",
+    timeZone: "Europe/Berlin",
+    timeZoneName: "longOffset",
+    year: "numeric",
+  })
+    .format(endDate)
+    .replace(" ", "T")
+    .replace(" GMT", "");
+  const end = `${localEnd}[Europe/Berlin]`;
   return { end, inferredDuration: true, start };
 }
 
@@ -300,7 +325,12 @@ function getSeedPractice() {
 function getLocalPatientsBySourceId() {
   const practice = getSeedPractice();
   const mappings = [];
-  for (let fromInclusive = 0; fromInclusive < 27000; fromInclusive += 1000) {
+  const pageSize = 250;
+  for (
+    let fromInclusive = 0;
+    fromInclusive < 27000;
+    fromInclusive += pageSize
+  ) {
     const output = execFileSync(
       "pnpm",
       [
@@ -311,9 +341,8 @@ function getLocalPatientsBySourceId() {
         JSON.stringify({
           fromInclusive,
           practiceId: practice._id,
-          toExclusive: fromInclusive + 1000,
+          toExclusive: fromInclusive + pageSize,
         }),
-        "--push",
         "--typecheck",
         "disable",
       ],
@@ -322,7 +351,12 @@ function getLocalPatientsBySourceId() {
         encoding: "utf8",
       },
     );
-    mappings.push(...JSON.parse(output));
+    const jsonStart = output.indexOf("[");
+    const jsonEnd = output.lastIndexOf("]");
+    if (jsonStart === -1 || jsonEnd === -1 || jsonEnd < jsonStart) {
+      throw new Error(`Could not parse patient mapping response: ${output}`);
+    }
+    mappings.push(...JSON.parse(output.slice(jsonStart, jsonEnd + 1)));
   }
 
   return new Map(

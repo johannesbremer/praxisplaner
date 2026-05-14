@@ -25,7 +25,10 @@ import {
   captureFrontendError,
   invalidStateError,
 } from "../../utils/frontend-errors";
-import { buildCalendarDayQueryArgs } from "./calendar-query-args";
+import {
+  buildCalendarDayQueryArgs,
+  buildCalendarDayRange,
+} from "./calendar-query-args";
 import {
   toCalendarAppointmentRecord,
   toCalendarBlockedSlotRecord,
@@ -211,13 +214,16 @@ export function useCalendarData(args: {
 
   const refreshAllPracticeConflictData = useCallback(async () => {
     const requestId = ++fullPracticeConflictLoadRef.current;
+    const dayRange = buildCalendarDayRange(args.selectedDate);
     const [appointments, blockedSlots] = await Promise.all([
-      convex.query(api.appointments.getAppointments, {
+      convex.query(api.appointments.getAppointmentsInRange, {
         ...(activeRuleSetId === undefined ? {} : { activeRuleSetId }),
+        end: dayRange.dayEnd,
         scope: "all",
         ...(args.ruleSetId === undefined
           ? {}
           : { selectedRuleSetId: args.ruleSetId }),
+        start: dayRange.dayStart,
       }),
       convex.query(api.appointments.getBlockedSlots, {
         ...(activeRuleSetId === undefined ? {} : { activeRuleSetId }),
@@ -253,6 +259,7 @@ export function useCalendarData(args: {
     allPracticeConflictScopeKey,
     args.practiceId,
     args.ruleSetId,
+    args.selectedDate,
     buildAllPracticeAppointmentDocMap,
     buildAllPracticeBlockedSlotDocMap,
     convex,
