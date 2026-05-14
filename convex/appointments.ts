@@ -112,6 +112,9 @@ const appointmentResultValidator = v.object({
   appointmentTypeId: v.id("appointmentTypes"),
   appointmentTypeLineageKey: v.id("appointmentTypes"),
   appointmentTypeTitle: v.string(),
+  calendarResourceColumn: v.optional(
+    v.union(v.literal("ekg"), v.literal("labor")),
+  ),
   createdAt: v.int64(),
   end: v.string(),
   isSimulation: v.optional(v.boolean()),
@@ -879,6 +882,9 @@ function toAppointmentListItem(
     ...(appointment.cancelledAt === undefined
       ? {}
       : { cancelledAt: appointment.cancelledAt }),
+    ...(appointment.calendarResourceColumn === undefined
+      ? {}
+      : { calendarResourceColumn: appointment.calendarResourceColumn }),
     ...(appointment.isSimulation === undefined
       ? {}
       : { isSimulation: appointment.isSimulation }),

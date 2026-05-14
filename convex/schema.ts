@@ -400,6 +400,9 @@ export default defineSchema({
     // Additional fields
     appointmentTypeLineageKey: v.id("appointmentTypes"), // Stable reference across rule set versions
     appointmentTypeTitle: v.string(), // Snapshot of appointment type name at booking time
+    calendarResourceColumn: v.optional(
+      v.union(v.literal("ekg"), v.literal("labor")),
+    ),
     cancelledAt: v.optional(v.int64()),
     cancelledByUserId: v.optional(v.id("users")),
     isSimulation: v.optional(v.boolean()),

@@ -134,7 +134,10 @@ export function useCalendarVisibleDay({
 
     const appointmentsForSelectedDate = appointmentsData.filter(
       (appointment) => {
-        if (!appointment.practitionerLineageKey) {
+        if (
+          !appointment.practitionerLineageKey &&
+          appointment.calendarResourceColumn === undefined
+        ) {
           return false;
         }
 
@@ -153,6 +156,10 @@ export function useCalendarVisibleDay({
         );
       },
     );
+    const appointmentRangesByPractitioner =
+      collectAppointmentRangesByPractitioner(appointmentsForSelectedDate);
+    const appointmentRangesByResourceColumn =
+      collectAppointmentRangesByResourceColumn(appointmentsForSelectedDate);
     const deletedPractitionerIds = new Set(
       practitionersData
         .filter((practitioner) => practitioner.deleted === true)
@@ -178,6 +185,8 @@ export function useCalendarVisibleDay({
 
     if (
       daySchedules.length === 0 &&
+      appointmentRangesByPractitioner.size === 0 &&
+      appointmentRangesByResourceColumn.size === 0 &&
       deletedPractitionerIdsWithCalendarItems.size === 0
     ) {
       return emptyVisibleDay();
@@ -289,6 +298,26 @@ export function useCalendarVisibleDay({
       working.map((practitioner) => practitioner.lineageKey),
     );
 
+    for (const [
+      practitionerLineageKey,
+      range,
+    ] of appointmentRangesByPractitioner) {
+      if (workingPractitionerIds.has(practitionerLineageKey)) {
+        continue;
+      }
+
+      mutedPractitionerIds.add(practitionerLineageKey);
+      working.push({
+        endTime: formatMinutesAsTime(range.endMinutes),
+        lineageKey: practitionerLineageKey,
+        name:
+          practitionerNameByLineageKey.get(practitionerLineageKey) ??
+          "Unbekannt",
+        startTime: formatMinutesAsTime(range.startMinutes),
+      });
+      workingPractitionerIds.add(practitionerLineageKey);
+    }
+
     for (const {
       endMinutes,
       practitionerLineageKey,
@@ -357,6 +386,7 @@ export function useCalendarVisibleDay({
     const visibleRanges = [
       ...effectiveWorkingRanges,
       ...appointmentRanges,
+      ...appointmentRangesByResourceColumn.values(),
       ...deletedPractitionerCalendarItemRanges,
     ];
 
@@ -401,30 +431,38 @@ export function useCalendarVisibleDay({
           mutedPractitionerIds.has(practitioner.lineageKey) ||
           placementUnsupportedPractitionerIds.has(practitioner.lineageKey) ||
           dragUnsupportedPractitionerIds.has(practitioner.lineageKey),
-        isUnavailable: deletedPractitionerIdsWithCalendarItems.has(
-          practitioner.lineageKey,
-        ),
+        isUnavailable:
+          deletedPractitionerIdsWithCalendarItems.has(
+            practitioner.lineageKey,
+          ) ||
+          !validSchedules.some((schedule) => {
+            const lineageKey = practitionerLineageKeyById.get(
+              schedule.practitionerId,
+            );
+            return lineageKey === practitioner.lineageKey;
+          }),
         title: practitioner.name,
       }),
     );
 
-    const specialColumns: CalendarColumn[] =
-      working.length > 0
-        ? [
-            {
-              id: "ekg",
-              isMuted: false,
-              isUnavailable: false,
-              title: "EKG",
-            },
-            {
-              id: "labor",
-              isMuted: false,
-              isUnavailable: false,
-              title: "Labor",
-            },
-          ]
-        : [];
+    const shouldShowSpecialColumns =
+      working.length > 0 || appointmentRangesByResourceColumn.size > 0;
+    const specialColumns: CalendarColumn[] = shouldShowSpecialColumns
+      ? [
+          {
+            id: "ekg",
+            isMuted: appointmentRangesByResourceColumn.has("ekg"),
+            isUnavailable: appointmentRangesByResourceColumn.has("ekg"),
+            title: "EKG",
+          },
+          {
+            id: "labor",
+            isMuted: appointmentRangesByResourceColumn.has("labor"),
+            isUnavailable: appointmentRangesByResourceColumn.has("labor"),
+            title: "Labor",
+          },
+        ]
+      : [];
 
     return {
       businessEndHour,
@@ -452,6 +490,79 @@ export function useCalendarVisibleDay({
     timeToMinutes,
     vacationsData,
   ]);
+}
+
+function collectAppointmentRangesByPractitioner(
+  appointments: readonly CalendarAppointmentRecord[],
+): Map<PractitionerLineageKey, { endMinutes: number; startMinutes: number }> {
+  const ranges = new Map<
+    PractitionerLineageKey,
+    { endMinutes: number; startMinutes: number }
+  >();
+
+  for (const appointment of appointments) {
+    if (!appointment.practitionerLineageKey) {
+      continue;
+    }
+
+    const start = Temporal.ZonedDateTime.from(appointment.start);
+    const end = Temporal.ZonedDateTime.from(appointment.end);
+    const startMinutes = start.hour * 60 + start.minute;
+    const endMinutes = end.hour * 60 + end.minute;
+    const existing = ranges.get(appointment.practitionerLineageKey);
+
+    ranges.set(appointment.practitionerLineageKey, {
+      endMinutes:
+        existing === undefined
+          ? endMinutes
+          : Math.max(existing.endMinutes, endMinutes),
+      startMinutes:
+        existing === undefined
+          ? startMinutes
+          : Math.min(existing.startMinutes, startMinutes),
+    });
+  }
+
+  return ranges;
+}
+
+function collectAppointmentRangesByResourceColumn(
+  appointments: readonly CalendarAppointmentRecord[],
+): Map<"ekg" | "labor", { endMinutes: number; startMinutes: number }> {
+  const ranges = new Map<
+    "ekg" | "labor",
+    { endMinutes: number; startMinutes: number }
+  >();
+
+  for (const appointment of appointments) {
+    if (appointment.practitionerLineageKey) {
+      continue;
+    }
+
+    const resourceColumn = appointment.calendarResourceColumn;
+    if (resourceColumn === undefined) {
+      continue;
+    }
+
+    const start = Temporal.ZonedDateTime.from(appointment.start);
+    const end = Temporal.ZonedDateTime.from(appointment.end);
+    const startMinutes = start.hour * 60 + start.minute;
+    const endMinutes = end.hour * 60 + end.minute;
+    const existing = ranges.get(resourceColumn);
+
+    ranges.set(resourceColumn, {
+      endMinutes:
+        existing === undefined
+          ? endMinutes
+          : Math.max(existing.endMinutes, endMinutes),
+      startMinutes:
+        existing === undefined
+          ? startMinutes
+          : Math.min(existing.startMinutes, startMinutes),
+    });
+  }
+
+  return ranges;
 }
 
 function emptyVisibleDay() {

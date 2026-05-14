@@ -13,6 +13,12 @@ const locationNameByRoomToken = [
   { locationName: "Bad Iburg", pattern: /ibur(?:g)?|\bibu\b/i },
   { locationName: "Dissen a.T.W.", pattern: /\bdiss(?:en)?\b/i },
 ];
+const calendarResourceColumnByDoctorName = new Map([
+  ["Labor Dissen", "labor"],
+  ["Labor Iburg", "labor"],
+  ["Mufu Dissen", "ekg"],
+  ["Mufu Iburg", "ekg"],
+]);
 
 function parseCsv(text) {
   const rows = [];
@@ -149,6 +155,10 @@ function resolvePracticeLocationNameFromRoom(room) {
   throw new Error(`Could not resolve practice location from room "${room}".`);
 }
 
+function resolveCalendarResourceColumn(doctorName) {
+  return calendarResourceColumnByDoctorName.get(doctorName);
+}
+
 function writeZipTable(tableName, documents, generatedSchema) {
   const tableDir = join(outputRoot, "zip", tableName);
   mkdirSync(tableDir, { recursive: true });
@@ -226,6 +236,7 @@ function buildAppointmentsZip() {
     : appointments.slice(0, sampleAppointmentCount);
   const stats = {
     appointmentsWithoutPatient: 0,
+    byLocationName: new Map(),
     written: 0,
   };
   const documents = selectedAppointments.map((appointment) => {
@@ -237,13 +248,27 @@ function buildAppointmentsZip() {
     const location = locationByName.get(
       resolvePracticeLocationNameFromRoom(appointment.Raum),
     );
-    const practitioner = practitionerByName.get(appointment.Arzt);
+    const calendarResourceColumn = resolveCalendarResourceColumn(
+      appointment.Arzt,
+    );
+    const practitioner =
+      calendarResourceColumn === undefined
+        ? practitionerByName.get(appointment.Arzt)
+        : undefined;
 
-    if (!appointmentType || !location || !practitioner) {
+    if (
+      !appointmentType ||
+      !location ||
+      (calendarResourceColumn === undefined && !practitioner)
+    ) {
       throw new Error(
         `Missing reference for appointment ${JSON.stringify(appointment)}`,
       );
     }
+    stats.byLocationName.set(
+      location.name,
+      (stats.byLocationName.get(location.name) ?? 0) + 1,
+    );
 
     const patientId = patientBySourceId.get(Number(appointment.ID));
     if (!patientId) {
@@ -259,7 +284,9 @@ function buildAppointmentsZip() {
       locationLineageKey: location.lineageKey,
       ...(patientId ? { patientId } : {}),
       practiceId: practice._id,
-      practitionerLineageKey: practitioner.lineageKey,
+      ...(calendarResourceColumn === undefined
+        ? { practitionerLineageKey: practitioner.lineageKey }
+        : { calendarResourceColumn }),
       start: interval.start,
       title: [
         appointment.Vorname,
@@ -271,6 +298,14 @@ function buildAppointmentsZip() {
     };
   });
   stats.written = documents.length;
+  const missingLocationLineageKey = documents.find(
+    (document) => document.locationLineageKey === undefined,
+  );
+  if (missingLocationLineageKey) {
+    throw new Error(
+      `Appointment missing locationLineageKey: ${JSON.stringify(missingLocationLineageKey)}`,
+    );
+  }
 
   const inferredDurationCount = selectedAppointments.filter(
     (appointment) =>
@@ -297,18 +332,30 @@ function buildAppointmentsZip() {
   const practitionerLineageKeyAlternatives = [
     ...new Set(documents.map((document) => document.practitionerLineageKey)),
   ]
+    .filter(Boolean)
     .map((lineageKey) => `"${lineageKey}"`)
+    .join(" | ");
+  const calendarResourceColumnAlternatives = [
+    ...new Set(documents.map((document) => document.calendarResourceColumn)),
+  ]
+    .filter(Boolean)
+    .map((column) => `"${column}"`)
     .join(" | ");
 
   writeZipTable(
     "appointments",
     documents,
-    `{"practiceId": "${practice._id}", "start": string, "end": string, "title": string, "appointmentTypeLineageKey": ${appointmentTypeLineageKeyAlternatives}, "appointmentTypeTitle": string, "locationLineageKey": ${locationLineageKeyAlternatives}, "practitionerLineageKey": ${practitionerLineageKeyAlternatives}, "patientId": ${patientIdAlternatives}, "createdAt": int64, "lastModified": int64} | {"practiceId": "${practice._id}", "start": string, "end": string, "title": string, "appointmentTypeLineageKey": ${appointmentTypeLineageKeyAlternatives}, "appointmentTypeTitle": string, "locationLineageKey": ${locationLineageKeyAlternatives}, "practitionerLineageKey": ${practitionerLineageKeyAlternatives}, "createdAt": int64, "lastModified": int64}`,
+    `{"practiceId": "${practice._id}", "start": string, "end": string, "title": string, "appointmentTypeLineageKey": ${appointmentTypeLineageKeyAlternatives}, "appointmentTypeTitle": string, "locationLineageKey": ${locationLineageKeyAlternatives}, "practitionerLineageKey": ${practitionerLineageKeyAlternatives}, "patientId": ${patientIdAlternatives}, "createdAt": int64, "lastModified": int64} | {"practiceId": "${practice._id}", "start": string, "end": string, "title": string, "appointmentTypeLineageKey": ${appointmentTypeLineageKeyAlternatives}, "appointmentTypeTitle": string, "locationLineageKey": ${locationLineageKeyAlternatives}, "calendarResourceColumn": ${calendarResourceColumnAlternatives}, "patientId": ${patientIdAlternatives}, "createdAt": int64, "lastModified": int64} | {"practiceId": "${practice._id}", "start": string, "end": string, "title": string, "appointmentTypeLineageKey": ${appointmentTypeLineageKeyAlternatives}, "appointmentTypeTitle": string, "locationLineageKey": ${locationLineageKeyAlternatives}, "practitionerLineageKey": ${practitionerLineageKeyAlternatives}, "createdAt": int64, "lastModified": int64} | {"practiceId": "${practice._id}", "start": string, "end": string, "title": string, "appointmentTypeLineageKey": ${appointmentTypeLineageKeyAlternatives}, "appointmentTypeTitle": string, "locationLineageKey": ${locationLineageKeyAlternatives}, "calendarResourceColumn": ${calendarResourceColumnAlternatives}, "createdAt": int64, "lastModified": int64}`,
   );
 
   createZip("appointments-rehearsal.zip");
   console.log(
     `Wrote ${stats.written} rehearsal appointments${fullImport ? " for full import" : ""}; ${stats.appointmentsWithoutPatient} without imported patient; inferred fallback duration for ${inferredDurationCount}.`,
+  );
+  console.log(
+    `Location lineage distribution: ${[...stats.byLocationName.entries()]
+      .map(([name, count]) => `${name}=${count}`)
+      .join(", ")}.`,
   );
 }
 

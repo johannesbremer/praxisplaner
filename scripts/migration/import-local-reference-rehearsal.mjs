@@ -4,6 +4,12 @@ import { join } from "node:path";
 
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const practiceLocations = ["Bad Iburg", "Dissen a.T.W."];
+const resourceDoctorNames = new Set([
+  "Labor Dissen",
+  "Labor Iburg",
+  "Mufu Dissen",
+  "Mufu Iburg",
+]);
 
 function parseCsv(text) {
   const rows = [];
@@ -136,7 +142,11 @@ const appointmentTypes = uniqueSorted(
   duration: inferDurationMinutes(rowsByType.get(name) ?? []),
   name,
 }));
-const practitioners = uniqueSorted(appointments.map((row) => row.Arzt));
+const practitioners = uniqueSorted(
+  appointments
+    .map((row) => row.Arzt)
+    .filter((name) => !resourceDoctorNames.has(name)),
+);
 
 const result = execFileSync(
   "pnpm",

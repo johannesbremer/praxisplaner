@@ -8,6 +8,7 @@ import type {
   CalendarAppointmentView,
   CalendarBlockedSlotRecord,
 } from "./types";
+import type { CalendarColumnId } from "./types";
 
 import {
   asAppointmentTypeLineageKey,
@@ -37,7 +38,7 @@ export function buildCalendarAppointmentLayouts(args: {
       );
 
       return {
-        column: appointment.practitionerLineageKey || "ekg",
+        column: getCalendarAppointmentColumn(appointment),
         duration,
         id: appointment._id,
         record: appointment,
@@ -95,6 +96,19 @@ export function buildCalendarAppointmentViews(args: {
       (appointment): appointment is CalendarAppointmentView =>
         appointment !== null,
     );
+}
+
+export function getCalendarAppointmentColumn(
+  appointment: Pick<
+    CalendarAppointmentRecord,
+    "calendarResourceColumn" | "practitionerLineageKey"
+  >,
+): CalendarColumnId {
+  return (
+    appointment.practitionerLineageKey ??
+    appointment.calendarResourceColumn ??
+    "ekg"
+  );
 }
 
 export function toCalendarAppointmentRecord(
