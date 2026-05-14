@@ -21,6 +21,8 @@ import type { Id } from "../../convex/_generated/dataModel";
 
 import { api as convexApi } from "../../convex/_generated/api";
 import {
+  type ActiveTelefonkiOffers,
+  advanceSearchVersion,
   buildTelefonkiOfferCriteria,
   clearOfferedSlots,
   formatTelefonkiDate,
@@ -29,7 +31,6 @@ import {
   listMissingBookingPrerequisites,
   renderOfferedSlots,
   sanitizePhoneNumber,
-  type StoredTelefonkiOffer,
 } from "./agent-state";
 import { resolveCallRouting } from "./call-routing";
 import { buildTelefonkiInstructions } from "./instructions";
@@ -41,18 +42,21 @@ type ActiveConfig = FunctionReturnType<
   typeof convexApi.telefonki.getActiveConfig
 >;
 type AppointmentTypeChoice = ActiveConfig["appointmentTypes"][number];
-interface CallState {
+interface BookingIntentState {
   appointmentType?: AppointmentTypeChoice;
   birthDate?: string;
   firstName?: string;
   isNewPatient?: boolean;
   lastName?: string;
   location?: LocationChoice;
-  offeredSlots: Map<string, StoredTelefonkiOffer<TelefonkiSlot>>;
-  phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
   phoneNumber?: string;
   practitioner?: PractitionerChoice;
   reason?: string;
+}
+interface CallState {
+  activeOffers: ActiveTelefonkiOffers<TelefonkiSlot>;
+  bookingIntent: BookingIntentState;
+  phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
 }
 type LocationChoice = ActiveConfig["locations"][number];
 
@@ -62,7 +66,7 @@ type TelefonkiSlot = NonNullable<
   FunctionReturnType<typeof convexApi.telefonki.nextAvailableSlot>
 >;
 
-function buildCurrentOfferCriteria(state: CallState) {
+function buildCurrentOfferCriteria(state: BookingIntentState) {
   if (!state.appointmentType || !state.location) {
     throw new Error(
       "Terminart und Standort müssen vor der Terminsuche gespeichert sein.",
@@ -85,12 +89,13 @@ function buildCurrentOfferCriteria(state: CallState) {
   });
 }
 
-function buildSimulatedContext(state: CallState) {
+function buildSimulatedContext(state: BookingIntentState) {
   if (!state.appointmentType || !state.location) {
     throw new Error(
       "Terminart und Standort müssen vor der Terminsuche gespeichert sein.",
     );
   }
+
   return {
     appointmentTypeLineageKey: state.appointmentType.lineageKey,
     locationLineageKey: state.location.lineageKey,
@@ -129,6 +134,35 @@ function getOptionalEnv(name: string): string | undefined {
   return value && value.length > 0 ? value : undefined;
 }
 
+function invalidateOffersForCriteriaChange(
+  state: CallState,
+  callId: string,
+  details: Record<string, number | string | undefined> = {},
+): void {
+  advanceSearchVersion(state.activeOffers);
+  logTelefonkiEvent({
+    callId,
+    details: {
+      ...details,
+      reason: "criteria_changed",
+      searchVersion: state.activeOffers.searchVersion,
+    },
+    event: "telefonki.offer_invalidated",
+    phoneBookingIdentityId: state.phoneBookingIdentityId,
+  });
+}
+
+function isRecoverableBookingAvailabilityError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message === "Selected slot is no longer available." ||
+    error.message === "Der gewaehlte Zeitraum ist bereits belegt."
+  );
+}
+
 function loadDotenv(): void {
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
@@ -146,8 +180,49 @@ function loadDotenv(): void {
   }
 }
 
+function logTelefonkiEvent(args: {
+  callId: string;
+  details?: Record<string, number | string | undefined>;
+  event: string;
+  phoneBookingIdentityId: Id<"phoneBookingIdentities"> | undefined;
+}): void {
+  console.log(
+    JSON.stringify({
+      callId: args.callId,
+      details: args.details,
+      event: args.event,
+      phoneBookingIdentityId: args.phoneBookingIdentityId,
+    }),
+  );
+}
+
 async function markAsyncBoundary(): Promise<void> {
   await Promise.resolve();
+}
+
+function renderAndLogOfferedSlots(args: {
+  callId: string;
+  criteria: ReturnType<typeof buildTelefonkiOfferCriteria>;
+  phoneBookingIdentityId: Id<"phoneBookingIdentities"> | undefined;
+  slots: readonly TelefonkiSlot[];
+  state: CallState;
+}): string {
+  const response = renderOfferedSlots({
+    activeOffers: args.state.activeOffers,
+    criteria: args.criteria,
+    formatSlot,
+    slots: args.slots,
+  });
+  logTelefonkiEvent({
+    callId: args.callId,
+    details: {
+      count: args.slots.length,
+      searchVersion: args.state.activeOffers.searchVersion,
+    },
+    event: "telefonki.offers_generated",
+    phoneBookingIdentityId: args.phoneBookingIdentityId,
+  });
+  return response;
 }
 
 loadDotenv();
@@ -158,7 +233,12 @@ export default defineAgent({
     const integrationSecret = getOptionalEnv("TELEFONKI_SHARED_SECRET");
     const convex = new ConvexHttpClient(convexUrl);
     const state: CallState = {
-      offeredSlots: new Map(),
+      activeOffers: {
+        generatedAt: undefined,
+        offers: new Map(),
+        searchVersion: 0,
+      },
+      bookingIntent: {},
     };
     let session: undefined | voice.AgentSession;
 
@@ -190,7 +270,7 @@ export default defineAgent({
       const instructions = buildTelefonkiInstructions(activeConfig);
 
       if (routing.callerPhoneNumber) {
-        state.phoneNumber = routing.callerPhoneNumber;
+        state.bookingIntent.phoneNumber = routing.callerPhoneNumber;
       }
       state.phoneBookingIdentityId = await convex.mutation(
         convexApi.telefonki.createOrReusePhoneBookingIdentity,
@@ -219,8 +299,10 @@ export default defineAgent({
             if (!practitioner) {
               return "Fehler: Diese Behandler-ID ist in der aktuellen Konfiguration nicht vorhanden.";
             }
-            clearOfferedSlots(state.offeredSlots);
-            state.practitioner = practitioner;
+            state.bookingIntent.practitioner = practitioner;
+            invalidateOffersForCriteriaChange(state, ctx.job.id, {
+              practitionerLineageKey: practitioner.lineageKey,
+            });
             return `Gespeichert: ${practitioner.name}.`;
           },
           parameters: z.object({
@@ -239,8 +321,8 @@ export default defineAgent({
             if (!parsed.success) {
               return "Fehler: Bitte speichern Sie das Geburtsdatum im Format JJJJ-MM-TT.";
             }
-            clearOfferedSlots(state.offeredSlots);
-            state.birthDate = parsed.data;
+            state.bookingIntent.birthDate = parsed.data;
+            invalidateOffersForCriteriaChange(state, ctx.job.id);
             return `Gespeichert: ${formatTelefonkiDate(parsed.data)}.`;
           },
           parameters: z.object({
@@ -257,7 +339,7 @@ export default defineAgent({
             if (trimmedReason.length === 0) {
               return "Fehler: Der Termingrund darf nicht leer sein.";
             }
-            state.reason = trimmedReason;
+            state.bookingIntent.reason = trimmedReason;
             return `Gespeichert: ${trimmedReason}.`;
           },
           parameters: z.object({
@@ -284,14 +366,15 @@ export default defineAgent({
               {
                 ...(integrationSecret && { integrationSecret }),
                 practiceId,
-                simulatedContext: buildSimulatedContext(state),
+                simulatedContext: buildSimulatedContext(state.bookingIntent),
               },
             );
-            return renderOfferedSlots({
-              criteria: buildCurrentOfferCriteria(state),
-              formatSlot,
+            return renderAndLogOfferedSlots({
+              callId: ctx.job.id,
+              criteria: buildCurrentOfferCriteria(state.bookingIntent),
+              phoneBookingIdentityId: state.phoneBookingIdentityId,
               slots: slot ? [slot] : [],
-              store: state.offeredSlots,
+              state,
             });
           },
         }),
@@ -308,14 +391,15 @@ export default defineAgent({
                 ...(integrationSecret && { integrationSecret }),
                 limit: 10,
                 practiceId,
-                simulatedContext: buildSimulatedContext(state),
+                simulatedContext: buildSimulatedContext(state.bookingIntent),
               },
             );
-            return renderOfferedSlots({
-              criteria: buildCurrentOfferCriteria(state),
-              formatSlot,
+            return renderAndLogOfferedSlots({
+              callId: ctx.job.id,
+              criteria: buildCurrentOfferCriteria(state.bookingIntent),
+              phoneBookingIdentityId: state.phoneBookingIdentityId,
               slots,
-              store: state.offeredSlots,
+              state,
             });
           },
         }),
@@ -332,14 +416,15 @@ export default defineAgent({
                 ...(integrationSecret && { integrationSecret }),
                 limit: 10,
                 practiceId,
-                simulatedContext: buildSimulatedContext(state),
+                simulatedContext: buildSimulatedContext(state.bookingIntent),
               },
             );
-            return renderOfferedSlots({
-              criteria: buildCurrentOfferCriteria(state),
-              formatSlot,
+            return renderAndLogOfferedSlots({
+              callId: ctx.job.id,
+              criteria: buildCurrentOfferCriteria(state.bookingIntent),
+              phoneBookingIdentityId: state.phoneBookingIdentityId,
               slots,
-              store: state.offeredSlots,
+              state,
             });
           },
         }),
@@ -355,14 +440,15 @@ export default defineAgent({
               {
                 ...(integrationSecret && { integrationSecret }),
                 practiceId,
-                simulatedContext: buildSimulatedContext(state),
+                simulatedContext: buildSimulatedContext(state.bookingIntent),
               },
             );
-            return renderOfferedSlots({
-              criteria: buildCurrentOfferCriteria(state),
-              formatSlot,
+            return renderAndLogOfferedSlots({
+              callId: ctx.job.id,
+              criteria: buildCurrentOfferCriteria(state.bookingIntent),
+              phoneBookingIdentityId: state.phoneBookingIdentityId,
               slots: slot ? [slot] : [],
-              store: state.offeredSlots,
+              state,
             });
           },
         }),
@@ -371,8 +457,8 @@ export default defineAgent({
             "Speichert, ob der Patient neu ist. true bedeutet noch nie in der Praxis; false bedeutet bereits bekannt.",
           execute: async ({ isNewPatient }) => {
             await markAsyncBoundary();
-            clearOfferedSlots(state.offeredSlots);
-            state.isNewPatient = isNewPatient;
+            state.bookingIntent.isNewPatient = isNewPatient;
+            invalidateOffersForCriteriaChange(state, ctx.job.id);
             return isNewPatient
               ? "Patient ist neu."
               : "Patient ist bereits bekannt.";
@@ -392,8 +478,8 @@ export default defineAgent({
             if (trimmedFirstName.length === 0 || trimmedLastName.length === 0) {
               return "Fehler: Vorname und Nachname dürfen nicht leer sein.";
             }
-            state.firstName = trimmedFirstName;
-            state.lastName = trimmedLastName;
+            state.bookingIntent.firstName = trimmedFirstName;
+            state.bookingIntent.lastName = trimmedLastName;
             return "Name ist gespeichert.";
           },
           parameters: z.object({
@@ -413,8 +499,10 @@ export default defineAgent({
             if (!location) {
               return "Fehler: Diese Standort-ID ist in der aktuellen Konfiguration nicht vorhanden.";
             }
-            clearOfferedSlots(state.offeredSlots);
-            state.location = location;
+            state.bookingIntent.location = location;
+            invalidateOffersForCriteriaChange(state, ctx.job.id, {
+              locationLineageKey: location.lineageKey,
+            });
             return `Gespeichert: ${location.name}.`;
           },
           parameters: z.object({
@@ -429,14 +517,15 @@ export default defineAgent({
           execute: async ({ phoneNumber }) => {
             await markAsyncBoundary();
             try {
-              state.phoneNumber = sanitizePhoneNumber(phoneNumber);
+              state.bookingIntent.phoneNumber =
+                sanitizePhoneNumber(phoneNumber);
             } catch (error) {
               if (error instanceof Error) {
                 return `Fehler: ${error.message}`;
               }
               return "Fehler: Telefonnummer konnte nicht gespeichert werden.";
             }
-            return `Telefonnummer gespeichert: ${state.phoneNumber}.`;
+            return `Telefonnummer gespeichert: ${state.bookingIntent.phoneNumber}.`;
           },
           parameters: z.object({
             phoneNumber: z.string().describe("Telefonnummer des Patienten."),
@@ -469,49 +558,137 @@ export default defineAgent({
             if (!state.phoneBookingIdentityId) {
               return "Fehler: Die Telefonidentität wurde noch nicht angelegt.";
             }
+
             const missing = requireBookingPrerequisites(state);
             if (missing.length > 0) {
               return `Bitte zuerst speichern: ${missing.join(", ")}.`;
             }
-            const storedOffer = state.offeredSlots.get(offerId);
+
+            const storedOffer = state.activeOffers.offers.get(offerId);
             if (!storedOffer) {
               return "Fehler: Dieser Termin wurde in diesem Gespräch nicht angeboten. Bitte suchen Sie erneut.";
             }
+
             if (
-              !state.appointmentType ||
-              !state.location ||
-              !state.firstName ||
-              !state.lastName ||
-              state.isNewPatient === undefined
+              !state.bookingIntent.appointmentType ||
+              !state.bookingIntent.location ||
+              !state.bookingIntent.firstName ||
+              !state.bookingIntent.lastName ||
+              state.bookingIntent.isNewPatient === undefined
             ) {
               return "Fehler: Es fehlen gespeicherte Pflichtdaten.";
             }
-            const currentCriteria = buildCurrentOfferCriteria(state);
-            if (
-              !isStoredOfferCompatible(currentCriteria, storedOffer.criteria)
-            ) {
-              clearOfferedSlots(state.offeredSlots);
+
+            const currentCriteria = buildCurrentOfferCriteria(
+              state.bookingIntent,
+            );
+            const invalidationReason = isStoredOfferCompatible({
+              activeOffers: state.activeOffers,
+              currentCriteria,
+              storedOffer,
+            });
+            if (invalidationReason) {
+              clearOfferedSlots(state.activeOffers);
+              logTelefonkiEvent({
+                callId: ctx.job.id,
+                details: {
+                  offerId,
+                  reason: invalidationReason,
+                  searchVersion: state.activeOffers.searchVersion,
+                },
+                event: "telefonki.offer_invalidated",
+                phoneBookingIdentityId: state.phoneBookingIdentityId,
+              });
+              if (invalidationReason === "expired") {
+                return "Fehler: Das Terminangebot ist abgelaufen. Bitte suchen Sie erneut.";
+              }
               return "Fehler: Die angebotenen Termine passen nicht mehr zum aktuellen Suchstand. Bitte suchen Sie erneut.";
             }
+
             const slot = storedOffer.slot;
-            const booking = await convex.mutation(convexApi.telefonki.book, {
-              appointmentTypeLineageKey: state.appointmentType.lineageKey,
-              ...(integrationSecret && { integrationSecret }),
-              locationLineageKey: state.location.lineageKey,
-              patient: {
-                ...(state.birthDate && { dateOfBirth: state.birthDate }),
-                firstName: state.firstName,
-                isNew: state.isNewPatient,
-                lastName: state.lastName,
-                ...(state.phoneNumber && { phoneNumber: state.phoneNumber }),
-              },
-              phoneBookingIdentityId: state.phoneBookingIdentityId,
-              practitionerLineageKey: slot.practitionerLineageKey,
-              practitionerName: slot.practitionerName,
-              reasonDescription: state.reason ?? "",
-              startTime: slot.startTime,
-            });
-            return `Der Termin wurde gebucht: ${formatSlot(slot)}. Termin-ID: ${booking.appointmentId}.`;
+
+            try {
+              const booking = await convex.mutation(convexApi.telefonki.book, {
+                appointmentTypeLineageKey:
+                  state.bookingIntent.appointmentType.lineageKey,
+                ...(integrationSecret && { integrationSecret }),
+                locationLineageKey: state.bookingIntent.location.lineageKey,
+                patient: {
+                  ...(state.bookingIntent.birthDate && {
+                    dateOfBirth: state.bookingIntent.birthDate,
+                  }),
+                  firstName: state.bookingIntent.firstName,
+                  isNew: state.bookingIntent.isNewPatient,
+                  lastName: state.bookingIntent.lastName,
+                  ...(state.bookingIntent.phoneNumber && {
+                    phoneNumber: state.bookingIntent.phoneNumber,
+                  }),
+                },
+                phoneBookingIdentityId: state.phoneBookingIdentityId,
+                practitionerLineageKey: slot.practitionerLineageKey,
+                practitionerName: slot.practitionerName,
+                reasonDescription: state.bookingIntent.reason ?? "",
+                startTime: slot.startTime,
+              });
+
+              clearOfferedSlots(state.activeOffers);
+              logTelefonkiEvent({
+                callId: ctx.job.id,
+                details: {
+                  offerId,
+                  reason: "booked",
+                  searchVersion: state.activeOffers.searchVersion,
+                },
+                event: "telefonki.offer_invalidated",
+                phoneBookingIdentityId: state.phoneBookingIdentityId,
+              });
+              return `Der Termin wurde gebucht: ${formatSlot(slot)}. Termin-ID: ${booking.appointmentId}.`;
+            } catch (error) {
+              logTelefonkiEvent({
+                callId: ctx.job.id,
+                details: {
+                  error:
+                    error instanceof Error ? error.message : "unknown_error",
+                  offerId,
+                },
+                event: "telefonki.booking_rejected",
+                phoneBookingIdentityId: state.phoneBookingIdentityId,
+              });
+
+              if (!isRecoverableBookingAvailabilityError(error)) {
+                if (error instanceof Error) {
+                  return `Fehler: ${error.message}`;
+                }
+                return "Fehler: Termin konnte nicht gebucht werden.";
+              }
+
+              clearOfferedSlots(state.activeOffers);
+              const alternativeSlot = await convex.query(
+                convexApi.telefonki.nextAvailableSlot,
+                {
+                  ...(integrationSecret && { integrationSecret }),
+                  practiceId,
+                  simulatedContext: buildSimulatedContext(state.bookingIntent),
+                },
+              );
+              const alternativeResponse = renderAndLogOfferedSlots({
+                callId: ctx.job.id,
+                criteria: buildCurrentOfferCriteria(state.bookingIntent),
+                phoneBookingIdentityId: state.phoneBookingIdentityId,
+                slots: alternativeSlot ? [alternativeSlot] : [],
+                state,
+              });
+              logTelefonkiEvent({
+                callId: ctx.job.id,
+                details: {
+                  recovered: alternativeSlot ? 1 : 0,
+                  searchVersion: state.activeOffers.searchVersion,
+                },
+                event: "telefonki.booking_recovery_search",
+                phoneBookingIdentityId: state.phoneBookingIdentityId,
+              });
+              return `Der bestätigte Termin ist nicht mehr frei. ${alternativeResponse}`;
+            }
           },
           parameters: z.object({
             offerId: z
@@ -551,8 +728,10 @@ export default defineAgent({
             if (!appointmentType) {
               return "Fehler: Diese Terminart-ID ist in der aktuellen Konfiguration nicht vorhanden.";
             }
-            clearOfferedSlots(state.offeredSlots);
-            state.appointmentType = appointmentType;
+            state.bookingIntent.appointmentType = appointmentType;
+            invalidateOffersForCriteriaChange(state, ctx.job.id, {
+              appointmentTypeLineageKey: appointmentType.lineageKey,
+            });
             return `Gespeichert: ${appointmentType.name}.`;
           },
           parameters: z.object({
@@ -582,14 +761,15 @@ export default defineAgent({
                 ...(integrationSecret && { integrationSecret }),
                 limit: 10,
                 practiceId,
-                simulatedContext: buildSimulatedContext(state),
+                simulatedContext: buildSimulatedContext(state.bookingIntent),
               },
             );
-            return renderOfferedSlots({
-              criteria: buildCurrentOfferCriteria(state),
-              formatSlot,
+            return renderAndLogOfferedSlots({
+              callId: ctx.job.id,
+              criteria: buildCurrentOfferCriteria(state.bookingIntent),
+              phoneBookingIdentityId: state.phoneBookingIdentityId,
               slots,
-              store: state.offeredSlots,
+              state,
             });
           },
           parameters: z.object({
@@ -675,7 +855,7 @@ export default defineAgent({
 });
 
 function requireBookingPrerequisites(state: CallState): string[] {
-  return listMissingBookingPrerequisites(state);
+  return listMissingBookingPrerequisites(state.bookingIntent);
 }
 
 cli.runApp(

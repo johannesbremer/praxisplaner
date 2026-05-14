@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  type ActiveTelefonkiOffers,
+  advanceSearchVersion,
   buildOfferedSlotId,
   buildTelefonkiOfferCriteria,
   clearOfferedSlots,
@@ -10,35 +12,44 @@ import {
   listMissingBookingPrerequisites,
   renderOfferedSlots,
   sanitizePhoneNumber,
-  type StoredTelefonkiOffer,
+  TELEFONKI_OFFER_TTL_MS,
 } from "./agent-state";
+
+interface TestSlot {
+  locationLineageKey: string;
+  practitionerLineageKey: string;
+  practitionerName: string;
+  startTime: string;
+}
+
+function createActiveOffers(): ActiveTelefonkiOffers<TestSlot> {
+  return {
+    generatedAt: undefined,
+    offers: new Map(),
+    searchVersion: 0,
+  };
+}
+
+function createTestSlot(
+  practitionerLineageKey: string,
+  practitionerName: string,
+): TestSlot {
+  return {
+    locationLineageKey: "locations_a",
+    practitionerLineageKey,
+    practitionerName,
+    startTime: "2026-05-11T09:00:00+02:00[Europe/Berlin]",
+  };
+}
 
 describe("TelefonKI agent state helpers", () => {
   test("renders unique offer ids for slots with the same start time", () => {
-    const store = new Map<
-      string,
-      StoredTelefonkiOffer<{
-        locationLineageKey: string;
-        practitionerLineageKey: string;
-        practitionerName: string;
-        startTime: string;
-      }>
-    >();
-    const firstSlot = {
-      locationLineageKey: "locations_a",
-      practitionerLineageKey: "practitioners_a",
-      practitionerName: "Dr. A",
-      startTime: "2026-05-11T09:00:00+02:00[Europe/Berlin]",
-    };
-    const secondSlot = {
-      locationLineageKey: "locations_a",
-      practitionerLineageKey: "practitioners_b",
-      practitionerName: "Dr. B",
-      startTime: "2026-05-11T09:00:00+02:00[Europe/Berlin]",
-    };
-    const slots = [firstSlot, secondSlot];
+    const activeOffers = createActiveOffers();
+    const firstSlot = createTestSlot("practitioners_a", "Dr. A");
+    const secondSlot = createTestSlot("practitioners_b", "Dr. B");
 
     const response = renderOfferedSlots({
+      activeOffers,
       criteria: buildTelefonkiOfferCriteria({
         appointmentTypeLineageKey: "appointmentType_a",
         birthDate: "1980-01-01",
@@ -46,21 +57,25 @@ describe("TelefonKI agent state helpers", () => {
         locationLineageKey: "locations_a",
       }),
       formatSlot: (slot) => `${slot.startTime} bei ${slot.practitionerName}`,
-      slots,
-      store,
+      slots: [firstSlot, secondSlot],
     });
 
     const firstOfferId = buildOfferedSlotId(firstSlot);
     const secondOfferId = buildOfferedSlotId(secondSlot);
 
     expect(firstOfferId).not.toBe(secondOfferId);
-    expect(store.get(firstOfferId)?.slot.practitionerName).toBe("Dr. A");
-    expect(store.get(secondOfferId)?.slot.practitionerName).toBe("Dr. B");
+    expect(activeOffers.offers.get(firstOfferId)?.slot.practitionerName).toBe(
+      "Dr. A",
+    );
+    expect(activeOffers.offers.get(secondOfferId)?.slot.practitionerName).toBe(
+      "Dr. B",
+    );
     expect(response).toContain(`offerId: ${firstOfferId}`);
     expect(response).toContain(`offerId: ${secondOfferId}`);
   });
 
   test("invalidates stored offers when criteria change", () => {
+    const activeOffers = createActiveOffers();
     const originalCriteria = buildTelefonkiOfferCriteria({
       appointmentTypeLineageKey: "appointmentType_a",
       birthDate: "1980-01-01",
@@ -76,37 +91,122 @@ describe("TelefonKI agent state helpers", () => {
       practitionerLineageKey: "practitioners_a",
     });
 
-    expect(isStoredOfferCompatible(originalCriteria, originalCriteria)).toBe(
-      true,
-    );
-    expect(isStoredOfferCompatible(changedCriteria, originalCriteria)).toBe(
-      false,
-    );
+    renderOfferedSlots({
+      activeOffers,
+      criteria: originalCriteria,
+      formatSlot: (slot) => `${slot.startTime} bei ${slot.practitionerName}`,
+      now: 100,
+      slots: [createTestSlot("practitioners_a", "Dr. A")],
+    });
+
+    const storedOffer = activeOffers.offers.values().next().value;
+    if (!storedOffer) {
+      throw new Error("Expected a stored offer.");
+    }
+
+    expect(
+      isStoredOfferCompatible({
+        activeOffers,
+        currentCriteria: originalCriteria,
+        now: 101,
+        storedOffer,
+      }),
+    ).toBeNull();
+    expect(
+      isStoredOfferCompatible({
+        activeOffers,
+        currentCriteria: changedCriteria,
+        now: 101,
+        storedOffer,
+      }),
+    ).toBe("criteria_changed");
+  });
+
+  test("search version changes invalidate old offers", () => {
+    const activeOffers = createActiveOffers();
+    const criteria = buildTelefonkiOfferCriteria({
+      appointmentTypeLineageKey: "appointmentType_a",
+      isNewPatient: false,
+      locationLineageKey: "locations_a",
+    });
+
+    renderOfferedSlots({
+      activeOffers,
+      criteria,
+      formatSlot: (slot) => `${slot.startTime} bei ${slot.practitionerName}`,
+      now: 100,
+      slots: [createTestSlot("practitioners_a", "Dr. A")],
+    });
+
+    const storedOffer = activeOffers.offers.values().next().value;
+    if (!storedOffer) {
+      throw new Error("Expected a stored offer.");
+    }
+
+    advanceSearchVersion(activeOffers);
+
+    expect(activeOffers.searchVersion).toBe(1);
+    expect(activeOffers.offers.size).toBe(0);
+    expect(
+      isStoredOfferCompatible({
+        activeOffers,
+        currentCriteria: criteria,
+        now: 101,
+        storedOffer,
+      }),
+    ).toBe("stale_version");
   });
 
   test("clears offered slots explicitly", () => {
-    const store = new Map([
-      [
-        "offer-1",
-        {
-          criteria: buildTelefonkiOfferCriteria({
-            appointmentTypeLineageKey: "appointmentType_a",
-            isNewPatient: false,
-            locationLineageKey: "locations_a",
-          }),
-          slot: {
-            locationLineageKey: "locations_a",
-            practitionerLineageKey: "practitioners_a",
-            practitionerName: "Dr. A",
-            startTime: "2026-05-11T09:00:00+02:00[Europe/Berlin]",
-          },
-        },
-      ],
-    ]);
+    const activeOffers = createActiveOffers();
 
-    clearOfferedSlots(store);
+    renderOfferedSlots({
+      activeOffers,
+      criteria: buildTelefonkiOfferCriteria({
+        appointmentTypeLineageKey: "appointmentType_a",
+        isNewPatient: false,
+        locationLineageKey: "locations_a",
+      }),
+      formatSlot: (slot) => `${slot.startTime} bei ${slot.practitionerName}`,
+      now: 100,
+      slots: [createTestSlot("practitioners_a", "Dr. A")],
+    });
 
-    expect(store.size).toBe(0);
+    clearOfferedSlots(activeOffers);
+
+    expect(activeOffers.generatedAt).toBeUndefined();
+    expect(activeOffers.offers.size).toBe(0);
+  });
+
+  test("expires stale offers after the ttl", () => {
+    const activeOffers = createActiveOffers();
+    const criteria = buildTelefonkiOfferCriteria({
+      appointmentTypeLineageKey: "appointmentType_a",
+      isNewPatient: false,
+      locationLineageKey: "locations_a",
+    });
+
+    renderOfferedSlots({
+      activeOffers,
+      criteria,
+      formatSlot: (slot) => `${slot.startTime} bei ${slot.practitionerName}`,
+      now: 100,
+      slots: [createTestSlot("practitioners_a", "Dr. A")],
+    });
+
+    const storedOffer = activeOffers.offers.values().next().value;
+    if (!storedOffer) {
+      throw new Error("Expected a stored offer.");
+    }
+
+    expect(
+      isStoredOfferCompatible({
+        activeOffers,
+        currentCriteria: criteria,
+        now: 100 + TELEFONKI_OFFER_TTL_MS + 1,
+        storedOffer,
+      }),
+    ).toBe("expired");
   });
 
   test("requires a phone number when caller id is unavailable", () => {

@@ -47,7 +47,8 @@ ${config.appointmentTypes
    - termine_am_datum_suchen, wenn ein bestimmtes Datum genannt wird.
 9. Die Suchfunktionen geben offerId-Werte zurück. Verwenden Sie für termin_buchen immer die offerId des konkret bestätigten Angebots, nicht nur eine Uhrzeit.
 10. Buchen Sie erst mit termin_buchen, nachdem die Person einen konkreten angebotenen Termin bestätigt hat.
-11. Nach einer Buchung dürfen Sie nur diesen gerade gebuchten Termin anzeigen oder stornieren.
+11. Wenn termin_buchen meldet, dass der bestätigte Termin nicht mehr frei ist oder das Angebot abgelaufen ist, suchen Sie mit denselben Kriterien sofort erneut und bieten nur die neu zurückgegebenen Termine an.
+12. Nach einer Buchung dürfen Sie nur diesen gerade gebuchten Termin anzeigen oder stornieren.
 
 # Regeln
 

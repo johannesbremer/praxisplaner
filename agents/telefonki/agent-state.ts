@@ -1,6 +1,12 @@
 import { Temporal } from "temporal-polyfill";
 import { z } from "zod";
 
+export interface ActiveTelefonkiOffers<T extends OfferedTelefonkiSlot> {
+  generatedAt: number | undefined;
+  offers: Map<string, StoredTelefonkiOffer<T>>;
+  searchVersion: number;
+}
+
 export interface OfferedTelefonkiSlot {
   locationLineageKey: string;
   practitionerLineageKey: string;
@@ -10,6 +16,10 @@ export interface OfferedTelefonkiSlot {
 
 export interface StoredTelefonkiOffer<T extends OfferedTelefonkiSlot> {
   criteria: TelefonkiOfferCriteria;
+  criteriaFingerprint: string;
+  generatedAt: number;
+  offerId: string;
+  searchVersion: number;
   slot: T;
 }
 
@@ -21,6 +31,12 @@ export interface TelefonkiOfferCriteria {
   practitionerLineageKey?: string;
 }
 
+export type TelefonkiOfferInvalidationReason =
+  | "booked"
+  | "criteria_changed"
+  | "expired"
+  | "stale_version";
+
 interface BookingPrerequisiteState {
   appointmentType?: unknown;
   birthDate?: string;
@@ -30,6 +46,16 @@ interface BookingPrerequisiteState {
   location?: unknown;
   phoneNumber?: string;
   reason?: string;
+}
+
+export const TELEFONKI_OFFER_TTL_MS = 5 * 60 * 1000;
+
+export function advanceSearchVersion<T extends OfferedTelefonkiSlot>(
+  activeOffers: ActiveTelefonkiOffers<T>,
+): number {
+  activeOffers.searchVersion += 1;
+  clearOfferedSlots(activeOffers);
+  return activeOffers.searchVersion;
 }
 
 export function buildOfferedSlotId(slot: OfferedTelefonkiSlot): string {
@@ -58,10 +84,23 @@ export function buildTelefonkiOfferCriteria(args: {
   };
 }
 
+export function buildTelefonkiOfferCriteriaFingerprint(
+  criteria: TelefonkiOfferCriteria,
+): string {
+  return [
+    criteria.appointmentTypeLineageKey,
+    criteria.birthDate ?? "",
+    criteria.isNewPatient ? "new" : "known",
+    criteria.locationLineageKey,
+    criteria.practitionerLineageKey ?? "",
+  ].join("::");
+}
+
 export function clearOfferedSlots<T extends OfferedTelefonkiSlot>(
-  store: Map<string, StoredTelefonkiOffer<T>>,
+  activeOffers: ActiveTelefonkiOffers<T>,
 ): void {
-  store.clear();
+  activeOffers.generatedAt = undefined;
+  activeOffers.offers.clear();
 }
 
 export function formatTelefonkiDate(isoDate: string): string {
@@ -78,19 +117,31 @@ export function formatTelefonkiDateTime(zonedDateTime: string): string {
   });
 }
 
-export function isStoredOfferCompatible(
-  currentCriteria: TelefonkiOfferCriteria,
-  storedCriteria: TelefonkiOfferCriteria,
-): boolean {
-  return (
-    currentCriteria.appointmentTypeLineageKey ===
-      storedCriteria.appointmentTypeLineageKey &&
-    currentCriteria.birthDate === storedCriteria.birthDate &&
-    currentCriteria.isNewPatient === storedCriteria.isNewPatient &&
-    currentCriteria.locationLineageKey === storedCriteria.locationLineageKey &&
-    currentCriteria.practitionerLineageKey ===
-      storedCriteria.practitionerLineageKey
-  );
+export function isStoredOfferCompatible<T extends OfferedTelefonkiSlot>(args: {
+  activeOffers: ActiveTelefonkiOffers<T>;
+  currentCriteria: TelefonkiOfferCriteria;
+  now?: number;
+  storedOffer: StoredTelefonkiOffer<T>;
+  ttlMs?: number;
+}): null | TelefonkiOfferInvalidationReason {
+  if (args.storedOffer.searchVersion !== args.activeOffers.searchVersion) {
+    return "stale_version";
+  }
+
+  if (
+    args.storedOffer.criteriaFingerprint !==
+    buildTelefonkiOfferCriteriaFingerprint(args.currentCriteria)
+  ) {
+    return "criteria_changed";
+  }
+
+  const now = args.now ?? Temporal.Now.instant().epochMilliseconds;
+  const ttlMs = args.ttlMs ?? TELEFONKI_OFFER_TTL_MS;
+  if (now - args.storedOffer.generatedAt > ttlMs) {
+    return "expired";
+  }
+
+  return null;
 }
 
 export function listMissingBookingPrerequisites(
@@ -125,23 +176,33 @@ export function listMissingBookingPrerequisites(
 }
 
 export function renderOfferedSlots<T extends OfferedTelefonkiSlot>(args: {
+  activeOffers: ActiveTelefonkiOffers<T>;
   criteria: TelefonkiOfferCriteria;
   formatSlot: (slot: T) => string;
+  now?: number;
   slots: readonly T[];
-  store: Map<string, StoredTelefonkiOffer<T>>;
 }): string {
   if (args.slots.length === 0) {
-    args.store.clear();
+    clearOfferedSlots(args.activeOffers);
     return "Es wurden keine passenden freien Termine gefunden.";
   }
 
-  args.store.clear();
+  clearOfferedSlots(args.activeOffers);
+  const generatedAt = args.now ?? Temporal.Now.instant().epochMilliseconds;
+  const criteriaFingerprint = buildTelefonkiOfferCriteriaFingerprint(
+    args.criteria,
+  );
+  args.activeOffers.generatedAt = generatedAt;
 
   return args.slots
     .map((slot, index) => {
       const offerId = buildOfferedSlotId(slot);
-      args.store.set(offerId, {
+      args.activeOffers.offers.set(offerId, {
         criteria: args.criteria,
+        criteriaFingerprint,
+        generatedAt,
+        offerId,
+        searchVersion: args.activeOffers.searchVersion,
         slot,
       });
       return `${index + 1}. ${args.formatSlot(slot)} (offerId: ${offerId})`;
