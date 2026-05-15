@@ -18,18 +18,18 @@ const STEP_SNAPSHOT_TABLES_BY_STEP: Record<
   BookingSessionState["step"],
   StepTableName[]
 > = {
-  "existing-calendar-selection": ["bookingExistingPersonalDataSteps"],
-  "existing-confirmation": ["bookingExistingConfirmationSteps"],
+  "existing-calendar-selection": ["bookingPersonalDataSteps"],
+  "existing-confirmation": ["bookingConfirmationSteps"],
   "existing-data-input": ["bookingExistingDoctorSelectionSteps"],
   "existing-doctor-selection": ["bookingPatientStatusSteps"],
   location: [],
   "new-calendar-selection": ["bookingNewDataSharingSteps"],
-  "new-confirmation": ["bookingNewConfirmationSteps"],
+  "new-confirmation": ["bookingConfirmationSteps"],
   "new-data-input": ["bookingNewGkvDetailSteps", "bookingNewPkvDetailSteps"],
-  "new-data-input-complete": ["bookingNewPersonalDataSteps"],
+  "new-data-input-complete": ["bookingPersonalDataSteps"],
   "new-data-sharing": [
     "bookingNewDataSharingSteps",
-    "bookingNewPersonalDataSteps",
+    "bookingPersonalDataSteps",
   ],
   "new-gkv-details": ["bookingNewInsuranceTypeSteps"],
   "new-gkv-details-complete": ["bookingNewGkvDetailSteps"],
@@ -410,7 +410,7 @@ export type BookingSessionTransitionInput =
       base: StepBase;
       kind: "selectExistingPatientSlot";
       slotAttempt: Pick<
-        StepTableInput<"bookingExistingConfirmationSteps">,
+        StepTableInput<"bookingConfirmationSteps">,
         | "appointmentId"
         | "appointmentTypeLineageKey"
         | "bookedDurationMinutes"
@@ -434,7 +434,7 @@ export type BookingSessionTransitionInput =
       base: StepBase;
       kind: "selectNewPatientSlot";
       slotAttempt: Pick<
-        StepTableInput<"bookingNewConfirmationSteps">,
+        StepTableInput<"bookingConfirmationSteps">,
         | "appointmentId"
         | "appointmentTypeLineageKey"
         | "bookedDurationMinutes"
@@ -452,7 +452,7 @@ export type BookingSessionTransitionInput =
   | {
       base: StepBase;
       kind: "submitNewPatientData";
-      medicalHistory?: StepTableInput<"bookingNewPersonalDataSteps">["medicalHistory"];
+      medicalHistory?: StepTableInput<"bookingPersonalDataSteps">["medicalHistory"];
       personalData: BookingPersonalData;
       state: InternalBookingSessionState;
     };
@@ -779,7 +779,7 @@ function transitionSelectExistingPatientSlot(
   base: StepBase,
   state: InternalBookingSessionState,
   args: Pick<
-    StepTableInput<"bookingExistingConfirmationSteps">,
+    StepTableInput<"bookingConfirmationSteps">,
     | "appointmentId"
     | "appointmentTypeLineageKey"
     | "bookedDurationMinutes"
@@ -793,20 +793,21 @@ function transitionSelectExistingPatientSlot(
   const calendarSnapshot = {
     ...base,
     appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+    dataSharingContacts: [],
     isNewPatient: false,
     locationLineageKey: current.locationLineageKey,
     personalData: args.personalData,
     practitionerLineageKey: current.practitionerLineageKey,
     reasonDescription: args.reasonDescription,
     selectedSlot: args.selectedSlot,
-  } satisfies StepTableInput<"bookingExistingCalendarSelectionSteps">;
+  } satisfies StepTableInput<"bookingCalendarSelectionSteps">;
 
   return {
     nextStep: "existing-confirmation",
     writes: [
       {
         data: calendarSnapshot,
-        tableName: "bookingExistingCalendarSelectionSteps",
+        tableName: "bookingCalendarSelectionSteps",
       },
       {
         data: {
@@ -814,7 +815,7 @@ function transitionSelectExistingPatientSlot(
           appointmentId: args.appointmentId,
           bookedDurationMinutes: args.bookedDurationMinutes,
         },
-        tableName: "bookingExistingConfirmationSteps",
+        tableName: "bookingConfirmationSteps",
       },
     ],
   };
@@ -883,7 +884,7 @@ function transitionSelectNewPatientSlot(
   base: StepBase,
   state: InternalBookingSessionState,
   args: Pick<
-    StepTableInput<"bookingNewConfirmationSteps">,
+    StepTableInput<"bookingConfirmationSteps">,
     | "appointmentId"
     | "appointmentTypeLineageKey"
     | "bookedDurationMinutes"
@@ -910,7 +911,7 @@ function transitionSelectNewPatientSlot(
           ...calendarSnapshot,
           appointmentTypeLineageKey: args.appointmentTypeLineageKey,
         },
-        tableName: "bookingNewCalendarSelectionSteps",
+        tableName: "bookingCalendarSelectionSteps",
       },
       {
         data: {
@@ -919,7 +920,7 @@ function transitionSelectNewPatientSlot(
           appointmentTypeLineageKey: args.appointmentTypeLineageKey,
           bookedDurationMinutes: args.bookedDurationMinutes,
         },
-        tableName: "bookingNewConfirmationSteps",
+        tableName: "bookingConfirmationSteps",
       },
     ],
   };
@@ -945,7 +946,7 @@ function transitionSubmitExistingPatientData(
           personalData,
           practitionerLineageKey: state.practitionerLineageKey,
         },
-        tableName: "bookingExistingPersonalDataSteps",
+        tableName: "bookingPersonalDataSteps",
       },
     ],
   };
@@ -978,7 +979,7 @@ function transitionSubmitNewPatientData(
   base: StepBase,
   state: InternalBookingSessionState,
   args: {
-    medicalHistory?: StepTableInput<"bookingNewPersonalDataSteps">["medicalHistory"];
+    medicalHistory?: StepTableInput<"bookingPersonalDataSteps">["medicalHistory"];
     personalData: BookingPersonalData;
   },
 ): BookingSessionTransition {
@@ -1002,7 +1003,7 @@ function transitionSubmitNewPatientData(
           personalData: args.personalData,
           state,
         }),
-        tableName: "bookingNewPersonalDataSteps",
+        tableName: "bookingPersonalDataSteps",
       },
     ],
   };
@@ -1452,11 +1453,11 @@ function newDataSharingSnapshot(args: {
 function newPatientSlotSnapshot(args: {
   base: StepBase;
   personalData: BookingPersonalData;
-  reasonDescription: StepTableInput<"bookingNewCalendarSelectionSteps">["reasonDescription"];
-  selectedSlot: StepTableInput<"bookingNewCalendarSelectionSteps">["selectedSlot"];
+  reasonDescription: StepTableInput<"bookingCalendarSelectionSteps">["reasonDescription"];
+  selectedSlot: StepTableInput<"bookingCalendarSelectionSteps">["selectedSlot"];
   state: InternalStateAtStep<"new-calendar-selection">;
 }): Omit<
-  StepTableInput<"bookingNewCalendarSelectionSteps">,
+  StepTableInput<"bookingCalendarSelectionSteps">,
   "appointmentTypeLineageKey"
 > {
   if (args.state.insuranceType === "gkv") {
@@ -1503,12 +1504,12 @@ function newPatientSlotSnapshot(args: {
 
 function newPersonalDataSnapshot(args: {
   base: StepBase;
-  medicalHistory?: StepTableInput<"bookingNewPersonalDataSteps">["medicalHistory"];
+  medicalHistory?: StepTableInput<"bookingPersonalDataSteps">["medicalHistory"];
   personalData: BookingPersonalData;
   state:
     | InternalStateAtStep<"new-data-input">
     | InternalStateAtStep<"new-data-input-complete">;
-}): StepTableInput<"bookingNewPersonalDataSteps"> {
+}): StepTableInput<"bookingPersonalDataSteps"> {
   if (args.state.insuranceType === "gkv") {
     return {
       ...args.base,

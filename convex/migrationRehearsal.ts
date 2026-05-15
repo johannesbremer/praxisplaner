@@ -723,17 +723,14 @@ const rehearsalCountTableNameValidator = v.union(
   v.literal("bookingLocationSteps"),
   v.literal("bookingPatientStatusSteps"),
   v.literal("bookingExistingDoctorSelectionSteps"),
-  v.literal("bookingExistingPersonalDataSteps"),
-  v.literal("bookingExistingCalendarSelectionSteps"),
-  v.literal("bookingExistingConfirmationSteps"),
+  v.literal("bookingPersonalDataSteps"),
+  v.literal("bookingCalendarSelectionSteps"),
+  v.literal("bookingConfirmationSteps"),
   v.literal("bookingNewInsuranceTypeSteps"),
   v.literal("bookingNewGkvDetailSteps"),
   v.literal("bookingNewPkvConsentSteps"),
   v.literal("bookingNewPkvDetailSteps"),
-  v.literal("bookingNewPersonalDataSteps"),
   v.literal("bookingNewDataSharingSteps"),
-  v.literal("bookingNewCalendarSelectionSteps"),
-  v.literal("bookingNewConfirmationSteps"),
   v.literal("bookingIdentities"),
   v.literal("bookingIdentityPatientAssociations"),
   v.literal("legacyBookingBlocks"),
@@ -748,9 +745,9 @@ export const countRehearsalTablePage = query({
     assertMigrationRehearsalEnabled();
 
     switch (args.tableName) {
-      case "bookingExistingCalendarSelectionSteps": {
+      case "bookingCalendarSelectionSteps": {
         const result = await ctx.db
-          .query("bookingExistingCalendarSelectionSteps")
+          .query("bookingCalendarSelectionSteps")
           .paginate(args.paginationOpts);
         return {
           continueCursor: result.continueCursor,
@@ -758,9 +755,9 @@ export const countRehearsalTablePage = query({
           isDone: result.isDone,
         };
       }
-      case "bookingExistingConfirmationSteps": {
+      case "bookingConfirmationSteps": {
         const result = await ctx.db
-          .query("bookingExistingConfirmationSteps")
+          .query("bookingConfirmationSteps")
           .paginate(args.paginationOpts);
         return {
           continueCursor: result.continueCursor,
@@ -771,16 +768,6 @@ export const countRehearsalTablePage = query({
       case "bookingExistingDoctorSelectionSteps": {
         const result = await ctx.db
           .query("bookingExistingDoctorSelectionSteps")
-          .paginate(args.paginationOpts);
-        return {
-          continueCursor: result.continueCursor,
-          count: result.page.length,
-          isDone: result.isDone,
-        };
-      }
-      case "bookingExistingPersonalDataSteps": {
-        const result = await ctx.db
-          .query("bookingExistingPersonalDataSteps")
           .paginate(args.paginationOpts);
         return {
           continueCursor: result.continueCursor,
@@ -818,26 +805,6 @@ export const countRehearsalTablePage = query({
           isDone: result.isDone,
         };
       }
-      case "bookingNewCalendarSelectionSteps": {
-        const result = await ctx.db
-          .query("bookingNewCalendarSelectionSteps")
-          .paginate(args.paginationOpts);
-        return {
-          continueCursor: result.continueCursor,
-          count: result.page.length,
-          isDone: result.isDone,
-        };
-      }
-      case "bookingNewConfirmationSteps": {
-        const result = await ctx.db
-          .query("bookingNewConfirmationSteps")
-          .paginate(args.paginationOpts);
-        return {
-          continueCursor: result.continueCursor,
-          count: result.page.length,
-          isDone: result.isDone,
-        };
-      }
       case "bookingNewDataSharingSteps": {
         const result = await ctx.db
           .query("bookingNewDataSharingSteps")
@@ -868,16 +835,6 @@ export const countRehearsalTablePage = query({
           isDone: result.isDone,
         };
       }
-      case "bookingNewPersonalDataSteps": {
-        const result = await ctx.db
-          .query("bookingNewPersonalDataSteps")
-          .paginate(args.paginationOpts);
-        return {
-          continueCursor: result.continueCursor,
-          count: result.page.length,
-          isDone: result.isDone,
-        };
-      }
       case "bookingNewPkvConsentSteps": {
         const result = await ctx.db
           .query("bookingNewPkvConsentSteps")
@@ -901,6 +858,16 @@ export const countRehearsalTablePage = query({
       case "bookingPatientStatusSteps": {
         const result = await ctx.db
           .query("bookingPatientStatusSteps")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
+      case "bookingPersonalDataSteps": {
+        const result = await ctx.db
+          .query("bookingPersonalDataSteps")
           .paginate(args.paginationOpts);
         return {
           continueCursor: result.continueCursor,
@@ -955,27 +922,19 @@ export const countRehearsalTable = query({
     assertMigrationRehearsalEnabled();
 
     switch (args.tableName) {
-      case "bookingExistingCalendarSelectionSteps": {
+      case "bookingCalendarSelectionSteps": {
         const rows = await ctx.db
-          .query("bookingExistingCalendarSelectionSteps")
+          .query("bookingCalendarSelectionSteps")
           .collect();
         return rows.length;
       }
-      case "bookingExistingConfirmationSteps": {
-        const rows = await ctx.db
-          .query("bookingExistingConfirmationSteps")
-          .collect();
+      case "bookingConfirmationSteps": {
+        const rows = await ctx.db.query("bookingConfirmationSteps").collect();
         return rows.length;
       }
       case "bookingExistingDoctorSelectionSteps": {
         const rows = await ctx.db
           .query("bookingExistingDoctorSelectionSteps")
-          .collect();
-        return rows.length;
-      }
-      case "bookingExistingPersonalDataSteps": {
-        const rows = await ctx.db
-          .query("bookingExistingPersonalDataSteps")
           .collect();
         return rows.length;
       }
@@ -993,18 +952,6 @@ export const countRehearsalTable = query({
         const rows = await ctx.db.query("bookingLocationSteps").collect();
         return rows.length;
       }
-      case "bookingNewCalendarSelectionSteps": {
-        const rows = await ctx.db
-          .query("bookingNewCalendarSelectionSteps")
-          .collect();
-        return rows.length;
-      }
-      case "bookingNewConfirmationSteps": {
-        const rows = await ctx.db
-          .query("bookingNewConfirmationSteps")
-          .collect();
-        return rows.length;
-      }
       case "bookingNewDataSharingSteps": {
         const rows = await ctx.db.query("bookingNewDataSharingSteps").collect();
         return rows.length;
@@ -1019,12 +966,6 @@ export const countRehearsalTable = query({
           .collect();
         return rows.length;
       }
-      case "bookingNewPersonalDataSteps": {
-        const rows = await ctx.db
-          .query("bookingNewPersonalDataSteps")
-          .collect();
-        return rows.length;
-      }
       case "bookingNewPkvConsentSteps": {
         const rows = await ctx.db.query("bookingNewPkvConsentSteps").collect();
         return rows.length;
@@ -1035,6 +976,10 @@ export const countRehearsalTable = query({
       }
       case "bookingPatientStatusSteps": {
         const rows = await ctx.db.query("bookingPatientStatusSteps").collect();
+        return rows.length;
+      }
+      case "bookingPersonalDataSteps": {
+        const rows = await ctx.db.query("bookingPersonalDataSteps").collect();
         return rows.length;
       }
       case "bookingPrivacySteps": {
@@ -1253,7 +1198,7 @@ async function insertImportedExistingReplaySteps(
     return;
   }
 
-  await ctx.db.insert("bookingExistingPersonalDataSteps", {
+  await ctx.db.insert("bookingPersonalDataSteps", {
     ...base,
     isNewPatient: false,
     locationLineageKey,
@@ -1271,9 +1216,10 @@ async function insertImportedExistingReplaySteps(
     return;
   }
 
-  await ctx.db.insert("bookingExistingCalendarSelectionSteps", {
+  await ctx.db.insert("bookingCalendarSelectionSteps", {
     ...base,
     appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
+    dataSharingContacts: [],
     isNewPatient: false,
     locationLineageKey,
     personalData,
@@ -1281,11 +1227,12 @@ async function insertImportedExistingReplaySteps(
     reasonDescription: appointment.reasonDescription,
     selectedSlot: appointment.selectedSlot,
   });
-  await ctx.db.insert("bookingExistingConfirmationSteps", {
+  await ctx.db.insert("bookingConfirmationSteps", {
     ...base,
     appointmentId: appointment.appointmentId,
     appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
     bookedDurationMinutes: appointment.bookedDurationMinutes,
+    dataSharingContacts: [],
     isNewPatient: false,
     locationLineageKey,
     ...(appointment.patientId === undefined
@@ -1426,7 +1373,7 @@ async function insertImportedNewReplaySteps(
     return;
   }
 
-  await ctx.db.insert("bookingNewPersonalDataSteps", {
+  await ctx.db.insert("bookingPersonalDataSteps", {
     ...base,
     ...(args.replayRow.beihilfeStatus === undefined
       ? {}
@@ -1490,7 +1437,7 @@ async function insertImportedNewReplaySteps(
     return;
   }
 
-  await ctx.db.insert("bookingNewCalendarSelectionSteps", {
+  await ctx.db.insert("bookingCalendarSelectionSteps", {
     ...base,
     appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
     dataSharingContacts,
@@ -1514,7 +1461,7 @@ async function insertImportedNewReplaySteps(
     reasonDescription: appointment.reasonDescription,
     selectedSlot: appointment.selectedSlot,
   });
-  await ctx.db.insert("bookingNewConfirmationSteps", {
+  await ctx.db.insert("bookingConfirmationSteps", {
     ...base,
     appointmentId: appointment.appointmentId,
     appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,

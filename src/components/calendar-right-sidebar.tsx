@@ -44,7 +44,7 @@ import {
 // Appointment type for the sidebar list
 export type SidebarAppointment = AppointmentResult;
 type BookingPersonalData =
-  import("../../convex/_generated/dataModel").Doc<"bookingNewConfirmationSteps">["personalData"];
+  import("../../convex/_generated/dataModel").Doc<"bookingConfirmationSteps">["personalData"];
 
 interface CalendarRightSidebarProps {
   onPatientSelected?:

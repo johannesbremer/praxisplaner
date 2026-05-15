@@ -369,7 +369,7 @@ function stalePublicSessionStateError(error: Error): Error {
 function toStoredSelectedSlot(
   db: MutationCtx["db"] | QueryCtx["db"],
   selectedSlot: ReturnType<typeof asSelectedSlotInput>,
-): StepTableDocMap["bookingExistingCalendarSelectionSteps"]["selectedSlot"] {
+): StepTableDocMap["bookingCalendarSelectionSteps"]["selectedSlot"] {
   return {
     practitionerLineageKey: resolveStoredPractitionerLineageKey(
       db,
@@ -430,14 +430,14 @@ function withInternalHydratedState(
 }
 
 const STEP_QUERY_MAP: StepQueryMap = {
-  bookingExistingCalendarSelectionSteps: (ctx, sessionId) =>
+  bookingCalendarSelectionSteps: (ctx, sessionId) =>
     ctx.db
-      .query("bookingExistingCalendarSelectionSteps")
+      .query("bookingCalendarSelectionSteps")
       .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
       .take(1),
-  bookingExistingConfirmationSteps: (ctx, sessionId) =>
+  bookingConfirmationSteps: (ctx, sessionId) =>
     ctx.db
-      .query("bookingExistingConfirmationSteps")
+      .query("bookingConfirmationSteps")
       .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
       .take(1),
   bookingExistingDoctorSelectionSteps: (ctx, sessionId) =>
@@ -445,24 +445,9 @@ const STEP_QUERY_MAP: StepQueryMap = {
       .query("bookingExistingDoctorSelectionSteps")
       .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
       .take(1),
-  bookingExistingPersonalDataSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingExistingPersonalDataSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
   bookingLocationSteps: (ctx, sessionId) =>
     ctx.db
       .query("bookingLocationSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingNewCalendarSelectionSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingNewCalendarSelectionSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingNewConfirmationSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingNewConfirmationSteps")
       .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
       .take(1),
   bookingNewDataSharingSteps: (ctx, sessionId) =>
@@ -480,11 +465,6 @@ const STEP_QUERY_MAP: StepQueryMap = {
       .query("bookingNewInsuranceTypeSteps")
       .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
       .take(1),
-  bookingNewPersonalDataSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingNewPersonalDataSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
   bookingNewPkvConsentSteps: (ctx, sessionId) =>
     ctx.db
       .query("bookingNewPkvConsentSteps")
@@ -500,6 +480,11 @@ const STEP_QUERY_MAP: StepQueryMap = {
       .query("bookingPatientStatusSteps")
       .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
       .take(1),
+  bookingPersonalDataSteps: (ctx, sessionId) =>
+    ctx.db
+      .query("bookingPersonalDataSteps")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
+      .take(1),
   bookingPrivacySteps: (ctx, sessionId) =>
     ctx.db
       .query("bookingPrivacySteps")
@@ -508,67 +493,55 @@ const STEP_QUERY_MAP: StepQueryMap = {
 };
 
 const STEP_INSERT_MAP: StepInsertMap = {
-  bookingExistingCalendarSelectionSteps: (ctx, data) =>
-    ctx.db.insert("bookingExistingCalendarSelectionSteps", data),
-  bookingExistingConfirmationSteps: (ctx, data) =>
-    ctx.db.insert("bookingExistingConfirmationSteps", data),
+  bookingCalendarSelectionSteps: (ctx, data) =>
+    ctx.db.insert("bookingCalendarSelectionSteps", data),
+  bookingConfirmationSteps: (ctx, data) =>
+    ctx.db.insert("bookingConfirmationSteps", data),
   bookingExistingDoctorSelectionSteps: (ctx, data) =>
     ctx.db.insert("bookingExistingDoctorSelectionSteps", data),
-  bookingExistingPersonalDataSteps: (ctx, data) =>
-    ctx.db.insert("bookingExistingPersonalDataSteps", data),
   bookingLocationSteps: (ctx, data) =>
     ctx.db.insert("bookingLocationSteps", data),
-  bookingNewCalendarSelectionSteps: (ctx, data) =>
-    ctx.db.insert("bookingNewCalendarSelectionSteps", data),
-  bookingNewConfirmationSteps: (ctx, data) =>
-    ctx.db.insert("bookingNewConfirmationSteps", data),
   bookingNewDataSharingSteps: (ctx, data) =>
     ctx.db.insert("bookingNewDataSharingSteps", data),
   bookingNewGkvDetailSteps: (ctx, data) =>
     ctx.db.insert("bookingNewGkvDetailSteps", data),
   bookingNewInsuranceTypeSteps: (ctx, data) =>
     ctx.db.insert("bookingNewInsuranceTypeSteps", data),
-  bookingNewPersonalDataSteps: (ctx, data) =>
-    ctx.db.insert("bookingNewPersonalDataSteps", data),
   bookingNewPkvConsentSteps: (ctx, data) =>
     ctx.db.insert("bookingNewPkvConsentSteps", data),
   bookingNewPkvDetailSteps: (ctx, data) =>
     ctx.db.insert("bookingNewPkvDetailSteps", data),
   bookingPatientStatusSteps: (ctx, data) =>
     ctx.db.insert("bookingPatientStatusSteps", data),
+  bookingPersonalDataSteps: (ctx, data) =>
+    ctx.db.insert("bookingPersonalDataSteps", data),
   bookingPrivacySteps: (ctx, data) =>
     ctx.db.insert("bookingPrivacySteps", data),
 };
 
 const STEP_PATCH_MAP: StepPatchMap = {
-  bookingExistingCalendarSelectionSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingExistingCalendarSelectionSteps", id, data),
-  bookingExistingConfirmationSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingExistingConfirmationSteps", id, data),
+  bookingCalendarSelectionSteps: (ctx, id, data) =>
+    ctx.db.patch("bookingCalendarSelectionSteps", id, data),
+  bookingConfirmationSteps: (ctx, id, data) =>
+    ctx.db.patch("bookingConfirmationSteps", id, data),
   bookingExistingDoctorSelectionSteps: (ctx, id, data) =>
     ctx.db.patch("bookingExistingDoctorSelectionSteps", id, data),
-  bookingExistingPersonalDataSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingExistingPersonalDataSteps", id, data),
   bookingLocationSteps: (ctx, id, data) =>
     ctx.db.patch("bookingLocationSteps", id, data),
-  bookingNewCalendarSelectionSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingNewCalendarSelectionSteps", id, data),
-  bookingNewConfirmationSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingNewConfirmationSteps", id, data),
   bookingNewDataSharingSteps: (ctx, id, data) =>
     ctx.db.patch("bookingNewDataSharingSteps", id, data),
   bookingNewGkvDetailSteps: (ctx, id, data) =>
     ctx.db.patch("bookingNewGkvDetailSteps", id, data),
   bookingNewInsuranceTypeSteps: (ctx, id, data) =>
     ctx.db.patch("bookingNewInsuranceTypeSteps", id, data),
-  bookingNewPersonalDataSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingNewPersonalDataSteps", id, data),
   bookingNewPkvConsentSteps: (ctx, id, data) =>
     ctx.db.patch("bookingNewPkvConsentSteps", id, data),
   bookingNewPkvDetailSteps: (ctx, id, data) =>
     ctx.db.patch("bookingNewPkvDetailSteps", id, data),
   bookingPatientStatusSteps: (ctx, id, data) =>
     ctx.db.patch("bookingPatientStatusSteps", id, data),
+  bookingPersonalDataSteps: (ctx, id, data) =>
+    ctx.db.patch("bookingPersonalDataSteps", id, data),
   bookingPrivacySteps: (ctx, id, data) =>
     ctx.db.patch("bookingPrivacySteps", id, data),
 };
@@ -937,20 +910,17 @@ function getStepRowId<T extends StepTableName>(
 function getStepRowId(...params: StepRowIdParams) {
   const [tableName, row] = params;
   switch (tableName) {
-    case "bookingExistingCalendarSelectionSteps":
-    case "bookingExistingConfirmationSteps":
+    case "bookingCalendarSelectionSteps":
+    case "bookingConfirmationSteps":
     case "bookingExistingDoctorSelectionSteps":
-    case "bookingExistingPersonalDataSteps":
     case "bookingLocationSteps":
-    case "bookingNewCalendarSelectionSteps":
-    case "bookingNewConfirmationSteps":
     case "bookingNewDataSharingSteps":
     case "bookingNewGkvDetailSteps":
     case "bookingNewInsuranceTypeSteps":
-    case "bookingNewPersonalDataSteps":
     case "bookingNewPkvConsentSteps":
     case "bookingNewPkvDetailSteps":
     case "bookingPatientStatusSteps":
+    case "bookingPersonalDataSteps":
     case "bookingPrivacySteps": {
       return row._id;
     }
@@ -1042,23 +1012,17 @@ async function persistTransitionWrite(
   write: BookingSessionTransition["writes"][number],
 ) {
   switch (write.tableName) {
-    case "bookingExistingCalendarSelectionSteps":
-    case "bookingExistingConfirmationSteps":
+    case "bookingCalendarSelectionSteps":
+    case "bookingConfirmationSteps":
     case "bookingExistingDoctorSelectionSteps":
     case "bookingLocationSteps":
-    case "bookingNewCalendarSelectionSteps":
-    case "bookingNewConfirmationSteps": {
-      await upsertStep(ctx, write.tableName, session, write.data);
-      return;
-    }
-    case "bookingExistingPersonalDataSteps":
     case "bookingNewDataSharingSteps":
     case "bookingNewGkvDetailSteps":
     case "bookingNewInsuranceTypeSteps":
-    case "bookingNewPersonalDataSteps":
     case "bookingNewPkvConsentSteps":
     case "bookingNewPkvDetailSteps":
     case "bookingPatientStatusSteps":
+    case "bookingPersonalDataSteps":
     case "bookingPrivacySteps": {
       await upsertStep(ctx, write.tableName, session, write.data);
       return;

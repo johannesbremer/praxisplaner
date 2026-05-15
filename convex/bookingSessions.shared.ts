@@ -71,20 +71,17 @@ export type StepSnapshotMetaKeys =
   | "userId";
 
 export interface StepTableDocMap {
-  bookingExistingCalendarSelectionSteps: Doc<"bookingExistingCalendarSelectionSteps">;
-  bookingExistingConfirmationSteps: Doc<"bookingExistingConfirmationSteps">;
+  bookingCalendarSelectionSteps: Doc<"bookingCalendarSelectionSteps">;
+  bookingConfirmationSteps: Doc<"bookingConfirmationSteps">;
   bookingExistingDoctorSelectionSteps: Doc<"bookingExistingDoctorSelectionSteps">;
-  bookingExistingPersonalDataSteps: Doc<"bookingExistingPersonalDataSteps">;
   bookingLocationSteps: Doc<"bookingLocationSteps">;
-  bookingNewCalendarSelectionSteps: Doc<"bookingNewCalendarSelectionSteps">;
-  bookingNewConfirmationSteps: Doc<"bookingNewConfirmationSteps">;
   bookingNewDataSharingSteps: Doc<"bookingNewDataSharingSteps">;
   bookingNewGkvDetailSteps: Doc<"bookingNewGkvDetailSteps">;
   bookingNewInsuranceTypeSteps: Doc<"bookingNewInsuranceTypeSteps">;
-  bookingNewPersonalDataSteps: Doc<"bookingNewPersonalDataSteps">;
   bookingNewPkvConsentSteps: Doc<"bookingNewPkvConsentSteps">;
   bookingNewPkvDetailSteps: Doc<"bookingNewPkvDetailSteps">;
   bookingPatientStatusSteps: Doc<"bookingPatientStatusSteps">;
+  bookingPersonalDataSteps: Doc<"bookingPersonalDataSteps">;
   bookingPrivacySteps: Doc<"bookingPrivacySteps">;
 }
 
@@ -105,20 +102,17 @@ export type StepTableInsertData<T extends StepTableName> = StepTableInput<T> & {
 
 export type StepTableName = keyof Pick<
   DataModel,
-  | "bookingExistingCalendarSelectionSteps"
-  | "bookingExistingConfirmationSteps"
+  | "bookingCalendarSelectionSteps"
+  | "bookingConfirmationSteps"
   | "bookingExistingDoctorSelectionSteps"
-  | "bookingExistingPersonalDataSteps"
   | "bookingLocationSteps"
-  | "bookingNewCalendarSelectionSteps"
-  | "bookingNewConfirmationSteps"
   | "bookingNewDataSharingSteps"
   | "bookingNewGkvDetailSteps"
   | "bookingNewInsuranceTypeSteps"
-  | "bookingNewPersonalDataSteps"
   | "bookingNewPkvConsentSteps"
   | "bookingNewPkvDetailSteps"
   | "bookingPatientStatusSteps"
+  | "bookingPersonalDataSteps"
   | "bookingPrivacySteps"
 >;
 

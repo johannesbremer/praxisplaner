@@ -717,14 +717,14 @@ describe("bookingSessions user identity handling", () => {
       });
 
       const existingRow = await ctx.db
-        .query("bookingExistingPersonalDataSteps")
+        .query("bookingPersonalDataSteps")
         .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
         .first();
       if (!existingRow) {
         throw new Error("Expected existing calendar snapshot row");
       }
 
-      await ctx.db.patch("bookingExistingPersonalDataSteps", existingRow._id, {
+      await ctx.db.patch("bookingPersonalDataSteps", existingRow._id, {
         personalData: {
           ...existingRow.personalData,
           firstName: "Wrong",

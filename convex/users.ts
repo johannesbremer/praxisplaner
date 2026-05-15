@@ -17,36 +17,15 @@ async function getLatestBookingPersonalData(
   db: DatabaseReader,
   userId: Id<"users">,
 ): Promise<BookingPersonalData | null> {
-  const [latestExistingConfirmationStep, latestNewConfirmationStep] =
-    await Promise.all([
-      db
-        .query("bookingExistingConfirmationSteps")
-        .withIndex("by_userId", (q) => q.eq("userId", userId))
-        .order("desc")
-        .first(),
-      db
-        .query("bookingNewConfirmationSteps")
-        .withIndex("by_userId", (q) => q.eq("userId", userId))
-        .order("desc")
-        .first(),
-    ]);
+  const latestConfirmationStep = await db
+    .query("bookingConfirmationSteps")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .order("desc")
+    .first();
 
-  if (latestExistingConfirmationStep && latestNewConfirmationStep) {
-    return latestExistingConfirmationStep.lastModified >
-      latestNewConfirmationStep.lastModified
-      ? asPersonalDataInput(latestExistingConfirmationStep.personalData)
-      : asPersonalDataInput(latestNewConfirmationStep.personalData);
-  }
-
-  if (latestExistingConfirmationStep) {
-    return asPersonalDataInput(latestExistingConfirmationStep.personalData);
-  }
-
-  if (latestNewConfirmationStep) {
-    return asPersonalDataInput(latestNewConfirmationStep.personalData);
-  }
-
-  return null;
+  return latestConfirmationStep
+    ? asPersonalDataInput(latestConfirmationStep.personalData)
+    : null;
 }
 
 /**

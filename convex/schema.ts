@@ -603,15 +603,24 @@ export default defineSchema({
     .index("by_isSimulation", ["isSimulation"])
     .index("by_replacesBlockedSlotId", ["replacesBlockedSlotId"]),
 
-  bookingExistingCalendarSelectionSteps: defineTable({
+  bookingCalendarSelectionSteps: defineTable({
     appointmentTypeLineageKey: v.id("appointmentTypes"),
+    beihilfeStatus: v.optional(beihilfeStatusValidator),
     createdAt: v.int64(),
-    isNewPatient: v.literal(false),
+    dataSharingContacts: v.array(dataSharingPersonValidator),
+    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
+    hzvStatus: v.optional(hzvStatusValidator),
+    insuranceType: v.optional(insuranceTypeValidator),
+    isNewPatient: v.boolean(),
     lastModified: v.int64(),
     locationLineageKey: v.id("locations"),
+    medicalHistory: v.optional(medicalHistoryValidator),
     personalData: personalDataValidator,
+    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
+    pkvTariff: v.optional(pkvTariffValidator),
     practiceId: v.id("practices"),
-    practitionerLineageKey: v.id("practitioners"),
+    practitionerLineageKey: v.optional(v.id("practitioners")),
+    pvsConsent: v.optional(v.literal(true)),
     reasonDescription: v.string(),
     ruleSetId: v.id("ruleSets"),
     selectedSlot: selectedSlotStorageValidator,
@@ -621,18 +630,27 @@ export default defineSchema({
     .index("by_sessionId", ["sessionId"])
     .index("by_userId", ["userId"]),
 
-  bookingExistingConfirmationSteps: defineTable({
+  bookingConfirmationSteps: defineTable({
     appointmentId: v.id("appointments"),
     appointmentTypeLineageKey: v.id("appointmentTypes"),
+    beihilfeStatus: v.optional(beihilfeStatusValidator),
     bookedDurationMinutes: v.number(),
     createdAt: v.int64(),
-    isNewPatient: v.literal(false),
+    dataSharingContacts: v.array(dataSharingPersonValidator),
+    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
+    hzvStatus: v.optional(hzvStatusValidator),
+    insuranceType: v.optional(insuranceTypeValidator),
+    isNewPatient: v.boolean(),
     lastModified: v.int64(),
     locationLineageKey: v.id("locations"),
+    medicalHistory: v.optional(medicalHistoryValidator),
     patientId: v.optional(v.id("patients")),
     personalData: personalDataValidator,
+    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
+    pkvTariff: v.optional(pkvTariffValidator),
     practiceId: v.id("practices"),
-    practitionerLineageKey: v.id("practitioners"),
+    practitionerLineageKey: v.optional(v.id("practitioners")),
+    pvsConsent: v.optional(v.literal(true)),
     reasonDescription: v.string(),
     ruleSetId: v.id("ruleSets"),
     selectedSlot: selectedSlotStorageValidator,
@@ -656,80 +674,12 @@ export default defineSchema({
     .index("by_sessionId", ["sessionId"])
     .index("by_userId", ["userId"]),
 
-  bookingExistingPersonalDataSteps: defineTable({
-    createdAt: v.int64(),
-    isNewPatient: v.literal(false),
-    lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    personalData: personalDataValidator,
-    practiceId: v.id("practices"),
-    practitionerLineageKey: v.id("practitioners"),
-    ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
-
   bookingLocationSteps: defineTable({
     createdAt: v.int64(),
     lastModified: v.int64(),
     locationLineageKey: v.id("locations"),
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
-
-  bookingNewCalendarSelectionSteps: defineTable({
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
-    createdAt: v.int64(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
-    hzvStatus: v.optional(hzvStatusValidator),
-    insuranceType: insuranceTypeValidator,
-    isNewPatient: v.literal(true),
-    lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    medicalHistory: v.optional(medicalHistoryValidator),
-    personalData: personalDataValidator,
-    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
-    pkvTariff: v.optional(pkvTariffValidator),
-    practiceId: v.id("practices"),
-    pvsConsent: v.optional(v.literal(true)),
-    reasonDescription: v.string(),
-    ruleSetId: v.id("ruleSets"),
-    selectedSlot: selectedSlotStorageValidator,
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
-
-  bookingNewConfirmationSteps: defineTable({
-    appointmentId: v.id("appointments"),
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
-    bookedDurationMinutes: v.number(),
-    createdAt: v.int64(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
-    hzvStatus: v.optional(hzvStatusValidator),
-    insuranceType: insuranceTypeValidator,
-    isNewPatient: v.literal(true),
-    lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    medicalHistory: v.optional(medicalHistoryValidator),
-    patientId: v.optional(v.id("patients")),
-    personalData: personalDataValidator,
-    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
-    pkvTariff: v.optional(pkvTariffValidator),
-    practiceId: v.id("practices"),
-    pvsConsent: v.optional(v.literal(true)),
-    reasonDescription: v.string(),
-    ruleSetId: v.id("ruleSets"),
-    selectedSlot: selectedSlotStorageValidator,
     sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
   })
@@ -787,28 +737,6 @@ export default defineSchema({
     .index("by_sessionId", ["sessionId"])
     .index("by_userId", ["userId"]),
 
-  bookingNewPersonalDataSteps: defineTable({
-    beihilfeStatus: v.optional(beihilfeStatusValidator),
-    createdAt: v.int64(),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
-    hzvStatus: v.optional(hzvStatusValidator),
-    insuranceType: insuranceTypeValidator,
-    isNewPatient: v.literal(true),
-    lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    medicalHistory: v.optional(medicalHistoryValidator),
-    personalData: personalDataValidator,
-    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
-    pkvTariff: v.optional(pkvTariffValidator),
-    practiceId: v.id("practices"),
-    pvsConsent: v.optional(v.literal(true)),
-    ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
-
   bookingNewPkvConsentSteps: defineTable({
     createdAt: v.int64(),
     insuranceType: v.literal("pkv"),
@@ -848,6 +776,29 @@ export default defineSchema({
     lastModified: v.int64(),
     locationLineageKey: v.id("locations"),
     practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+    sessionId: v.id("bookingSessions"),
+    userId: v.id("users"),
+  })
+    .index("by_sessionId", ["sessionId"])
+    .index("by_userId", ["userId"]),
+
+  bookingPersonalDataSteps: defineTable({
+    beihilfeStatus: v.optional(beihilfeStatusValidator),
+    createdAt: v.int64(),
+    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
+    hzvStatus: v.optional(hzvStatusValidator),
+    insuranceType: v.optional(insuranceTypeValidator),
+    isNewPatient: v.boolean(),
+    lastModified: v.int64(),
+    locationLineageKey: v.id("locations"),
+    medicalHistory: v.optional(medicalHistoryValidator),
+    personalData: personalDataValidator,
+    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
+    pkvTariff: v.optional(pkvTariffValidator),
+    practiceId: v.id("practices"),
+    practitionerLineageKey: v.optional(v.id("practitioners")),
+    pvsConsent: v.optional(v.literal(true)),
     ruleSetId: v.id("ruleSets"),
     sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
