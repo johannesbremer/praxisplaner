@@ -105,8 +105,8 @@ describe("canGoBack", () => {
       expect(canGoBack("existing-confirmation")).toBe(false);
     });
 
-    it("cannot go back from existing-data-input", () => {
-      expect(canGoBack("existing-data-input")).toBe(false);
+    it("can go back from existing-data-input", () => {
+      expect(canGoBack("existing-data-input")).toBe(true);
     });
 
     it("can go back from existing-doctor-selection", () => {

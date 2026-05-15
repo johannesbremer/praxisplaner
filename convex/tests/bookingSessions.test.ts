@@ -1501,6 +1501,55 @@ describe("bookingSessions atomic pending/completed step states", () => {
     assertStateStep(atCalendar.state, "existing-calendar-selection");
     expect(atCalendar.state.personalData.firstName).toBe("Grace");
   });
+
+  test("existing patient can go back from data-input until calendar selection is reached", async () => {
+    const t = createTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBookingEntities(t);
+    const authed = makeAuthedClient(t, "existing_back_boundary");
+
+    const sessionId = await authed.mutation(api.bookingSessions.create, {
+      practiceId,
+      ruleSetId,
+    });
+    await bootstrapToPatientStatus(authed, sessionId, locationId);
+
+    await authed.mutation(api.bookingSessions.selectExistingPatient, {
+      sessionId,
+    });
+    await authed.mutation(api.bookingSessions.selectDoctor, {
+      practitionerLineageKey: practitionerId,
+      sessionId,
+    });
+
+    await authed.mutation(api.bookingSessions.goBack, { sessionId });
+    const atDoctorSelection = await authed.query(api.bookingSessions.get, {
+      sessionId,
+    });
+    assertSessionExists(
+      atDoctorSelection,
+      "session should exist after going back from existing data input",
+    );
+    assertStateStep(atDoctorSelection.state, "existing-doctor-selection");
+
+    await authed.mutation(api.bookingSessions.selectDoctor, {
+      practitionerLineageKey: practitionerId,
+      sessionId,
+    });
+    await authed.mutation(api.bookingSessions.submitExistingPatientData, {
+      personalData: {
+        dateOfBirth: "1975-05-20",
+        firstName: "Grace",
+        lastName: "Hopper",
+        phoneNumber: "+491709999999",
+      },
+      sessionId,
+    });
+
+    await expect(
+      authed.mutation(api.bookingSessions.goBack, { sessionId }),
+    ).rejects.toThrow("Cannot go back from step 'existing-calendar-selection'");
+  });
 });
 
 describe("bookingSessions slot selection validation", () => {

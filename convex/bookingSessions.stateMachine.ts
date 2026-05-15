@@ -1012,7 +1012,10 @@ function transitionSubmitNewPatientData(
 const STEP_NAV_GRAPH: Record<StepName, StepNavNode> = {
   "existing-calendar-selection": { canGoBack: false, prev: null },
   "existing-confirmation": { canGoBack: false, prev: null },
-  "existing-data-input": { canGoBack: false, prev: null },
+  "existing-data-input": {
+    canGoBack: true,
+    prev: "existing-doctor-selection",
+  },
   "existing-doctor-selection": { canGoBack: true, prev: "patient-status" },
   location: { canGoBack: true, prev: "privacy" },
   "new-calendar-selection": { canGoBack: false, prev: null },
@@ -1089,6 +1092,17 @@ export function computePreviousInternalState(
   }
 
   switch (prevStep) {
+    case "existing-doctor-selection": {
+      if (!("locationLineageKey" in state)) {
+        throw new Error("Cannot go back: missing required fields");
+      }
+      return {
+        isNewPatient: false,
+        locationLineageKey: state.locationLineageKey,
+        step: "existing-doctor-selection",
+      };
+    }
+
     case "location": {
       return { step: "location" };
     }

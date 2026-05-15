@@ -61,7 +61,6 @@ export const STEP_GROUP_BY_KIND: Record<
 export const LOCKED_BACK_STEPS = new Set<BookingSessionStepName>([
   "existing-calendar-selection",
   "existing-confirmation",
-  "existing-data-input",
   "new-calendar-selection",
   "new-confirmation",
   "privacy",
