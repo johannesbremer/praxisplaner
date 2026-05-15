@@ -608,6 +608,9 @@ export const get = query({
     if (session.userId !== userId) {
       return null;
     }
+    if (session.status !== "active" || session.source !== "current-booking") {
+      return null;
+    }
 
     const sessionUser = await ctx.db.get("users", session.userId);
     if (!sessionUser) {
@@ -643,7 +646,18 @@ export const get = query({
       lastModified: v.int64(),
       practiceId: v.id("practices"),
       ruleSetId: v.id("ruleSets"),
+      source: v.union(
+        v.literal("current-booking"),
+        v.literal("legacy-pocketbase"),
+        v.literal("telefonki"),
+      ),
+      sourceSessionKey: v.optional(v.string()),
       state: bookingSessionStepValidator,
+      status: v.union(
+        v.literal("active"),
+        v.literal("completed"),
+        v.literal("imported"),
+      ),
       userId: v.id("users"),
     }),
     v.null(),
@@ -668,11 +682,13 @@ export const getActiveForUser = query({
 
     const sessions = await ctx.db
       .query("bookingSessions")
-      .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+      .withIndex("by_userId_practiceId_ruleSetId_status_source", (q) =>
         q
           .eq("userId", userId)
           .eq("practiceId", args.practiceId)
-          .eq("ruleSetId", args.ruleSetId),
+          .eq("ruleSetId", args.ruleSetId)
+          .eq("status", "active")
+          .eq("source", "current-booking"),
       )
       .order("desc")
       .collect();
@@ -722,7 +738,18 @@ export const getActiveForUser = query({
       lastModified: v.int64(),
       practiceId: v.id("practices"),
       ruleSetId: v.id("ruleSets"),
+      source: v.union(
+        v.literal("current-booking"),
+        v.literal("legacy-pocketbase"),
+        v.literal("telefonki"),
+      ),
+      sourceSessionKey: v.optional(v.string()),
       state: bookingSessionStepValidator,
+      status: v.union(
+        v.literal("active"),
+        v.literal("completed"),
+        v.literal("imported"),
+      ),
       userId: v.id("users"),
     }),
     v.null(),
@@ -744,16 +771,22 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await ensureAuthenticatedUserId(ctx);
+    await assertUserCanCreateBookingSession(ctx, {
+      practiceId: args.practiceId,
+      userId,
+    });
 
     const now = BigInt(Date.now());
 
     const sessions = await ctx.db
       .query("bookingSessions")
-      .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+      .withIndex("by_userId_practiceId_ruleSetId_status_source", (q) =>
         q
           .eq("userId", userId)
           .eq("practiceId", args.practiceId)
-          .eq("ruleSetId", args.ruleSetId),
+          .eq("ruleSetId", args.ruleSetId)
+          .eq("status", "active")
+          .eq("source", "current-booking"),
       )
       .order("desc")
       .collect();
@@ -792,9 +825,11 @@ export const create = mutation({
       lastModified: now,
       practiceId: args.practiceId,
       ruleSetId: args.ruleSetId,
+      source: "current-booking",
       state: {
         step: "privacy" as const,
       },
+      status: "active",
       userId,
     });
 
@@ -836,7 +871,9 @@ export const cleanupExpired = internalMutation({
     const now = BigInt(Date.now());
     const expiredSessions = await ctx.db
       .query("bookingSessions")
-      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now))
+      .withIndex("by_status_expiresAt", (q) =>
+        q.eq("status", "active").lt("expiresAt", now),
+      )
       .collect();
 
     for (const session of expiredSessions) {
@@ -847,6 +884,22 @@ export const cleanupExpired = internalMutation({
   },
   returns: v.number(),
 });
+
+async function assertUserCanCreateBookingSession(
+  ctx: MutationCtx,
+  args: { practiceId: Id<"practices">; userId: Id<"users"> },
+): Promise<void> {
+  const bookingBlock = await ctx.db
+    .query("legacyBookingBlocks")
+    .withIndex("by_userId_practiceId", (q) =>
+      q.eq("userId", args.userId).eq("practiceId", args.practiceId),
+    )
+    .first();
+
+  if (bookingBlock) {
+    throw new Error("This account is blocked from online booking.");
+  }
+}
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -927,6 +980,9 @@ async function getVerifiedSession(
 
   if (session.userId !== userId) {
     throw new Error("Access denied");
+  }
+  if (session.status !== "active" || session.source !== "current-booking") {
+    throw new Error("Session is not active");
   }
 
   // Check if session has expired

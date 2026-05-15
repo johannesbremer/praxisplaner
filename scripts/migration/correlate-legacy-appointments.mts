@@ -1,11 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const legacyDbPath = join(workspaceRoot, ".cache/migration/source/data.db");
 const reportRoot = join(workspaceRoot, ".cache/migration/reports");
-const pvsAppointmentsPath = join(workspaceRoot, "old-appointments.csv");
+const pvsAppointmentsPath = migrationSourcePath("old-appointments.csv");
+
+function migrationSourcePath(fileName) {
+  const rootPath = join(workspaceRoot, fileName);
+  if (existsSync(rootPath)) {
+    return rootPath;
+  }
+  return join(workspaceRoot, ".cache/migration/source", fileName);
+}
 
 function parseCsv(text) {
   const rows = [];
@@ -333,6 +341,7 @@ function classifyAppointments(legacyRows, pvsIndex) {
       legacyStart: row.legacyStart,
       legacyTitle: row.legacyTitle,
       legacyType: row.legacyType,
+      legacyUserEmail: row.legacyUserEmail,
       matchRule:
         "exact_local_wall_clock_start_and_exact_normalized_first_last_name",
       patientFirstName: firstName,
@@ -429,22 +438,15 @@ function buildAssociationRows(matches) {
     byAssociationKey.set(associationKey, {
       associationKey,
       bookingIdentitySourceKey: sourceKey,
-      confidence: "exact",
-      evidence: {
-        legacyAppointmentId: match.legacyAppointmentId,
-        legacyIdentityId: match.legacyIdentityId,
-        matchedAppointmentStart: match.legacyStart,
-        matchedFirstName: match.patientFirstName,
-        matchedLastName: match.patientLastName,
-        pvsAppointmentSourceKey: [
-          match.pvsStart,
-          match.pvsPatientSourceId,
-          match.pvsType,
-        ].join("|"),
-        pvsPatientNumber: Number(match.pvsPatientSourceId),
-      },
       evidenceCount: 1,
-      method: "migration-exact-appointment-name",
+      legacyAppointmentId: match.legacyAppointmentId,
+      legacyIdentityId: match.legacyIdentityId,
+      method: "automatic",
+      pvsAppointmentSourceKey: [
+        match.pvsStart,
+        match.pvsPatientSourceId,
+        match.pvsType,
+      ].join("|"),
       pvsPatientNumber: Number(match.pvsPatientSourceId),
       status: "active",
     });

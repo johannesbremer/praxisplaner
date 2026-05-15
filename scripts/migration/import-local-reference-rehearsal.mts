@@ -1,8 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
+const seedRoot = join(workspaceRoot, "seed_data_preview");
+const convexCliEnv = {
+  ...process.env,
+  CI: "1",
+};
 const practiceLocations = ["Bad Iburg", "Dissen a.T.W."];
 const resourceDoctorNames = new Set([
   "Labor Dissen",
@@ -75,6 +80,14 @@ function parseCsv(text) {
     );
 }
 
+function migrationSourcePath(fileName) {
+  const rootPath = join(workspaceRoot, fileName);
+  if (existsSync(rootPath)) {
+    return rootPath;
+  }
+  return join(workspaceRoot, ".cache/migration/source", fileName);
+}
+
 function uniqueSorted(values) {
   return [...new Set(values.filter((value) => value.trim().length > 0))].sort(
     (left, right) => left.localeCompare(right, "de"),
@@ -107,33 +120,26 @@ function inferDurationMinutes(rows) {
   })[0][0];
 }
 
-function readLocalJsonLines(tableName) {
-  const output = execFileSync(
-    "pnpm",
-    ["exec", "convex", "data", tableName, "--format", "jsonLines"],
-    {
-      cwd: workspaceRoot,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
-
-  return output
+function readJsonl(path) {
+  return readFileSync(path, "utf8")
     .trim()
     .split("\n")
     .filter(Boolean)
-    .map((line) => JSON.parse(line.replace(/: (-?\d+)n([,}])/g, ": $1$2")));
+    .map((line) => JSON.parse(line));
+}
+
+function getSeedPractice() {
+  const [practice] = readJsonl(join(seedRoot, "practices/documents.jsonl"));
+  if (!practice?.currentActiveRuleSetId || !practice?._id) {
+    throw new Error("Expected seed preview practice and active rule set.");
+  }
+  return practice;
 }
 
 const appointments = parseCsv(
-  readFileSync(join(workspaceRoot, "old-appointments.csv"), "utf8"),
+  readFileSync(migrationSourcePath("old-appointments.csv"), "utf8"),
 );
-const [practice] = readLocalJsonLines("practices");
-const [ruleSet] = readLocalJsonLines("ruleSets");
-
-if (!practice?.currentActiveRuleSetId || !ruleSet?._id) {
-  throw new Error("Expected local seed practice and rule set to exist.");
-}
+const practice = getSeedPractice();
 
 const rowsByType = Map.groupBy(appointments, (row) => row.Terminart);
 const appointmentTypes = uniqueSorted(
@@ -162,12 +168,15 @@ const result = execFileSync(
       practitioners,
       ruleSetId: practice.currentActiveRuleSetId,
     }),
+    "--deployment",
+    "local",
     "--push",
     "--typecheck",
     "disable",
   ],
   {
     cwd: workspaceRoot,
+    env: convexCliEnv,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   },

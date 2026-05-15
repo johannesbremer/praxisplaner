@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
@@ -9,6 +15,10 @@ const importTimestamp = "1778751271000";
 const fallbackDurationMinutes = 5;
 const sampleAppointmentCount = 10;
 const fullImport = process.argv.includes("--full");
+const convexCliEnv = {
+  ...process.env,
+  CI: "1",
+};
 const locationNameByRoomToken = [
   { locationName: "Bad Iburg", pattern: /ibur(?:g)?|\bibu\b/i },
   { locationName: "Dissen a.T.W.", pattern: /\bdiss(?:en)?\b/i },
@@ -84,12 +94,32 @@ function parseCsv(text) {
     );
 }
 
+function migrationSourcePath(fileName) {
+  const rootPath = join(workspaceRoot, fileName);
+  if (existsSync(rootPath)) {
+    return rootPath;
+  }
+  return join(workspaceRoot, ".cache/migration/source", fileName);
+}
+
 function readJsonl(path) {
   return readFileSync(path, "utf8")
     .trim()
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+}
+
+function readConvexJson(output) {
+  const trimmed = output.trim();
+  const jsonStart = trimmed.search(/[\[{]/u);
+  if (jsonStart === -1) {
+    throw new Error(`Could not parse Convex response: ${output}`);
+  }
+  const jsonText = trimmed
+    .slice(jsonStart)
+    .replace(/: (-?\d+)n([,}\]])/g, ": $1$2");
+  return JSON.parse(jsonText);
 }
 
 function normalizeSearch(firstName, lastName) {
@@ -174,7 +204,7 @@ function writeZipTable(tableName, documents, generatedSchema) {
 
 function buildPatientsZip() {
   const appointments = parseCsv(
-    readFileSync(join(workspaceRoot, "old-appointments.csv"), "utf8"),
+    readFileSync(migrationSourcePath("old-appointments.csv"), "utf8"),
   );
   const patientIds = new Set(
     (fullImport ? appointments : appointments.slice(0, sampleAppointmentCount))
@@ -182,7 +212,7 @@ function buildPatientsZip() {
       .filter(Boolean),
   );
   const patients = parseCsv(
-    readFileSync(join(workspaceRoot, "patients.csv"), "utf8"),
+    readFileSync(migrationSourcePath("patients.csv"), "utf8"),
   )
     .filter((patient) => patientIds.has(patient.ID))
     .map((patient) => ({
@@ -211,21 +241,22 @@ function buildPatientsZip() {
 
 function buildAppointmentsZip() {
   const appointments = parseCsv(
-    readFileSync(join(workspaceRoot, "old-appointments.csv"), "utf8"),
+    readFileSync(migrationSourcePath("old-appointments.csv"), "utf8"),
   );
   const patientBySourceId = getLocalPatientsBySourceId();
   const practice = getSeedPractice();
+  const references = getLocalReferences();
   const appointmentTypeByName = new Map(
-    getLocalTable("appointmentTypes").map((appointmentType) => [
+    references.appointmentTypes.map((appointmentType) => [
       appointmentType.name,
       appointmentType,
     ]),
   );
   const locationByName = new Map(
-    getLocalTable("locations").map((location) => [location.name, location]),
+    references.locations.map((location) => [location.name, location]),
   );
   const practitionerByName = new Map(
-    getLocalTable("practitioners").map((practitioner) => [
+    references.practitioners.map((practitioner) => [
       practitioner.name,
       practitioner,
     ]),
@@ -390,6 +421,34 @@ function getSeedPractice() {
   return readJsonl(join(seedRoot, "practices/documents.jsonl"))[0];
 }
 
+function getLocalReferences() {
+  const practice = getSeedPractice();
+  const output = execFileSync(
+    "pnpm",
+    [
+      "exec",
+      "convex",
+      "run",
+      "migrationRehearsal:listReferenceTableRows",
+      JSON.stringify({
+        ruleSetId: practice.currentActiveRuleSetId,
+      }),
+      "--deployment",
+      "local",
+      "--typecheck",
+      "disable",
+    ],
+    {
+      cwd: workspaceRoot,
+      env: convexCliEnv,
+      encoding: "utf8",
+      maxBuffer: 50 * 1024 * 1024,
+    },
+  );
+
+  return readConvexJson(output);
+}
+
 function getLocalPatientsBySourceId() {
   const practice = getSeedPractice();
   const mappings = [];
@@ -411,50 +470,24 @@ function getLocalPatientsBySourceId() {
           practiceId: practice._id,
           toExclusive: fromInclusive + pageSize,
         }),
+        "--deployment",
+        "local",
         "--typecheck",
         "disable",
       ],
       {
         cwd: workspaceRoot,
+        env: convexCliEnv,
         encoding: "utf8",
+        maxBuffer: 50 * 1024 * 1024,
       },
     );
-    const jsonStart = output.indexOf("[");
-    const jsonEnd = output.lastIndexOf("]");
-    if (jsonStart === -1 || jsonEnd === -1 || jsonEnd < jsonStart) {
-      throw new Error(`Could not parse patient mapping response: ${output}`);
-    }
-    mappings.push(...JSON.parse(output.slice(jsonStart, jsonEnd + 1)));
+    mappings.push(...readConvexJson(output));
   }
 
   return new Map(
     mappings.map((patient) => [patient.patientId, patient.convexId]),
   );
-}
-
-function getLocalTable(tableName) {
-  const output = execFileSync(
-    "pnpm",
-    [
-      "exec",
-      "convex",
-      "data",
-      tableName,
-      "--format",
-      "jsonLines",
-      "--limit",
-      "8192",
-    ],
-    {
-      cwd: workspaceRoot,
-      encoding: "utf8",
-    },
-  );
-  const lines = output.trim().split("\n").filter(Boolean);
-  return lines.map((line) => {
-    const json = line.replace(/: (-?\d+)n([,}])/g, ": $1$2");
-    return JSON.parse(json);
-  });
 }
 
 const command = process.argv[2];
@@ -467,6 +500,6 @@ if (command === "patients") {
   buildAppointmentsZip();
 } else {
   throw new Error(
-    "Usage: node scripts/migration/build-local-rehearsal-import.mjs patients|appointments",
+    "Usage: node scripts/migration/build-local-rehearsal-import.mts patients|appointments",
   );
 }

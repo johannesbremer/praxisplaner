@@ -1,9 +1,14 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 
 import { regex } from "../lib/arkregex.js";
-import { mutation, query } from "./_generated/server";
+import { mutation, type MutationCtx, query } from "./_generated/server";
+import {
+  dataSharingContactInputValidator,
+  personalDataValidator,
+} from "./bookingValidators";
 import { insertSelfLineageEntity } from "./lineage";
 
 function assertMigrationRehearsalEnabled(): void {
@@ -157,6 +162,68 @@ export const listPatientMappingsByPatientIdRange = query({
   ),
 });
 
+export const listReferenceTableRows = query({
+  args: {
+    ruleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    assertMigrationRehearsalEnabled();
+
+    const [appointmentTypes, locations, practitioners] = await Promise.all([
+      ctx.db
+        .query("appointmentTypes")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+        .collect(),
+      ctx.db
+        .query("locations")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+        .collect(),
+      ctx.db
+        .query("practitioners")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+        .collect(),
+    ]);
+
+    return {
+      appointmentTypes: appointmentTypes.flatMap((row) =>
+        row.lineageKey === undefined
+          ? []
+          : [{ lineageKey: row.lineageKey, name: row.name }],
+      ),
+      locations: locations.flatMap((row) =>
+        row.lineageKey === undefined
+          ? []
+          : [{ lineageKey: row.lineageKey, name: row.name }],
+      ),
+      practitioners: practitioners.flatMap((row) =>
+        row.lineageKey === undefined
+          ? []
+          : [{ lineageKey: row.lineageKey, name: row.name }],
+      ),
+    };
+  },
+  returns: v.object({
+    appointmentTypes: v.array(
+      v.object({
+        lineageKey: v.id("appointmentTypes"),
+        name: v.string(),
+      }),
+    ),
+    locations: v.array(
+      v.object({
+        lineageKey: v.id("locations"),
+        name: v.string(),
+      }),
+    ),
+    practitioners: v.array(
+      v.object({
+        lineageKey: v.id("practitioners"),
+        name: v.string(),
+      }),
+    ),
+  }),
+});
+
 const bookingIdentityImportRowValidator = v.object({
   dateOfBirth: v.optional(v.string()),
   firstName: v.optional(v.string()),
@@ -177,21 +244,37 @@ const legacyUserImportRowValidator = v.object({
   verified: v.boolean(),
 });
 
+const legacyBookingBlockImportRowValidator = v.object({
+  legacyUserId: v.string(),
+  reason: v.string(),
+  userAuthId: v.string(),
+  userEmail: v.string(),
+});
+
+const legacyBookingReplayRowValidator = v.object({
+  bookedDurationMinutes: v.number(),
+  createdAt: v.number(),
+  dataSharingContacts: v.array(dataSharingContactInputValidator),
+  legacyAppointmentId: v.string(),
+  personalData: personalDataValidator,
+  pvsAppointmentStart: v.string(),
+  pvsAppointmentTypeTitle: v.string(),
+  pvsPatientNumber: v.number(),
+  reasonDescription: v.string(),
+  source: v.union(v.literal("legacy-pocketbase"), v.literal("telefonki")),
+  sourceSessionKey: v.string(),
+  userAuthId: v.string(),
+  userEmail: v.string(),
+});
+
 const bookingIdentityAssociationImportRowValidator = v.object({
   associationKey: v.string(),
   bookingIdentitySourceKey: v.string(),
-  confidence: v.literal("exact"),
-  evidence: v.object({
-    legacyAppointmentId: v.string(),
-    legacyIdentityId: v.string(),
-    matchedAppointmentStart: v.string(),
-    matchedFirstName: v.string(),
-    matchedLastName: v.string(),
-    pvsAppointmentSourceKey: v.string(),
-    pvsPatientNumber: v.number(),
-  }),
   evidenceCount: v.number(),
-  method: v.literal("migration-exact-appointment-name"),
+  legacyAppointmentId: v.string(),
+  legacyIdentityId: v.string(),
+  method: v.literal("automatic"),
+  pvsAppointmentSourceKey: v.string(),
   pvsPatientNumber: v.number(),
   status: v.literal("active"),
 });
@@ -310,12 +393,15 @@ export const importBookingIdentityAssociations = mutation({
 
       await ctx.db.insert("bookingIdentityPatientAssociations", {
         bookingIdentityId,
-        confidence: association.confidence,
         createdAt: now,
-        evidence: association.evidence,
+        evidenceCount: association.evidenceCount,
+        legacyAppointmentId: association.legacyAppointmentId,
+        legacyIdentityId: association.legacyIdentityId,
         method: association.method,
         patientId: patient._id,
         practiceId: args.practiceId,
+        pvsAppointmentSourceKey: association.pvsAppointmentSourceKey,
+        pvsPatientNumber: association.pvsPatientNumber,
         status: "active",
       });
       insertedAssociations += 1;
@@ -378,6 +464,155 @@ export const importLegacyUsers = mutation({
   }),
 });
 
+export const importLegacyBookingBlocks = mutation({
+  args: {
+    blocks: v.array(legacyBookingBlockImportRowValidator),
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    assertMigrationRehearsalEnabled();
+
+    const now = BigInt(Date.now());
+    let insertedBlocks = 0;
+    let reusedBlocks = 0;
+    let insertedUsers = 0;
+    let reusedUsers = 0;
+
+    for (const block of args.blocks) {
+      const userResult = await ensureImportedUser(ctx, {
+        authId: block.userAuthId,
+        email: block.userEmail,
+        now,
+      });
+      if (userResult.inserted) {
+        insertedUsers += 1;
+      } else {
+        reusedUsers += 1;
+      }
+
+      const existing = await ctx.db
+        .query("legacyBookingBlocks")
+        .withIndex("by_userId_practiceId", (q) =>
+          q.eq("userId", userResult.userId).eq("practiceId", args.practiceId),
+        )
+        .first();
+
+      if (existing) {
+        reusedBlocks += 1;
+        continue;
+      }
+
+      await ctx.db.insert("legacyBookingBlocks", {
+        createdAt: now,
+        legacyUserId: block.legacyUserId,
+        practiceId: args.practiceId,
+        reason: block.reason,
+        sourceSystem: "legacy-pocketbase",
+        userId: userResult.userId,
+      });
+      insertedBlocks += 1;
+    }
+
+    return { insertedBlocks, insertedUsers, reusedBlocks, reusedUsers };
+  },
+  returns: v.object({
+    insertedBlocks: v.number(),
+    insertedUsers: v.number(),
+    reusedBlocks: v.number(),
+    reusedUsers: v.number(),
+  }),
+});
+
+export const importLegacyBookingStepReplay = mutation({
+  args: {
+    practiceId: v.id("practices"),
+    replayRows: v.array(legacyBookingReplayRowValidator),
+    ruleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    assertMigrationRehearsalEnabled();
+
+    let insertedSessions = 0;
+    let reusedSessions = 0;
+    let insertedUsers = 0;
+    let reusedUsers = 0;
+    let skippedMissingAppointment = 0;
+
+    for (const replayRow of args.replayRows) {
+      const existingSession = await ctx.db
+        .query("bookingSessions")
+        .withIndex("by_sourceSessionKey", (q) =>
+          q.eq("sourceSessionKey", replayRow.sourceSessionKey),
+        )
+        .first();
+
+      if (existingSession) {
+        reusedSessions += 1;
+        continue;
+      }
+
+      const resolvedReplayRow = await resolveLegacyBookingReplayRow(ctx, {
+        practiceId: args.practiceId,
+        replayRow,
+      });
+      if (!resolvedReplayRow) {
+        skippedMissingAppointment += 1;
+        continue;
+      }
+
+      const rowTimestamp = BigInt(resolvedReplayRow.createdAt);
+      const userResult = await ensureImportedUser(ctx, {
+        authId: resolvedReplayRow.userAuthId,
+        email: resolvedReplayRow.userEmail,
+        now: rowTimestamp,
+      });
+      if (userResult.inserted) {
+        insertedUsers += 1;
+      } else {
+        reusedUsers += 1;
+      }
+
+      const sessionId = await ctx.db.insert("bookingSessions", {
+        createdAt: rowTimestamp,
+        expiresAt: rowTimestamp,
+        lastModified: rowTimestamp,
+        practiceId: args.practiceId,
+        ruleSetId: args.ruleSetId,
+        source: resolvedReplayRow.source,
+        sourceSessionKey: resolvedReplayRow.sourceSessionKey,
+        state: { step: "existing-confirmation" },
+        status: "imported",
+        userId: userResult.userId,
+      });
+
+      await insertImportedExistingBookingSteps(ctx, {
+        practiceId: args.practiceId,
+        replayRow: resolvedReplayRow,
+        ruleSetId: args.ruleSetId,
+        sessionId,
+        timestamp: rowTimestamp,
+        userId: userResult.userId,
+      });
+      insertedSessions += 1;
+    }
+
+    return {
+      insertedSessions,
+      insertedUsers,
+      reusedSessions,
+      reusedUsers,
+      skippedMissingAppointment,
+    };
+  },
+  returns: v.object({
+    insertedSessions: v.number(),
+    insertedUsers: v.number(),
+    reusedSessions: v.number(),
+    reusedUsers: v.number(),
+    skippedMissingAppointment: v.number(),
+  }),
+});
+
 export const countBookingIdentityAssociationImport = query({
   args: {},
   handler: async (ctx) => {
@@ -386,6 +621,13 @@ export const countBookingIdentityAssociationImport = query({
     const [bookingIdentities, associations] = await Promise.all([
       ctx.db.query("bookingIdentities").collect(),
       ctx.db.query("bookingIdentityPatientAssociations").collect(),
+    ]);
+    const [bookingBlocks, importedSessions] = await Promise.all([
+      ctx.db.query("legacyBookingBlocks").collect(),
+      ctx.db
+        .query("bookingSessions")
+        .withIndex("by_status_expiresAt", (q) => q.eq("status", "imported"))
+        .collect(),
     ]);
     const legacyUsers = await ctx.db
       .query("users")
@@ -404,6 +646,8 @@ export const countBookingIdentityAssociationImport = query({
       activeAssociations: activeAssociations.length,
       associations: associations.length,
       bookingIdentities: bookingIdentities.length,
+      legacyBookingBlocks: bookingBlocks.length,
+      legacyBookingSessions: importedSessions.length,
       legacyUsers: legacyUsers.length,
     };
   },
@@ -411,9 +655,325 @@ export const countBookingIdentityAssociationImport = query({
     activeAssociations: v.number(),
     associations: v.number(),
     bookingIdentities: v.number(),
+    legacyBookingBlocks: v.number(),
+    legacyBookingSessions: v.number(),
     legacyUsers: v.number(),
   }),
 });
+
+const rehearsalCountTableNameValidator = v.union(
+  v.literal("bookingSessions"),
+  v.literal("bookingPrivacySteps"),
+  v.literal("bookingLocationSteps"),
+  v.literal("bookingPatientStatusSteps"),
+  v.literal("bookingExistingDoctorSelectionSteps"),
+  v.literal("bookingExistingPersonalDataSteps"),
+  v.literal("bookingExistingDataSharingSteps"),
+  v.literal("bookingExistingCalendarSelectionSteps"),
+  v.literal("bookingExistingConfirmationSteps"),
+  v.literal("bookingIdentities"),
+  v.literal("bookingIdentityPatientAssociations"),
+  v.literal("legacyBookingBlocks"),
+);
+
+export const countRehearsalTablePage = query({
+  args: {
+    paginationOpts: paginationOptsValidator,
+    tableName: rehearsalCountTableNameValidator,
+  },
+  handler: async (ctx, args) => {
+    assertMigrationRehearsalEnabled();
+
+    switch (args.tableName) {
+      case "bookingExistingCalendarSelectionSteps": {
+        const result = await ctx.db
+          .query("bookingExistingCalendarSelectionSteps")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
+      case "bookingExistingConfirmationSteps": {
+        const result = await ctx.db
+          .query("bookingExistingConfirmationSteps")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
+      case "bookingExistingDataSharingSteps": {
+        const result = await ctx.db
+          .query("bookingExistingDataSharingSteps")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
+      case "bookingExistingDoctorSelectionSteps": {
+        const result = await ctx.db
+          .query("bookingExistingDoctorSelectionSteps")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
+      case "bookingExistingPersonalDataSteps": {
+        const result = await ctx.db
+          .query("bookingExistingPersonalDataSteps")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
+      case "bookingIdentities": {
+        const result = await ctx.db
+          .query("bookingIdentities")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
+      case "bookingIdentityPatientAssociations": {
+        const result = await ctx.db
+          .query("bookingIdentityPatientAssociations")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
+      case "bookingLocationSteps": {
+        const result = await ctx.db
+          .query("bookingLocationSteps")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
+      case "bookingPatientStatusSteps": {
+        const result = await ctx.db
+          .query("bookingPatientStatusSteps")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
+      case "bookingPrivacySteps": {
+        const result = await ctx.db
+          .query("bookingPrivacySteps")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
+      case "bookingSessions": {
+        const result = await ctx.db
+          .query("bookingSessions")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
+      case "legacyBookingBlocks": {
+        const result = await ctx.db
+          .query("legacyBookingBlocks")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
+    }
+  },
+  returns: v.object({
+    continueCursor: v.string(),
+    count: v.number(),
+    isDone: v.boolean(),
+  }),
+});
+
+type InferLegacyBookingReplayRow = LegacyBookingReplayRowInput & {
+  appointmentId: Id<"appointments">;
+  appointmentTypeLineageKey: Id<"appointmentTypes">;
+  locationLineageKey: Id<"locations">;
+  patientId?: Id<"patients">;
+  practitionerLineageKey: Id<"practitioners">;
+  practitionerName: string;
+  selectedSlot: {
+    practitionerLineageKey: Id<"practitioners">;
+    practitionerName: string;
+    startTime: string;
+  };
+};
+
+interface LegacyBookingReplayRowInput {
+  bookedDurationMinutes: number;
+  createdAt: number;
+  dataSharingContacts: {
+    city: string;
+    dateOfBirth: string;
+    firstName: string;
+    gender: "diverse" | "female" | "male";
+    lastName: string;
+    phoneNumber: string;
+    postalCode: string;
+    street: string;
+    title?: string;
+  }[];
+  legacyAppointmentId: string;
+  personalData: {
+    city?: string;
+    dateOfBirth: string;
+    email?: string;
+    firstName: string;
+    gender?: "diverse" | "female" | "male";
+    lastName: string;
+    phoneNumber: string;
+    postalCode?: string;
+    street?: string;
+    title?: string;
+  };
+  pvsAppointmentStart: string;
+  pvsAppointmentTypeTitle: string;
+  pvsPatientNumber: number;
+  reasonDescription: string;
+  source: "legacy-pocketbase" | "telefonki";
+  sourceSessionKey: string;
+  userAuthId: string;
+  userEmail: string;
+}
+
+async function ensureImportedUser(
+  ctx: MutationCtx,
+  args: { authId: string; email: string; now: bigint },
+): Promise<{ inserted: boolean; userId: Id<"users"> }> {
+  const existing = await ctx.db
+    .query("users")
+    .withIndex("by_authId", (q) => q.eq("authId", args.authId))
+    .first();
+
+  if (existing) {
+    return { inserted: false, userId: existing._id };
+  }
+
+  const userId = await ctx.db.insert("users", {
+    authId: args.authId,
+    createdAt: args.now,
+    email: args.email,
+  });
+  return { inserted: true, userId };
+}
+
+async function insertImportedExistingBookingSteps(
+  ctx: MutationCtx,
+  args: {
+    practiceId: Id<"practices">;
+    replayRow: InferLegacyBookingReplayRow;
+    ruleSetId: Id<"ruleSets">;
+    sessionId: Id<"bookingSessions">;
+    timestamp: bigint;
+    userId: Id<"users">;
+  },
+): Promise<void> {
+  const base = {
+    createdAt: args.timestamp,
+    lastModified: args.timestamp,
+    practiceId: args.practiceId,
+    ruleSetId: args.ruleSetId,
+    sessionId: args.sessionId,
+    userId: args.userId,
+  };
+  const dataSharingContacts = args.replayRow.dataSharingContacts.map(
+    (contact) => ({
+      ...contact,
+      userId: args.userId,
+    }),
+  );
+
+  await ctx.db.insert("bookingPrivacySteps", {
+    ...base,
+    consent: true,
+  });
+  await ctx.db.insert("bookingLocationSteps", {
+    ...base,
+    locationLineageKey: args.replayRow.locationLineageKey,
+  });
+  await ctx.db.insert("bookingPatientStatusSteps", {
+    ...base,
+    isNewPatient: false,
+    locationLineageKey: args.replayRow.locationLineageKey,
+  });
+  await ctx.db.insert("bookingExistingDoctorSelectionSteps", {
+    ...base,
+    isNewPatient: false,
+    locationLineageKey: args.replayRow.locationLineageKey,
+    practitionerLineageKey: args.replayRow.practitionerLineageKey,
+  });
+  await ctx.db.insert("bookingExistingPersonalDataSteps", {
+    ...base,
+    isNewPatient: false,
+    locationLineageKey: args.replayRow.locationLineageKey,
+    personalData: args.replayRow.personalData,
+    practitionerLineageKey: args.replayRow.practitionerLineageKey,
+  });
+  await ctx.db.insert("bookingExistingDataSharingSteps", {
+    ...base,
+    dataSharingContacts,
+    isNewPatient: false,
+    locationLineageKey: args.replayRow.locationLineageKey,
+    personalData: args.replayRow.personalData,
+    practitionerLineageKey: args.replayRow.practitionerLineageKey,
+  });
+  await ctx.db.insert("bookingExistingCalendarSelectionSteps", {
+    ...base,
+    appointmentTypeLineageKey: args.replayRow.appointmentTypeLineageKey,
+    dataSharingContacts,
+    isNewPatient: false,
+    locationLineageKey: args.replayRow.locationLineageKey,
+    personalData: args.replayRow.personalData,
+    practitionerLineageKey: args.replayRow.practitionerLineageKey,
+    reasonDescription: args.replayRow.reasonDescription,
+    selectedSlot: args.replayRow.selectedSlot,
+  });
+  await ctx.db.insert("bookingExistingConfirmationSteps", {
+    ...base,
+    appointmentId: args.replayRow.appointmentId,
+    appointmentTypeLineageKey: args.replayRow.appointmentTypeLineageKey,
+    bookedDurationMinutes: args.replayRow.bookedDurationMinutes,
+    dataSharingContacts,
+    isNewPatient: false,
+    locationLineageKey: args.replayRow.locationLineageKey,
+    ...(args.replayRow.patientId === undefined
+      ? {}
+      : { patientId: args.replayRow.patientId }),
+    personalData: args.replayRow.personalData,
+    practitionerLineageKey: args.replayRow.practitionerLineageKey,
+    reasonDescription: args.replayRow.reasonDescription,
+    selectedSlot: args.replayRow.selectedSlot,
+  });
+}
 
 function normalizeSearch(
   firstPart: string | undefined,
@@ -427,4 +987,80 @@ function normalizeSearch(
     }
   }
   return parts.join(" ").toLocaleLowerCase();
+}
+
+async function resolveLegacyBookingReplayRow(
+  ctx: MutationCtx,
+  args: {
+    practiceId: Id<"practices">;
+    replayRow: LegacyBookingReplayRowInput;
+  },
+): Promise<InferLegacyBookingReplayRow | null> {
+  const patient = await ctx.db
+    .query("patients")
+    .withIndex("by_practiceId_patientId", (q) =>
+      q
+        .eq("practiceId", args.practiceId)
+        .eq("patientId", args.replayRow.pvsPatientNumber),
+    )
+    .first();
+
+  if (patient?.recordType !== "pvs") {
+    return null;
+  }
+
+  const appointmentsAtStart = await ctx.db
+    .query("appointments")
+    .withIndex("by_practiceId_start", (q) =>
+      q
+        .eq("practiceId", args.practiceId)
+        .eq("start", args.replayRow.pvsAppointmentStart),
+    )
+    .collect();
+  const appointment = appointmentsAtStart.find(
+    (row) =>
+      row.patientId === patient._id &&
+      row.appointmentTypeTitle === args.replayRow.pvsAppointmentTypeTitle &&
+      row.practitionerLineageKey !== undefined,
+  );
+
+  if (!appointment?.practitionerLineageKey) {
+    return null;
+  }
+
+  const practitioner = await ctx.db.get(
+    "practitioners",
+    appointment.practitionerLineageKey,
+  );
+
+  if (!practitioner) {
+    return null;
+  }
+
+  return {
+    appointmentId: appointment._id,
+    appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
+    bookedDurationMinutes: args.replayRow.bookedDurationMinutes,
+    createdAt: args.replayRow.createdAt,
+    dataSharingContacts: args.replayRow.dataSharingContacts,
+    legacyAppointmentId: args.replayRow.legacyAppointmentId,
+    locationLineageKey: appointment.locationLineageKey,
+    patientId: patient._id,
+    personalData: args.replayRow.personalData,
+    practitionerLineageKey: appointment.practitionerLineageKey,
+    practitionerName: practitioner.name,
+    pvsAppointmentStart: args.replayRow.pvsAppointmentStart,
+    pvsAppointmentTypeTitle: args.replayRow.pvsAppointmentTypeTitle,
+    pvsPatientNumber: args.replayRow.pvsPatientNumber,
+    reasonDescription: args.replayRow.reasonDescription,
+    selectedSlot: {
+      practitionerLineageKey: appointment.practitionerLineageKey,
+      practitionerName: practitioner.name,
+      startTime: appointment.start,
+    },
+    source: args.replayRow.source,
+    sourceSessionKey: args.replayRow.sourceSessionKey,
+    userAuthId: args.replayRow.userAuthId,
+    userEmail: args.replayRow.userEmail,
+  };
 }

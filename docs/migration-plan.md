@@ -51,11 +51,13 @@ Create a migration workspace that is ignored by git:
 
 Add tracked scripts only:
 
-- `scripts/migration/extract-praxistimer.nu`
-- `scripts/migration/extract-legacy-booking.nu`
-- `scripts/migration/build-convex-import.ts`
-- `scripts/migration/validate-migration.ts`
-- `scripts/migration/build-local-rehearsal-import.mjs` as a small executable rehearsal of the backup-ZIP import mechanics.
+- `scripts/migration/convert-praxistimer-export.mts`
+- `scripts/migration/build-pvs-patients-from-appointments.mts`
+- `scripts/migration/report-pvs-patient-name-changes.mts`
+- `scripts/migration/correlate-legacy-appointments.mts`
+- `scripts/migration/build-legacy-booking-step-replay.mts`
+- `scripts/migration/import-booking-identity-associations-local.mts`
+- `scripts/migration/build-local-rehearsal-import.mts` as a small executable rehearsal of the backup-ZIP import mechanics.
 
 Do not commit generated source data, generated JSONL containing patient data, SQLite extracts, or WorkOS import files.
 
@@ -131,9 +133,9 @@ Plan:
 
 ## Phase 5: legacy booking history
 
-Map legacy tables to current booking concepts:
+Map legacy tables to current booking concepts and replay completed historical flows into imported booking sessions:
 
-- `baumdiagramm`: booking decision state and selected branch. Map to `bookingSessions` and per-step tables only where the data is meaningful after migration.
+- `baumdiagramm`: booking decision state and selected branch. Import blocked users from `isUserBlocked` into `legacyBookingBlocks`. Replay meaningful completed history into `bookingSessions` with `status: "imported"` so active booking queries and expiry cleanup ignore it.
 - `personal`: patient personal data entered by a user. Map to existing/new personal-data step rows or preserve as an imported profile history table if the current step tables are too workflow-specific.
 - `datenweitergabe`: data-sharing contacts. Map to data-sharing step tables.
 - `anamnese` and `anamnesetexte`: map to `medicalHistory` fields.
@@ -141,11 +143,11 @@ Map legacy tables to current booking concepts:
 - `termine` and `oldTermine`: legacy online-booked appointments. Correlate to imported Praxistimer appointments, which are the canonical appointment source of truth, by exact appointment facts plus exact patient-name identity rules. Do not create duplicates without a conflict report.
 - `phoneusers`: TelefonKI identities and requested appointment metadata. Correlate to PVS patients with the same conservative matching pipeline.
 
-If the existing booking step tables are too tied to active 30-minute sessions, add a new explicit `importedBookingRecords` or `legacyBookingProfiles` table rather than distorting active booking workflow tables.
+Imported sessions use the current booking step tables, but they are not resumable active sessions. `bookingSessions.status` and `bookingSessions.source` separate active current-booking sessions from imported legacy PocketBase and TelefonKI history.
 
 ## Phase 6: identity correlation
 
-Use deterministic tiers and produce a manual review file for everything below exact confidence. The migration must under-index rather than over-index: a missed automatic correlation is acceptable, but a wrong correlation can apply PVS-history scheduling rules to the wrong online or TelefonKI identity.
+Use deterministic tiers and produce a manual review file for everything below the automatic-match threshold. The migration must under-index rather than over-index: a missed automatic correlation is acceptable, but a wrong correlation can apply PVS-history scheduling rules to the wrong online or TelefonKI identity.
 
 1. Exact Praxistimer ID: automatic.
 2. Exact normalized first name + exact normalized last name + date of birth: automatic only if unique.
@@ -161,7 +163,7 @@ During the one-time migration, correlate three facts together before associating
 
 Only when that correlation proves the same appointment and the same exact first-name/last-name identity may the migration attach the online or TelefonKI booking identity to the PVS patient. This association is what makes future online bookings inherit rules that apply to the PVS patient ID, so it must never be inferred from fuzzy identity data.
 
-Persist match decisions as data, not code. The system should retain source identifiers:
+Persist match decisions as data, not code. Association rows use `method: "automatic" | "manual"` plus minimal flat source identifiers instead of a separate `confidence` field and nested evidence object:
 
 - Praxistimer patient `ID`
 - legacy PocketBase user ID
@@ -207,13 +209,19 @@ pnpm exec convex dev
 Keep `pnpm exec convex dev` running in one terminal. In another terminal:
 
 ```sh
+pnpm migration:convert-praxistimer
+pnpm migration:build-patients
+pnpm migration:report-name-changes
 pnpm seed:preview
 pnpm exec convex import --replace-all .cache/seed/preview.zip
-node scripts/migration/import-local-reference-rehearsal.mjs
-node scripts/migration/build-local-rehearsal-import.mjs patients
+node scripts/migration/import-local-reference-rehearsal.mts
+node scripts/migration/build-local-rehearsal-import.mts patients
 pnpm exec convex import --replace .cache/migration/rehearsal/patients-rehearsal.zip
-node scripts/migration/build-local-rehearsal-import.mjs appointments
+node scripts/migration/build-local-rehearsal-import.mts appointments
 pnpm exec convex import --replace .cache/migration/rehearsal/appointments-rehearsal.zip
+node scripts/migration/correlate-legacy-appointments.mts
+node scripts/migration/build-legacy-booking-step-replay.mts
+node scripts/migration/import-booking-identity-associations-local.mts
 ```
 
 ## Example Nushell shaping commands

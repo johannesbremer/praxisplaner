@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
+const seedRoot = join(workspaceRoot, "seed_data_preview");
 const reportRoot = join(workspaceRoot, ".cache/migration/reports");
 const identityPath = join(reportRoot, "booking-identities.source.jsonl");
 const associationPath = join(
@@ -10,8 +11,21 @@ const associationPath = join(
   "booking-identity-patient-associations.source.jsonl",
 );
 const legacyUsersPath = join(reportRoot, "legacy-users.source.jsonl");
-const associationChunkSize = 25;
-const userChunkSize = 500;
+const bookingBlocksPath = join(
+  reportRoot,
+  "legacy-booking-blocks.source.jsonl",
+);
+const bookingStepReplayPath = join(
+  reportRoot,
+  "legacy-booking-step-replay.source.jsonl",
+);
+const associationChunkSize = 200;
+const replayChunkSize = 100;
+const userChunkSize = 2_000;
+const convexCliEnv = {
+  ...process.env,
+  CI: "1",
+};
 
 function readJsonl(path) {
   return readFileSync(path, "utf8")
@@ -40,12 +54,14 @@ function runConvex(functionName, args) {
       "run",
       functionName,
       JSON.stringify(args),
-      "--push",
+      "--deployment",
+      "local",
       "--typecheck",
       "disable",
     ],
     {
       cwd: workspaceRoot,
+      env: convexCliEnv,
       encoding: "utf8",
       maxBuffer: 50 * 1024 * 1024,
       stdio: ["ignore", "pipe", "pipe"],
@@ -53,23 +69,37 @@ function runConvex(functionName, args) {
   );
 }
 
-function readLocalTable(tableName) {
-  const output = execFileSync(
+function pushFunctions() {
+  execFileSync(
     "pnpm",
-    ["exec", "convex", "data", tableName, "--format", "jsonLines"],
+    [
+      "exec",
+      "convex",
+      "run",
+      "migrationRehearsal:countBookingIdentityAssociationImport",
+      "{}",
+      "--deployment",
+      "local",
+      "--push",
+      "--typecheck",
+      "disable",
+    ],
     {
       cwd: workspaceRoot,
+      env: convexCliEnv,
       encoding: "utf8",
       maxBuffer: 50 * 1024 * 1024,
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
+}
 
-  return output
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line.replace(/: (-?\d+)n([,}])/g, ": $1$2")));
+function getSeedPractice() {
+  const [practice] = readJsonl(join(seedRoot, "practices/documents.jsonl"));
+  if (!practice?._id || !practice.currentActiveRuleSetId) {
+    throw new Error("Expected seed preview practice and active rule set.");
+  }
+  return practice;
 }
 
 function chunk(values, size) {
@@ -85,20 +115,34 @@ assertLocalConvexDeployment();
 const identities = readJsonl(identityPath);
 const associations = readJsonl(associationPath);
 const users = readJsonl(legacyUsersPath);
-const [practice] = readLocalTable("practices");
-if (!practice?._id) {
-  throw new Error("No local practice found. Seed/import baseline first.");
-}
+const bookingBlocks = existsSync(bookingBlocksPath)
+  ? readJsonl(bookingBlocksPath)
+  : [];
+const bookingStepReplayRows = existsSync(bookingStepReplayPath)
+  ? readJsonl(bookingStepReplayPath)
+  : [];
+const practice = getSeedPractice();
 
 execFileSync(
   "pnpm",
-  ["exec", "convex", "env", "set", "MIGRATION_REHEARSAL_ENABLED", "true"],
+  [
+    "exec",
+    "convex",
+    "env",
+    "set",
+    "MIGRATION_REHEARSAL_ENABLED",
+    "true",
+    "--deployment",
+    "local",
+  ],
   {
     cwd: workspaceRoot,
+    env: convexCliEnv,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   },
 );
+pushFunctions();
 
 const identityBySourceKey = new Map(
   identities.map((identity) => [identity.sourceKey, identity]),
@@ -115,6 +159,15 @@ const totals = {
 const userTotals = {
   insertedUsers: 0,
   reusedUsers: 0,
+};
+const blockTotals = {
+  insertedBlocks: 0,
+  reusedBlocks: 0,
+};
+const replayTotals = {
+  insertedSessions: 0,
+  reusedSessions: 0,
+  skippedMissingAppointment: 0,
 };
 
 for (const userChunk of chunk(users, userChunkSize)) {
@@ -152,14 +205,47 @@ for (const associationChunk of chunk(associations, associationChunkSize)) {
   }
 }
 
+for (const blockChunk of chunk(bookingBlocks, userChunkSize)) {
+  const result = JSON.parse(
+    runConvex("migrationRehearsal:importLegacyBookingBlocks", {
+      blocks: blockChunk,
+      practiceId: practice._id,
+    }),
+  );
+  blockTotals.insertedBlocks += result.insertedBlocks ?? 0;
+  blockTotals.reusedBlocks += result.reusedBlocks ?? 0;
+  userTotals.insertedUsers += result.insertedUsers ?? 0;
+  userTotals.reusedUsers += result.reusedUsers ?? 0;
+}
+
+for (const replayChunk of chunk(bookingStepReplayRows, replayChunkSize)) {
+  const result = JSON.parse(
+    runConvex("migrationRehearsal:importLegacyBookingStepReplay", {
+      practiceId: practice._id,
+      replayRows: replayChunk,
+      ruleSetId: practice.currentActiveRuleSetId,
+    }),
+  );
+  replayTotals.insertedSessions += result.insertedSessions ?? 0;
+  replayTotals.reusedSessions += result.reusedSessions ?? 0;
+  replayTotals.skippedMissingAppointment +=
+    result.skippedMissingAppointment ?? 0;
+  userTotals.insertedUsers += result.insertedUsers ?? 0;
+  userTotals.reusedUsers += result.reusedUsers ?? 0;
+}
+
 console.log(
   JSON.stringify(
     {
       associationSourceRows: associations.length,
+      bookingBlockSourceRows: bookingBlocks.length,
+      bookingStepReplaySourceRows: bookingStepReplayRows.length,
       identitySourceRows: identities.length,
       practiceId: practice._id,
       userSourceRows: users.length,
       ...totals,
+      ...blockTotals,
+      ...replayTotals,
       ...userTotals,
     },
     null,

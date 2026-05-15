@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
+const convexCliEnv = {
+  ...process.env,
+  CI: "1",
+};
 
 function assertLocalConvexDeployment() {
   const envLocal = readFileSync(join(workspaceRoot, ".env.local"), "utf8");
@@ -19,6 +23,7 @@ function run(command, args, options = {}) {
   execFileSync(command, args, {
     cwd: workspaceRoot,
     encoding: "utf8",
+    env: convexCliEnv,
     stdio: "inherit",
     ...options,
   });
@@ -33,19 +38,23 @@ run("pnpm", [
   "set",
   "MIGRATION_REHEARSAL_ENABLED",
   "true",
+  "--deployment",
+  "local",
 ]);
 run("pnpm", ["seed:preview"]);
 run("pnpm", [
   "exec",
   "convex",
   "import",
+  "--deployment",
+  "local",
   "--replace-all",
   "--yes",
   ".cache/seed/preview.zip",
 ]);
-run("node", ["scripts/migration/import-local-reference-rehearsal.mjs"]);
+run("node", ["scripts/migration/import-local-reference-rehearsal.mts"]);
 run("node", [
-  "scripts/migration/build-local-rehearsal-import.mjs",
+  "scripts/migration/build-local-rehearsal-import.mts",
   "patients",
   "--full",
 ]);
@@ -53,12 +62,14 @@ run("pnpm", [
   "exec",
   "convex",
   "import",
+  "--deployment",
+  "local",
   "--replace",
   "--yes",
   ".cache/migration/rehearsal/patients-rehearsal.zip",
 ]);
 run("node", [
-  "scripts/migration/build-local-rehearsal-import.mjs",
+  "scripts/migration/build-local-rehearsal-import.mts",
   "appointments",
   "--full",
 ]);
@@ -66,20 +77,14 @@ run("pnpm", [
   "exec",
   "convex",
   "import",
+  "--deployment",
+  "local",
   "--replace",
   "--yes",
   ".cache/migration/rehearsal/appointments-rehearsal.zip",
 ]);
-run("node", ["scripts/migration/correlate-legacy-appointments.mjs"]);
+run("node", ["scripts/migration/correlate-legacy-appointments.mts"]);
 run("node", [
-  "scripts/migration/import-booking-identity-associations-local.mjs",
+  "scripts/migration/import-booking-identity-associations-local.mts",
 ]);
-run("pnpm", [
-  "exec",
-  "convex",
-  "run",
-  "migrationRehearsal:countBookingIdentityAssociationImport",
-  "--push",
-  "--typecheck",
-  "disable",
-]);
+run("node", ["scripts/migration/check-local-rehearsal-counts.mts"]);

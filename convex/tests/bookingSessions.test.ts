@@ -7,7 +7,7 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 import type { Id } from "../_generated/dataModel";
 import type { InternalBookingSessionState } from "../bookingSessions.shared";
 
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { assertValidSanitizedBookingSessionState } from "../bookingSessions";
 import {
   applyBookingSessionTransition,
@@ -481,6 +481,78 @@ describe("bookingSessions user identity handling", () => {
     expect(state.users).toHaveLength(1);
     expect(state.users[0]?.email).toBe("missing@example.com");
     expect(state.session?.userId).toBe(state.users[0]?._id);
+    expect(state.session?.source).toBe("current-booking");
+    expect(state.session?.status).toBe("active");
+  });
+
+  test("create rejects users blocked by the legacy booking migration", async () => {
+    const t = createTestContext();
+    const { practiceId, ruleSetId } = await createPracticeAndRuleSet(t);
+    const authId = "workos_blocked_user";
+
+    await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        authId,
+        createdAt: 1n,
+        email: "blocked@example.com",
+      });
+      await ctx.db.insert("legacyBookingBlocks", {
+        createdAt: 2n,
+        legacyUserId: "legacy-blocked-user",
+        practiceId,
+        reason: "Legacy baumdiagramm.isUserBlocked",
+        sourceSystem: "legacy-pocketbase",
+        userId,
+      });
+    });
+
+    const authed = t.withIdentity({
+      email: "blocked@example.com",
+      subject: authId,
+    });
+
+    await expect(
+      authed.mutation(api.bookingSessions.create, {
+        practiceId,
+        ruleSetId,
+      }),
+    ).rejects.toThrow("blocked from online booking");
+  });
+
+  test("cleanupExpired ignores imported legacy sessions", async () => {
+    const t = createTestContext();
+    const { practiceId, ruleSetId } = await createPracticeAndRuleSet(t);
+
+    const sessionId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        authId: "legacy-pocketbase:imported",
+        createdAt: 1n,
+        email: "imported@example.com",
+      });
+      return await ctx.db.insert("bookingSessions", {
+        createdAt: 1n,
+        expiresAt: 1n,
+        lastModified: 1n,
+        practiceId,
+        ruleSetId,
+        source: "legacy-pocketbase",
+        sourceSessionKey: "legacy-pocketbase:session",
+        state: { step: "existing-confirmation" },
+        status: "imported",
+        userId,
+      });
+    });
+
+    const deleted = await t.mutation(
+      internal.bookingSessions.cleanupExpired,
+      {},
+    );
+    const session = await t.run(async (ctx) => {
+      return await ctx.db.get("bookingSessions", sessionId);
+    });
+
+    expect(deleted).toBe(0);
+    expect(session?._id).toBe(sessionId);
   });
 
   test("create and read session succeed with duplicate users for same authId", async () => {

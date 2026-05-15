@@ -495,25 +495,34 @@ export default defineSchema({
 
   bookingIdentityPatientAssociations: defineTable({
     bookingIdentityId: v.id("bookingIdentities"),
-    confidence: v.union(v.literal("exact"), v.literal("manual")),
+    confidence: v.optional(v.union(v.literal("exact"), v.literal("manual"))),
     createdAt: v.int64(),
     createdByUserId: v.optional(v.id("users")),
-    evidence: v.object({
-      legacyAppointmentId: v.optional(v.string()),
-      legacyIdentityId: v.optional(v.string()),
-      matchedAppointmentStart: v.optional(v.string()),
-      matchedFirstName: v.string(),
-      matchedLastName: v.string(),
-      pvsAppointmentSourceKey: v.optional(v.string()),
-      pvsPatientNumber: v.optional(v.number()),
-    }),
+    evidence: v.optional(
+      v.object({
+        legacyAppointmentId: v.optional(v.string()),
+        legacyIdentityId: v.optional(v.string()),
+        matchedAppointmentStart: v.optional(v.string()),
+        matchedFirstName: v.optional(v.string()),
+        matchedLastName: v.optional(v.string()),
+        pvsAppointmentSourceKey: v.optional(v.string()),
+        pvsPatientNumber: v.optional(v.number()),
+      }),
+    ),
+    evidenceCount: v.optional(v.number()),
+    legacyAppointmentId: v.optional(v.string()),
+    legacyIdentityId: v.optional(v.string()),
     method: v.union(
+      v.literal("automatic"),
+      v.literal("manual"),
       v.literal("migration-exact-appointment-name"),
       v.literal("staff-confirmed"),
       v.literal("staff-corrected"),
     ),
     patientId: v.id("patients"),
     practiceId: v.id("practices"),
+    pvsAppointmentSourceKey: v.optional(v.string()),
+    pvsPatientNumber: v.optional(v.number()),
     status: v.union(
       v.literal("active"),
       v.literal("superseded"),
@@ -1206,7 +1215,18 @@ export default defineSchema({
     userId: v.id("users"),
 
     // Persist only the current step; step payload is stored in per-step tables
+    source: v.union(
+      v.literal("current-booking"),
+      v.literal("legacy-pocketbase"),
+      v.literal("telefonki"),
+    ),
+    sourceSessionKey: v.optional(v.string()),
     state: bookingSessionStorageStateValidator,
+    status: v.union(
+      v.literal("active"),
+      v.literal("completed"),
+      v.literal("imported"),
+    ),
 
     // Metadata
     createdAt: v.int64(),
@@ -1215,10 +1235,30 @@ export default defineSchema({
   })
     .index("by_practiceId", ["practiceId"])
     .index("by_expiresAt", ["expiresAt"])
+    .index("by_status_expiresAt", ["status", "expiresAt"])
     .index("by_userId", ["userId"])
     .index("by_userId_practiceId_ruleSetId", [
       "userId",
       "practiceId",
       "ruleSetId",
-    ]),
+    ])
+    .index("by_userId_practiceId_ruleSetId_status_source", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+      "status",
+      "source",
+    ])
+    .index("by_sourceSessionKey", ["sourceSessionKey"]),
+
+  legacyBookingBlocks: defineTable({
+    createdAt: v.int64(),
+    legacyUserId: v.string(),
+    practiceId: v.id("practices"),
+    reason: v.string(),
+    sourceSystem: v.literal("legacy-pocketbase"),
+    userId: v.id("users"),
+  })
+    .index("by_userId_practiceId", ["userId", "practiceId"])
+    .index("by_legacyUserId", ["legacyUserId"]),
 });

@@ -25,16 +25,6 @@ const bookingIdentitySourceSystemValidator = v.union(
   v.literal("telefonki"),
 );
 
-const associationEvidenceValidator = v.object({
-  legacyAppointmentId: v.optional(v.string()),
-  legacyIdentityId: v.optional(v.string()),
-  matchedAppointmentStart: v.optional(v.string()),
-  matchedFirstName: v.string(),
-  matchedLastName: v.string(),
-  pvsAppointmentSourceKey: v.optional(v.string()),
-  pvsPatientNumber: v.optional(v.number()),
-});
-
 export async function resolveActivePvsPatientIdForBookingIdentity(
   db: Reader,
   bookingIdentityId: Id<"bookingIdentities">,
@@ -89,14 +79,14 @@ export const createBookingIdentity = mutation({
 export const associateBookingIdentityWithPvsPatient = mutation({
   args: {
     bookingIdentityId: v.id("bookingIdentities"),
-    evidence: associationEvidenceValidator,
-    method: v.union(
-      v.literal("migration-exact-appointment-name"),
-      v.literal("staff-confirmed"),
-      v.literal("staff-corrected"),
-    ),
+    evidenceCount: v.optional(v.number()),
+    legacyAppointmentId: v.optional(v.string()),
+    legacyIdentityId: v.optional(v.string()),
+    method: v.union(v.literal("automatic"), v.literal("manual")),
     patientId: v.id("patients"),
     practiceId: v.id("practices"),
+    pvsAppointmentSourceKey: v.optional(v.string()),
+    pvsPatientNumber: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const membership = await ensurePracticeAccessForMutation(
@@ -152,14 +142,26 @@ export const associateBookingIdentityWithPvsPatient = mutation({
 
     return await ctx.db.insert("bookingIdentityPatientAssociations", {
       bookingIdentityId: args.bookingIdentityId,
-      confidence:
-        args.method === "migration-exact-appointment-name" ? "exact" : "manual",
       createdAt: now,
       createdByUserId: userId,
-      evidence: args.evidence,
+      ...(args.evidenceCount === undefined
+        ? {}
+        : { evidenceCount: args.evidenceCount }),
+      ...(args.legacyAppointmentId === undefined
+        ? {}
+        : { legacyAppointmentId: args.legacyAppointmentId }),
+      ...(args.legacyIdentityId === undefined
+        ? {}
+        : { legacyIdentityId: args.legacyIdentityId }),
       method: args.method,
       patientId: args.patientId,
       practiceId: args.practiceId,
+      ...(args.pvsAppointmentSourceKey === undefined
+        ? {}
+        : { pvsAppointmentSourceKey: args.pvsAppointmentSourceKey }),
+      ...(args.pvsPatientNumber === undefined
+        ? {}
+        : { pvsPatientNumber: args.pvsPatientNumber }),
       status: "active",
     });
   },
