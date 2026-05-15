@@ -1,8 +1,23 @@
 // Types for the booking wizard components
 
 import type { Id } from "@/convex/_generated/dataModel";
+import type {
+  BookingStepGroup,
+  CalendarSelectionStepName,
+  ConfirmationStepName,
+  DataInputStepName,
+} from "@/lib/booking-session-steps";
 
 import { api } from "@/convex/_generated/api";
+import {
+  BOOKING_SESSION_STEP_KIND,
+  getBookingSessionStepGroup,
+  getBookingSessionStepLabel,
+  isBackLockedStep,
+  isCalendarSelectionStepName,
+  isConfirmationStepName,
+  isDataInputStepName,
+} from "@/lib/booking-session-steps";
 
 // The session state from Convex
 export type BookingSessionState = NonNullable<ActiveBookingSession>["state"];
@@ -10,6 +25,9 @@ type ActiveBookingSession =
   (typeof api.bookingSessions.getActiveForUser)["_returnType"];
 
 // Type helper to extract state at a specific step
+export type CalendarSelectionState = StateAtStep<CalendarSelectionStepName>;
+export type ConfirmationState = StateAtStep<ConfirmationStepName>;
+export type DataInputState = StateAtStep<DataInputStepName>;
 export type StateAtStep<S extends BookingSessionState["step"]> = Extract<
   BookingSessionState,
   { step: S }
@@ -24,70 +42,44 @@ export interface StepComponentProps {
 }
 
 // Step names mapped to readable labels
-export const STEP_LABELS: Record<BookingSessionState["step"], string> = {
-  "existing-calendar-selection": "Terminauswahl",
-  "existing-confirmation": "Bestätigung",
-  "existing-data-input": "Persönliche Daten",
-  "existing-doctor-selection": "Arztauswahl",
-  location: "Standort",
-  "new-calendar-selection": "Terminauswahl",
-  "new-confirmation": "Bestätigung",
-  "new-data-input": "Persönliche Daten",
-  "new-data-input-complete": "Persönliche Daten",
-  "new-data-sharing": "Datenweitergabe",
-  "new-gkv-details": "Kassendetails",
-  "new-gkv-details-complete": "Kassendetails",
-  "new-insurance-type": "Versicherungsart",
-  "new-pkv-details": "Privatversicherung",
-  "new-pkv-details-complete": "Privatversicherung",
-  "new-pvs-consent": "PVS-Einwilligung",
-  "patient-status": "Patientenstatus",
-  privacy: "Datenschutz",
-};
+const BOOKING_SESSION_STEPS = Object.keys(
+  BOOKING_SESSION_STEP_KIND,
+) as BookingSessionState["step"][];
+
+export const STEP_LABELS = Object.fromEntries(
+  BOOKING_SESSION_STEPS.map((step) => [step, getBookingSessionStepLabel(step)]),
+) as Record<BookingSessionState["step"], string>;
 
 // Group steps for progress indicator
-export type StepGroup = "booking" | "confirmation" | "consent" | "info";
-
-const STEP_GROUP_BY_STEP = {
-  "existing-calendar-selection": "booking",
-  "existing-confirmation": "confirmation",
-  "existing-data-input": "info",
-  "existing-doctor-selection": "info",
-  location: "consent",
-  "new-calendar-selection": "booking",
-  "new-confirmation": "confirmation",
-  "new-data-input": "info",
-  "new-data-input-complete": "info",
-  "new-data-sharing": "info",
-  "new-gkv-details": "info",
-  "new-gkv-details-complete": "info",
-  "new-insurance-type": "info",
-  "new-pkv-details": "info",
-  "new-pkv-details-complete": "info",
-  "new-pvs-consent": "consent",
-  "patient-status": "info",
-  privacy: "consent",
-} as const satisfies Record<BookingSessionState["step"], StepGroup>;
+export type StepGroup = BookingStepGroup;
 
 export function getStepGroup(step: BookingSessionState["step"]): StepGroup {
-  return STEP_GROUP_BY_STEP[step];
+  return getBookingSessionStepGroup(step);
+}
+
+export function getStepLabel(step: BookingSessionState["step"]): string {
+  return getBookingSessionStepLabel(step);
 }
 
 // Check if we can go back from a given step
-// Cannot go back once you've passed doctor selection in existing patient flow
 export function canGoBack(step: BookingSessionState["step"]): boolean {
-  switch (step) {
-    // These steps are locked once reached.
-    case "existing-calendar-selection":
-    case "existing-confirmation":
-    case "existing-data-input":
-    case "new-calendar-selection":
-    case "new-confirmation":
-    case "privacy": {
-      return false;
-    }
-    default: {
-      return true;
-    }
-  }
+  return !isBackLockedStep(step);
+}
+
+export function isCalendarSelectionState(
+  state: BookingSessionState,
+): state is CalendarSelectionState {
+  return isCalendarSelectionStepName(state.step);
+}
+
+export function isConfirmationState(
+  state: BookingSessionState,
+): state is ConfirmationState {
+  return isConfirmationStepName(state.step);
+}
+
+export function isDataInputState(
+  state: BookingSessionState,
+): state is DataInputState {
+  return isDataInputStepName(state.step);
 }

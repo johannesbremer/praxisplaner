@@ -27,6 +27,7 @@ import {
   captureFrontendError,
   frontendErrorFromUnknown,
 } from "../../utils/frontend-errors";
+import { isConfirmationState } from "./types";
 
 interface AppointmentConfirmationCardProps {
   appointmentId: Id<"appointments">;
@@ -125,10 +126,7 @@ export function ConfirmationStep({ sessionId, state }: StepComponentProps) {
       await returnToCalendarSelection({ sessionId });
     });
 
-  if (
-    state.step !== "existing-confirmation" &&
-    state.step !== "new-confirmation"
-  ) {
+  if (!isConfirmationState(state)) {
     return (
       <Card className="max-w-2xl mx-auto">
         <CardHeader>

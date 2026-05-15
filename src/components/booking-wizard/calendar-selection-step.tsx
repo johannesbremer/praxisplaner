@@ -35,6 +35,7 @@ import {
   captureFrontendError,
   frontendErrorFromUnknown,
 } from "../../utils/frontend-errors";
+import { isCalendarSelectionState } from "./types";
 
 const TIMEZONE = "Europe/Berlin";
 
@@ -44,20 +45,6 @@ function formatDateISO(date: Temporal.PlainDate): string {
 }
 
 // Helper to convert Date to Temporal.PlainDate
-function dateToTemporal(date: Date): Temporal.PlainDate {
-  return Temporal.PlainDate.from({
-    day: date.getDate(),
-    month: date.getMonth() + 1,
-    year: date.getFullYear(),
-  });
-}
-
-// Helper to format time from ISO string
-type CalendarSelectionState = Extract<
-  StepComponentProps["state"],
-  { step: "existing-calendar-selection" | "new-calendar-selection" }
->;
-
 interface SlotInfo {
   practitionerLineageKey: Id<"practitioners">;
   practitionerName: string;
@@ -71,12 +58,12 @@ export function CalendarSelectionStep({
   state,
 }: StepComponentProps) {
   const isCalendarState = isCalendarSelectionState(state);
-  const isNewPatient = state.step === "new-calendar-selection";
+  const isNewPatient = isCalendarState ? state.isNewPatient : false;
   const locationLineageKey = isCalendarState
     ? state.locationLineageKey
     : undefined;
   const existingPractitionerLineageKey =
-    state.step === "existing-calendar-selection"
+    isCalendarState && !state.isNewPatient
       ? state.practitionerLineageKey
       : undefined;
   const personalData = isCalendarState ? state.personalData : undefined;
@@ -109,9 +96,7 @@ export function CalendarSelectionStep({
   );
   const locationName = isCalendarState ? state.locationName : undefined;
   const practitionerName =
-    state.step === "existing-calendar-selection"
-      ? state.practitionerName
-      : undefined;
+    isCalendarState && !state.isNewPatient ? state.practitionerName : undefined;
 
   // Build simulated context for slot query - only include lineage references.
   const simulatedContext = {
@@ -561,6 +546,14 @@ export function CalendarSelectionStep({
   );
 }
 
+function dateToTemporal(date: Date): Temporal.PlainDate {
+  return Temporal.PlainDate.from({
+    day: date.getDate(),
+    month: date.getMonth() + 1,
+    year: date.getFullYear(),
+  });
+}
+
 function formatTime(isoString: string): string {
   const zdt = Temporal.ZonedDateTime.from(isoString);
   return zdt.toPlainTime().toString({ smallestUnit: "minute" });
@@ -568,15 +561,6 @@ function formatTime(isoString: string): string {
 
 function getSlotStartEpochMilliseconds(startTime: string): number {
   return Temporal.ZonedDateTime.from(startTime).epochMilliseconds;
-}
-
-function isCalendarSelectionState(
-  state: StepComponentProps["state"],
-): state is CalendarSelectionState {
-  return (
-    state.step === "existing-calendar-selection" ||
-    state.step === "new-calendar-selection"
-  );
 }
 
 function isSlotStartInFuture(

@@ -38,9 +38,10 @@ import {
 
 import type { StepComponentProps } from "./types";
 
+import { isDataInputState } from "./types";
+
 export function DataInputStep({ sessionId, state }: StepComponentProps) {
-  const isNewPatient =
-    state.step === "new-data-input" || state.step === "new-data-input-complete";
+  const isNewPatient = isDataInputState(state) && state.isNewPatient;
 
   const initialPersonalData =
     "personalData" in state ? state.personalData : undefined;

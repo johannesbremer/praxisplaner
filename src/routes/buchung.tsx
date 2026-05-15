@@ -26,6 +26,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
+import {
+  getBookingSessionStepKind,
+  isConfirmationStepName,
+} from "@/lib/booking-session-steps";
 
 import {
   BookedAppointmentsSummary,
@@ -509,8 +513,9 @@ function AuthenticatedBookingFlow() {
   const isShowingBookedAppointment =
     bookedAppointments !== undefined && bookedAppointments.length > 0;
   const isSessionAtConfirmationStep =
-    session?.state.step === "existing-confirmation" ||
-    session?.state.step === "new-confirmation";
+    session !== undefined &&
+    session !== null &&
+    isConfirmationStepName(session.state.step);
   const shouldReturnToCalendarAfterAppointmentElapsed =
     bookedAppointments?.length === 0 && isSessionAtConfirmationStep;
 
@@ -694,8 +699,7 @@ function AuthenticatedBookingFlow() {
       if (
         !resolvedSessionId ||
         !session ||
-        (session.state.step !== "existing-confirmation" &&
-          session.state.step !== "new-confirmation")
+        !isConfirmationStepName(session.state.step)
       ) {
         return;
       }
@@ -845,48 +849,42 @@ interface StepRendererProps {
 }
 
 function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
-  switch (step) {
-    case "existing-calendar-selection":
-    case "new-calendar-selection": {
+  switch (getBookingSessionStepKind(step)) {
+    case "calendar-selection": {
       return <CalendarSelectionStep {...stepProps} />;
     }
-    case "existing-confirmation":
-    case "new-confirmation": {
+    case "confirmation": {
       return <ConfirmationStep {...stepProps} />;
     }
-    case "existing-data-input":
-    case "new-data-input":
-    case "new-data-input-complete": {
+    case "data-input": {
       return <DataInputStep {...stepProps} />;
     }
-    case "existing-doctor-selection": {
+    case "data-sharing": {
+      return <DataSharingStep {...stepProps} />;
+    }
+    case "doctor-selection": {
       return <DoctorSelectionStep {...stepProps} />;
+    }
+    case "gkv-details": {
+      return <GkvDetailsStep {...stepProps} />;
+    }
+    case "insurance-type": {
+      return <InsuranceTypeStep {...stepProps} />;
     }
     case "location": {
       return <LocationStep {...stepProps} />;
     }
-    case "new-data-sharing": {
-      return <DataSharingStep {...stepProps} />;
-    }
-    case "new-gkv-details":
-    case "new-gkv-details-complete": {
-      return <GkvDetailsStep {...stepProps} />;
-    }
-    case "new-insurance-type": {
-      return <InsuranceTypeStep {...stepProps} />;
-    }
-    case "new-pkv-details":
-    case "new-pkv-details-complete": {
-      return <PkvDetailsStep {...stepProps} />;
-    }
-    case "new-pvs-consent": {
-      return <PvsConsentStep {...stepProps} />;
-    }
     case "patient-status": {
       return <PatientStatusStep {...stepProps} />;
     }
+    case "pkv-details": {
+      return <PkvDetailsStep {...stepProps} />;
+    }
     case "privacy": {
       return <PrivacyStep {...stepProps} />;
+    }
+    case "pvs-consent": {
+      return <PvsConsentStep {...stepProps} />;
     }
     default: {
       return (

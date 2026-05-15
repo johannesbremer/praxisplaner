@@ -1,8 +1,14 @@
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
+import type { ConfirmationStepName } from "../lib/booking-session-steps.js";
 import type { Doc, Id } from "./_generated/dataModel";
 
+import {
+  getCalendarSelectionStepForConfirmationStep,
+  isCalendarSelectionStepName,
+  isConfirmationStepName,
+} from "../lib/booking-session-steps.js";
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
 import {
@@ -85,23 +91,9 @@ type SessionWithInternalState = SessionDoc & {
 const STALE_PUBLIC_SESSION_STATE_ERROR_PREFIX =
   "[BOOKING_SESSION:STALE_PUBLIC_STATE]";
 
-function getCalendarStepForConfirmationState(
-  state: Extract<
-    BookingSessionState,
-    { step: "existing-confirmation" | "new-confirmation" }
-  >,
-): "existing-calendar-selection" | "new-calendar-selection" {
-  return state.step === "new-confirmation"
-    ? "new-calendar-selection"
-    : "existing-calendar-selection";
-}
-
 async function hasUpcomingVisibleAppointmentForConfirmationState(
   ctx: MutationCtx | QueryCtx,
-  state: Extract<
-    InternalBookingSessionState,
-    { step: "existing-confirmation" | "new-confirmation" }
-  >,
+  state: Extract<InternalBookingSessionState, { step: ConfirmationStepName }>,
 ): Promise<boolean> {
   const appointment = await ctx.db.get("appointments", state.appointmentId);
   if (!appointment) {
@@ -138,11 +130,9 @@ function isConfirmationState(
   state: BookingSessionState | InternalBookingSessionState,
 ): state is Extract<
   InternalBookingSessionState,
-  { step: "existing-confirmation" | "new-confirmation" }
+  { step: ConfirmationStepName }
 > {
-  return (
-    state.step === "existing-confirmation" || state.step === "new-confirmation"
-  );
+  return isConfirmationStepName(state.step);
 }
 
 function isRecoverableSessionHydrationError(error: unknown): boolean {
@@ -770,7 +760,9 @@ export const create = mutation({
             hydratedState,
           ))
         ) {
-          nextStep = getCalendarStepForConfirmationState(hydratedState);
+          nextStep = getCalendarSelectionStepForConfirmationStep(
+            hydratedState.step,
+          );
         }
 
         await ctx.db.patch("bookingSessions", session._id, {
@@ -1349,18 +1341,12 @@ export const returnToCalendarSelectionAfterCancellation = mutation({
     const session = await getVerifiedSession(ctx, args.sessionId);
     const state = session.state;
 
-    let targetStep: BookingSessionState["step"] | null = null;
-    if (state.step === "new-confirmation") {
-      targetStep = "new-calendar-selection";
-    } else if (state.step === "existing-confirmation") {
-      targetStep = "existing-calendar-selection";
-    }
+    const targetStep = isConfirmationStepName(state.step)
+      ? getCalendarSelectionStepForConfirmationStep(state.step)
+      : null;
 
     if (!targetStep) {
-      if (
-        state.step === "new-calendar-selection" ||
-        state.step === "existing-calendar-selection"
-      ) {
+      if (isCalendarSelectionStepName(state.step)) {
         return null;
       }
 
