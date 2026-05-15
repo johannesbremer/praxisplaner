@@ -327,18 +327,6 @@ export const bookingSessionStepValidator = v.union(
     personalData: personalDataValidator,
     practitionerLineageKey: v.id("practitioners"),
     practitionerName: v.string(),
-    step: v.literal("existing-data-input-complete"),
-  }),
-
-  // B4: Calendar selection (personal data submitted)
-  v.object({
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    isNewPatient: v.literal(false),
-    locationLineageKey: v.id("locations"),
-    locationName: v.string(),
-    personalData: personalDataValidator,
-    practitionerLineageKey: v.id("practitioners"),
-    practitionerName: v.string(),
     step: v.literal("existing-calendar-selection"),
   }),
 
@@ -348,7 +336,6 @@ export const bookingSessionStepValidator = v.union(
     appointmentTypeLineageKey: v.id("appointmentTypes"),
     appointmentTypeName: v.string(),
     bookedDurationMinutes: v.number(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
     isNewPatient: v.literal(false),
     locationLineageKey: v.id("locations"),
     locationName: v.string(),
@@ -368,7 +355,6 @@ export const bookingSessionStepNameValidator = v.union(
   v.literal("existing-calendar-selection"),
   v.literal("existing-confirmation"),
   v.literal("existing-data-input"),
-  v.literal("existing-data-input-complete"),
   v.literal("existing-doctor-selection"),
   v.literal("location"),
   v.literal("new-calendar-selection"),
@@ -620,7 +606,6 @@ export default defineSchema({
   bookingExistingCalendarSelectionSteps: defineTable({
     appointmentTypeLineageKey: v.id("appointmentTypes"),
     createdAt: v.int64(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
     isNewPatient: v.literal(false),
     lastModified: v.int64(),
     locationLineageKey: v.id("locations"),
@@ -641,7 +626,6 @@ export default defineSchema({
     appointmentTypeLineageKey: v.id("appointmentTypes"),
     bookedDurationMinutes: v.number(),
     createdAt: v.int64(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
     isNewPatient: v.literal(false),
     lastModified: v.int64(),
     locationLineageKey: v.id("locations"),
@@ -652,22 +636,6 @@ export default defineSchema({
     reasonDescription: v.string(),
     ruleSetId: v.id("ruleSets"),
     selectedSlot: selectedSlotStorageValidator,
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
-
-  bookingExistingDataSharingSteps: defineTable({
-    createdAt: v.int64(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    isNewPatient: v.literal(false),
-    lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    personalData: personalDataValidator,
-    practiceId: v.id("practices"),
-    practitionerLineageKey: v.id("practitioners"),
-    ruleSetId: v.id("ruleSets"),
     sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
   })

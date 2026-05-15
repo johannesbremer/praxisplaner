@@ -18,10 +18,9 @@ const STEP_SNAPSHOT_TABLES_BY_STEP: Record<
   BookingSessionState["step"],
   StepTableName[]
 > = {
-  "existing-calendar-selection": ["bookingExistingDataSharingSteps"],
+  "existing-calendar-selection": ["bookingExistingPersonalDataSteps"],
   "existing-confirmation": ["bookingExistingConfirmationSteps"],
   "existing-data-input": ["bookingExistingDoctorSelectionSteps"],
-  "existing-data-input-complete": ["bookingExistingPersonalDataSteps"],
   "existing-doctor-selection": ["bookingPatientStatusSteps"],
   location: [],
   "new-calendar-selection": ["bookingNewDataSharingSteps"],
@@ -53,7 +52,6 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "practitionerLineageKey",
     "practitionerName",
     "personalData",
-    "dataSharingContacts",
   ],
   "existing-confirmation": [
     "appointmentId",
@@ -66,7 +64,6 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "practitionerLineageKey",
     "practitionerName",
     "personalData",
-    "dataSharingContacts",
     "reasonDescription",
     "selectedSlot",
     "patientId",
@@ -77,14 +74,6 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "locationName",
     "practitionerLineageKey",
     "practitionerName",
-  ],
-  "existing-data-input-complete": [
-    "isNewPatient",
-    "locationLineageKey",
-    "locationName",
-    "practitionerLineageKey",
-    "practitionerName",
-    "personalData",
   ],
   "existing-doctor-selection": [
     "isNewPatient",
@@ -215,7 +204,6 @@ const STEP_SNAPSHOT_ALLOWED_INTERNAL_FIELDS: Record<
     "locationLineageKey",
     "practitionerLineageKey",
     "personalData",
-    "dataSharingContacts",
   ],
   "existing-confirmation": [
     "appointmentId",
@@ -225,7 +213,6 @@ const STEP_SNAPSHOT_ALLOWED_INTERNAL_FIELDS: Record<
     "locationLineageKey",
     "practitionerLineageKey",
     "personalData",
-    "dataSharingContacts",
     "reasonDescription",
     "selectedSlot",
     "patientId",
@@ -234,12 +221,6 @@ const STEP_SNAPSHOT_ALLOWED_INTERNAL_FIELDS: Record<
     "isNewPatient",
     "locationLineageKey",
     "practitionerLineageKey",
-  ],
-  "existing-data-input-complete": [
-    "isNewPatient",
-    "locationLineageKey",
-    "practitionerLineageKey",
-    "personalData",
   ],
   "existing-doctor-selection": ["isNewPatient", "locationLineageKey"],
   location: [],
@@ -375,12 +356,6 @@ export interface BookingSessionTransition {
 }
 
 export type BookingSessionTransitionInput =
-  | {
-      base: StepBase;
-      dataSharingContacts: DataSharingContact[];
-      kind: "submitExistingDataSharing";
-      state: InternalBookingSessionState;
-    }
   | {
       base: StepBase;
       dataSharingContacts: DataSharingContact[];
@@ -565,13 +540,6 @@ export function applyBookingSessionTransition(
         input.base,
         input.state,
         input.slotAttempt,
-      );
-    }
-    case "submitExistingDataSharing": {
-      return transitionSubmitExistingDataSharing(
-        input.base,
-        input.state,
-        input.dataSharingContacts,
       );
     }
     case "submitExistingPatientData": {
@@ -825,7 +793,6 @@ function transitionSelectExistingPatientSlot(
   const calendarSnapshot = {
     ...base,
     appointmentTypeLineageKey: args.appointmentTypeLineageKey,
-    dataSharingContacts: current.dataSharingContacts,
     isNewPatient: false,
     locationLineageKey: current.locationLineageKey,
     personalData: args.personalData,
@@ -958,43 +925,13 @@ function transitionSelectNewPatientSlot(
   };
 }
 
-function transitionSubmitExistingDataSharing(
-  base: StepBase,
-  state: InternalBookingSessionState,
-  dataSharingContacts: DataSharingContact[],
-): BookingSessionTransition {
-  const current = assertInternalStep(state, "existing-calendar-selection");
-  return {
-    nextStep: "existing-calendar-selection",
-    writes: [
-      {
-        data: {
-          ...base,
-          dataSharingContacts,
-          isNewPatient: false,
-          locationLineageKey: current.locationLineageKey,
-          personalData: current.personalData,
-          practitionerLineageKey: current.practitionerLineageKey,
-        },
-        tableName: "bookingExistingDataSharingSteps",
-      },
-    ],
-  };
-}
-
 function transitionSubmitExistingPatientData(
   base: StepBase,
   state: InternalBookingSessionState,
   personalData: BookingPersonalData,
 ): BookingSessionTransition {
-  if (
-    state.step !== "existing-data-input" &&
-    state.step !== "existing-data-input-complete"
-  ) {
-    throw invalidStepError(
-      "existing-data-input' or 'existing-data-input-complete",
-      state.step,
-    );
+  if (state.step !== "existing-data-input") {
+    throw invalidStepError("existing-data-input", state.step);
   }
 
   return {
@@ -1009,17 +946,6 @@ function transitionSubmitExistingPatientData(
           practitionerLineageKey: state.practitionerLineageKey,
         },
         tableName: "bookingExistingPersonalDataSteps",
-      },
-      {
-        data: {
-          ...base,
-          dataSharingContacts: [],
-          isNewPatient: false,
-          locationLineageKey: state.locationLineageKey,
-          personalData,
-          practitionerLineageKey: state.practitionerLineageKey,
-        },
-        tableName: "bookingExistingDataSharingSteps",
       },
     ],
   };
@@ -1086,7 +1012,6 @@ const STEP_NAV_GRAPH: Record<StepName, StepNavNode> = {
   "existing-calendar-selection": { canGoBack: false, prev: null },
   "existing-confirmation": { canGoBack: false, prev: null },
   "existing-data-input": { canGoBack: false, prev: null },
-  "existing-data-input-complete": { canGoBack: false, prev: null },
   "existing-doctor-selection": { canGoBack: true, prev: "patient-status" },
   location: { canGoBack: true, prev: "privacy" },
   "new-calendar-selection": { canGoBack: false, prev: null },

@@ -187,6 +187,7 @@ _Avoid_: Form data, profile
 - A staff action that requires **Workspace** attribution must provide a valid **Workspace** id from browser storage.
 - Staff reads require **Practice Member** access but not **Workspace** attribution.
 - A **Practice** has many **Practice Members**, **Patients**, **Booking Identities**, **Appointments**, and **Rule Sets**.
+- The existing-patient **Booking Path** captures doctor selection, personal data, calendar selection, and confirmation; data-sharing contacts and medical history belong only to the new-patient **Booking Path**.
 - A **Practice** has operational calendar state such as **Appointments** and **Blocked Slots** outside **Rule Set** configuration.
 - A **Practice Member** grants a user access to a **Practice**, but does not by itself make that user a **Practitioner**.
 - A **Practice Member** controls access and permissions; **Workspace** attributes staff operational actions.

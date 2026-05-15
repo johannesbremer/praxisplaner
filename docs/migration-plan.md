@@ -137,7 +137,7 @@ Map legacy tables to current booking concepts and replay completed historical fl
 
 - `baumdiagramm`: booking decision state and selected branch. Import blocked users from `isUserBlocked` into `legacyBookingBlocks`. Replay meaningful completed history into `bookingSessions` with `status: "imported"` so active booking queries and expiry cleanup ignore it.
 - `personal`: patient personal data entered by a user. Map to existing/new personal-data step rows or preserve as an imported profile history table if the current step tables are too workflow-specific.
-- `datenweitergabe`: data-sharing contacts. Map to data-sharing step tables.
+- `datenweitergabe`: data-sharing contacts. Map only to the new-patient data-sharing step tables; existing-patient replay skips this step.
 - `anamnese` and `anamnesetexte`: map to `medicalHistory` fields.
 - `pkv`: map to PKV detail step fields.
 - `termine` and `oldTermine`: complementary legacy online-booked appointment tables. `termine` holds the currently active booked appointment that still blocks the user from booking another one; `oldTermine` holds appointments rotated out of `termine` when the user returns later to book again. Use the union of both tables for the booked-appointment subset, not either table in isolation. Correlate both to imported Praxistimer appointments, which are the canonical appointment source of truth, by exact appointment facts plus exact patient-name identity rules. Do not create duplicates without a conflict report.

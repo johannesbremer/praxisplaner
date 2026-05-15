@@ -855,7 +855,6 @@ function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
       return <ConfirmationStep {...stepProps} />;
     }
     case "existing-data-input":
-    case "existing-data-input-complete":
     case "new-data-input":
     case "new-data-input-complete": {
       return <DataInputStep {...stepProps} />;

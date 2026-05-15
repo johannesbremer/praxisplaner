@@ -724,7 +724,6 @@ const rehearsalCountTableNameValidator = v.union(
   v.literal("bookingPatientStatusSteps"),
   v.literal("bookingExistingDoctorSelectionSteps"),
   v.literal("bookingExistingPersonalDataSteps"),
-  v.literal("bookingExistingDataSharingSteps"),
   v.literal("bookingExistingCalendarSelectionSteps"),
   v.literal("bookingExistingConfirmationSteps"),
   v.literal("bookingNewInsuranceTypeSteps"),
@@ -762,16 +761,6 @@ export const countRehearsalTablePage = query({
       case "bookingExistingConfirmationSteps": {
         const result = await ctx.db
           .query("bookingExistingConfirmationSteps")
-          .paginate(args.paginationOpts);
-        return {
-          continueCursor: result.continueCursor,
-          count: result.page.length,
-          isDone: result.isDone,
-        };
-      }
-      case "bookingExistingDataSharingSteps": {
-        const result = await ctx.db
-          .query("bookingExistingDataSharingSteps")
           .paginate(args.paginationOpts);
         return {
           continueCursor: result.continueCursor,
@@ -975,12 +964,6 @@ export const countRehearsalTable = query({
       case "bookingExistingConfirmationSteps": {
         const rows = await ctx.db
           .query("bookingExistingConfirmationSteps")
-          .collect();
-        return rows.length;
-      }
-      case "bookingExistingDataSharingSteps": {
-        const rows = await ctx.db
-          .query("bookingExistingDataSharingSteps")
           .collect();
         return rows.length;
       }
@@ -1225,11 +1208,6 @@ async function insertImportedExistingReplaySteps(
     sessionId: args.sessionId,
     userId: args.userId,
   };
-  const dataSharingContacts = addUserIdToContacts(
-    args.replayRow.dataSharingContacts,
-    args.userId,
-  );
-
   await ctx.db.insert("bookingPrivacySteps", {
     ...base,
     consent: true,
@@ -1282,14 +1260,6 @@ async function insertImportedExistingReplaySteps(
     personalData,
     practitionerLineageKey,
   });
-  await ctx.db.insert("bookingExistingDataSharingSteps", {
-    ...base,
-    dataSharingContacts,
-    isNewPatient: false,
-    locationLineageKey,
-    personalData,
-    practitionerLineageKey,
-  });
 
   if (
     args.replayRow.sessionStep === "existing-data-input" ||
@@ -1304,7 +1274,6 @@ async function insertImportedExistingReplaySteps(
   await ctx.db.insert("bookingExistingCalendarSelectionSteps", {
     ...base,
     appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
-    dataSharingContacts,
     isNewPatient: false,
     locationLineageKey,
     personalData,
@@ -1317,7 +1286,6 @@ async function insertImportedExistingReplaySteps(
     appointmentId: appointment.appointmentId,
     appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
     bookedDurationMinutes: appointment.bookedDurationMinutes,
-    dataSharingContacts,
     isNewPatient: false,
     locationLineageKey,
     ...(appointment.patientId === undefined

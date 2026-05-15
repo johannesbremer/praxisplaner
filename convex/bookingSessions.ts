@@ -440,11 +440,6 @@ const STEP_QUERY_MAP: StepQueryMap = {
       .query("bookingExistingConfirmationSteps")
       .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
       .take(1),
-  bookingExistingDataSharingSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingExistingDataSharingSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
   bookingExistingDoctorSelectionSteps: (ctx, sessionId) =>
     ctx.db
       .query("bookingExistingDoctorSelectionSteps")
@@ -517,8 +512,6 @@ const STEP_INSERT_MAP: StepInsertMap = {
     ctx.db.insert("bookingExistingCalendarSelectionSteps", data),
   bookingExistingConfirmationSteps: (ctx, data) =>
     ctx.db.insert("bookingExistingConfirmationSteps", data),
-  bookingExistingDataSharingSteps: (ctx, data) =>
-    ctx.db.insert("bookingExistingDataSharingSteps", data),
   bookingExistingDoctorSelectionSteps: (ctx, data) =>
     ctx.db.insert("bookingExistingDoctorSelectionSteps", data),
   bookingExistingPersonalDataSteps: (ctx, data) =>
@@ -552,8 +545,6 @@ const STEP_PATCH_MAP: StepPatchMap = {
     ctx.db.patch("bookingExistingCalendarSelectionSteps", id, data),
   bookingExistingConfirmationSteps: (ctx, id, data) =>
     ctx.db.patch("bookingExistingConfirmationSteps", id, data),
-  bookingExistingDataSharingSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingExistingDataSharingSteps", id, data),
   bookingExistingDoctorSelectionSteps: (ctx, id, data) =>
     ctx.db.patch("bookingExistingDoctorSelectionSteps", id, data),
   bookingExistingPersonalDataSteps: (ctx, id, data) =>
@@ -948,7 +939,6 @@ function getStepRowId(...params: StepRowIdParams) {
   switch (tableName) {
     case "bookingExistingCalendarSelectionSteps":
     case "bookingExistingConfirmationSteps":
-    case "bookingExistingDataSharingSteps":
     case "bookingExistingDoctorSelectionSteps":
     case "bookingExistingPersonalDataSteps":
     case "bookingLocationSteps":
@@ -1061,7 +1051,6 @@ async function persistTransitionWrite(
       await upsertStep(ctx, write.tableName, session, write.data);
       return;
     }
-    case "bookingExistingDataSharingSteps":
     case "bookingExistingPersonalDataSteps":
     case "bookingNewDataSharingSteps":
     case "bookingNewGkvDetailSteps":
@@ -1927,40 +1916,6 @@ export const submitExistingPatientData = mutation({
         base: getStepBase(session),
         kind: "submitExistingPatientData",
         personalData,
-        state: session.state,
-      }),
-    );
-
-    await refreshSession(ctx, args.sessionId);
-    return null;
-  },
-  returns: v.null(),
-});
-
-/**
- * Persist existing-patient data-sharing contacts from calendar selection.
- * Requires authentication.
- */
-export const submitExistingDataSharing = mutation({
-  args: {
-    dataSharingContacts: v.array(dataSharingContactInputValidator),
-    sessionId: v.id("bookingSessions"),
-  },
-  handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    assertValidDataSharingContacts(args.dataSharingContacts);
-    const ownedContacts = attachOwnerToDataSharingContacts(
-      args.dataSharingContacts,
-      session.userId,
-    );
-
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        dataSharingContacts: ownedContacts,
-        kind: "submitExistingDataSharing",
         state: session.state,
       }),
     );

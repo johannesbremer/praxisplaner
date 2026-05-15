@@ -111,35 +111,6 @@ async function bootstrapToExistingCalendarSelection(
     },
     sessionId,
   });
-  await authed.mutation(api.bookingSessions.submitExistingDataSharing, {
-    dataSharingContacts: makeDataSharingContacts(),
-    sessionId,
-  });
-}
-
-async function bootstrapToExistingDataSharing(
-  authed: AuthedTestContext,
-  locationId: Id<"locations">,
-  practitionerId: Id<"practitioners">,
-  sessionId: Id<"bookingSessions">,
-) {
-  await bootstrapToPatientStatus(authed, sessionId, locationId);
-  await authed.mutation(api.bookingSessions.selectExistingPatient, {
-    sessionId,
-  });
-  await authed.mutation(api.bookingSessions.selectDoctor, {
-    practitionerLineageKey: practitionerId,
-    sessionId,
-  });
-  await authed.mutation(api.bookingSessions.submitExistingPatientData, {
-    personalData: {
-      dateOfBirth: "1975-05-20",
-      firstName: "Grace",
-      lastName: "Hopper",
-      phoneNumber: "+491709999999",
-    },
-    sessionId,
-  });
 }
 
 async function bootstrapToNewCalendarSelection(
@@ -746,15 +717,18 @@ describe("bookingSessions user identity handling", () => {
       });
 
       const existingRow = await ctx.db
-        .query("bookingExistingDataSharingSteps")
+        .query("bookingExistingPersonalDataSteps")
         .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
         .first();
       if (!existingRow) {
         throw new Error("Expected existing calendar snapshot row");
       }
 
-      await ctx.db.patch("bookingExistingDataSharingSteps", existingRow._id, {
-        dataSharingContacts: makeOwnedDataSharingContacts(wrongUserId),
+      await ctx.db.patch("bookingExistingPersonalDataSteps", existingRow._id, {
+        personalData: {
+          ...existingRow.personalData,
+          firstName: "Wrong",
+        },
         userId: wrongUserId,
       });
     });
@@ -993,35 +967,6 @@ describe("bookingSessions user identity handling", () => {
     expect(session.state.pvsConsent).toBe(true);
   });
 
-  test("submitExistingDataSharing stores owner userId on each contact", async () => {
-    const t = createTestContext();
-    const { locationId, practiceId, practitionerId, ruleSetId } =
-      await createBookingEntities(t);
-    const authed = makeAuthedClient(t, "existing_data_sharing_contact_owner");
-
-    const sessionId = await authed.mutation(api.bookingSessions.create, {
-      practiceId,
-      ruleSetId,
-    });
-
-    await bootstrapToExistingDataSharing(
-      authed,
-      locationId,
-      practitionerId,
-      sessionId,
-    );
-    await authed.mutation(api.bookingSessions.submitExistingDataSharing, {
-      dataSharingContacts: makeDataSharingContacts(),
-      sessionId,
-    });
-
-    const session = await authed.query(api.bookingSessions.get, { sessionId });
-    assertSessionExists(session, "session should exist");
-    assertStateStep(session.state, "existing-calendar-selection");
-    expect(session.state.dataSharingContacts).toHaveLength(1);
-    expect(session.state.dataSharingContacts[0]?.userId).toBe(session.userId);
-  });
-
   test("get returns null when contact owner userId mismatches session user", async () => {
     const t = createTestContext();
     const { locationId, practiceId, ruleSetId } =
@@ -1093,32 +1038,6 @@ describe("bookingSessions user identity handling", () => {
 
     await expect(
       stranger.mutation(api.bookingSessions.submitNewDataSharing, {
-        dataSharingContacts: makeDataSharingContacts(),
-        sessionId,
-      }),
-    ).rejects.toThrow("Access denied");
-  });
-
-  test("submitExistingDataSharing denies access for non-owner user", async () => {
-    const t = createTestContext();
-    const { locationId, practiceId, practitionerId, ruleSetId } =
-      await createBookingEntities(t);
-    const owner = makeAuthedClient(t, "existing_data_sharing_owner");
-    const stranger = makeAuthedClient(t, "existing_data_sharing_stranger");
-
-    const sessionId = await owner.mutation(api.bookingSessions.create, {
-      practiceId,
-      ruleSetId,
-    });
-    await bootstrapToExistingDataSharing(
-      owner,
-      locationId,
-      practitionerId,
-      sessionId,
-    );
-
-    await expect(
-      stranger.mutation(api.bookingSessions.submitExistingDataSharing, {
         dataSharingContacts: makeDataSharingContacts(),
         sessionId,
       }),
@@ -1499,7 +1418,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
       "session should exist at existing calendar-selection step",
     );
     assertStateStep(atCalendar.state, "existing-calendar-selection");
-    expect(atCalendar.state.dataSharingContacts).toHaveLength(0);
     expect("reasonDescription" in atCalendar.state).toBe(false);
     expect(atCalendar.state.personalData.firstName).toBe("Grace");
   });
@@ -1576,17 +1494,12 @@ describe("bookingSessions atomic pending/completed step states", () => {
       sessionId,
     });
 
-    await authed.mutation(api.bookingSessions.submitExistingDataSharing, {
-      dataSharingContacts: [],
-      sessionId,
-    });
-
     const atCalendar = await authed.query(api.bookingSessions.get, {
       sessionId,
     });
     assertSessionExists(atCalendar, "session should exist at calendar step");
     assertStateStep(atCalendar.state, "existing-calendar-selection");
-    expect(atCalendar.state.dataSharingContacts).toHaveLength(0);
+    expect(atCalendar.state.personalData.firstName).toBe("Grace");
   });
 });
 
@@ -1610,43 +1523,6 @@ describe("bookingSessions slot selection validation", () => {
         sessionId,
       }),
     ).rejects.toThrow("Geburtsdatum format");
-  });
-
-  test("submitExistingDataSharing allows empty title", async () => {
-    const t = createTestContext();
-    const { locationId, practiceId, practitionerId, ruleSetId } =
-      await createBookingEntities(t);
-    const authed = makeAuthedClient(t, "data_sharing_empty_title");
-    const sessionId = await authed.mutation(api.bookingSessions.create, {
-      practiceId,
-      ruleSetId,
-    });
-    await bootstrapToExistingDataSharing(
-      authed,
-      locationId,
-      practitionerId,
-      sessionId,
-    );
-    const contactWithTitle = makeDataSharingContactsWithOverrides({})[0];
-    if (!contactWithTitle) {
-      throw new Error("Expected data-sharing contact fixture");
-    }
-    const contactWithoutTitle: DataSharingContactInput = {
-      ...contactWithTitle,
-    };
-    delete contactWithoutTitle.title;
-
-    await authed.mutation(api.bookingSessions.submitExistingDataSharing, {
-      dataSharingContacts: [contactWithoutTitle],
-      sessionId,
-    });
-
-    const atCalendar = await authed.query(api.bookingSessions.get, {
-      sessionId,
-    });
-    assertSessionExists(atCalendar, "session should exist at calendar step");
-    assertStateStep(atCalendar.state, "existing-calendar-selection");
-    expect(atCalendar.state.dataSharingContacts[0]?.title).toBeUndefined();
   });
 
   test("returnToCalendarSelectionAfterCancellation resets existing-confirmation to existing-calendar-selection", async () => {

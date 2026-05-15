@@ -12,7 +12,6 @@ const tables = [
   "bookingPatientStatusSteps",
   "bookingExistingDoctorSelectionSteps",
   "bookingExistingPersonalDataSteps",
-  "bookingExistingDataSharingSteps",
   "bookingExistingCalendarSelectionSteps",
   "bookingExistingConfirmationSteps",
   "bookingNewInsuranceTypeSteps",

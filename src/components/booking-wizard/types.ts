@@ -28,7 +28,6 @@ export const STEP_LABELS: Record<BookingSessionState["step"], string> = {
   "existing-calendar-selection": "Terminauswahl",
   "existing-confirmation": "Bestätigung",
   "existing-data-input": "Persönliche Daten",
-  "existing-data-input-complete": "Persönliche Daten",
   "existing-doctor-selection": "Arztauswahl",
   location: "Standort",
   "new-calendar-selection": "Terminauswahl",
@@ -53,7 +52,6 @@ const STEP_GROUP_BY_STEP = {
   "existing-calendar-selection": "booking",
   "existing-confirmation": "confirmation",
   "existing-data-input": "info",
-  "existing-data-input-complete": "info",
   "existing-doctor-selection": "info",
   location: "consent",
   "new-calendar-selection": "booking",
@@ -79,20 +77,12 @@ export function getStepGroup(step: BookingSessionState["step"]): StepGroup {
 // Cannot go back once you've passed doctor selection in existing patient flow
 export function canGoBack(step: BookingSessionState["step"]): boolean {
   switch (step) {
-    // After doctor selection, cannot go back
+    // These steps are locked once reached.
     case "existing-calendar-selection":
     case "existing-confirmation":
     case "existing-data-input":
-    case "existing-data-input-complete": {
-      return false;
-    }
-    case "new-calendar-selection": {
-      return false;
-    }
-    // After confirmation, cannot go back
-    case "new-confirmation": {
-      return false;
-    }
+    case "new-calendar-selection":
+    case "new-confirmation":
     case "privacy": {
       return false;
     }
