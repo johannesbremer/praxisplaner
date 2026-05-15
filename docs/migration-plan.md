@@ -140,10 +140,10 @@ Map legacy tables to current booking concepts and replay completed historical fl
 - `datenweitergabe`: data-sharing contacts. Map to data-sharing step tables.
 - `anamnese` and `anamnesetexte`: map to `medicalHistory` fields.
 - `pkv`: map to PKV detail step fields.
-- `termine` and `oldTermine`: legacy online-booked appointments. Correlate to imported Praxistimer appointments, which are the canonical appointment source of truth, by exact appointment facts plus exact patient-name identity rules. Do not create duplicates without a conflict report.
+- `termine` and `oldTermine`: complementary legacy online-booked appointment tables. `termine` holds the currently active booked appointment that still blocks the user from booking another one; `oldTermine` holds appointments rotated out of `termine` when the user returns later to book again. Use the union of both tables for the booked-appointment subset, not either table in isolation. Correlate both to imported Praxistimer appointments, which are the canonical appointment source of truth, by exact appointment facts plus exact patient-name identity rules. Do not create duplicates without a conflict report.
 - `phoneusers`: TelefonKI identities and requested appointment metadata. Correlate to PVS patients with the same conservative matching pipeline.
 
-Imported sessions use the current booking step tables, but they are not resumable active sessions. `bookingSessions.status` and `bookingSessions.source` separate active current-booking sessions from imported legacy PocketBase and TelefonKI history.
+Imported sessions use the current booking step tables, but they are not resumable active sessions. `bookingSessions.status` and `bookingSessions.source` separate active current-booking sessions from imported legacy PocketBase and TelefonKI history. `baumdiagramm` is only the current booking wizard snapshot; it must not be treated as the source of truth for booked appointments when a matching `termine` or `oldTermine` row exists.
 
 ## Phase 6: identity correlation
 

@@ -122,6 +122,104 @@ function normalizeEmail(email, fallbackLocalPart, domain) {
     : `${fallbackLocalPart}@${domain}`;
 }
 
+function normalizeLocationName(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLocaleLowerCase();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  if (/\b(?:bad\s+)?iburg|\bibu\b/u.test(normalized)) {
+    return "Bad Iburg";
+  }
+  if (/\bdiss(?:en)?\b/u.test(normalized)) {
+    return "Dissen a.T.W.";
+  }
+  return undefined;
+}
+
+function normalizeHzvStatus(value) {
+  switch (
+    String(value ?? "")
+      .trim()
+      .toLocaleLowerCase()
+  ) {
+    case "hat bereits":
+      return "has-contract";
+    case "interesse":
+      return "interested";
+    case "kein interesse":
+      return "no-interest";
+    default:
+      return undefined;
+  }
+}
+
+function normalizeInsuranceType(args) {
+  const kasse = String(args.kasse ?? "")
+    .trim()
+    .toLocaleLowerCase();
+  if (kasse === "gkv") {
+    return "gkv";
+  }
+  if (kasse === "pkv") {
+    return "pkv";
+  }
+  if (args.hasPkvRow || args.pvsConsent) {
+    return "pkv";
+  }
+  return undefined;
+}
+
+function normalizePkvInsuranceType(value) {
+  switch (
+    String(value ?? "")
+      .trim()
+      .toLocaleLowerCase()
+  ) {
+    case "andere":
+      return "other";
+    case "kvb":
+      return "kvb";
+    case "postb":
+      return "postb";
+    default:
+      return undefined;
+  }
+}
+
+function normalizePkvTariff(value) {
+  switch (
+    String(value ?? "")
+      .trim()
+      .toLocaleLowerCase()
+  ) {
+    case "basis":
+      return "basis";
+    case "standard":
+      return "standard";
+    case "premium":
+      return "premium";
+    default:
+      return undefined;
+  }
+}
+
+function normalizeBeihilfeStatus(value) {
+  switch (
+    String(value ?? "")
+      .trim()
+      .toLocaleLowerCase()
+  ) {
+    case "ja":
+      return "yes";
+    case "nein":
+      return "no";
+    default:
+      return undefined;
+  }
+}
+
 function toStoredPvsDateTime(value) {
   const match = value.match(
     /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-]\d{2}:\d{2})$/,
@@ -132,62 +230,105 @@ function toStoredPvsDateTime(value) {
   return `${match[1]}T${match[2]}${match[3]}[Europe/Berlin]`;
 }
 
-function parseOffsetDate(value) {
-  const match = value.match(
-    /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d{3}Z| ([+-]\d{2}:\d{2}))$/,
-  );
-  if (!match) {
+function parseDate(value) {
+  const timestamp = Date.parse(String(value ?? ""));
+  if (!Number.isFinite(timestamp)) {
     throw new Error(`Unsupported date: ${value}`);
   }
-  const suffix = match[3] ?? "Z";
-  return new Date(`${match[1]}T${match[2]}${suffix}`);
+  return new Date(timestamp);
 }
 
 function durationMinutes(start, end) {
   const minutes =
-    (parseOffsetDate(end).getTime() - parseOffsetDate(start).getTime()) /
-    60_000;
+    (parseDate(end).getTime() - parseDate(start).getTime()) / 60_000;
   return Number.isFinite(minutes) && minutes > 0 ? minutes : 5;
+}
+
+function trimToUndefined(value) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function personalDataFromFields(fields) {
+  const firstName = trimToUndefined(fields.firstName);
+  const lastName = trimToUndefined(fields.lastName);
+  const dateOfBirth = trimToUndefined(normalizeDate(fields.dateOfBirth));
+
+  if (!firstName || !lastName || !dateOfBirth) {
+    return undefined;
+  }
+
+  return {
+    ...(trimToUndefined(fields.city) ? { city: fields.city } : {}),
+    dateOfBirth,
+    ...(trimToUndefined(fields.email) ? { email: fields.email } : {}),
+    firstName,
+    ...(trimToUndefined(fields.gender) ? { gender: fields.gender } : {}),
+    lastName,
+    phoneNumber: String(fields.phoneNumber ?? "").trim(),
+    ...(trimToUndefined(fields.postalCode)
+      ? { postalCode: fields.postalCode }
+      : {}),
+    ...(trimToUndefined(fields.street) ? { street: fields.street } : {}),
+    ...(trimToUndefined(fields.title) ? { title: fields.title } : {}),
+  };
+}
+
+function personalDataFromLegacyUser(userId, args) {
+  const personal = args.personalByUser.get(userId);
+  const fallbackMatch = args.fallbackMatch;
+  const fallbackFirstName = fallbackMatch?.patientFirstName;
+  const fallbackLastName = fallbackMatch?.patientLastName;
+  const fallbackBirthDate = fallbackMatch?.birthDate;
+
+  return personalDataFromFields({
+    city: personal?.ort ?? "",
+    dateOfBirth: personal?.geburtstag ?? fallbackBirthDate ?? "",
+    email: normalizeEmail(args.userEmail, userId, "legacy-users.invalid"),
+    firstName: personal?.vorname ?? fallbackFirstName ?? "",
+    gender: normalizeGender(personal?.geschlecht),
+    lastName: personal?.name ?? fallbackLastName ?? "",
+    phoneNumber: personal?.tel ?? "",
+    postalCode: personal?.plz ?? "",
+    street: personal?.strasse ?? "",
+    title: personal?.dr ?? "",
+  });
 }
 
 function personalDataFromMatch(match, personalByUser, phoneUserById) {
   if (match.sourceKind === "telefonki") {
     const phoneUser = phoneUserById.get(match.legacyIdentityId);
-    return {
-      dateOfBirth: normalizeDate(match.birthDate),
+    return personalDataFromFields({
+      dateOfBirth: match.birthDate,
       firstName: match.patientFirstName,
       gender: normalizeGender(phoneUser?.geschlecht),
       lastName: match.patientLastName,
       phoneNumber: phoneUser?.phone ?? "",
-    };
+    });
   }
 
   const personal = personalByUser.get(match.legacyIdentityId);
-  return {
+  return personalDataFromFields({
     city: personal?.ort ?? "",
-    dateOfBirth: normalizeDate(match.birthDate),
+    dateOfBirth: personal?.geburtstag ?? match.birthDate,
     email: normalizeEmail(
       match.legacyUserEmail,
       match.legacyIdentityId,
       "legacy-users.invalid",
     ),
-    firstName: match.patientFirstName,
+    firstName: personal?.vorname ?? match.patientFirstName,
     gender: normalizeGender(personal?.geschlecht),
-    lastName: match.patientLastName,
+    lastName: personal?.name ?? match.patientLastName,
     phoneNumber: personal?.tel ?? "",
     postalCode: personal?.plz ?? "",
     street: personal?.strasse ?? "",
-    ...(personal?.dr ? { title: personal.dr } : {}),
-  };
+    title: personal?.dr ?? "",
+  });
 }
 
-function dataSharingContactsForMatch(match, dataSharingByUser) {
-  if (match.sourceKind === "telefonki") {
-    return [];
-  }
-
-  return (dataSharingByUser.get(match.legacyIdentityId) ?? []).map(
-    (contact) => ({
+function dataSharingContactsForUser(userId, dataSharingByUser) {
+  return (dataSharingByUser.get(userId) ?? [])
+    .map((contact) => ({
       city: contact.ort ?? "",
       dateOfBirth: normalizeDate(contact.geburtstag),
       firstName: contact.vorname ?? "",
@@ -197,8 +338,93 @@ function dataSharingContactsForMatch(match, dataSharingByUser) {
       postalCode: contact.plz ?? "",
       street: contact.str ?? "",
       ...(contact.dr ? { title: contact.dr } : {}),
-    }),
+    }))
+    .filter(
+      (contact) =>
+        contact.firstName.length > 0 ||
+        contact.lastName.length > 0 ||
+        contact.phoneNumber.length > 0,
+    );
+}
+
+function dataSharingContactsForMatch(match, dataSharingByUser) {
+  if (match.sourceKind === "telefonki") {
+    return [];
+  }
+
+  return dataSharingContactsForUser(match.legacyIdentityId, dataSharingByUser);
+}
+
+function medicalHistoryFromUser(userId, anamneseByUser, anamneseTextByUser) {
+  const checkbox = anamneseByUser.get(userId);
+  const text = anamneseTextByUser.get(userId);
+
+  if (!checkbox && !text) {
+    return undefined;
+  }
+
+  const allergyNotes = [
+    trimToUndefined(text?.alltext),
+    trimToUndefined(text?.unvtext),
+  ]
+    .filter(Boolean)
+    .join("; ");
+  const otherConditions = [
+    checkbox?.bluthochdruck === 1 ? "Bluthochdruck" : undefined,
+    checkbox?.brustenge === 1 ? "Brustenge" : undefined,
+    checkbox?.durchblutung === 1 ? "Durchblutungsstörung" : undefined,
+    checkbox?.blutfett === 1 ? "Fettstoffwechselstörung" : undefined,
+    checkbox?.gicht === 1 ? "Gicht" : undefined,
+    checkbox?.krebs === 1 ? "Krebserkrankung" : undefined,
+    checkbox?.leber === 1 ? "Lebererkrankung" : undefined,
+    checkbox?.niere === 1 ? "Nierenerkrankung" : undefined,
+    checkbox?.schilddruese === 1 ? "Schilddrüsenerkrankung" : undefined,
+    checkbox?.krampfadern === 1 ? "Krampfadern" : undefined,
+    checkbox?.depression === 1 ? "Depression" : undefined,
+    trimToUndefined(text?.betext),
+    trimToUndefined(text?.optext),
+  ]
+    .filter(Boolean)
+    .join("; ");
+
+  return {
+    ...(allergyNotes.length > 0 ? { allergiesDescription: allergyNotes } : {}),
+    ...(trimToUndefined(text?.medtext)
+      ? { currentMedications: text.medtext.trim() }
+      : {}),
+    hasAllergies: checkbox?.allergien === 1 || checkbox?.unvertraeglich === 1,
+    hasDiabetes: checkbox?.diabetes === 1,
+    hasHeartCondition:
+      checkbox?.herz === 1 ||
+      checkbox?.bluthochdruck === 1 ||
+      checkbox?.brustenge === 1 ||
+      checkbox?.durchblutung === 1,
+    hasLungCondition: checkbox?.lunge === 1,
+    ...(otherConditions.length > 0 ? { otherConditions } : {}),
+  };
+}
+
+function practitionerNameFromDoc(doc) {
+  if (!doc) {
+    return undefined;
+  }
+  return (
+    [doc.Nachname, doc.Vorname].filter(Boolean).join(" ").trim() || undefined
   );
+}
+
+function reasonDescriptionFromSnapshot(args) {
+  return (
+    trimToUndefined(args.currentMatch?.legacyType) ??
+    trimToUndefined(args.currentMatch?.legacyTitle) ??
+    trimToUndefined(args.currentAppointmentTitle) ??
+    trimToUndefined(args.termingrundTitle) ??
+    "Import"
+  );
+}
+
+function isTruthyLegacyFlag(value) {
+  return value === 1 || value === "1" || value === true;
 }
 
 function sourceForKind(sourceKind) {
@@ -228,6 +454,11 @@ function readSourceMaps() {
       row,
     ]),
   );
+  const userById = new Map(
+    readSqliteJson("select id, email from users order by created").map(
+      (row) => [row.id, row],
+    ),
+  );
   const phoneUserById = new Map(
     readSqliteJson("select * from phoneusers order by updated").map((row) => [
       row.id,
@@ -238,6 +469,50 @@ function readSourceMaps() {
     readSqliteJson("select * from datenweitergabe order by created, id"),
     (row) => row.user,
   );
+  const anamneseByUser = new Map(
+    readSqliteJson("select * from anamnese order by updated").map((row) => [
+      row.user,
+      row,
+    ]),
+  );
+  const anamneseTextByUser = new Map(
+    readSqliteJson("select * from anamnesetexte order by updated").map(
+      (row) => [row.user, row],
+    ),
+  );
+  const pkvByUser = new Map(
+    readSqliteJson("select * from pkv order by updated").map((row) => [
+      row.user,
+      row,
+    ]),
+  );
+  const docsById = new Map(
+    readSqliteJson("select * from docs order by Nachname, Vorname").map(
+      (row) => [row.id, row],
+    ),
+  );
+  const termingrundById = new Map(
+    readSqliteJson("select * from terminarten order by title").map((row) => [
+      row.id,
+      row,
+    ]),
+  );
+  const currentAppointmentsByUser = new Map(
+    readSqliteJson(`
+      select *
+      from termine
+      where user != '' and deleted = 0
+      order by updated desc, created desc, id desc
+    `).map((row) => [row.user, row]),
+  );
+  const baumByUser = new Map(
+    readSqliteJson(`
+      select *
+      from baumdiagramm
+      where user != ''
+      order by updated desc, created desc, id desc
+    `).map((row) => [row.user, row]),
+  );
   const blockedUsers = readSqliteJson(`
     select distinct user as legacyUserId
     from baumdiagramm
@@ -245,33 +520,386 @@ function readSourceMaps() {
     order by user
   `);
 
-  return { blockedUsers, dataSharingByUser, personalByUser, phoneUserById };
+  return {
+    anamneseByUser,
+    anamneseTextByUser,
+    baumByUser,
+    blockedUsers,
+    currentAppointmentsByUser,
+    dataSharingByUser,
+    docsById,
+    personalByUser,
+    phoneUserById,
+    pkvByUser,
+    termingrundById,
+    userById,
+  };
 }
 
-function main() {
-  mkdirSync(reportRoot, { recursive: true });
-  const matches = parseCsv(readFileSync(matchesPath, "utf8"));
-  const { blockedUsers, dataSharingByUser, personalByUser, phoneUserById } =
-    readSourceMaps();
+function inferNewSnapshotStep(args) {
+  if (!args.hasConsent) {
+    return "privacy";
+  }
+  if (!args.locationName) {
+    return "location";
+  }
+  if (!args.insuranceType) {
+    return "new-insurance-type";
+  }
+  if (args.insuranceType === "gkv") {
+    if (!args.hzvStatus) {
+      return "new-gkv-details";
+    }
+    if (!args.personalData) {
+      return "new-data-input";
+    }
+    if (args.hasMatchedAppointment) {
+      return "new-confirmation";
+    }
+    if (args.dataSharingSubmitted) {
+      return "new-calendar-selection";
+    }
+    return "new-data-sharing";
+  }
+  if (!args.pvsConsent) {
+    return "new-pvs-consent";
+  }
+  if (!args.hasPkvDetails) {
+    return "new-pkv-details";
+  }
+  if (!args.personalData) {
+    return "new-data-input";
+  }
+  if (args.hasMatchedAppointment) {
+    return "new-confirmation";
+  }
+  if (args.dataSharingSubmitted) {
+    return "new-calendar-selection";
+  }
+  return "new-data-sharing";
+}
 
-  const replayRows = matches.map((match) => ({
+function inferExistingSnapshotStep(args) {
+  if (!args.hasConsent) {
+    return "privacy";
+  }
+  if (!args.locationName) {
+    return "location";
+  }
+  if (!args.practitionerName) {
+    return "existing-doctor-selection";
+  }
+  if (!args.personalData) {
+    return "existing-data-input";
+  }
+  if (args.hasMatchedAppointment) {
+    return "existing-confirmation";
+  }
+  return "existing-calendar-selection";
+}
+
+function buildSnapshotReplayRow(
+  userId,
+  maps,
+  currentMatchByLegacyAppointmentId,
+) {
+  const baum = maps.baumByUser.get(userId);
+  if (!baum) {
+    return undefined;
+  }
+
+  const userEmail =
+    maps.userById.get(userId)?.email ?? `${userId}@legacy-users.invalid`;
+  const currentAppointment = maps.currentAppointmentsByUser.get(userId);
+  const currentMatch =
+    currentAppointment === undefined
+      ? undefined
+      : currentMatchByLegacyAppointmentId.get(currentAppointment.id);
+  if (currentMatch !== undefined) {
+    return undefined;
+  }
+  const locationName =
+    normalizeLocationName(baum.zweigstelle) ??
+    normalizeLocationName(currentMatch?.legacyLocation) ??
+    normalizeLocationName(currentMatch?.pvsLocationRoom);
+  const practitionerName =
+    trimToUndefined(currentMatch?.pvsDoctor) ??
+    practitionerNameFromDoc(
+      maps.docsById.get(currentAppointment?.doc ?? baum.doc),
+    );
+  const personalData = personalDataFromLegacyUser(userId, {
+    fallbackMatch: currentMatch,
+    personalByUser: maps.personalByUser,
+    userEmail,
+  });
+  const dataSharingContacts = dataSharingContactsForUser(
+    userId,
+    maps.dataSharingByUser,
+  );
+  const medicalHistory = medicalHistoryFromUser(
+    userId,
+    maps.anamneseByUser,
+    maps.anamneseTextByUser,
+  );
+  const hasConsent = baum.datenschutz === 1;
+  const isNewPatient = baum.neupatient === "ja";
+  const hasKnownPatientStatus =
+    baum.neupatient === "ja" || baum.neupatient === "nein";
+  const submitted = isTruthyLegacyFlag(baum.abgeschickt);
+  const pkv = maps.pkvByUser.get(userId);
+  const pvsConsent = isTruthyLegacyFlag(baum.pvs);
+  const insuranceType =
+    hasKnownPatientStatus && isNewPatient
+      ? normalizeInsuranceType({
+          hasPkvRow: pkv !== undefined,
+          kasse: baum.kasse,
+          pvsConsent,
+        })
+      : undefined;
+  const hzvStatus =
+    insuranceType === "gkv"
+      ? normalizeHzvStatus(baum.hausarztvertrag)
+      : undefined;
+  const pkvInsuranceType =
+    insuranceType === "pkv" ? normalizePkvInsuranceType(pkv?.kasse) : undefined;
+  const pkvTariff =
+    insuranceType === "pkv" ? normalizePkvTariff(pkv?.tarif) : undefined;
+  const beihilfeStatus =
+    insuranceType === "pkv"
+      ? normalizeBeihilfeStatus(pkv?.beihilfe)
+      : undefined;
+  const hasPkvDetails =
+    pkvInsuranceType !== undefined ||
+    pkvTariff !== undefined ||
+    beihilfeStatus !== undefined ||
+    pkv !== undefined;
+  const currentAppointmentTitle = trimToUndefined(
+    maps.termingrundById.get(currentAppointment?.terminart)?.title ??
+      currentAppointment?.title,
+  );
+  const termingrundTitle = trimToUndefined(
+    maps.termingrundById.get(baum.termingrund)?.title,
+  );
+  const reasonDescription = reasonDescriptionFromSnapshot({
+    currentAppointmentTitle,
+    currentMatch,
+    termingrundTitle,
+  });
+  const hasMatchedAppointment =
+    currentMatch !== undefined &&
+    personalData !== undefined &&
+    currentMatch.pvsPatientSourceId !== undefined &&
+    currentMatch.pvsStart !== undefined &&
+    currentMatch.pvsType !== undefined;
+  const dataSharingSubmitted =
+    dataSharingContacts.length > 0 || submitted || currentMatch !== undefined;
+
+  let sessionStep;
+  if (!hasConsent) {
+    sessionStep = "privacy";
+  } else if (!locationName) {
+    sessionStep = "location";
+  } else if (!hasKnownPatientStatus) {
+    sessionStep = "patient-status";
+  } else if (isNewPatient) {
+    sessionStep = inferNewSnapshotStep({
+      dataSharingSubmitted,
+      hasConsent,
+      hasMatchedAppointment,
+      hasPkvDetails,
+      hzvStatus,
+      insuranceType,
+      locationName,
+      personalData,
+      pvsConsent,
+    });
+  } else {
+    sessionStep = inferExistingSnapshotStep({
+      hasConsent,
+      hasMatchedAppointment,
+      locationName,
+      personalData,
+      practitionerName,
+    });
+  }
+
+  const row = {
+    createdAt: parseDate(baum.updated ?? baum.created).getTime(),
+    dataSharingContacts,
+    ...(beihilfeStatus === undefined ? {} : { beihilfeStatus }),
+    ...(insuranceType === undefined ? {} : { insuranceType }),
+    ...(hzvStatus === undefined ? {} : { hzvStatus }),
+    ...(locationName === undefined ? {} : { locationName }),
+    ...(medicalHistory === undefined ? {} : { medicalHistory }),
+    ...(personalData === undefined ? {} : { personalData }),
+    ...(pkvInsuranceType === undefined ? {} : { pkvInsuranceType }),
+    ...(pkvTariff === undefined ? {} : { pkvTariff }),
+    ...(practitionerName === undefined ? {} : { practitionerName }),
+    ...(insuranceType !== "pkv" || !pvsConsent ? {} : { pvsConsent: true }),
+    sessionStep,
+    source: "legacy-pocketbase",
+    sourceSessionKey: `legacy-pocketbase:snapshot:${userId}`,
+    userAuthId: `legacy-pocketbase:${userId}`,
+    userEmail,
+  };
+
+  if (!sessionStep.endsWith("confirmation") || !currentMatch) {
+    return row;
+  }
+
+  return {
+    ...row,
+    bookedDurationMinutes: durationMinutes(
+      currentMatch.pvsStart,
+      currentMatch.pvsEnd,
+    ),
+    legacyAppointmentId: currentMatch.legacyAppointmentId,
+    pvsAppointmentStart: toStoredPvsDateTime(currentMatch.pvsStart),
+    pvsAppointmentTypeTitle: currentMatch.pvsType,
+    pvsPatientNumber: Number(currentMatch.pvsPatientSourceId),
+    reasonDescription,
+  };
+}
+
+function buildCurrentOnlineReplayRow(match, maps) {
+  const userId = match.legacyIdentityId;
+  const baum = maps.baumByUser.get(userId);
+  const userEmail =
+    maps.userById.get(userId)?.email ?? `${userId}@legacy-users.invalid`;
+  const personalData = personalDataFromLegacyUser(userId, {
+    fallbackMatch: match,
+    personalByUser: maps.personalByUser,
+    userEmail,
+  });
+  if (!personalData) {
+    return undefined;
+  }
+
+  const locationName =
+    normalizeLocationName(baum?.zweigstelle) ??
+    normalizeLocationName(match.legacyLocation) ??
+    normalizeLocationName(match.pvsLocationRoom);
+  const currentAppointment = maps.currentAppointmentsByUser.get(userId);
+  const practitionerName =
+    trimToUndefined(match.pvsDoctor) ??
+    practitionerNameFromDoc(
+      maps.docsById.get(currentAppointment?.doc ?? baum?.doc),
+    );
+  const dataSharingContacts = dataSharingContactsForUser(
+    userId,
+    maps.dataSharingByUser,
+  );
+  const medicalHistory = medicalHistoryFromUser(
+    userId,
+    maps.anamneseByUser,
+    maps.anamneseTextByUser,
+  );
+  const isNewPatient = baum?.neupatient === "ja";
+  const pkv = maps.pkvByUser.get(userId);
+  const pvsConsent = isTruthyLegacyFlag(baum?.pvs);
+  const insuranceType = isNewPatient
+    ? normalizeInsuranceType({
+        hasPkvRow: pkv !== undefined,
+        kasse: baum?.kasse,
+        pvsConsent,
+      })
+    : undefined;
+  const hzvStatus =
+    insuranceType === "gkv"
+      ? normalizeHzvStatus(baum?.hausarztvertrag)
+      : undefined;
+  const pkvInsuranceType =
+    insuranceType === "pkv" ? normalizePkvInsuranceType(pkv?.kasse) : undefined;
+  const pkvTariff =
+    insuranceType === "pkv" ? normalizePkvTariff(pkv?.tarif) : undefined;
+  const beihilfeStatus =
+    insuranceType === "pkv"
+      ? normalizeBeihilfeStatus(pkv?.beihilfe)
+      : undefined;
+
+  return {
     bookedDurationMinutes: durationMinutes(match.pvsStart, match.pvsEnd),
-    createdAt: parseOffsetDate(match.legacyStart).getTime(),
-    dataSharingContacts: dataSharingContactsForMatch(match, dataSharingByUser),
+    createdAt: parseDate(match.legacyStart).getTime(),
+    dataSharingContacts,
+    ...(beihilfeStatus === undefined ? {} : { beihilfeStatus }),
+    ...(insuranceType === undefined ? {} : { insuranceType }),
+    ...(hzvStatus === undefined ? {} : { hzvStatus }),
     legacyAppointmentId: match.legacyAppointmentId,
-    personalData: personalDataFromMatch(match, personalByUser, phoneUserById),
+    ...(locationName === undefined ? {} : { locationName }),
+    ...(medicalHistory === undefined ? {} : { medicalHistory }),
+    personalData,
+    pvsAppointmentStart: toStoredPvsDateTime(match.pvsStart),
+    pvsAppointmentTypeTitle: match.pvsType,
+    ...(pkvInsuranceType === undefined ? {} : { pkvInsuranceType }),
+    ...(pkvTariff === undefined ? {} : { pkvTariff }),
+    ...(practitionerName === undefined ? {} : { practitionerName }),
+    ...(insuranceType !== "pkv" || !pvsConsent ? {} : { pvsConsent: true }),
+    pvsPatientNumber: Number(match.pvsPatientSourceId),
+    reasonDescription:
+      match.legacyType || match.legacyTitle || match.pvsReason || "Import",
+    sessionStep: isNewPatient ? "new-confirmation" : "existing-confirmation",
+    source: "legacy-pocketbase",
+    sourceSessionKey: `legacy-pocketbase:current:${match.legacyAppointmentId}`,
+    userAuthId: `legacy-pocketbase:${userId}`,
+    userEmail,
+  };
+}
+
+function buildHistoricalReplayRow(match, maps) {
+  const personalData = personalDataFromMatch(
+    match,
+    maps.personalByUser,
+    maps.phoneUserById,
+  );
+  if (!personalData) {
+    return undefined;
+  }
+
+  return {
+    bookedDurationMinutes: durationMinutes(match.pvsStart, match.pvsEnd),
+    createdAt: parseDate(match.legacyStart).getTime(),
+    dataSharingContacts: dataSharingContactsForMatch(
+      match,
+      maps.dataSharingByUser,
+    ),
+    legacyAppointmentId: match.legacyAppointmentId,
+    personalData,
     pvsAppointmentStart: toStoredPvsDateTime(match.pvsStart),
     pvsAppointmentTypeTitle: match.pvsType,
     pvsPatientNumber: Number(match.pvsPatientSourceId),
     reasonDescription:
       match.legacyType || match.legacyTitle || match.pvsReason || "Import",
+    sessionStep: "existing-confirmation",
     source: sourceForKind(match.sourceKind),
-    sourceSessionKey: `${sourceForKind(match.sourceKind)}:${match.legacyAppointmentId}`,
+    sourceSessionKey: `${sourceForKind(match.sourceKind)}:history:${match.legacyAppointmentId}`,
     userAuthId: userAuthIdForMatch(match),
     userEmail: userEmailForMatch(match),
-  }));
+  };
+}
 
-  const blockRows = blockedUsers.map((row) => ({
+function main() {
+  mkdirSync(reportRoot, { recursive: true });
+  const matches = parseCsv(readFileSync(matchesPath, "utf8"));
+  const maps = readSourceMaps();
+
+  const currentOnlineMatches = new Map(
+    matches
+      .filter((match) => match.sourceKind === "online")
+      .map((match) => [match.legacyAppointmentId, match]),
+  );
+  const snapshotRows = [...maps.baumByUser.keys()]
+    .map((userId) => buildSnapshotReplayRow(userId, maps, currentOnlineMatches))
+    .filter(Boolean);
+  const historicalRows = matches
+    .map((match) =>
+      match.sourceKind === "online"
+        ? buildCurrentOnlineReplayRow(match, maps)
+        : buildHistoricalReplayRow(match, maps),
+    )
+    .filter(Boolean);
+  const replayRows = [...snapshotRows, ...historicalRows];
+
+  const blockRows = maps.blockedUsers.map((row) => ({
     legacyUserId: row.legacyUserId,
     reason: "Legacy baumdiagramm.isUserBlocked",
     userAuthId: `legacy-pocketbase:${row.legacyUserId}`,
@@ -287,12 +915,19 @@ function main() {
     JSON.stringify(
       {
         blockedUsers: blockRows.length,
+        historicalReplayRows: historicalRows.length,
         replayRows: replayRows.length,
         replayRowsBySource: Object.fromEntries(
           [...Map.groupBy(replayRows, (row) => row.source).entries()].map(
             ([source, rows]) => [source, rows.length],
           ),
         ),
+        replayRowsByStep: Object.fromEntries(
+          [...Map.groupBy(replayRows, (row) => row.sessionStep).entries()]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([step, rows]) => [step, rows.length]),
+        ),
+        snapshotReplayRows: snapshotRows.length,
       },
       null,
       2,

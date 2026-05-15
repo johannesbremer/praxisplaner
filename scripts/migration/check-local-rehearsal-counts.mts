@@ -5,7 +5,6 @@ const convexCliEnv = {
   ...process.env,
   CI: "1",
 };
-const pageSize = 200;
 const tables = [
   "bookingSessions",
   "bookingPrivacySteps",
@@ -16,6 +15,14 @@ const tables = [
   "bookingExistingDataSharingSteps",
   "bookingExistingCalendarSelectionSteps",
   "bookingExistingConfirmationSteps",
+  "bookingNewInsuranceTypeSteps",
+  "bookingNewGkvDetailSteps",
+  "bookingNewPkvConsentSteps",
+  "bookingNewPkvDetailSteps",
+  "bookingNewPersonalDataSteps",
+  "bookingNewDataSharingSteps",
+  "bookingNewCalendarSelectionSteps",
+  "bookingNewConfirmationSteps",
   "bookingIdentities",
   "bookingIdentityPatientAssociations",
   "legacyBookingBlocks",
@@ -47,6 +54,9 @@ function pushFunctions() {
 
 function readConvexJson(output) {
   const trimmed = output.trim();
+  if (/^-?\d+$/u.test(trimmed)) {
+    return Number(trimmed);
+  }
   const jsonStart = trimmed.search(/[\[{]/u);
   if (jsonStart === -1) {
     throw new Error(`Could not parse Convex response: ${output}`);
@@ -57,43 +67,27 @@ function readConvexJson(output) {
 }
 
 function countTable(tableName) {
-  let count = 0;
-  let cursor = null;
-
-  while (true) {
-    const output = execFileSync(
-      "pnpm",
-      [
-        "exec",
-        "convex",
-        "run",
-        "migrationRehearsal:countRehearsalTablePage",
-        JSON.stringify({
-          paginationOpts: {
-            cursor,
-            numItems: pageSize,
-          },
-          tableName,
-        }),
-        "--deployment",
-        "local",
-        "--typecheck",
-        "disable",
-      ],
-      {
-        cwd: workspaceRoot,
-        env: convexCliEnv,
-        encoding: "utf8",
-        maxBuffer: 50 * 1024 * 1024,
-      },
-    );
-    const result = readConvexJson(output);
-    count += result.count;
-    if (result.isDone) {
-      return count;
-    }
-    cursor = result.continueCursor;
-  }
+  const output = execFileSync(
+    "pnpm",
+    [
+      "exec",
+      "convex",
+      "run",
+      "migrationRehearsal:countRehearsalTable",
+      JSON.stringify({ tableName }),
+      "--deployment",
+      "local",
+      "--typecheck",
+      "disable",
+    ],
+    {
+      cwd: workspaceRoot,
+      env: convexCliEnv,
+      encoding: "utf8",
+      maxBuffer: 50 * 1024 * 1024,
+    },
+  );
+  return readConvexJson(output);
 }
 
 pushFunctions();

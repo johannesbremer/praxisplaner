@@ -20,7 +20,7 @@ const bookingStepReplayPath = join(
   "legacy-booking-step-replay.source.jsonl",
 );
 const associationChunkSize = 200;
-const replayChunkSize = 100;
+const replayChunkSize = 20;
 const userChunkSize = 2_000;
 const convexCliEnv = {
   ...process.env,
