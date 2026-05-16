@@ -43,12 +43,47 @@ function resolveInputPath(fileName) {
 }
 
 function parseSemicolonRows(text) {
-  return text
-    .replaceAll("\r\n", "\n")
-    .replaceAll("\r", "\n")
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => line.replaceAll('"', "").split(";"));
+  const rows = [];
+  let currentCell = "";
+  let currentRow = [];
+  let inQuotes = false;
+  const normalized = text.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const character = normalized[index];
+    if (character === '"') {
+      const nextCharacter = normalized[index + 1];
+      if (inQuotes && nextCharacter === '"') {
+        currentCell += '"';
+        index += 1;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (character === ";" && !inQuotes) {
+      currentRow.push(currentCell);
+      currentCell = "";
+      continue;
+    }
+    if (character === "\n" && !inQuotes) {
+      currentRow.push(currentCell);
+      if (currentRow.some((cell) => cell.length > 0)) {
+        rows.push(currentRow);
+      }
+      currentCell = "";
+      currentRow = [];
+      continue;
+    }
+    currentCell += character;
+  }
+
+  currentRow.push(currentCell);
+  if (currentRow.some((cell) => cell.length > 0)) {
+    rows.push(currentRow);
+  }
+
+  return rows;
 }
 
 function formatPraxistimerDate(date, time) {

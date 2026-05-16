@@ -167,6 +167,7 @@ interface SeriesSpecification {
 export async function createAppointmentSeries(
   ctx: MutationCtx,
   args: {
+    bookingIdentityId?: Id<"bookingIdentities">;
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
@@ -264,6 +265,9 @@ export async function createAppointmentSeries(
       appointmentTypeLineageKey: step.appointmentTypeLineageKey,
       ...occupancyReferences,
       appointmentTypeTitle: step.appointmentTypeTitle,
+      ...(args.bookingIdentityId && {
+        bookingIdentityId: args.bookingIdentityId,
+      }),
       createdAt: now,
       end: step.end,
       ...(scope === "simulation" && {

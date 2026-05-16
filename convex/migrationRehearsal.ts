@@ -1261,10 +1261,7 @@ async function insertImportedNewReplaySteps(
   const appointment = args.resolved.appointment;
   const personalData = args.replayRow.personalData;
 
-  if (
-    locationLineageKey === undefined ||
-    args.replayRow.insuranceType === undefined
-  ) {
+  if (locationLineageKey === undefined) {
     return;
   }
 
@@ -1308,6 +1305,10 @@ async function insertImportedNewReplaySteps(
     isNewPatient: true,
     locationLineageKey,
   });
+
+  if (args.replayRow.insuranceType === undefined) {
+    return;
+  }
 
   await ctx.db.insert("bookingNewInsuranceTypeSteps", {
     ...base,

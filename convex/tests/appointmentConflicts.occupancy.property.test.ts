@@ -11,6 +11,88 @@ import { findConflictingCalendarOccupancy } from "../appointmentConflicts";
 import { asLocationLineageKey, asPractitionerLineageKey } from "../identity";
 
 describe("appointment conflict occupancy properties", () => {
+  test("resource appointments do not block practitioner occupancy in the same location", async () => {
+    const context = createPropertyTestContext();
+    const fixture = await createPropertySchedulingFixture(context);
+    const window = zonedWindow("2026-06-15", {
+      durationMinutes: 10,
+      hour: 9,
+      minute: 0,
+    });
+
+    const conflict = await context.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Resource booking",
+        calendarResourceColumn: "labor",
+        createdAt: now,
+        end: window.end,
+        lastModified: now,
+        locationLineageKey: fixture.locationId,
+        practiceId: fixture.practiceId,
+        start: window.start,
+        title: "Labor booking",
+        userId: fixture.userId,
+      });
+
+      return await findConflictingCalendarOccupancy(ctx.db, {
+        candidate: {
+          end: window.end,
+          locationLineageKey: asLocationLineageKey(fixture.locationId),
+          practitionerLineageKey: asPractitionerLineageKey(
+            fixture.practitionerId,
+          ),
+          start: window.start,
+        },
+        occupancyView: "live",
+        practiceId: fixture.practiceId,
+      });
+    });
+
+    expect(conflict).toBeNull();
+  });
+
+  test("resource appointments still block the same resource column", async () => {
+    const context = createPropertyTestContext();
+    const fixture = await createPropertySchedulingFixture(context);
+    const window = zonedWindow("2026-06-15", {
+      durationMinutes: 10,
+      hour: 9,
+      minute: 0,
+    });
+
+    const conflict = await context.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Resource booking",
+        calendarResourceColumn: "labor",
+        createdAt: now,
+        end: window.end,
+        lastModified: now,
+        locationLineageKey: fixture.locationId,
+        practiceId: fixture.practiceId,
+        start: window.start,
+        title: "Labor booking",
+        userId: fixture.userId,
+      });
+
+      return await findConflictingCalendarOccupancy(ctx.db, {
+        candidate: {
+          calendarResourceColumn: "labor",
+          end: window.end,
+          locationLineageKey: asLocationLineageKey(fixture.locationId),
+          start: window.start,
+        },
+        occupancyView: "live",
+        practiceId: fixture.practiceId,
+      });
+    });
+
+    expect(conflict?.kind).toBe("appointment");
+  });
+
   test("appointments and blocked slots block equivalent candidate intervals", async () => {
     await assertAsyncProperty(
       fc.asyncProperty(

@@ -451,14 +451,10 @@ export function useCalendarVisibleDay({
       ? [
           {
             id: "ekg",
-            isMuted: appointmentRangesByResourceColumn.has("ekg"),
-            isUnavailable: appointmentRangesByResourceColumn.has("ekg"),
             title: "EKG",
           },
           {
             id: "labor",
-            isMuted: appointmentRangesByResourceColumn.has("labor"),
-            isUnavailable: appointmentRangesByResourceColumn.has("labor"),
             title: "Labor",
           },
         ]

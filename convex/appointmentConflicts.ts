@@ -9,18 +9,21 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { LocationLineageKey, PractitionerLineageKey } from "./identity";
 
 export type AppointmentBookingScope = "real" | "simulation";
+
 export interface AppointmentConflictCandidate {
+  calendarResourceColumn?: CalendarResourceColumn;
   end: string;
   locationLineageKey: LocationLineageKey;
   practitionerLineageKey?: PractitionerLineageKey;
   start: string;
 }
-
 export type AppointmentOccupancyView = "draftEffective" | "live";
 
 type CalendarOccupancyConflict =
   | { kind: "appointment"; record: Doc<"appointments"> }
   | { kind: "blockedSlot"; record: Doc<"blockedSlots"> };
+
+type CalendarResourceColumn = "ekg" | "labor";
 
 type DatabaseLike =
   | GenericDatabaseReader<DataModel>
@@ -29,7 +32,11 @@ type DatabaseLike =
 export function appointmentOverlapsCandidate(
   appointment: Pick<
     Doc<"appointments">,
-    "end" | "locationLineageKey" | "practitionerLineageKey" | "start"
+    | "calendarResourceColumn"
+    | "end"
+    | "locationLineageKey"
+    | "practitionerLineageKey"
+    | "start"
   >,
   candidate: AppointmentConflictCandidate,
 ): boolean {
@@ -39,6 +46,9 @@ export function appointmentOverlapsCandidate(
       locationKey: appointment.locationLineageKey,
       practitionerKey: appointment.practitionerLineageKey,
       start: appointment.start,
+      ...(appointment.calendarResourceColumn === undefined
+        ? {}
+        : { calendarResourceColumn: appointment.calendarResourceColumn }),
     },
     candidate,
   );
@@ -244,8 +254,38 @@ function getEffectiveBlockedSlotsForOccupancyView(
   );
 }
 
+function getOccupancyScope(args: {
+  calendarResourceColumn?: CalendarResourceColumn | undefined;
+  practitionerKey?: string | undefined;
+  practitionerLineageKey?: PractitionerLineageKey;
+}) {
+  if (args.practitionerLineageKey !== undefined) {
+    return {
+      kind: "practitioner" as const,
+      value: args.practitionerLineageKey,
+    };
+  }
+  if (args.practitionerKey !== undefined) {
+    return {
+      kind: "practitioner" as const,
+      value: args.practitionerKey,
+    };
+  }
+  if (args.calendarResourceColumn !== undefined) {
+    return {
+      kind: "resource" as const,
+      value: args.calendarResourceColumn,
+    };
+  }
+  return {
+    kind: "location-wide" as const,
+    value: undefined,
+  };
+}
+
 function overlapsCalendarOccupancyCandidate(
   existing: {
+    calendarResourceColumn?: CalendarResourceColumn;
     end: string;
     locationKey: string;
     practitionerKey: string | undefined;
@@ -257,10 +297,13 @@ function overlapsCalendarOccupancyCandidate(
     return false;
   }
 
+  const existingScope = getOccupancyScope(existing);
+  const candidateScope = getOccupancyScope(candidate);
   if (
-    existing.practitionerKey !== undefined &&
-    candidate.practitionerLineageKey !== undefined &&
-    existing.practitionerKey !== candidate.practitionerLineageKey
+    existingScope.kind !== "location-wide" &&
+    candidateScope.kind !== "location-wide" &&
+    (existingScope.kind !== candidateScope.kind ||
+      existingScope.value !== candidateScope.value)
   ) {
     return false;
   }

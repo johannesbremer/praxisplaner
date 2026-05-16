@@ -29,6 +29,21 @@ function run(command, args, options = {}) {
   });
 }
 
+function pushFunctions() {
+  run("pnpm", [
+    "exec",
+    "convex",
+    "run",
+    "migrationRehearsal:countBookingIdentityAssociationImport",
+    "{}",
+    "--deployment",
+    "local",
+    "--push",
+    "--typecheck",
+    "disable",
+  ]);
+}
+
 assertLocalConvexDeployment();
 
 run("pnpm", [
@@ -41,6 +56,7 @@ run("pnpm", [
   "--deployment",
   "local",
 ]);
+pushFunctions();
 run("pnpm", ["seed:preview"]);
 run("pnpm", [
   "exec",
@@ -84,6 +100,7 @@ run("pnpm", [
   ".cache/migration/rehearsal/appointments-rehearsal.zip",
 ]);
 run("node", ["scripts/migration/correlate-legacy-appointments.mts"]);
+run("node", ["scripts/migration/build-legacy-booking-step-replay.mts"]);
 run("node", [
   "scripts/migration/import-booking-identity-associations-local.mts",
 ]);

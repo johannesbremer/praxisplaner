@@ -1219,9 +1219,24 @@ describe("appointment series", () => {
         timeZone: TIMEZONE,
       })
       .toString();
+    const bookingIdentityId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      return await ctx.db.insert("bookingIdentities", {
+        createdAt: now,
+        email: "real-series-user@example.com",
+        kind: "online",
+        lastModified: now,
+        practiceId,
+        searchFirstName: "real",
+        searchLastName: "series",
+        sourceIdentityId: "legacy-user-1",
+        sourceSystem: "legacy-pocketbase",
+      });
+    });
 
     await t.mutation(api.appointments.createAppointment, {
       appointmentTypeId: rootAppointmentTypeId,
+      bookingIdentityId,
       locationId,
       practiceId,
       practitionerId,
@@ -1244,6 +1259,11 @@ describe("appointment series", () => {
     expect(
       new Set(appointments.map((appointment) => appointment.seriesId)).size,
     ).toBe(1);
+    expect(
+      appointments.every(
+        (appointment) => appointment.bookingIdentityId === bookingIdentityId,
+      ),
+    ).toBe(true);
     expect(seriesRecord?.rootAppointmentId).toBeDefined();
   });
 

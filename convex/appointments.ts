@@ -90,6 +90,7 @@ const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 interface TrustedAppointmentInput {
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
+  calendarResourceColumn?: "ekg" | "labor";
   isNewPatient?: boolean;
   isSimulation?: boolean;
   locationId: Id<"locations">;
@@ -186,6 +187,7 @@ function appointmentChainError(code: string, message: string) {
 function asTrustedAppointmentInput(args: {
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
+  calendarResourceColumn?: "ekg" | "labor";
   isNewPatient?: boolean;
   isSimulation?: boolean;
   locationId: Id<"locations">;
@@ -1244,6 +1246,7 @@ export async function createAppointmentFromTrustedSource(
   rawArgs: {
     appointmentTypeId: Id<"appointmentTypes">;
     bookingIdentityId?: Id<"bookingIdentities">;
+    calendarResourceColumn?: "ekg" | "labor";
     isNewPatient?: boolean;
     isSimulation?: boolean;
     locationId: Id<"locations">;
@@ -1267,6 +1270,7 @@ export async function createAppointmentFromTrustedSource(
   const {
     appointmentTypeId,
     bookingIdentityId,
+    calendarResourceColumn,
     isNewPatient,
     isSimulation,
     locationId,
@@ -1410,6 +1414,12 @@ export async function createAppointmentFromTrustedSource(
     entityLabel: "Standort",
   });
 
+  if (practitionerId && calendarResourceColumn) {
+    throw new Error(
+      "Appointments must use either a practitioner or a resource column, not both.",
+    );
+  }
+
   if (practitionerId) {
     const practitioner = await ctx.db.get("practitioners", practitionerId);
     requireEntityUsableForNewAppointment({
@@ -1449,6 +1459,7 @@ export async function createAppointmentFromTrustedSource(
     }
 
     const result = await createAppointmentSeriesHelper(ctx, {
+      ...(bookingIdentityId && { bookingIdentityId }),
       locationId,
       ...(isNewPatient !== undefined && { isNewPatient }),
       ...(patientDateOfBirth && { patientDateOfBirth }),
@@ -1479,6 +1490,9 @@ export async function createAppointmentFromTrustedSource(
 
   const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
     candidate: {
+      ...(args.calendarResourceColumn && {
+        calendarResourceColumn: args.calendarResourceColumn,
+      }),
       end,
       locationLineageKey: storedReferences.locationLineageKey,
       ...(storedReferences.practitionerLineageKey && {
@@ -1534,6 +1548,9 @@ export const createAppointment = mutation({
   args: {
     appointmentTypeId: v.id("appointmentTypes"),
     bookingIdentityId: v.optional(v.id("bookingIdentities")),
+    calendarResourceColumn: v.optional(
+      v.union(v.literal("ekg"), v.literal("labor")),
+    ),
     isNewPatient: v.optional(v.boolean()),
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
