@@ -1375,7 +1375,6 @@ export async function createAppointmentFromTrustedSource(
       );
     }
   }
-
   if (phoneBookingIdentityId) {
     const phoneBookingIdentity = await ctx.db.get(
       "phoneBookingIdentities",

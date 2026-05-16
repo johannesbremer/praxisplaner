@@ -36,6 +36,10 @@ _Avoid_: Online patient
 A Booking Identity created through TelefonKI before association with a PVS Patient.
 _Avoid_: Phone patient
 
+**Practice Phone Number**:
+A public inbound phone number that routes a TelefonKI call to exactly one Practice.
+_Avoid_: Caller number, tenant number
+
 **Integration Actor**:
 An external system that performs actions in Praxisplaner.
 _Avoid_: User, Booking Identity
@@ -224,6 +228,10 @@ _Avoid_: Form data, profile
 - GDT import is attributed to the acting **Workspace**.
 - Online patient actions record the acting **Online Booking Identity**.
 - TelefonKI actions record the **Phone Booking Identity** for the caller and may separately record the **Integration Actor** that performed the action.
+- A **Practice** can have one or more **Practice Phone Numbers**.
+- A **Practice Phone Number** routes exactly one inbound TelefonKI call target to one **Practice**.
+- TelefonKI resolves the **Practice** from the dialed **Practice Phone Number**, not from the caller phone number.
+- The caller phone number belongs to the **Phone Booking Identity** input, not to **Practice** routing.
 - An activated **Rule Set** has a required human description explaining the scheduling change.
 - A versioned scheduling entity can keep the same **Lineage Key** across multiple **Rule Sets**.
 - A **Base Schedule** belongs to exactly one **Practitioner** and one **Location** through their Lineage Keys.

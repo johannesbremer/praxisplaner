@@ -1,0 +1,5 @@
+[project]
+subdomain = "replace-with-livekit-cloud-subdomain"
+
+[agent]
+id = "replace-with-livekit-agent-id"
