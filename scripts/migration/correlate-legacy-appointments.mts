@@ -427,6 +427,9 @@ function buildAssociationRows(matches) {
   const byAssociationKey = new Map();
 
   for (const match of matches) {
+    if (match.endMatches !== true) {
+      continue;
+    }
     const sourceKey = bookingIdentitySourceKey(match);
     const associationKey = `${sourceKey}:pvs:${match.pvsPatientSourceId}`;
     const existing = byAssociationKey.get(associationKey);
@@ -548,7 +551,7 @@ function main() {
     legacyAppointmentsBySource: countBy(legacyRows, "sourceKind"),
     legacyUserCount: legacyUserRows.length,
     matchPolicy:
-      "Automatic only when one non-resource Praxistimer row has the same local wall-clock start and exact normalized first and last name. Praxistimer EKG, Labor, and Mufu rooms are excluded from candidate matching.",
+      "Automatic identity correlation requires one non-resource Praxistimer row with the same local wall-clock start and exact normalized first and last name. Automatic patient association additionally requires an exact matching end time. Praxistimer EKG, Labor, and Mufu rooms are excluded from candidate matching.",
     missingNameCount: result.missingName,
     pvsAppointmentCount: pvs.rows,
     pvsExcludedResourceRoomAppointmentCount: pvs.excludedResourceRoomRows,

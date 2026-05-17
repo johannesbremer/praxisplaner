@@ -146,7 +146,11 @@ function toDate(value) {
   return new Date(`${match[1]}T${match[2]}${match[3]}`);
 }
 
-function normalizeAppointmentInterval(startValue, endValue) {
+function normalizeAppointmentInterval(
+  startValue,
+  endValue,
+  durationMinutes = fallbackDurationMinutes,
+) {
   const start = toIsoDateTime(startValue);
   const parsedEnd = toIsoDateTime(endValue);
 
@@ -154,8 +158,12 @@ function normalizeAppointmentInterval(startValue, endValue) {
     return { end: parsedEnd, inferredDuration: false, start };
   }
 
+  const resolvedDurationMinutes =
+    Number.isFinite(durationMinutes) && durationMinutes > 0
+      ? durationMinutes
+      : fallbackDurationMinutes;
   const endDate = new Date(
-    toDate(startValue).getTime() + fallbackDurationMinutes * 60 * 1000,
+    toDate(startValue).getTime() + resolvedDurationMinutes * 60 * 1000,
   );
   const localEnd = new Intl.DateTimeFormat("sv-SE", {
     day: "2-digit",
@@ -268,13 +276,10 @@ function buildAppointmentsZip() {
   const stats = {
     appointmentsWithoutPatient: 0,
     byLocationName: new Map(),
+    inferredDurationFromType: 0,
     written: 0,
   };
   const documents = selectedAppointments.map((appointment) => {
-    const interval = normalizeAppointmentInterval(
-      appointment.Beginn,
-      appointment.Ende,
-    );
     const appointmentType = appointmentTypeByName.get(appointment.Terminart);
     const location = locationByName.get(
       resolvePracticeLocationNameFromRoom(appointment.Raum),
@@ -296,6 +301,11 @@ function buildAppointmentsZip() {
         `Missing reference for appointment ${JSON.stringify(appointment)}`,
       );
     }
+    const interval = normalizeAppointmentInterval(
+      appointment.Beginn,
+      appointment.Ende,
+      appointmentType.duration,
+    );
     stats.byLocationName.set(
       location.name,
       (stats.byLocationName.get(location.name) ?? 0) + 1,
@@ -304,6 +314,9 @@ function buildAppointmentsZip() {
     const patientId = patientBySourceId.get(Number(appointment.ID));
     if (!patientId) {
       stats.appointmentsWithoutPatient += 1;
+    }
+    if (interval.inferredDuration) {
+      stats.inferredDurationFromType += 1;
     }
 
     return {
@@ -337,12 +350,6 @@ function buildAppointmentsZip() {
       `Appointment missing locationLineageKey: ${JSON.stringify(missingLocationLineageKey)}`,
     );
   }
-
-  const inferredDurationCount = selectedAppointments.filter(
-    (appointment) =>
-      normalizeAppointmentInterval(appointment.Beginn, appointment.Ende)
-        .inferredDuration,
-  ).length;
 
   const patientIdAlternatives = [
     ...new Set(documents.map((document) => document.patientId)),
@@ -402,7 +409,7 @@ function buildAppointmentsZip() {
 
   createZip("appointments-rehearsal.zip");
   console.log(
-    `Wrote ${stats.written} rehearsal appointments${fullImport ? " for full import" : ""}; ${stats.appointmentsWithoutPatient} without imported patient; inferred fallback duration for ${inferredDurationCount}.`,
+    `Wrote ${stats.written} rehearsal appointments${fullImport ? " for full import" : ""}; ${stats.appointmentsWithoutPatient} without imported patient; inferred duration from appointment type for ${stats.inferredDurationFromType}.`,
   );
   console.log(
     `Location lineage distribution: ${[...stats.byLocationName.entries()]

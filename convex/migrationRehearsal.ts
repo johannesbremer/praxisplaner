@@ -1141,10 +1141,6 @@ async function insertImportedExistingReplaySteps(
   const appointment = args.resolved.appointment;
   const personalData = args.replayRow.personalData;
 
-  if (locationLineageKey === undefined) {
-    return;
-  }
-
   const base = {
     createdAt: args.timestamp,
     lastModified: args.timestamp,
@@ -1159,6 +1155,9 @@ async function insertImportedExistingReplaySteps(
   });
 
   if (args.replayRow.sessionStep === "privacy") {
+    return;
+  }
+  if (locationLineageKey === undefined) {
     return;
   }
 
@@ -1261,10 +1260,6 @@ async function insertImportedNewReplaySteps(
   const appointment = args.resolved.appointment;
   const personalData = args.replayRow.personalData;
 
-  if (locationLineageKey === undefined) {
-    return;
-  }
-
   const base = {
     createdAt: args.timestamp,
     lastModified: args.timestamp,
@@ -1284,6 +1279,9 @@ async function insertImportedNewReplaySteps(
   });
 
   if (args.replayRow.sessionStep === "privacy") {
+    return;
+  }
+  if (locationLineageKey === undefined) {
     return;
   }
 
