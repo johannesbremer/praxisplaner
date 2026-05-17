@@ -17,6 +17,7 @@ export type CalendarAppointmentCreateResult =
       kind: "missing-patient";
       requestContext: {
         appointmentTypeLineageKey: Id<"appointmentTypes">;
+        calendarResourceColumn?: "ekg" | "labor";
         isSimulation: boolean;
         locationLineageKey: Id<"locations">;
         practiceId: Id<"practices">;
@@ -39,6 +40,7 @@ export function buildCalendarAppointmentRequest(args: {
   appointmentTypeLineageKey: Id<"appointmentTypes"> | undefined;
   appointmentTypeName: string | undefined;
   businessStartHour: number;
+  calendarResourceColumn?: "ekg" | "labor";
   isNewPatient: boolean;
   locationId: Id<"locations"> | undefined;
   locationLineageKey: Id<"locations"> | undefined;
@@ -116,6 +118,9 @@ export function buildCalendarAppointmentRequest(args: {
       kind: "missing-patient",
       requestContext: {
         appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+        ...(args.calendarResourceColumn === undefined
+          ? {}
+          : { calendarResourceColumn: args.calendarResourceColumn }),
         isSimulation: args.mode === "simulation",
         locationLineageKey: args.locationLineageKey,
         practiceId: args.practiceId,
@@ -142,6 +147,9 @@ export function buildCalendarAppointmentRequest(args: {
         patientId: args.patient.convexPatientId,
       }),
       practiceId: args.practiceId,
+      ...(args.calendarResourceColumn === undefined
+        ? {}
+        : { calendarResourceColumn: args.calendarResourceColumn }),
       ...(args.practitionerId && { practitionerId: args.practitionerId }),
       start: startISO,
       ...(hasTemporaryPatientDraft

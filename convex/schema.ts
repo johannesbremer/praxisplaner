@@ -442,6 +442,7 @@ export default defineSchema({
     ]),
 
   appointmentSeries: defineTable({
+    bookingIdentityId: v.optional(v.id("bookingIdentities")),
     createdAt: v.int64(),
     followUpPlanSnapshot: v.array(followUpStepValidator),
     lastModified: v.int64(),

@@ -90,6 +90,7 @@ export const appointmentSeriesCreateResultValidator = v.object({
 });
 
 export const appointmentSeriesArgsValidator = {
+  bookingIdentityId: v.optional(v.id("bookingIdentities")),
   isNewPatient: v.optional(v.boolean()),
   locationId: v.id("locations"),
   patientDateOfBirth: v.optional(v.string()),
@@ -310,6 +311,9 @@ export async function createAppointmentSeries(
   }
 
   await ctx.db.insert("appointmentSeries", {
+    ...(args.bookingIdentityId && {
+      bookingIdentityId: args.bookingIdentityId,
+    }),
     createdAt: now,
     followUpPlanSnapshot: normalizeFollowUpPlanSnapshot(
       rootAppointmentType.followUpPlan ?? [],

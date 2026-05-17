@@ -165,6 +165,28 @@ describe("calendar appointment request builder", () => {
     });
   });
 
+  it("keeps calendar resource columns in the missing-patient request context", () => {
+    expect(
+      buildCalendarAppointmentRequest({
+        ...sharedArgs,
+        calendarResourceColumn: "ekg",
+        mode: "real",
+        patient: undefined,
+      }),
+    ).toEqual({
+      kind: "missing-patient",
+      requestContext: {
+        appointmentTypeLineageKey: "appointment_type_lineage_checkup",
+        calendarResourceColumn: "ekg",
+        isSimulation: false,
+        locationLineageKey: "location_lineage_main",
+        practiceId: "practice_main",
+        start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+        title: "Checkup",
+      },
+    });
+  });
+
   it("uses temporary-patient fields when no persisted patient exists yet", () => {
     expect(
       buildCalendarAppointmentRequest({
@@ -190,6 +212,35 @@ describe("calendar appointment request builder", () => {
         temporaryPatientName: "Grace Hopper",
         temporaryPatientPhoneNumber: "+491709999999",
         title: "Checkup",
+      },
+    });
+  });
+
+  it("keeps calendar resource columns in the appointment request", () => {
+    expect(
+      buildCalendarAppointmentRequest({
+        ...sharedArgs,
+        calendarResourceColumn: "labor",
+        mode: "real",
+        patient: {
+          dateOfBirth: "1980-01-01",
+          isNewPatient: false,
+          userId: toTableId<"users">("user_1"),
+        },
+      }),
+    ).toEqual({
+      kind: "ok",
+      request: {
+        appointmentTypeId: "appointment_type_checkup",
+        calendarResourceColumn: "labor",
+        isNewPatient: false,
+        isSimulation: false,
+        locationId: "location_main",
+        patientDateOfBirth: "1980-01-01",
+        practiceId: "practice_main",
+        start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+        title: "Checkup",
+        userId: "user_1",
       },
     });
   });

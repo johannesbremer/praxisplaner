@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
@@ -20,6 +20,7 @@ const bookingStepReplayPath = join(
   "legacy-booking-step-replay.source.jsonl",
 );
 const associationChunkSize = 200;
+const identityChunkSize = 500;
 const replayChunkSize = 20;
 const userChunkSize = 2_000;
 const convexCliEnv = {
@@ -144,14 +145,13 @@ execFileSync(
 );
 pushFunctions();
 
-const identityBySourceKey = new Map(
-  identities.map((identity) => [identity.sourceKey, identity]),
-);
-const totals = {
-  insertedAssociations: 0,
+const identityTotals = {
   insertedIdentities: 0,
-  reusedAssociations: 0,
   reusedIdentities: 0,
+};
+const associationTotals = {
+  insertedAssociations: 0,
+  reusedAssociations: 0,
   skippedMissingIdentity: 0,
   skippedMissingPatient: 0,
 };
@@ -169,6 +169,9 @@ const replayTotals = {
   reusedSessions: 0,
   skippedMissingAppointment: 0,
 };
+const skippedReplayRows = [];
+
+mkdirSync(reportRoot, { recursive: true });
 
 for (const userChunk of chunk(users, userChunkSize)) {
   const result = JSON.parse(
@@ -180,28 +183,27 @@ for (const userChunk of chunk(users, userChunkSize)) {
   userTotals.reusedUsers += result.reusedUsers ?? 0;
 }
 
-for (const associationChunk of chunk(associations, associationChunkSize)) {
-  const sourceKeys = new Set(
-    associationChunk.map((association) => association.bookingIdentitySourceKey),
-  );
-  const identityChunk = [...sourceKeys].map((sourceKey) => {
-    const identity = identityBySourceKey.get(sourceKey);
-    if (!identity) {
-      throw new Error(`Missing identity source row for ${sourceKey}.`);
-    }
-    return identity;
-  });
-
+for (const identityChunk of chunk(identities, identityChunkSize)) {
   const result = JSON.parse(
-    runConvex("migrationRehearsal:importBookingIdentityAssociations", {
-      associations: associationChunk,
+    runConvex("migrationRehearsal:importBookingIdentities", {
       identities: identityChunk,
       practiceId: practice._id,
     }),
   );
+  identityTotals.insertedIdentities += result.insertedIdentities ?? 0;
+  identityTotals.reusedIdentities += result.reusedIdentities ?? 0;
+}
 
-  for (const key of Object.keys(totals)) {
-    totals[key] += result[key] ?? 0;
+for (const associationChunk of chunk(associations, associationChunkSize)) {
+  const result = JSON.parse(
+    runConvex("migrationRehearsal:importBookingIdentityAssociations", {
+      associations: associationChunk,
+      practiceId: practice._id,
+    }),
+  );
+
+  for (const key of Object.keys(associationTotals)) {
+    associationTotals[key] += result[key] ?? 0;
   }
 }
 
@@ -230,9 +232,20 @@ for (const replayChunk of chunk(bookingStepReplayRows, replayChunkSize)) {
   replayTotals.reusedSessions += result.reusedSessions ?? 0;
   replayTotals.skippedMissingAppointment +=
     result.skippedMissingAppointment ?? 0;
+  skippedReplayRows.push(...(result.skippedRows ?? []));
   userTotals.insertedUsers += result.insertedUsers ?? 0;
   userTotals.reusedUsers += result.reusedUsers ?? 0;
 }
+
+const skippedReplayReportPath = join(
+  reportRoot,
+  "legacy-booking-step-replay-skipped.import-report.jsonl",
+);
+writeFileSync(
+  skippedReplayReportPath,
+  skippedReplayRows.map((row) => JSON.stringify(row)).join("\n") +
+    (skippedReplayRows.length === 0 ? "" : "\n"),
+);
 
 console.log(
   JSON.stringify(
@@ -242,10 +255,13 @@ console.log(
       bookingStepReplaySourceRows: bookingStepReplayRows.length,
       identitySourceRows: identities.length,
       practiceId: practice._id,
+      skippedReplayReportPath,
+      skippedReplayRows: skippedReplayRows.length,
       userSourceRows: users.length,
-      ...totals,
+      ...associationTotals,
       ...blockTotals,
       ...replayTotals,
+      ...identityTotals,
       ...userTotals,
     },
     null,

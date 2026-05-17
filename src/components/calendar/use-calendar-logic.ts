@@ -1096,7 +1096,14 @@ export function useCalendarLogic({
       return;
     }
 
-    const requestResult = buildCalendarAppointmentRequest({
+    let resourceColumn: "ekg" | "labor" | undefined;
+    if (column === "ekg") {
+      resourceColumn = "ekg";
+    } else if (column === "labor") {
+      resourceColumn = "labor";
+    }
+
+    const requestArgs: Parameters<typeof buildCalendarAppointmentRequest>[0] = {
       appointmentTypeId,
       appointmentTypeLineageKey: appointmentTypeInfo.lineageKey,
       appointmentTypeName: appointmentTypeInfo.name,
@@ -1125,7 +1132,12 @@ export function useCalendarLogic({
       selectedDate,
       slot,
       slotDurationMinutes: SLOT_DURATION,
-    });
+    };
+    if (resourceColumn !== undefined) {
+      requestArgs.calendarResourceColumn = resourceColumn;
+    }
+
+    const requestResult = buildCalendarAppointmentRequest(requestArgs);
 
     if (requestResult.kind === "error") {
       toast.error(requestResult.message);
@@ -1138,6 +1150,12 @@ export function useCalendarLogic({
           appointmentTypeLineageKey: asAppointmentTypeLineageKey(
             requestResult.requestContext.appointmentTypeLineageKey,
           ),
+          ...(requestResult.requestContext.calendarResourceColumn === undefined
+            ? {}
+            : {
+                calendarResourceColumn:
+                  requestResult.requestContext.calendarResourceColumn,
+              }),
           isSimulation: requestResult.requestContext.isSimulation,
           locationLineageKey: asLocationLineageKey(
             requestResult.requestContext.locationLineageKey,

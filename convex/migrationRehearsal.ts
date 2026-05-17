@@ -1,5 +1,5 @@
 import { paginationOptsValidator } from "convex/server";
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 
@@ -314,9 +314,104 @@ const bookingIdentityAssociationImportRowValidator = v.object({
   status: v.literal("active"),
 });
 
-export const importBookingIdentityAssociations = mutation({
+const replayImportSkipReasonValidator = v.union(
+  v.literal("missing_appointment"),
+  v.literal("missing_location"),
+  v.literal("missing_practitioner"),
+);
+
+const replayImportSkipRowValidator = v.object({
+  legacyAppointmentId: v.optional(v.string()),
+  locationName: v.optional(v.string()),
+  practitionerName: v.optional(v.string()),
+  pvsAppointmentStart: v.optional(v.string()),
+  pvsAppointmentTypeTitle: v.optional(v.string()),
+  pvsPatientNumber: v.optional(v.number()),
+  reason: replayImportSkipReasonValidator,
+  sessionStep: legacyBookingReplayRowValidator.fields.sessionStep,
+  source: legacyBookingReplayRowValidator.fields.source,
+  sourceSessionKey: v.string(),
+  userAuthId: v.string(),
+});
+
+async function ensureBookingIdentityImported(
+  ctx: MutationCtx,
   args: {
-    associations: v.array(bookingIdentityAssociationImportRowValidator),
+    identity: Infer<typeof bookingIdentityImportRowValidator>;
+    now: bigint;
+    practiceId: Id<"practices">;
+  },
+): Promise<{ bookingIdentityId: Id<"bookingIdentities">; inserted: boolean }> {
+  const existingIdentities = await ctx.db
+    .query("bookingIdentities")
+    .withIndex("by_sourceIdentity", (q) =>
+      q
+        .eq("sourceSystem", args.identity.sourceSystem)
+        .eq("sourceIdentityId", args.identity.sourceIdentityId),
+    )
+    .collect();
+  const existing = existingIdentities.find(
+    (row) => row.practiceId === args.practiceId,
+  );
+
+  if (existing) {
+    return { bookingIdentityId: existing._id, inserted: false };
+  }
+
+  const user =
+    args.identity.userSourceId === undefined
+      ? null
+      : await ctx.db
+          .query("users")
+          .withIndex("by_authId", (q) =>
+            q.eq("authId", `legacy-pocketbase:${args.identity.userSourceId}`),
+          )
+          .first();
+
+  const bookingIdentityId = await ctx.db.insert("bookingIdentities", {
+    ...(args.identity.dateOfBirth
+      ? { dateOfBirth: args.identity.dateOfBirth }
+      : {}),
+    ...(args.identity.userEmail ? { email: args.identity.userEmail } : {}),
+    ...(args.identity.firstName ? { firstName: args.identity.firstName } : {}),
+    kind: args.identity.kind,
+    lastModified: args.now,
+    ...(args.identity.lastName ? { lastName: args.identity.lastName } : {}),
+    createdAt: args.now,
+    practiceId: args.practiceId,
+    searchFirstName: normalizeSearch(
+      args.identity.firstName,
+      args.identity.lastName,
+    ),
+    searchLastName: normalizeSearch(
+      args.identity.lastName,
+      args.identity.firstName,
+    ),
+    sourceIdentityId: args.identity.sourceIdentityId,
+    sourceSystem: args.identity.sourceSystem,
+    ...(user ? { userId: user._id } : {}),
+  });
+
+  return { bookingIdentityId, inserted: true };
+}
+
+function parseBookingIdentitySourceKey(sourceKey: string): {
+  sourceIdentityId: string;
+  sourceSystem: "legacy-pocketbase" | "telefonki";
+} {
+  const [sourceSystem, , ...identityParts] = sourceKey.split(":");
+  const sourceIdentityId = identityParts.join(":");
+  if (
+    (sourceSystem !== "legacy-pocketbase" && sourceSystem !== "telefonki") ||
+    sourceIdentityId.length === 0
+  ) {
+    throw new Error(`Unsupported booking identity source key: ${sourceKey}`);
+  }
+  return { sourceIdentityId, sourceSystem };
+}
+
+export const importBookingIdentities = mutation({
+  args: {
     identities: v.array(bookingIdentityImportRowValidator),
     practiceId: v.id("practices"),
   },
@@ -324,68 +419,61 @@ export const importBookingIdentityAssociations = mutation({
     assertMigrationRehearsalEnabled();
 
     const now = BigInt(Date.now());
-    const identityIdBySourceKey = new Map<string, Id<"bookingIdentities">>();
     let insertedIdentities = 0;
     let reusedIdentities = 0;
 
     for (const identity of args.identities) {
-      const existingIdentities = await ctx.db
-        .query("bookingIdentities")
-        .withIndex("by_sourceIdentity", (q) =>
-          q
-            .eq("sourceSystem", identity.sourceSystem)
-            .eq("sourceIdentityId", identity.sourceIdentityId),
-        )
-        .collect();
-      const existing = existingIdentities.find(
-        (row) => row.practiceId === args.practiceId,
-      );
-
-      if (existing) {
-        identityIdBySourceKey.set(identity.sourceKey, existing._id);
-        reusedIdentities += 1;
-        continue;
-      }
-
-      const user =
-        identity.userSourceId === undefined
-          ? null
-          : await ctx.db
-              .query("users")
-              .withIndex("by_authId", (q) =>
-                q.eq("authId", `legacy-pocketbase:${identity.userSourceId}`),
-              )
-              .first();
-
-      const bookingIdentityId = await ctx.db.insert("bookingIdentities", {
-        ...(identity.dateOfBirth ? { dateOfBirth: identity.dateOfBirth } : {}),
-        ...(identity.userEmail ? { email: identity.userEmail } : {}),
-        ...(identity.firstName ? { firstName: identity.firstName } : {}),
-        kind: identity.kind,
-        lastModified: now,
-        ...(identity.lastName ? { lastName: identity.lastName } : {}),
-        createdAt: now,
+      const result = await ensureBookingIdentityImported(ctx, {
+        identity,
+        now,
         practiceId: args.practiceId,
-        searchFirstName: normalizeSearch(identity.firstName, identity.lastName),
-        searchLastName: normalizeSearch(identity.lastName, identity.firstName),
-        sourceIdentityId: identity.sourceIdentityId,
-        sourceSystem: identity.sourceSystem,
-        ...(user ? { userId: user._id } : {}),
       });
-      identityIdBySourceKey.set(identity.sourceKey, bookingIdentityId);
-      insertedIdentities += 1;
+      if (result.inserted) {
+        insertedIdentities += 1;
+      } else {
+        reusedIdentities += 1;
+      }
     }
 
+    return { insertedIdentities, reusedIdentities };
+  },
+  returns: v.object({
+    insertedIdentities: v.number(),
+    reusedIdentities: v.number(),
+  }),
+});
+
+export const importBookingIdentityAssociations = mutation({
+  args: {
+    associations: v.array(bookingIdentityAssociationImportRowValidator),
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    assertMigrationRehearsalEnabled();
+
+    const now = BigInt(Date.now());
     let insertedAssociations = 0;
     let reusedAssociations = 0;
     let skippedMissingIdentity = 0;
     let skippedMissingPatient = 0;
 
     for (const association of args.associations) {
-      const bookingIdentityId = identityIdBySourceKey.get(
+      const sourceIdentity = parseBookingIdentitySourceKey(
         association.bookingIdentitySourceKey,
       );
-      if (!bookingIdentityId) {
+      const bookingIdentities = await ctx.db
+        .query("bookingIdentities")
+        .withIndex("by_sourceIdentity", (q) =>
+          q
+            .eq("sourceSystem", sourceIdentity.sourceSystem)
+            .eq("sourceIdentityId", sourceIdentity.sourceIdentityId),
+        )
+        .collect();
+      const bookingIdentity = bookingIdentities.find(
+        (row) => row.practiceId === args.practiceId,
+      );
+
+      if (!bookingIdentity) {
         skippedMissingIdentity += 1;
         continue;
       }
@@ -407,7 +495,7 @@ export const importBookingIdentityAssociations = mutation({
       const activeAssociations = await ctx.db
         .query("bookingIdentityPatientAssociations")
         .withIndex("by_bookingIdentityId_status", (q) =>
-          q.eq("bookingIdentityId", bookingIdentityId).eq("status", "active"),
+          q.eq("bookingIdentityId", bookingIdentity._id).eq("status", "active"),
         )
         .collect();
       const existingAssociation = activeAssociations.find(
@@ -427,7 +515,7 @@ export const importBookingIdentityAssociations = mutation({
       }
 
       await ctx.db.insert("bookingIdentityPatientAssociations", {
-        bookingIdentityId,
+        bookingIdentityId: bookingIdentity._id,
         createdAt: now,
         evidenceCount: association.evidenceCount,
         legacyAppointmentId: association.legacyAppointmentId,
@@ -444,18 +532,14 @@ export const importBookingIdentityAssociations = mutation({
 
     return {
       insertedAssociations,
-      insertedIdentities,
       reusedAssociations,
-      reusedIdentities,
       skippedMissingIdentity,
       skippedMissingPatient,
     };
   },
   returns: v.object({
     insertedAssociations: v.number(),
-    insertedIdentities: v.number(),
     reusedAssociations: v.number(),
-    reusedIdentities: v.number(),
     skippedMissingIdentity: v.number(),
     skippedMissingPatient: v.number(),
   }),
@@ -572,6 +656,7 @@ export const importLegacyBookingStepReplay = mutation({
     let insertedUsers = 0;
     let reusedUsers = 0;
     let skippedMissingAppointment = 0;
+    const skippedRows: Infer<typeof replayImportSkipRowValidator>[] = [];
 
     for (const replayRow of args.replayRows) {
       const existingSession = await ctx.db
@@ -593,13 +678,64 @@ export const importLegacyBookingStepReplay = mutation({
       });
       if (
         replayRow.sessionStep.endsWith("confirmation") &&
-        resolvedReplayContext?.appointment === undefined
+        resolvedReplayContext.kind === "resolved" &&
+        resolvedReplayContext.context.appointment === undefined
       ) {
         skippedMissingAppointment += 1;
+        skippedRows.push({
+          ...(replayRow.legacyAppointmentId === undefined
+            ? {}
+            : { legacyAppointmentId: replayRow.legacyAppointmentId }),
+          ...(replayRow.locationName === undefined
+            ? {}
+            : { locationName: replayRow.locationName }),
+          ...(replayRow.practitionerName === undefined
+            ? {}
+            : { practitionerName: replayRow.practitionerName }),
+          ...(replayRow.pvsAppointmentStart === undefined
+            ? {}
+            : { pvsAppointmentStart: replayRow.pvsAppointmentStart }),
+          ...(replayRow.pvsAppointmentTypeTitle === undefined
+            ? {}
+            : { pvsAppointmentTypeTitle: replayRow.pvsAppointmentTypeTitle }),
+          ...(replayRow.pvsPatientNumber === undefined
+            ? {}
+            : { pvsPatientNumber: replayRow.pvsPatientNumber }),
+          reason: "missing_appointment",
+          sessionStep: replayRow.sessionStep,
+          source: replayRow.source,
+          sourceSessionKey: replayRow.sourceSessionKey,
+          userAuthId: replayRow.userAuthId,
+        });
         continue;
       }
-      if (!resolvedReplayContext) {
+      if (resolvedReplayContext.kind === "skipped") {
         skippedMissingAppointment += 1;
+        skippedRows.push({
+          ...(replayRow.legacyAppointmentId === undefined
+            ? {}
+            : { legacyAppointmentId: replayRow.legacyAppointmentId }),
+          ...(replayRow.locationName === undefined
+            ? {}
+            : { locationName: replayRow.locationName }),
+          ...(replayRow.practitionerName === undefined
+            ? {}
+            : { practitionerName: replayRow.practitionerName }),
+          ...(replayRow.pvsAppointmentStart === undefined
+            ? {}
+            : { pvsAppointmentStart: replayRow.pvsAppointmentStart }),
+          ...(replayRow.pvsAppointmentTypeTitle === undefined
+            ? {}
+            : { pvsAppointmentTypeTitle: replayRow.pvsAppointmentTypeTitle }),
+          ...(replayRow.pvsPatientNumber === undefined
+            ? {}
+            : { pvsPatientNumber: replayRow.pvsPatientNumber }),
+          reason: resolvedReplayContext.reason,
+          sessionStep: replayRow.sessionStep,
+          source: replayRow.source,
+          sourceSessionKey: replayRow.sourceSessionKey,
+          userAuthId: replayRow.userAuthId,
+        });
         continue;
       }
 
@@ -632,7 +768,7 @@ export const importLegacyBookingStepReplay = mutation({
         await insertImportedNewReplaySteps(ctx, {
           practiceId: args.practiceId,
           replayRow,
-          resolved: resolvedReplayContext,
+          resolved: resolvedReplayContext.context,
           ruleSetId: args.ruleSetId,
           sessionId,
           timestamp: rowTimestamp,
@@ -642,7 +778,7 @@ export const importLegacyBookingStepReplay = mutation({
         await insertImportedExistingReplaySteps(ctx, {
           practiceId: args.practiceId,
           replayRow,
-          resolved: resolvedReplayContext,
+          resolved: resolvedReplayContext.context,
           ruleSetId: args.ruleSetId,
           sessionId,
           timestamp: rowTimestamp,
@@ -658,6 +794,7 @@ export const importLegacyBookingStepReplay = mutation({
       reusedSessions,
       reusedUsers,
       skippedMissingAppointment,
+      skippedRows,
     };
   },
   returns: v.object({
@@ -666,6 +803,7 @@ export const importLegacyBookingStepReplay = mutation({
     reusedSessions: v.number(),
     reusedUsers: v.number(),
     skippedMissingAppointment: v.number(),
+    skippedRows: v.array(replayImportSkipRowValidator),
   }),
 });
 
@@ -1691,7 +1829,13 @@ async function resolveReplayContext(
     replayRow: LegacyBookingReplayRowInput;
     ruleSetId: Id<"ruleSets">;
   },
-): Promise<null | ResolvedReplayContext> {
+): Promise<
+  | { context: ResolvedReplayContext; kind: "resolved" }
+  | {
+      kind: "skipped";
+      reason: "missing_location" | "missing_practitioner";
+    }
+> {
   const appointment = await resolveReplayAppointment(ctx, {
     practiceId: args.practiceId,
     replayRow: args.replayRow,
@@ -1709,7 +1853,7 @@ async function resolveReplayContext(
     args.replayRow.sessionStep !== "location" &&
     locationLineageKey === undefined
   ) {
-    return null;
+    return { kind: "skipped", reason: "missing_location" };
   }
 
   const practitionerLineageKey =
@@ -1726,12 +1870,17 @@ async function resolveReplayContext(
       args.replayRow.sessionStep === "existing-confirmation") &&
     practitionerLineageKey === undefined
   ) {
-    return null;
+    return { kind: "skipped", reason: "missing_practitioner" };
   }
 
   return {
-    ...(appointment === null ? {} : { appointment }),
-    ...(locationLineageKey === undefined ? {} : { locationLineageKey }),
-    ...(practitionerLineageKey === undefined ? {} : { practitionerLineageKey }),
+    context: {
+      ...(appointment === null ? {} : { appointment }),
+      ...(locationLineageKey === undefined ? {} : { locationLineageKey }),
+      ...(practitionerLineageKey === undefined
+        ? {}
+        : { practitionerLineageKey }),
+    },
+    kind: "resolved",
   };
 }

@@ -1521,6 +1521,7 @@ export async function createAppointmentFromTrustedSource(
     ...storedReferences,
     appointmentTypeTitle: activeAppointmentType.name,
     ...(bookingIdentityId && { bookingIdentityId }),
+    ...(calendarResourceColumn && { calendarResourceColumn }),
     createdAt: now,
     end,
     isSimulation: isSimulation ?? false,
@@ -2125,6 +2126,14 @@ async function updateAppointmentByMode(
         ...stepStoredReferences,
         ...persistentSimulationFields,
         appointmentTypeTitle: step.appointmentTypeTitle,
+        ...((seriesRecord.bookingIdentityId ??
+        existingAppointment.bookingIdentityId)
+          ? {
+              bookingIdentityId:
+                seriesRecord.bookingIdentityId ??
+                existingAppointment.bookingIdentityId,
+            }
+          : {}),
         createdAt: now,
         end: step.end,
         lastModified: now,
@@ -2147,6 +2156,14 @@ async function updateAppointmentByMode(
     }
 
     await ctx.db.replace("appointmentSeries", seriesRecord._id, {
+      ...((seriesRecord.bookingIdentityId ??
+      existingAppointment.bookingIdentityId)
+        ? {
+            bookingIdentityId:
+              seriesRecord.bookingIdentityId ??
+              existingAppointment.bookingIdentityId,
+          }
+        : {}),
       createdAt: seriesRecord.createdAt,
       followUpPlanSnapshot: seriesRecord.followUpPlanSnapshot,
       lastModified: now,

@@ -96,6 +96,7 @@ export interface NewCalendarProps {
   onPatientRequired?:
     | ((params: {
         appointmentTypeLineageKey: AppointmentTypeLineageKey;
+        calendarResourceColumn?: "ekg" | "labor";
         isSimulation: boolean;
         locationLineageKey: LocationLineageKey;
         practiceId: Id<"practices">;

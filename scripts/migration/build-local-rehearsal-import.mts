@@ -10,6 +10,7 @@ import { join } from "node:path";
 
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const outputRoot = join(workspaceRoot, ".cache/migration/rehearsal");
+const reportRoot = join(workspaceRoot, ".cache/migration/reports");
 const seedRoot = join(workspaceRoot, "seed_data_preview");
 const importTimestamp = "1778751271000";
 const fallbackDurationMinutes = 5;
@@ -279,6 +280,7 @@ function buildAppointmentsZip() {
     inferredDurationFromType: 0,
     written: 0,
   };
+  const inferredDurationRows = [];
   const documents = selectedAppointments.map((appointment) => {
     const appointmentType = appointmentTypeByName.get(appointment.Terminart);
     const location = locationByName.get(
@@ -317,6 +319,16 @@ function buildAppointmentsZip() {
     }
     if (interval.inferredDuration) {
       stats.inferredDurationFromType += 1;
+      inferredDurationRows.push({
+        appointmentTypeTitle: appointment.Terminart,
+        doctorName: appointment.Arzt,
+        end: appointment.Ende,
+        inferredDurationMinutes: appointmentType.duration,
+        patientSourceId: appointment.ID,
+        reasonDescription: appointment.Termingrund,
+        room: appointment.Raum,
+        start: appointment.Beginn,
+      });
     }
 
     return {
@@ -406,6 +418,12 @@ function buildAppointmentsZip() {
   }
 
   writeZipTable("appointments", documents, schemaVariants.join(" | "));
+  mkdirSync(reportRoot, { recursive: true });
+  writeFileSync(
+    join(reportRoot, "praxistimer-inferred-durations.report.jsonl"),
+    inferredDurationRows.map((row) => JSON.stringify(row)).join("\n") +
+      (inferredDurationRows.length === 0 ? "" : "\n"),
+  );
 
   createZip("appointments-rehearsal.zip");
   console.log(
