@@ -6,6 +6,8 @@ import { join } from "node:path";
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const envLocalPath = join(workspaceRoot, ".env.local");
 const localConvexDeploymentPath = join(workspaceRoot, ".convex/local/default");
+const localConvexCloudPort = 3210;
+const localConvexReadyUrl = `http://127.0.0.1:${localConvexCloudPort}/instance_name`;
 const localConvexDataPaths = [
   join(localConvexDeploymentPath, "convex_local_backend.sqlite3"),
   join(localConvexDeploymentPath, "convex_local_storage"),
@@ -80,7 +82,13 @@ function resetLocalConvexDeployment() {
 
 function readLocalDeploymentConfig() {
   const configPath = join(localConvexDeploymentPath, "config.json");
-  return JSON.parse(readFileSync(configPath, "utf8"));
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  if (config.ports?.cloud !== localConvexCloudPort) {
+    throw new Error(
+      `Refusing import: local Convex cloud port must be ${localConvexCloudPort}.`,
+    );
+  }
+  return config;
 }
 
 function run(command, args, options = {}) {
@@ -148,7 +156,6 @@ function startLocalBackend(): Promise<ChildProcess> {
       settled = true;
       resolve(backend);
     };
-    const readyUrl = `http://127.0.0.1:${config.ports.cloud}/instance_name`;
     const expectedInstanceName = config.deploymentName;
     const startupDeadline = Date.now() + 120_000;
     const poll = async () => {
@@ -162,7 +169,7 @@ function startLocalBackend(): Promise<ChildProcess> {
         return;
       }
       try {
-        const response = await fetch(readyUrl);
+        const response = await fetch(localConvexReadyUrl);
         const instanceName = await response.text();
         if (response.ok && instanceName === expectedInstanceName) {
           finish();
