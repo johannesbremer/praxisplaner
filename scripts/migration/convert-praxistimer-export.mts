@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
-const termineRoot = "/Users/johannes/Code/termine";
 const defaultInputPath = resolveInputPath("pttermine.csv");
 const defaultOutputPath = join(
   workspaceRoot,
@@ -33,7 +32,6 @@ function resolveInputPath(fileName) {
   for (const candidate of [
     join(workspaceRoot, ".cache/migration/source", fileName),
     join(workspaceRoot, fileName),
-    join(termineRoot, fileName),
   ]) {
     if (existsSync(candidate)) {
       return candidate;
