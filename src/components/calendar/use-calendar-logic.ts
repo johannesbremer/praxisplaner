@@ -977,8 +977,7 @@ export function useCalendarLogic({
 
       const endZoned = startZoned.add({ minutes: draggedAppointment.duration });
 
-      const targetResourceColumn: "ekg" | "labor" | undefined =
-        column === "ekg" ? "ekg" : column === "labor" ? "labor" : undefined;
+      const targetResourceColumn = getCalendarResourceColumnFromColumn(column);
       const targetPractitionerId =
         targetResourceColumn === undefined
           ? getPractitionerIdForColumn(column)
@@ -1002,16 +1001,37 @@ export function useCalendarLogic({
         );
       } else {
         try {
+          const targetPractitionerLineageKey =
+            getPractitionerLineageKeyFromColumn(column);
+          const targetPlacement =
+            targetResourceColumn === undefined
+              ? targetPractitionerLineageKey === undefined
+                ? null
+                : createCalendarPlacement({
+                    locationLineageKey:
+                      draggedAppointment.record.placement.locationLineageKey,
+                    occupancyScope: {
+                      kind: "practitioner",
+                      practitionerLineageKey: targetPractitionerLineageKey,
+                    },
+                  })
+              : createCalendarPlacement({
+                  locationLineageKey:
+                    draggedAppointment.record.placement.locationLineageKey,
+                  occupancyScope: {
+                    calendarResourceColumn: targetResourceColumn,
+                    kind: "resource",
+                  },
+                });
+          if (targetPlacement === null) {
+            toast.error("Ungültige Ressource");
+            return;
+          }
           await planningCommands.updateAppointment({
             end: endZoned.toString(),
             id: draggedAppointment.record._id,
+            placement: targetPlacement,
             start: startZoned.toString(),
-            ...(targetResourceColumn === undefined
-              ? { calendarResourceColumn: null }
-              : { calendarResourceColumn: targetResourceColumn }),
-            ...(targetPractitionerId && {
-              practitionerId: targetPractitionerId,
-            }),
           });
         } catch (error) {
           captureErrorGlobal(error, {
@@ -1109,10 +1129,18 @@ export function useCalendarLogic({
       return;
     }
 
-    const practitioner = workingPractitioners.find(
-      (workingPractitioner) => workingPractitioner.lineageKey === column,
-    );
-    if (!practitioner && column !== "ekg" && column !== "labor") {
+    const practitionerLineageKey = getPractitionerLineageKeyFromColumn(column);
+    const practitioner =
+      practitionerLineageKey === undefined
+        ? undefined
+        : workingPractitioners.find(
+            (workingPractitioner) =>
+              workingPractitioner.lineageKey === practitionerLineageKey,
+          );
+    if (
+      !practitioner &&
+      getCalendarResourceColumnFromColumn(column) === undefined
+    ) {
       toast.error("Ungültige Ressource");
       return;
     }
@@ -1165,10 +1193,6 @@ export function useCalendarLogic({
       pendingAppointmentTitle,
       placement: requestPlacement,
       practiceId,
-      practitionerId:
-        practitioner === undefined
-          ? undefined
-          : getPractitionerIdForLineageKey(practitioner.lineageKey),
       selectedDate,
       slot,
       slotDurationMinutes: SLOT_DURATION,

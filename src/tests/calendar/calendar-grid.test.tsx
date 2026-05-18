@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { regex } from "@/lib/arkregex";
 
-import type { CalendarAppointmentView } from "../../../src/components/calendar/types";
+import type {
+  CalendarAppointmentView,
+  CalendarColumn,
+} from "../../../src/components/calendar/types";
 
 import {
   asAppointmentTypeLineageKey,
@@ -11,6 +14,7 @@ import {
   asPractitionerLineageKey,
   toTableId,
 } from "../../../convex/identity";
+import { calendarColumnScopeFromPractitioner } from "../../../lib/calendar-occupancy";
 import { CalendarGrid } from "../../../src/components/calendar/calendar-grid";
 import { assertElement } from "../test-utils";
 import { buildCalendarAppointmentRecord } from "./test-records";
@@ -28,6 +32,10 @@ describe("CalendarGrid", () => {
   const practitioner2 = asPractitionerLineageKey(
     toTableId<"practitioners">("practitioner_2"),
   );
+  const practitionerColumn1 =
+    calendarColumnScopeFromPractitioner(practitioner1);
+  const practitionerColumn2 =
+    calendarColumnScopeFromPractitioner(practitioner2);
 
   const createAppointment = (args: {
     color: string;
@@ -39,7 +47,7 @@ describe("CalendarGrid", () => {
   }): CalendarAppointmentView => ({
     color: args.color,
     layout: {
-      column: args.column,
+      column: calendarColumnScopeFromPractitioner(args.column),
       duration: args.duration,
       id: args.id,
       record: buildCalendarAppointmentRecord({
@@ -75,9 +83,9 @@ describe("CalendarGrid", () => {
     }),
   ];
 
-  const mockColumns = [
-    { id: practitioner1, title: "Dr. Smith" },
-    { id: practitioner2, title: "Dr. Jones" },
+  const mockColumns: CalendarColumn[] = [
+    { id: practitionerColumn1, title: "Dr. Smith" },
+    { id: practitionerColumn2, title: "Dr. Jones" },
   ];
 
   const mockSlotToTime = vi.fn((slot: number) => {
@@ -186,7 +194,9 @@ describe("CalendarGrid", () => {
     });
 
     test("renders with single column", () => {
-      const singleColumn = [{ id: practitioner1, title: "Dr. Smith" }];
+      const singleColumn: CalendarColumn[] = [
+        { id: practitionerColumn1, title: "Dr. Smith" },
+      ];
       render(<CalendarGrid {...defaultProps} columns={singleColumn} />);
       expect(screen.getByText("Dr. Smith")).toBeInTheDocument();
       expect(screen.queryByText("Dr. Jones")).not.toBeInTheDocument();
@@ -194,8 +204,10 @@ describe("CalendarGrid", () => {
 
     test("renders with many columns", () => {
       const manyColumns = Array.from({ length: 5 }, (_, i) => ({
-        id: asPractitionerLineageKey(
-          toTableId<"practitioners">(`practitioner_${i}`),
+        id: calendarColumnScopeFromPractitioner(
+          asPractitionerLineageKey(
+            toTableId<"practitioners">(`practitioner_${i}`),
+          ),
         ),
         title: `Doctor ${i}`,
       }));
@@ -228,7 +240,7 @@ describe("CalendarGrid", () => {
           {...defaultProps}
           columns={[
             {
-              id: practitioner1,
+              id: practitionerColumn1,
               isAppointmentTypeUnavailable: true,
               isMuted: true,
               title: "Dr. Smith",
@@ -318,9 +330,9 @@ describe("CalendarGrid", () => {
         <CalendarGrid
           {...defaultProps}
           columns={[
-            { id: practitioner1, title: "Dr. Smith" },
+            { id: practitionerColumn1, title: "Dr. Smith" },
             {
-              id: practitioner2,
+              id: practitionerColumn2,
               isDragDisabled: true,
               isMuted: true,
               title: "Dr. Jones",
@@ -345,7 +357,7 @@ describe("CalendarGrid", () => {
 
     test("renders drag preview when dragging", () => {
       const dragPreview = {
-        column: practitioner1,
+        column: practitionerColumn1,
         slot: 12,
         visible: true,
       };
@@ -376,7 +388,7 @@ describe("CalendarGrid", () => {
 
     test("positions drag preview correctly", () => {
       const dragPreview = {
-        column: practitioner1,
+        column: practitionerColumn1,
         slot: 24,
         visible: true,
       };
@@ -404,7 +416,7 @@ describe("CalendarGrid", () => {
 
     test("shows dragged appointment details in preview", () => {
       const dragPreview = {
-        column: practitioner1,
+        column: practitionerColumn1,
         slot: 12,
         visible: true,
       };

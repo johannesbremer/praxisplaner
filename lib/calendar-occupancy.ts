@@ -4,11 +4,6 @@ export type AppointmentOccupancyScope<PractitionerKey extends string = string> =
 export type BlockedSlotOccupancyScope<PractitionerKey extends string = string> =
   Exclude<CalendarOccupancyScope<PractitionerKey>, ResourceOccupancyScope>;
 
-export type CalendarColumnInput<PractitionerKey extends string = string> =
-  | CalendarColumnScope<PractitionerKey>
-  | CalendarResourceColumn
-  | PractitionerKey;
-
 export type CalendarColumnScope<PractitionerKey extends string = string> =
   AppointmentOccupancyScope<PractitionerKey>;
 
@@ -92,9 +87,9 @@ export function calendarColumnScopeFromResourceColumn(
 }
 
 export function calendarColumnScopeKey<PractitionerKey extends string>(
-  scope: CalendarColumnInput<PractitionerKey>,
+  scope: CalendarColumnScope<PractitionerKey>,
 ): string {
-  return calendarOccupancyScopeKey(normalizeCalendarColumnScope(scope));
+  return calendarOccupancyScopeKey(scope);
 }
 
 export function calendarOccupancyScopeKey<PractitionerKey extends string>(
@@ -141,12 +136,9 @@ export function createCalendarPlacement<
 export function getCalendarResourceColumnFromColumn<
   PractitionerKey extends string,
 >(
-  column: CalendarColumnInput<PractitionerKey>,
+  column: CalendarColumnScope<PractitionerKey>,
 ): CalendarResourceColumn | undefined {
-  const normalizedColumn = normalizeCalendarColumnScope(column);
-  return normalizedColumn.kind === "resource"
-    ? normalizedColumn.calendarResourceColumn
-    : undefined;
+  return column.kind === "resource" ? column.calendarResourceColumn : undefined;
 }
 
 export function getCalendarResourceColumnFromOccupancy<
@@ -159,10 +151,9 @@ export function getCalendarResourceColumnFromOccupancy<
 
 export function getPractitionerLineageKeyFromColumn<
   PractitionerKey extends string,
->(column: CalendarColumnInput<PractitionerKey>): PractitionerKey | undefined {
-  const normalizedColumn = normalizeCalendarColumnScope(column);
-  return normalizedColumn.kind === "practitioner"
-    ? normalizedColumn.practitionerLineageKey
+>(column: CalendarColumnScope<PractitionerKey>): PractitionerKey | undefined {
+  return column.kind === "practitioner"
+    ? column.practitionerLineageKey
     : undefined;
 }
 
@@ -172,12 +163,6 @@ export function getPractitionerLineageKeyFromOccupancy<
   return scope.kind === "practitioner"
     ? scope.practitionerLineageKey
     : undefined;
-}
-
-export function isCalendarResourceColumn(
-  value: string,
-): value is CalendarResourceColumn {
-  return value === "ekg" || value === "labor";
 }
 
 export function isLocationWideOccupancyScope(
@@ -198,28 +183,11 @@ export function isResourceOccupancyScope<PractitionerKey extends string>(
   return scope.kind === "resource";
 }
 
-export function normalizeCalendarColumnScope<PractitionerKey extends string>(
-  column: CalendarColumnInput<PractitionerKey>,
-): CalendarColumnScope<PractitionerKey> {
-  if (typeof column !== "string") {
-    return column;
-  }
-
-  if (isCalendarResourceColumn(column)) {
-    return { calendarResourceColumn: column, kind: "resource" };
-  }
-
-  return { kind: "practitioner", practitionerLineageKey: column };
-}
-
 export function sameCalendarColumnScope<PractitionerKey extends string>(
-  left: CalendarColumnInput<PractitionerKey>,
-  right: CalendarColumnInput<PractitionerKey>,
+  left: CalendarColumnScope<PractitionerKey>,
+  right: CalendarColumnScope<PractitionerKey>,
 ): boolean {
-  return sameCalendarOccupancyScope(
-    normalizeCalendarColumnScope(left),
-    normalizeCalendarColumnScope(right),
-  );
+  return sameCalendarOccupancyScope(left, right);
 }
 
 export function sameCalendarOccupancyScope<PractitionerKey extends string>(

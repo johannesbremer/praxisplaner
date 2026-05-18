@@ -105,7 +105,6 @@ describe("calendar appointment request builder", () => {
     pendingAppointmentTitle: undefined,
     placement: practitionerPlacement,
     practiceId: toTableId<"practices">("practice_main"),
-    practitionerId: undefined,
     selectedDate,
     slot: 12,
     slotDurationMinutes: 5,
@@ -121,13 +120,11 @@ describe("calendar appointment request builder", () => {
       ...sharedArgs,
       mode: "real",
       patient,
-      practitionerId: toTableId<"practitioners">("practitioner_1"),
     });
     const simulationResult = buildCalendarAppointmentRequest({
       ...sharedArgs,
       mode: "simulation",
       patient,
-      practitionerId: toTableId<"practitioners">("practitioner_1"),
     });
 
     expect(realResult).toMatchObject({
@@ -136,10 +133,9 @@ describe("calendar appointment request builder", () => {
         appointmentTypeId: "appointment_type_checkup",
         isNewPatient: false,
         isSimulation: false,
-        locationId: "location_main",
         patientDateOfBirth: "1980-01-01",
+        placement: practitionerPlacement,
         practiceId: "practice_main",
-        practitionerId: "practitioner_1",
         start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
         title: "Checkup",
         userId: "user_1",
@@ -151,10 +147,9 @@ describe("calendar appointment request builder", () => {
         appointmentTypeId: "appointment_type_checkup",
         isNewPatient: false,
         isSimulation: true,
-        locationId: "location_main",
         patientDateOfBirth: "1980-01-01",
+        placement: practitionerPlacement,
         practiceId: "practice_main",
-        practitionerId: "practitioner_1",
         start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
         title: "Checkup",
         userId: "user_1",
@@ -223,7 +218,7 @@ describe("calendar appointment request builder", () => {
         appointmentTypeId: "appointment_type_checkup",
         isNewPatient: true,
         isSimulation: true,
-        locationId: "location_main",
+        placement: practitionerPlacement,
         practiceId: "practice_main",
         start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
         temporaryPatientName: "Grace Hopper",
@@ -255,11 +250,16 @@ describe("calendar appointment request builder", () => {
       kind: "ok",
       request: {
         appointmentTypeId: "appointment_type_checkup",
-        calendarResourceColumn: "labor",
         isNewPatient: false,
         isSimulation: false,
-        locationId: "location_main",
         patientDateOfBirth: "1980-01-01",
+        placement: {
+          ...resourcePlacement,
+          occupancyScope: {
+            calendarResourceColumn: "labor",
+            kind: "resource",
+          },
+        },
         practiceId: "practice_main",
         start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
         title: "Checkup",

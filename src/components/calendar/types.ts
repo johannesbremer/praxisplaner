@@ -13,7 +13,6 @@ import type {
 import type {
   AppointmentOccupancyScope as SharedAppointmentOccupancyScope,
   BlockedSlotOccupancyScope as SharedBlockedSlotOccupancyScope,
-  CalendarColumnInput as SharedCalendarColumnInput,
   CalendarColumnScope as SharedCalendarColumnScope,
   CalendarPlacement as SharedCalendarPlacement,
 } from "../../../lib/calendar-occupancy";
@@ -92,7 +91,7 @@ export interface CalendarColumn {
 }
 
 export type CalendarColumnId =
-  SharedCalendarColumnInput<PractitionerLineageKey>;
+  SharedCalendarColumnScope<PractitionerLineageKey>;
 
 export type CalendarColumnScope =
   SharedCalendarColumnScope<PractitionerLineageKey>;

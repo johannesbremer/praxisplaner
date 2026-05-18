@@ -13,7 +13,11 @@ import type {
 } from "./types";
 import type { SimulatedBlockedSlotConversionResult } from "./use-calendar-logic-helpers";
 
-import { getPractitionerLineageKeyFromOccupancy } from "../../../lib/calendar-occupancy";
+import {
+  calendarColumnScopeFromPractitioner,
+  calendarColumnScopeFromResourceColumn,
+  getPractitionerLineageKeyFromOccupancy,
+} from "../../../lib/calendar-occupancy";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import { SLOT_DURATION } from "./types";
 import { TIMEZONE } from "./use-calendar-logic-helpers";
@@ -517,12 +521,17 @@ export function useCalendarInteractions({
               const manualBlockedSlot = manualBlockedSlotsRef.current.find(
                 (slot) => slot.id === blockedSlotId,
               );
-              const column =
-                manualBlockedSlot?.column ??
+              const practitionerLineageKey =
                 getPractitionerLineageKeyFromOccupancy(
                   blockedSlotDoc.placement.occupancyScope,
-                ) ??
-                "ekg";
+                );
+              const column =
+                manualBlockedSlot?.column ??
+                (practitionerLineageKey === undefined
+                  ? calendarColumnScopeFromResourceColumn("ekg")
+                  : calendarColumnScopeFromPractitioner(
+                      practitionerLineageKey,
+                    ));
               startResizing({
                 column,
                 commitBlockedSlotId: convertedId.id,

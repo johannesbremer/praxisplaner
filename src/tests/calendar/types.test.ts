@@ -9,6 +9,12 @@ import {
   toTableId,
 } from "../../../convex/identity";
 import {
+  calendarColumnScopeFromPractitioner,
+  calendarColumnScopeFromResourceColumn,
+  getCalendarResourceColumnFromColumn,
+  sameCalendarColumnScope,
+} from "../../../lib/calendar-occupancy";
+import {
   APPOINTMENT_COLORS,
   type CalendarAppointmentLayout,
   type CalendarAppointmentView,
@@ -41,17 +47,15 @@ describe("Calendar Types and Constants", () => {
     startTime?: string;
     userId?: CalendarAppointmentLayout["record"]["userId"];
   }): CalendarAppointmentLayout => ({
-    column: args.column ?? practitioner1,
+    column: args.column ?? calendarColumnScopeFromPractitioner(practitioner1),
     duration: args.duration ?? 30,
     id: args.id,
     record: {
       ...(() => {
         const resourceColumn =
-          args.column === "ekg"
-            ? "ekg"
-            : args.column === "labor"
-              ? "labor"
-              : null;
+          args.column === undefined
+            ? undefined
+            : getCalendarResourceColumnFromColumn(args.column);
         const baseArgs = {
           _id: toTableId<"appointments">(args.id),
           appointmentTypeLineageKey: appointmentType1,
@@ -63,7 +67,7 @@ describe("Calendar Types and Constants", () => {
           title: "Test Appointment",
         };
 
-        return resourceColumn === null
+        return resourceColumn === undefined
           ? buildCalendarAppointmentRecord({
               ...baseArgs,
               practitionerLineageKey:
@@ -139,7 +143,12 @@ describe("Calendar Types and Constants", () => {
       expect(appointment.layout.id).toBe("test-1");
       expect(appointment.layout.startTime).toBe("10:00");
       expect(appointment.layout.duration).toBe(30);
-      expect(appointment.layout.column).toBe(practitioner1);
+      expect(
+        sameCalendarColumnScope(
+          appointment.layout.column,
+          calendarColumnScopeFromPractitioner(practitioner1),
+        ),
+      ).toBe(true);
       expect(appointment.color).toBe("bg-blue-500");
       expect(appointment.layout.record.isSimulation).toBeUndefined();
     });
@@ -205,14 +214,21 @@ describe("Calendar Types and Constants", () => {
     });
 
     test("should accept appointments for different column types", () => {
-      const columns = [practitioner1, practitioner2, "ekg", "labor"] as const;
+      const columns = [
+        calendarColumnScopeFromPractitioner(practitioner1),
+        calendarColumnScopeFromPractitioner(practitioner2),
+        calendarColumnScopeFromResourceColumn("ekg"),
+        calendarColumnScopeFromResourceColumn("labor"),
+      ] as const;
 
-      for (const column of columns) {
+      for (const [index, column] of columns.entries()) {
         const appointment = createView({
-          layout: createLayout({ column, id: `test-${column}` }),
+          layout: createLayout({ column, id: `test-${index}` }),
         });
 
-        expect(appointment.layout.column).toBe(column);
+        expect(sameCalendarColumnScope(appointment.layout.column, column)).toBe(
+          true,
+        );
       }
     });
   });
@@ -224,7 +240,9 @@ describe("Calendar Types and Constants", () => {
           createView({
             color,
             layout: createLayout({
-              column: index % 2 === 0 ? practitioner1 : practitioner2,
+              column: calendarColumnScopeFromPractitioner(
+                index % 2 === 0 ? practitioner1 : practitioner2,
+              ),
               id: `apt-${index}`,
             }),
           }),

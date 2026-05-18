@@ -12,6 +12,7 @@ import {
   asPractitionerLineageKey,
   toTableId,
 } from "../../../convex/identity";
+import { calendarColumnScopeFromPractitioner } from "../../../lib/calendar-occupancy";
 import { CalendarAppointment } from "../../../src/components/calendar/calendar-appointment";
 import { assertElement } from "../test-utils";
 import { buildCalendarAppointmentRecord } from "./test-records";
@@ -21,7 +22,7 @@ describe("CalendarAppointment", () => {
     toTableId<"practitioners">("practitioner_1"),
   );
   const mockLayout: CalendarAppointmentLayout = {
-    column: practitioner1,
+    column: calendarColumnScopeFromPractitioner(practitioner1),
     duration: 30,
     id: "apt-1",
     record: buildCalendarAppointmentRecord({

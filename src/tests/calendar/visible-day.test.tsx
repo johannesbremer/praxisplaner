@@ -7,6 +7,10 @@ import {
   asLocationLineageKey,
   toTableId,
 } from "../../../convex/identity";
+import {
+  calendarColumnScopeFromResourceColumn,
+  sameCalendarColumnScope,
+} from "../../../lib/calendar-occupancy";
 import { useCalendarVisibleDay } from "../../components/calendar/use-calendar-visible-day";
 import { buildCalendarAppointmentRecord } from "./test-records";
 
@@ -55,20 +59,26 @@ describe("useCalendarVisibleDay", () => {
       }),
     );
 
-    const laborColumn = result.current.columns.find(
-      (column) => column.id === "labor",
+    const laborColumn = result.current.columns.find((column) =>
+      sameCalendarColumnScope(
+        column.id,
+        calendarColumnScopeFromResourceColumn("labor"),
+      ),
     );
-    const ekgColumn = result.current.columns.find(
-      (column) => column.id === "ekg",
+    const ekgColumn = result.current.columns.find((column) =>
+      sameCalendarColumnScope(
+        column.id,
+        calendarColumnScopeFromResourceColumn("ekg"),
+      ),
     );
 
     expect(laborColumn).toMatchObject({
-      id: "labor",
+      id: calendarColumnScopeFromResourceColumn("labor"),
       title: "Labor",
     });
     expect(laborColumn?.isUnavailable).toBeUndefined();
     expect(ekgColumn).toMatchObject({
-      id: "ekg",
+      id: calendarColumnScopeFromResourceColumn("ekg"),
       title: "EKG",
     });
     expect(ekgColumn?.isUnavailable).toBeUndefined();

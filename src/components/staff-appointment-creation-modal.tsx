@@ -25,8 +25,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
+import { createCalendarPlacement } from "@/lib/calendar-occupancy";
 
 import type { PatientInfo, PracticePatientSelection } from "../types";
+import type { CalendarAppointmentPlacement } from "./calendar/types";
 
 import { captureErrorGlobal } from "../utils/error-tracking";
 import {
@@ -76,24 +78,27 @@ interface StaffAppointmentCreationModalProps {
   patient?: PatientInfo | undefined;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
-  runCreateAppointment?: (args: {
-    appointmentTypeId: Id<"appointmentTypes">;
-    isNewPatient?: boolean;
-    isSimulation?: boolean;
-    locationId: Id<"locations">;
-    patientDateOfBirth?: IsoDateString;
-    patientId?: Id<"patients">;
-    practiceId: Id<"practices">;
-    practitionerId?: Id<"practitioners">;
-    replacesAppointmentId?: Id<"appointments">;
-    start: ZonedDateTimeString;
-    temporaryPatientName?: string;
-    temporaryPatientPhoneNumber?: string;
-    title: string;
-    userId?: Id<"users">;
-  }) => Promise<Id<"appointments"> | undefined>;
+  runCreateAppointment?: (
+    args: StaffCreateAppointmentArgs,
+  ) => Promise<Id<"appointments"> | undefined>;
   selectedDate: string;
   selectedPatientId: Id<"patients"> | undefined;
+}
+
+interface StaffCreateAppointmentArgs {
+  appointmentTypeId: Id<"appointmentTypes">;
+  isNewPatient?: boolean;
+  isSimulation?: boolean;
+  patientDateOfBirth?: IsoDateString;
+  patientId?: Id<"patients">;
+  placement: CalendarAppointmentPlacement;
+  practiceId: Id<"practices">;
+  replacesAppointmentId?: Id<"appointments">;
+  start: ZonedDateTimeString;
+  temporaryPatientName?: string;
+  temporaryPatientPhoneNumber?: string;
+  title: string;
+  userId?: Id<"users">;
 }
 
 export function StaffAppointmentCreationModal({
@@ -123,15 +128,6 @@ export function StaffAppointmentCreationModal({
     api.appointments.createAppointment,
   );
 
-  // Use the optimistic update wrapper if provided, otherwise fall back to direct mutation
-  const runCreateAppointment = useMemo(
-    () =>
-      runCreateAppointmentProp ??
-      ((args: Parameters<typeof createAppointmentMutation>[0]) =>
-        createAppointmentMutation(args)),
-    [createAppointmentMutation, runCreateAppointmentProp],
-  );
-
   // Get appointment type name for display - only query when modal is open
   const appointmentTypes = useQuery(
     api.entities.getAppointmentTypes,
@@ -144,6 +140,55 @@ export function StaffAppointmentCreationModal({
   const practitioners = useQuery(
     api.entities.getPractitioners,
     open ? { ruleSetId } : "skip",
+  );
+  // Use the optimistic update wrapper if provided, otherwise fall back to direct mutation.
+  const runCreateAppointment = useMemo(
+    () =>
+      runCreateAppointmentProp ??
+      (async (args: StaffCreateAppointmentArgs) => {
+        const { placement, ...mutationBaseArgs } = args;
+        const fallbackLocation = locations?.find(
+          (entry) => entry.lineageKey === placement.locationLineageKey,
+        );
+        if (fallbackLocation === undefined) {
+          return await Promise.reject(
+            new Error("Termin-Referenzen konnten nicht aufgelöst werden."),
+          );
+        }
+
+        if (placement.occupancyScope.kind === "resource") {
+          return await createAppointmentMutation({
+            ...mutationBaseArgs,
+            calendarResourceColumn:
+              placement.occupancyScope.calendarResourceColumn,
+            locationId: fallbackLocation._id,
+          });
+        }
+
+        const practitionerOccupancyScope = placement.occupancyScope;
+        const fallbackPractitioner = practitioners?.find(
+          (practitioner) =>
+            practitioner.lineageKey ===
+            practitionerOccupancyScope.practitionerLineageKey,
+        );
+        if (fallbackPractitioner === undefined) {
+          return await Promise.reject(
+            new Error("Termin-Referenzen konnten nicht aufgelöst werden."),
+          );
+        }
+
+        return await createAppointmentMutation({
+          ...mutationBaseArgs,
+          locationId: fallbackLocation._id,
+          practitionerId: fallbackPractitioner._id,
+        });
+      }),
+    [
+      createAppointmentMutation,
+      locations,
+      practitioners,
+      runCreateAppointmentProp,
+    ],
   );
   const appointmentType = appointmentTypes?.find(
     (type) => type._id === appointmentTypeId,
@@ -332,23 +377,28 @@ export function StaffAppointmentCreationModal({
     if (!start) {
       return;
     }
-    const practitionerId = resultFromNullable(
-      practitioners?.find(
-        (practitioner) =>
-          practitioner.lineageKey === slot.practitionerLineageKey,
-      )?._id,
+    const placement = resultFromNullable(
+      location?.lineageKey === undefined
+        ? null
+        : createCalendarPlacement({
+            locationLineageKey: location.lineageKey,
+            occupancyScope: {
+              kind: "practitioner",
+              practitionerLineageKey: slot.practitionerLineageKey,
+            },
+          }),
       invalidStateError(
-        "Der Behandler für den gewählten Termin konnte nicht geladen werden.",
-        "StaffAppointmentCreationModal.practitionerId",
+        "Die Referenzen für den gewählten Termin konnten nicht geladen werden.",
+        "StaffAppointmentCreationModal.placement",
       ),
     ).match(
-      (loadedPractitionerId) => loadedPractitionerId,
+      (resolvedPlacement) => resolvedPlacement,
       (error) => {
         toast.error(error.message);
         return null;
       },
     );
-    if (!practitionerId) {
+    if (!placement) {
       return;
     }
 
@@ -359,13 +409,12 @@ export function StaffAppointmentCreationModal({
               appointmentTypeId: selectedAppointmentType._id,
               isNewPatient,
               ...(isSimulation && { isSimulation: true }),
-              locationId,
               ...(effectivePatient?.dateOfBirth && {
                 patientDateOfBirth: effectivePatient.dateOfBirth,
               }),
               patientId: createTarget.patientId,
+              placement,
               practiceId,
-              practitionerId,
               start,
               title,
             }
@@ -374,12 +423,11 @@ export function StaffAppointmentCreationModal({
                 appointmentTypeId: selectedAppointmentType._id,
                 isNewPatient,
                 ...(isSimulation && { isSimulation: true }),
-                locationId,
                 ...(effectivePatient?.dateOfBirth && {
                   patientDateOfBirth: effectivePatient.dateOfBirth,
                 }),
+                placement,
                 practiceId,
-                practitionerId,
                 start,
                 title,
                 userId: createTarget.userId,
@@ -388,12 +436,11 @@ export function StaffAppointmentCreationModal({
                 appointmentTypeId: selectedAppointmentType._id,
                 isNewPatient,
                 ...(isSimulation && { isSimulation: true }),
-                locationId,
                 ...(effectivePatient?.dateOfBirth && {
                   patientDateOfBirth: effectivePatient.dateOfBirth,
                 }),
+                placement,
                 practiceId,
-                practitionerId,
                 start,
                 temporaryPatientName: createTarget.temporaryPatientName,
                 temporaryPatientPhoneNumber:

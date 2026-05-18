@@ -13,6 +13,7 @@ import {
   asLocationLineageKey,
   toTableId,
 } from "../../../convex/identity";
+import { createCalendarPlacement } from "../../../lib/calendar-occupancy";
 import { useCalendarPlanningWorkbench } from "../../components/calendar/use-calendar-planning-workbench";
 import { zonedDateTimeStringResult } from "../../utils/time-calculations";
 import {
@@ -130,8 +131,13 @@ describe("calendar planning workbench", () => {
     await act(async () => {
       createdId = await result.current.commands.createAppointment({
         appointmentTypeId,
-        calendarResourceColumn: "ekg",
-        locationId,
+        placement: createCalendarPlacement({
+          locationLineageKey,
+          occupancyScope: {
+            calendarResourceColumn: "ekg",
+            kind: "resource",
+          },
+        }),
         practiceId,
         start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
         title: "Check-up",

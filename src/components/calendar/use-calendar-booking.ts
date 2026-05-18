@@ -1,12 +1,9 @@
-import type { FunctionArgs } from "convex/server";
-
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { PatientInfo } from "../../types";
 import type { CalendarAppointmentPlacement } from "./types";
 
-import { api } from "../../../convex/_generated/api";
 import { TIMEZONE } from "./use-calendar-logic-helpers";
 
 export type CalendarAppointmentCreateResult =
@@ -30,9 +27,20 @@ export type CalendarAppointmentCreateResult =
       request: CreateAppointmentArgs;
     };
 
-type CreateAppointmentArgs = FunctionArgs<
-  typeof api.appointments.createAppointment
->;
+interface CreateAppointmentArgs {
+  appointmentTypeId: Id<"appointmentTypes">;
+  isNewPatient: boolean;
+  isSimulation: boolean;
+  patientDateOfBirth?: string;
+  patientId?: Id<"patients">;
+  placement: CalendarAppointmentPlacement;
+  practiceId: Id<"practices">;
+  start: string;
+  temporaryPatientName?: string;
+  temporaryPatientPhoneNumber?: string;
+  title: string;
+  userId?: Id<"users">;
+}
 
 export function buildCalendarAppointmentRequest(args: {
   appointmentTypeId: Id<"appointmentTypes"> | undefined;
@@ -46,7 +54,6 @@ export function buildCalendarAppointmentRequest(args: {
   pendingAppointmentTitle: string | undefined;
   placement: CalendarAppointmentPlacement | undefined;
   practiceId: Id<"practices"> | undefined;
-  practitionerId: Id<"practitioners"> | undefined;
   selectedDate: Temporal.PlainDate;
   slot: number;
   slotDurationMinutes: number;
@@ -130,21 +137,14 @@ export function buildCalendarAppointmentRequest(args: {
       appointmentTypeId: args.appointmentTypeId,
       isNewPatient: args.isNewPatient,
       isSimulation: args.mode === "simulation",
-      locationId: args.locationId,
       ...(args.patient?.dateOfBirth && {
         patientDateOfBirth: args.patient.dateOfBirth,
       }),
       ...(args.patient?.convexPatientId && {
         patientId: args.patient.convexPatientId,
       }),
+      placement: args.placement,
       practiceId: args.practiceId,
-      ...(args.placement.occupancyScope.kind === "resource"
-        ? {
-            calendarResourceColumn:
-              args.placement.occupancyScope.calendarResourceColumn,
-          }
-        : {}),
-      ...(args.practitionerId && { practitionerId: args.practitionerId }),
       start: startISO,
       ...(hasTemporaryPatientDraft
         ? {

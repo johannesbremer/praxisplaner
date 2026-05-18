@@ -25,6 +25,7 @@ import type {
 
 import {
   createCalendarPlacement,
+  getCalendarResourceColumnFromColumn,
   getCalendarResourceColumnFromOccupancy,
   getPractitionerLineageKeyFromOccupancy,
 } from "../../../lib/calendar-occupancy";
@@ -80,14 +81,12 @@ interface UseCalendarSimulationConversionArgs {
   practiceId: Id<"practices">;
   runCreateAppointment: (args: {
     appointmentTypeId: Id<"appointmentTypes">;
-    calendarResourceColumn?: "ekg" | "labor";
     isNewPatient?: boolean;
     isSimulation?: boolean;
-    locationId: Id<"locations">;
     patientDateOfBirth?: string;
     patientId?: Id<"patients">;
+    placement: CalendarAppointmentPlacement;
     practiceId: Id<"practices">;
-    practitionerId?: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
     start: string;
     title: string;
@@ -222,20 +221,27 @@ export function useCalendarSimulationConversion({
         getPractitionerLineageKeyFromOccupancy(
           appointmentRecord.placement.occupancyScope,
         );
+      const targetColumn = options.columnOverride ?? appointment.column;
+      const explicitCalendarResourceColumn = options.calendarResourceColumn;
+      const targetResourceColumn =
+        explicitCalendarResourceColumn === undefined
+          ? getCalendarResourceColumnFromColumn(targetColumn)
+          : (explicitCalendarResourceColumn ?? undefined);
       const practitionerId: Id<"practitioners"> | undefined =
-        options.calendarResourceColumn === undefined
+        targetResourceColumn === undefined
           ? (options.practitionerId ??
-            getPractitionerIdForColumn(appointment.column) ??
+            getPractitionerIdForColumn(targetColumn) ??
             (currentPractitionerLineageKey === undefined
               ? undefined
               : getPractitionerIdForLineageKey(currentPractitionerLineageKey)))
           : undefined;
       const calendarResourceColumn =
-        options.calendarResourceColumn === undefined
+        targetResourceColumn ??
+        (practitionerId === undefined
           ? getCalendarResourceColumnFromOccupancy(
               appointmentRecord.placement.occupancyScope,
             )
-          : (options.calendarResourceColumn ?? undefined);
+          : undefined);
 
       const contextLocationId: Id<"locations"> | undefined =
         simulatedContext.locationLineageKey === undefined
@@ -254,6 +260,11 @@ export function useCalendarSimulationConversion({
         toast.error(
           "Standort fehlt. Bitte wählen Sie einen Standort aus oder stellen Sie sicher, dass der Termin einen Standort hat.",
         );
+        return null;
+      }
+      const locationLineageKey = getLocationLineageKeyForDisplayId(locationId);
+      if (locationLineageKey === undefined) {
+        toast.error("Standort konnte nicht aufgelöst werden.");
         return null;
       }
 
@@ -275,13 +286,38 @@ export function useCalendarSimulationConversion({
       if (!appointmentTypeId) {
         return null;
       }
+      const placementOccupancyScope =
+        calendarResourceColumn === undefined
+          ? practitionerId === undefined
+            ? null
+            : (() => {
+                const practitionerLineageKey =
+                  getPractitionerLineageKeyForDisplayId(practitionerId);
+                return practitionerLineageKey === undefined
+                  ? null
+                  : {
+                      kind: "practitioner" as const,
+                      practitionerLineageKey,
+                    };
+              })()
+          : {
+              calendarResourceColumn,
+              kind: "resource" as const,
+            };
+      if (placementOccupancyScope === null) {
+        toast.error("Behandler konnte nicht aufgelöst werden.");
+        return null;
+      }
 
       const appointmentData: Parameters<typeof runCreateAppointment>[0] = {
         appointmentTypeId,
         isNewPatient: patientIsNewPatient ?? simulatedContext.patient.isNew,
         isSimulation: true,
-        locationId,
         ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+        placement: createCalendarPlacement({
+          locationLineageKey,
+          occupancyScope: placementOccupancyScope,
+        }),
         practiceId,
         replacesAppointmentId: originalAppointmentId,
         start: startISO,
@@ -294,13 +330,6 @@ export function useCalendarSimulationConversion({
 
       if (appointmentRecord.userId !== undefined) {
         appointmentData.userId = appointmentRecord.userId;
-      }
-
-      if (practitionerId !== undefined) {
-        appointmentData.practitionerId = practitionerId;
-      }
-      if (calendarResourceColumn !== undefined) {
-        appointmentData.calendarResourceColumn = calendarResourceColumn;
       }
 
       return await ResultAsync.fromPromise(

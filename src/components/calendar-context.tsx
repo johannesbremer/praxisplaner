@@ -12,6 +12,7 @@ import type {
   PracticePatientSelection,
   SchedulingSimulatedContext,
 } from "../types";
+import type { CalendarAppointmentPlacement } from "./calendar/types";
 
 import {
   type FrontendError,
@@ -80,11 +81,10 @@ export interface CalendarContextValue {
     appointmentTypeId: Id<"appointmentTypes">;
     isNewPatient?: boolean;
     isSimulation?: boolean;
-    locationId: Id<"locations">;
     patientDateOfBirth?: string;
     patientId?: Id<"patients">;
+    placement: CalendarAppointmentPlacement;
     practiceId: Id<"practices">;
-    practitionerId?: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
     start: string;
     temporaryPatientName?: string;

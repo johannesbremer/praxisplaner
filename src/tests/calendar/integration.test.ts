@@ -11,6 +11,7 @@ import {
   asPractitionerLineageKey,
   toTableId,
 } from "../../../convex/identity";
+import { calendarColumnScopeFromPractitioner } from "../../../lib/calendar-occupancy";
 import { toCalendarBlockedSlotRecord } from "../../../src/components/calendar/calendar-view-models";
 import { useCalendarInteractions } from "../../components/calendar/use-calendar-interactions";
 import { buildCalendarAppointmentRecord } from "./test-records";
@@ -35,6 +36,7 @@ const practice1 = toTableId<"practices">("practice_1");
 const practitioner1 = asPractitionerLineageKey(
   toTableId<"practitioners">("practitioner_1"),
 );
+const practitionerColumn1 = calendarColumnScopeFromPractitioner(practitioner1);
 const appointmentType1 = asAppointmentTypeLineageKey(
   toTableId<"appointmentTypes">("appointment_type_1"),
 );
@@ -54,7 +56,7 @@ function buildAppointmentLayout(args: {
   title?: string;
 }): CalendarAppointmentLayout {
   return {
-    column: practitioner1,
+    column: practitionerColumn1,
     duration: args.duration ?? 30,
     id: args.id ?? args._id,
     record: {
@@ -383,7 +385,7 @@ describe("calendar resize interactions", () => {
         baseAppointments: [],
         baseManualBlockedSlots: [
           {
-            column: practitioner1,
+            column: practitionerColumn1,
             duration: 30,
             id: "blocked_slot_1",
             isManual: true,
@@ -461,7 +463,7 @@ describe("calendar resize interactions", () => {
         baseAppointments: [],
         baseManualBlockedSlots: [
           {
-            column: practitioner1,
+            column: practitionerColumn1,
             duration: 30,
             id: "blocked_slot_1",
             isManual: true,
@@ -566,7 +568,7 @@ describe("calendar resize interactions", () => {
           baseAppointments: [],
           baseManualBlockedSlots: [
             {
-              column: practitioner1,
+              column: practitionerColumn1,
               duration: 30,
               id: "blocked_slot_1",
               isManual: true,
@@ -623,7 +625,7 @@ describe("calendar resize interactions", () => {
       baseAppointments: [],
       baseManualBlockedSlots: [
         {
-          column: practitioner1,
+          column: practitionerColumn1,
           duration: 30,
           id: "blocked_slot_sim",
           isManual: true,

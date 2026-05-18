@@ -17,6 +17,8 @@ import type {
 
 import { asPractitionerLineageKey } from "../../../convex/identity";
 import {
+  calendarColumnScopeFromPractitioner,
+  calendarColumnScopeFromResourceColumn,
   getCalendarResourceColumnFromOccupancy,
   getPractitionerLineageKeyFromOccupancy,
 } from "../../../lib/calendar-occupancy";
@@ -438,7 +440,7 @@ export function useCalendarVisibleDay({
 
     const practitionerColumns: CalendarColumn[] = working.map(
       (practitioner) => ({
-        id: practitioner.lineageKey,
+        id: calendarColumnScopeFromPractitioner(practitioner.lineageKey),
         isAppointmentTypeUnavailable: placementUnsupportedPractitionerIds.has(
           practitioner.lineageKey,
         ),
@@ -468,11 +470,11 @@ export function useCalendarVisibleDay({
     const specialColumns: CalendarColumn[] = shouldShowSpecialColumns
       ? [
           {
-            id: "ekg",
+            id: calendarColumnScopeFromResourceColumn("ekg"),
             title: "EKG",
           },
           {
-            id: "labor",
+            id: calendarColumnScopeFromResourceColumn("labor"),
             title: "Labor",
           },
         ]
