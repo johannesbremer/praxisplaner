@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { toTableId } from "../../../convex/identity";
+import { createCalendarPlacement } from "../../../lib/calendar-occupancy";
 import {
   getCurrentCalendarRecordById,
   hasCalendarOccupancyConflictInRecords,
@@ -19,6 +20,30 @@ describe("calendar conflict detection", () => {
   const practitioner1 = toTableId<"practitioners">("practitioner_1");
   const practitioner2 = toTableId<"practitioners">("practitioner_2");
 
+  const practitionerPlacement = (
+    locationLineageKey: typeof location1,
+    practitionerLineageKey: typeof practitioner1,
+  ) =>
+    createCalendarPlacement({
+      locationLineageKey,
+      occupancyScope: { kind: "practitioner", practitionerLineageKey },
+    });
+
+  const resourcePlacement = (
+    locationLineageKey: typeof location1,
+    calendarResourceColumn: "ekg" | "labor",
+  ) =>
+    createCalendarPlacement({
+      locationLineageKey,
+      occupancyScope: { calendarResourceColumn, kind: "resource" },
+    });
+
+  const locationWidePlacement = (locationLineageKey: typeof location1) =>
+    createCalendarPlacement({
+      locationLineageKey,
+      occupancyScope: { kind: "location-wide" },
+    });
+
   it("detects blocked-slot replay conflicts against appointments outside the active day cache", () => {
     expect(
       hasCalendarOccupancyConflictInRecords({
@@ -27,8 +52,7 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"appointments">("appointment_1"),
             end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            locationLineageKey: location1,
-            practitionerLineageKey: practitioner1,
+            placement: practitionerPlacement(location1, practitioner1),
             start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
           },
         ],
@@ -36,8 +60,7 @@ describe("calendar conflict detection", () => {
         candidate: {
           end: "2026-04-24T09:45:00+02:00[Europe/Berlin]",
           isSimulation: false,
-          locationLineageKey: location1,
-          practitionerLineageKey: practitioner1,
+          placement: practitionerPlacement(location1, practitioner1),
           start: "2026-04-24T09:15:00+02:00[Europe/Berlin]",
         },
         toEpochMilliseconds,
@@ -54,16 +77,14 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"blockedSlots">("blocked_slot_1"),
             end: "2026-04-25T10:00:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            locationLineageKey: location2,
-            practitionerLineageKey: practitioner2,
+            placement: practitionerPlacement(location2, practitioner2),
             start: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
           },
         ],
         candidate: {
           end: "2026-04-25T09:45:00+02:00[Europe/Berlin]",
           isSimulation: false,
-          locationLineageKey: location2,
-          practitionerLineageKey: practitioner2,
+          placement: practitionerPlacement(location2, practitioner2),
           start: "2026-04-25T09:15:00+02:00[Europe/Berlin]",
         },
         toEpochMilliseconds,
@@ -80,16 +101,14 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"blockedSlots">("blocked_slot_1"),
             end: "2026-04-25T10:00:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            locationLineageKey: location2,
-            practitionerLineageKey: practitioner2,
+            placement: practitionerPlacement(location2, practitioner2),
             start: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
           },
         ],
         candidate: {
           end: "2026-04-25T09:45:00+02:00[Europe/Berlin]",
           isSimulation: false,
-          locationLineageKey: location2,
-          practitionerLineageKey: practitioner2,
+          placement: practitionerPlacement(location2, practitioner2),
           start: "2026-04-25T09:15:00+02:00[Europe/Berlin]",
         },
         toEpochMilliseconds,
@@ -103,10 +122,9 @@ describe("calendar conflict detection", () => {
         appointments: [
           {
             _id: toTableId<"appointments">("appointment_1"),
-            calendarResourceColumn: "labor",
             end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            locationLineageKey: location1,
+            placement: resourcePlacement(location1, "labor"),
             start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
           },
         ],
@@ -114,8 +132,7 @@ describe("calendar conflict detection", () => {
         candidate: {
           end: "2026-04-24T09:45:00+02:00[Europe/Berlin]",
           isSimulation: false,
-          locationLineageKey: location1,
-          practitionerLineageKey: practitioner1,
+          placement: practitionerPlacement(location1, practitioner1),
           start: "2026-04-24T09:15:00+02:00[Europe/Berlin]",
         },
         toEpochMilliseconds,
@@ -129,19 +146,17 @@ describe("calendar conflict detection", () => {
         appointments: [
           {
             _id: toTableId<"appointments">("appointment_1"),
-            calendarResourceColumn: "labor",
             end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            locationLineageKey: location1,
+            placement: resourcePlacement(location1, "labor"),
             start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
           },
         ],
         blockedSlots: [],
         candidate: {
-          calendarResourceColumn: "labor",
           end: "2026-04-24T09:45:00+02:00[Europe/Berlin]",
           isSimulation: false,
-          locationLineageKey: location1,
+          placement: resourcePlacement(location1, "labor"),
           start: "2026-04-24T09:15:00+02:00[Europe/Berlin]",
         },
         toEpochMilliseconds,
@@ -158,7 +173,7 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"blockedSlots">("blocked_slot_1"),
             end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            locationLineageKey: location1,
+            placement: locationWidePlacement(location1),
             start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
           },
         ],
@@ -170,7 +185,7 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"blockedSlots">("blocked_slot_1"),
             end: "2026-04-24T10:00:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            locationLineageKey: location1,
+            placement: locationWidePlacement(location1),
             start: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
           },
         ],
@@ -190,8 +205,7 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"appointments">("appointment_1"),
             end: "2026-04-24T10:00:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            locationLineageKey: location1,
-            practitionerLineageKey: practitioner1,
+            placement: practitionerPlacement(location1, practitioner1),
             start: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
           },
         ],
@@ -203,8 +217,7 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"appointments">("appointment_1"),
             end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            locationLineageKey: location1,
-            practitionerLineageKey: practitioner1,
+            placement: practitionerPlacement(location1, practitioner1),
             start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
           },
         ],
@@ -224,7 +237,7 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"blockedSlots">("blocked_slot_1"),
             end: "2026-04-24T10:00:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            locationLineageKey: location1,
+            placement: locationWidePlacement(location1),
             start: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
           },
         ],
@@ -236,7 +249,7 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"blockedSlots">("blocked_slot_1"),
             end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            locationLineageKey: location1,
+            placement: locationWidePlacement(location1),
             start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
           },
         ],
@@ -258,7 +271,7 @@ describe("calendar conflict detection", () => {
               _id: toTableId<"blockedSlots">("blocked_slot_1"),
               end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
               isSimulation: false,
-              locationLineageKey: location1,
+              placement: locationWidePlacement(location1),
               start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
             },
           ],
@@ -282,8 +295,7 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"appointments">("appointment_1"),
             end: "2026-04-24T10:00:00+02:00[Europe/Berlin]",
             isSimulation: true,
-            locationLineageKey: location1,
-            practitionerLineageKey: practitioner1,
+            placement: practitionerPlacement(location1, practitioner1),
             start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
           },
         ],
@@ -291,8 +303,7 @@ describe("calendar conflict detection", () => {
         candidate: {
           end: "2026-04-24T10:00:00+02:00[Europe/Berlin]",
           isSimulation: true,
-          locationLineageKey: location1,
-          practitionerLineageKey: practitioner1,
+          placement: practitionerPlacement(location1, practitioner1),
           replacesAppointmentId: toTableId<"appointments">("appointment_1"),
           start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
         },

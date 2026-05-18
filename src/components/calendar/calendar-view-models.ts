@@ -7,14 +7,15 @@ import type {
   CalendarAppointmentRecord,
   CalendarAppointmentView,
   CalendarBlockedSlotRecord,
+  CalendarColumnScope,
 } from "./types";
-import type { CalendarColumnId } from "./types";
 
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
   asPractitionerLineageKey,
 } from "../../../convex/identity";
+import { calendarColumnScopeFromAppointmentOccupancy } from "../../../lib/calendar-occupancy";
 import { formatTime, safeParseISOToZoned } from "../../utils/time-calculations";
 import { APPOINTMENT_COLORS } from "./types";
 
@@ -99,15 +100,10 @@ export function buildCalendarAppointmentViews(args: {
 }
 
 export function getCalendarAppointmentColumn(
-  appointment: Pick<
-    CalendarAppointmentRecord,
-    "calendarResourceColumn" | "practitionerLineageKey"
-  >,
-): CalendarColumnId {
-  return (
-    appointment.practitionerLineageKey ??
-    appointment.calendarResourceColumn ??
-    "ekg"
+  appointment: Pick<CalendarAppointmentRecord, "placement">,
+): CalendarColumnScope {
+  return calendarColumnScopeFromAppointmentOccupancy(
+    appointment.placement.occupancyScope,
   );
 }
 
@@ -117,26 +113,34 @@ export function toCalendarAppointmentRecord(
   const {
     appointmentTypeId: _appointmentTypeId,
     locationId: _locationId,
+    locationLineageKey,
+    occupancyScope,
     practitionerId: _practitionerId,
-    practitionerLineageKey,
     ...record
   } = appointment;
   void _appointmentTypeId;
   void _locationId;
   void _practitionerId;
+  const locationLineageKeyValue = asLocationLineageKey(locationLineageKey);
+  const placementOccupancyScope =
+    occupancyScope.kind === "practitioner"
+      ? {
+          kind: "practitioner" as const,
+          practitionerLineageKey: asPractitionerLineageKey(
+            occupancyScope.practitionerLineageKey,
+          ),
+        }
+      : occupancyScope;
+
   return {
     ...record,
     appointmentTypeLineageKey: asAppointmentTypeLineageKey(
       record.appointmentTypeLineageKey,
     ),
-    locationLineageKey: asLocationLineageKey(record.locationLineageKey),
-    ...(practitionerLineageKey === undefined
-      ? {}
-      : {
-          practitionerLineageKey: asPractitionerLineageKey(
-            practitionerLineageKey,
-          ),
-        }),
+    placement: {
+      locationLineageKey: locationLineageKeyValue,
+      occupancyScope: placementOccupancyScope,
+    },
   };
 }
 
@@ -146,10 +150,13 @@ export function toCalendarAppointmentResult(args: {
   practitionerId?: AppointmentResult["practitionerId"];
   record: CalendarAppointmentRecord;
 }): AppointmentResult {
+  const { placement, ...record } = args.record;
   return {
-    ...args.record,
+    ...record,
     appointmentTypeId: args.appointmentTypeId,
     locationId: args.locationId,
+    locationLineageKey: placement.locationLineageKey,
+    occupancyScope: placement.occupancyScope,
     ...(args.practitionerId === undefined
       ? {}
       : { practitionerId: args.practitionerId }),
@@ -161,22 +168,27 @@ export function toCalendarBlockedSlotRecord(
 ): CalendarBlockedSlotRecord {
   const {
     locationId: _locationId,
+    locationLineageKey,
+    occupancyScope,
     practitionerId: _practitionerId,
-    practitionerLineageKey,
     ...record
   } = blockedSlot;
   void _locationId;
   void _practitionerId;
   return {
     ...record,
-    locationLineageKey: asLocationLineageKey(record.locationLineageKey),
-    ...(practitionerLineageKey === undefined
-      ? {}
-      : {
-          practitionerLineageKey: asPractitionerLineageKey(
-            practitionerLineageKey,
-          ),
-        }),
+    placement: {
+      locationLineageKey: asLocationLineageKey(locationLineageKey),
+      occupancyScope:
+        occupancyScope.kind === "practitioner"
+          ? {
+              kind: "practitioner",
+              practitionerLineageKey: asPractitionerLineageKey(
+                occupancyScope.practitionerLineageKey,
+              ),
+            }
+          : occupancyScope,
+    },
   };
 }
 
@@ -185,9 +197,12 @@ export function toCalendarBlockedSlotResult(args: {
   practitionerId?: BlockedSlotResult["practitionerId"];
   record: CalendarBlockedSlotRecord;
 }): BlockedSlotResult {
+  const { placement, ...record } = args.record;
   return {
-    ...args.record,
+    ...record,
     locationId: args.locationId,
+    locationLineageKey: placement.locationLineageKey,
+    occupancyScope: placement.occupancyScope,
     ...(args.practitionerId === undefined
       ? {}
       : { practitionerId: args.practitionerId }),

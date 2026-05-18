@@ -3,7 +3,10 @@ import type { Infer } from "convex/values";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-import { appointmentOccupancyScopeValidator } from "./appointmentOccupancy";
+import {
+  appointmentOccupancyScopeValidator,
+  blockedSlotOccupancyScopeValidator,
+} from "./appointmentOccupancy";
 import {
   beihilfeStatusValidator,
   dataSharingPersonValidator,
@@ -594,8 +597,8 @@ export default defineSchema({
     // Additional fields
     isSimulation: v.optional(v.boolean()),
     locationLineageKey: v.id("locations"),
+    occupancyScope: blockedSlotOccupancyScopeValidator,
     practiceId: v.id("practices"), // Multi-tenancy support
-    practitionerLineageKey: v.optional(v.id("practitioners")),
     replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
 
     // Metadata

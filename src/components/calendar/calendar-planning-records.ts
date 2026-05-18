@@ -1,30 +1,41 @@
 import type { Id } from "../../../convex/_generated/dataModel";
+import type {
+  AppointmentOccupancyScope,
+  BlockedSlotOccupancyScope,
+  CalendarPlacement,
+} from "../../../lib/calendar-occupancy";
 
-interface ConflictAppointmentCandidate {
-  calendarResourceColumn?: "ekg" | "labor";
+import { calendarOccupancyScopesConflict } from "../../../lib/calendar-occupancy";
+
+type ConflictAppointmentCandidate = {
   end: string;
   isSimulation?: boolean;
-  locationLineageKey: Id<"locations">;
-  practitionerLineageKey?: Id<"practitioners">;
   replacesAppointmentId?: Id<"appointments">;
   start: string;
-}
-
-interface ConflictAppointmentRecord extends ConflictAppointmentCandidate {
+} & { placement: NormalizedAppointmentPlacement };
+type ConflictAppointmentRecord = ConflictAppointmentCandidate & {
   _id: Id<"appointments">;
-}
+};
 
-interface ConflictBlockedSlotCandidate {
+type ConflictBlockedSlotCandidate = {
   end: string;
   isSimulation?: boolean;
-  locationLineageKey: Id<"locations">;
-  practitionerLineageKey?: Id<"practitioners">;
   start: string;
-}
+} & { placement: NormalizedBlockedSlotPlacement };
 
-interface ConflictBlockedSlotRecord extends ConflictBlockedSlotCandidate {
+type ConflictBlockedSlotRecord = ConflictBlockedSlotCandidate & {
   _id: Id<"blockedSlots">;
-}
+};
+
+type NormalizedAppointmentPlacement = CalendarPlacement<
+  string,
+  AppointmentOccupancyScope
+>;
+
+type NormalizedBlockedSlotPlacement = CalendarPlacement<
+  string,
+  BlockedSlotOccupancyScope
+>;
 
 export function getCurrentCalendarRecordById<T extends { _id: string }>(args: {
   activeDayMap?: ReadonlyMap<string, T>;
@@ -122,39 +133,16 @@ export function mergeCurrentConflictRecordsByIdExcluding<
   });
 }
 
-function getCalendarOccupancyScope(args: {
-  calendarResourceColumn?: "ekg" | "labor";
-  practitionerLineageKey?: Id<"practitioners">;
-}) {
-  if (args.practitionerLineageKey !== undefined) {
-    return {
-      kind: "practitioner" as const,
-      value: args.practitionerLineageKey,
-    };
-  }
-  if (args.calendarResourceColumn !== undefined) {
-    return {
-      kind: "resource" as const,
-      value: args.calendarResourceColumn,
-    };
-  }
-  return {
-    kind: "location-wide" as const,
-    value: undefined,
-  };
-}
-
 function isCalendarOccupancyConflict(args: {
   candidate: ConflictAppointmentCandidate | ConflictBlockedSlotCandidate;
   excludeId?: string;
   existing: {
     _id: string;
-    calendarResourceColumn?: "ekg" | "labor";
     end: string;
     isSimulation?: boolean;
-    locationLineageKey: Id<"locations">;
-    practitionerLineageKey?: Id<"practitioners">;
     start: string;
+  } & {
+    placement: NormalizedAppointmentPlacement | NormalizedBlockedSlotPlacement;
   };
   toEpochMilliseconds: (iso: string) => number;
 }): boolean {
@@ -173,7 +161,13 @@ function isCalendarOccupancyConflict(args: {
     return false;
   }
 
-  if (args.existing.locationLineageKey !== args.candidate.locationLineageKey) {
+  const existingPlacement = toPlacement(args.existing);
+  const candidatePlacement = toPlacement(args.candidate);
+
+  if (
+    existingPlacement.locationLineageKey !==
+    candidatePlacement.locationLineageKey
+  ) {
     return false;
   }
 
@@ -184,13 +178,11 @@ function isCalendarOccupancyConflict(args: {
     return false;
   }
 
-  const existingScope = getCalendarOccupancyScope(args.existing);
-  const candidateScope = getCalendarOccupancyScope(args.candidate);
   if (
-    existingScope.kind !== "location-wide" &&
-    candidateScope.kind !== "location-wide" &&
-    (existingScope.kind !== candidateScope.kind ||
-      existingScope.value !== candidateScope.value)
+    !calendarOccupancyScopesConflict(
+      existingPlacement.occupancyScope,
+      candidatePlacement.occupancyScope,
+    )
   ) {
     return false;
   }
@@ -198,4 +190,10 @@ function isCalendarOccupancyConflict(args: {
   const existingStart = args.toEpochMilliseconds(args.existing.start);
   const existingEnd = args.toEpochMilliseconds(args.existing.end);
   return candidateStart < existingEnd && existingStart < candidateEnd;
+}
+
+function toPlacement(args: {
+  placement: NormalizedAppointmentPlacement | NormalizedBlockedSlotPlacement;
+}): NormalizedAppointmentPlacement | NormalizedBlockedSlotPlacement {
+  return args.placement;
 }

@@ -17,6 +17,10 @@ import type {
 
 import { asPractitionerLineageKey } from "../../../convex/identity";
 import {
+  getCalendarResourceColumnFromOccupancy,
+  getPractitionerLineageKeyFromOccupancy,
+} from "../../../lib/calendar-occupancy";
+import {
   getPractitionerAvailabilityRangesForDate,
   type VacationPortion,
 } from "../../../lib/vacation-utils";
@@ -134,9 +138,15 @@ export function useCalendarVisibleDay({
 
     const appointmentsForSelectedDate = appointmentsData.filter(
       (appointment) => {
+        const practitionerLineageKey = getPractitionerLineageKeyFromOccupancy(
+          appointment.placement.occupancyScope,
+        );
+        const resourceColumn = getCalendarResourceColumnFromOccupancy(
+          appointment.placement.occupancyScope,
+        );
         if (
-          !appointment.practitionerLineageKey &&
-          appointment.calendarResourceColumn === undefined
+          practitionerLineageKey === undefined &&
+          resourceColumn === undefined
         ) {
           return false;
         }
@@ -152,7 +162,8 @@ export function useCalendarVisibleDay({
 
         return (
           effectiveLocationLineageKey === undefined ||
-          appointment.locationLineageKey === effectiveLocationLineageKey
+          appointment.placement.locationLineageKey ===
+            effectiveLocationLineageKey
         );
       },
     );
@@ -213,7 +224,11 @@ export function useCalendarVisibleDay({
     if (vacationsData) {
       const practitionersWithAppointments = new Set(
         appointmentsForSelectedDate
-          .map((appointment) => appointment.practitionerLineageKey)
+          .map((appointment) =>
+            getPractitionerLineageKeyFromOccupancy(
+              appointment.placement.occupancyScope,
+            ),
+          )
           .filter((lineageKey) => lineageKey !== undefined),
       );
 
@@ -360,9 +375,12 @@ export function useCalendarVisibleDay({
     );
     const appointmentRanges = appointmentsForSelectedDate.flatMap(
       (appointment) => {
+        const practitionerLineageKey = getPractitionerLineageKeyFromOccupancy(
+          appointment.placement.occupancyScope,
+        );
         if (
-          appointment.practitionerLineageKey === undefined ||
-          !practitionerIds.has(appointment.practitionerLineageKey)
+          practitionerLineageKey === undefined ||
+          !practitionerIds.has(practitionerLineageKey)
         ) {
           return [];
         }
@@ -497,7 +515,10 @@ function collectAppointmentRangesByPractitioner(
   >();
 
   for (const appointment of appointments) {
-    if (!appointment.practitionerLineageKey) {
+    const practitionerLineageKey = getPractitionerLineageKeyFromOccupancy(
+      appointment.placement.occupancyScope,
+    );
+    if (practitionerLineageKey === undefined) {
       continue;
     }
 
@@ -505,9 +526,9 @@ function collectAppointmentRangesByPractitioner(
     const end = Temporal.ZonedDateTime.from(appointment.end);
     const startMinutes = start.hour * 60 + start.minute;
     const endMinutes = end.hour * 60 + end.minute;
-    const existing = ranges.get(appointment.practitionerLineageKey);
+    const existing = ranges.get(practitionerLineageKey);
 
-    ranges.set(appointment.practitionerLineageKey, {
+    ranges.set(practitionerLineageKey, {
       endMinutes:
         existing === undefined
           ? endMinutes
@@ -531,11 +552,17 @@ function collectAppointmentRangesByResourceColumn(
   >();
 
   for (const appointment of appointments) {
-    if (appointment.practitionerLineageKey) {
+    if (
+      getPractitionerLineageKeyFromOccupancy(
+        appointment.placement.occupancyScope,
+      ) !== undefined
+    ) {
       continue;
     }
 
-    const resourceColumn = appointment.calendarResourceColumn;
+    const resourceColumn = getCalendarResourceColumnFromOccupancy(
+      appointment.placement.occupancyScope,
+    );
     if (resourceColumn === undefined) {
       continue;
     }

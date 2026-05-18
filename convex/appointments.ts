@@ -19,16 +19,18 @@ import {
 } from "./appointmentConflicts";
 import {
   appointmentOccupancyScopeFromRefs,
+  appointmentOccupancyScopeValidator,
+  blockedSlotOccupancyScopeValidator,
   calendarResourceColumnValidator,
   getAppointmentCalendarResourceColumn,
   getAppointmentPractitionerLineageKey,
+  getBlockedSlotPractitionerLineageKey,
 } from "./appointmentOccupancy";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveAppointmentTypeLineageKey,
   resolveLocationIdForRuleSetByLineage,
   resolveLocationLineageKey,
-  resolveOccupancyReferenceLineageKeys,
   resolvePractitionerIdForRuleSetByLineage,
   resolvePractitionerLineageKey,
   resolveStoredAppointmentReferencesForWrite,
@@ -122,7 +124,6 @@ const appointmentResultValidator = v.object({
   appointmentTypeLineageKey: v.id("appointmentTypes"),
   appointmentTypeTitle: v.string(),
   bookingIdentityId: v.optional(v.id("bookingIdentities")),
-  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
   cancelledByPhoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
   createdAt: v.int64(),
   end: v.string(),
@@ -130,11 +131,11 @@ const appointmentResultValidator = v.object({
   lastModified: v.int64(),
   locationId: v.id("locations"),
   locationLineageKey: v.id("locations"),
+  occupancyScope: appointmentOccupancyScopeValidator,
   patientId: v.optional(v.id("patients")),
   phoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
   practiceId: v.id("practices"),
   practitionerId: v.optional(v.id("practitioners")),
-  practitionerLineageKey: v.optional(v.id("practitioners")),
   reassignmentSourceVacationLineageKey: v.optional(v.id("vacations")),
   replacesAppointmentId: v.optional(v.id("appointments")),
   seriesId: v.optional(v.string()),
@@ -157,13 +158,23 @@ const blockedSlotListItemValidator = v.object({
   lastModified: v.int64(),
   locationId: v.id("locations"),
   locationLineageKey: v.id("locations"),
+  occupancyScope: blockedSlotOccupancyScopeValidator,
   practiceId: v.id("practices"),
   practitionerId: v.optional(v.id("practitioners")),
-  practitionerLineageKey: v.optional(v.id("practitioners")),
   replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
   start: v.string(),
   title: v.string(),
 });
+
+const blockedSlotMutationOccupancyScopeValidator = v.union(
+  v.object({
+    kind: v.literal("location-wide"),
+  }),
+  v.object({
+    kind: v.literal("practitioner"),
+    practitionerId: v.id("practitioners"),
+  }),
+);
 
 const calendarDayQueryArgsValidator = {
   activeRuleSetId: v.optional(v.id("ruleSets")),
@@ -416,6 +427,9 @@ async function mapBlockedSlotForDisplay(
   targetRuleSetId?: Id<"ruleSets">,
 ): Promise<BlockedSlotListItem | null> {
   try {
+    const practitionerLineageKey = getBlockedSlotPractitionerLineageKey(
+      blockedSlot.occupancyScope,
+    );
     return {
       _creationTime: blockedSlot._creationTime,
       _id: blockedSlot._id,
@@ -434,20 +448,18 @@ async function mapBlockedSlotForDisplay(
               targetRuleSetId,
             ),
       locationLineageKey: blockedSlot.locationLineageKey,
+      occupancyScope: blockedSlot.occupancyScope,
       practiceId: blockedSlot.practiceId,
-      ...(blockedSlot.practitionerLineageKey
+      ...(practitionerLineageKey
         ? {
             practitionerId:
               targetRuleSetId === undefined
-                ? blockedSlot.practitionerLineageKey
+                ? practitionerLineageKey
                 : await resolvePractitionerIdForDisplayRuleSet(
                     db,
-                    asPractitionerLineageKey(
-                      blockedSlot.practitionerLineageKey,
-                    ),
+                    asPractitionerLineageKey(practitionerLineageKey),
                     targetRuleSetId,
                   ),
-            practitionerLineageKey: blockedSlot.practitionerLineageKey,
           }
         : {}),
       ...(blockedSlot.replacesBlockedSlotId === undefined
@@ -944,9 +956,6 @@ function toAppointmentListItem(
   appointment: AppointmentDoc,
 ): AppointmentListItem {
   const timeRange = asTypedDateTimeRange(appointment);
-  const calendarResourceColumn = getAppointmentCalendarResourceColumn(
-    appointment.occupancyScope,
-  );
   const practitionerLineageKey = getAppointmentPractitionerLineageKey(
     appointment.occupancyScope,
   );
@@ -961,11 +970,11 @@ function toAppointmentListItem(
     lastModified: appointment.lastModified,
     locationId: appointment.locationLineageKey,
     locationLineageKey: appointment.locationLineageKey,
+    occupancyScope: appointment.occupancyScope,
     practiceId: appointment.practiceId,
     ...(appointment.cancelledAt === undefined
       ? {}
       : { cancelledAt: appointment.cancelledAt }),
-    ...(calendarResourceColumn === undefined ? {} : { calendarResourceColumn }),
     ...(appointment.isSimulation === undefined
       ? {}
       : { isSimulation: appointment.isSimulation }),
@@ -975,7 +984,6 @@ function toAppointmentListItem(
     ...(practitionerLineageKey
       ? {
           practitionerId: practitionerLineageKey,
-          practitionerLineageKey,
         }
       : {}),
     ...(appointment.reassignmentSourceVacationLineageKey === undefined
@@ -2738,8 +2746,8 @@ export const createBlockedSlot = mutation({
     end: v.string(),
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
+    occupancyScope: blockedSlotMutationOccupancyScopeValidator,
     practiceId: v.id("practices"),
-    practitionerId: v.optional(v.id("practitioners")),
     replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
     start: v.string(),
     title: v.string(),
@@ -2755,19 +2763,28 @@ export const createBlockedSlot = mutation({
       );
     }
 
-    const references = await resolveOccupancyReferenceLineageKeys(ctx.db, {
-      locationId: asLocationId(rest.locationId),
-      ...(rest.practitionerId
-        ? { practitionerId: asPractitionerId(rest.practitionerId) }
-        : {}),
-    });
+    const locationLineageKey = await resolveLocationLineageKey(
+      ctx.db,
+      asLocationId(rest.locationId),
+    );
+    const occupancyScope =
+      rest.occupancyScope.kind === "location-wide"
+        ? { kind: "location-wide" as const }
+        : {
+            kind: "practitioner" as const,
+            practitionerLineageKey: await resolvePractitionerLineageKey(
+              ctx.db,
+              asPractitionerId(rest.occupancyScope.practitionerId),
+            ),
+          };
 
     const id = await ctx.db.insert("blockedSlots", {
       createdAt: BigInt(Date.now()),
+      end: rest.end,
       isSimulation: isSimulation ?? false,
       lastModified: BigInt(Date.now()),
-      ...references,
-      end: rest.end,
+      locationLineageKey,
+      occupancyScope,
       practiceId: rest.practiceId,
       start: rest.start,
       title: rest.title,
@@ -2786,14 +2803,14 @@ export const updateBlockedSlot = mutation({
     id: v.id("blockedSlots"),
     isSimulation: v.optional(v.boolean()),
     locationId: v.optional(v.id("locations")),
-    practitionerId: v.optional(v.id("practitioners")),
+    occupancyScope: v.optional(blockedSlotMutationOccupancyScopeValidator),
     replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
     start: v.optional(v.string()),
     title: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const { id, locationId, practitionerId, ...updates } = args;
+    const { id, locationId, occupancyScope, ...updates } = args;
     const existingBlockedSlot = await ctx.db.get("blockedSlots", id);
     if (!existingBlockedSlot) {
       throw new Error("Blocked slot not found");
@@ -2801,7 +2818,7 @@ export const updateBlockedSlot = mutation({
     await ensurePracticeAccessForMutation(ctx, existingBlockedSlot.practiceId);
 
     const updatedReferences =
-      locationId !== undefined || practitionerId !== undefined
+      locationId !== undefined || occupancyScope !== undefined
         ? {
             locationLineageKey:
               locationId === undefined
@@ -2810,19 +2827,19 @@ export const updateBlockedSlot = mutation({
                     ctx.db,
                     asLocationId(locationId),
                   ),
-            ...(practitionerId === undefined
-              ? existingBlockedSlot.practitionerLineageKey === undefined
-                ? {}
-                : {
-                    practitionerLineageKey:
-                      existingBlockedSlot.practitionerLineageKey,
-                  }
-              : {
-                  practitionerLineageKey: await resolvePractitionerLineageKey(
-                    ctx.db,
-                    asPractitionerId(practitionerId),
-                  ),
-                }),
+            occupancyScope:
+              occupancyScope === undefined
+                ? existingBlockedSlot.occupancyScope
+                : occupancyScope.kind === "location-wide"
+                  ? { kind: "location-wide" as const }
+                  : {
+                      kind: "practitioner" as const,
+                      practitionerLineageKey:
+                        await resolvePractitionerLineageKey(
+                          ctx.db,
+                          asPractitionerId(occupancyScope.practitionerId),
+                        ),
+                    },
           }
         : undefined;
 

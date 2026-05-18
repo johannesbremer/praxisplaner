@@ -21,7 +21,7 @@ const bookingStepReplayPath = join(
   reportRoot,
   "legacy-booking-step-replay.source.jsonl",
 );
-const associationChunkSize = 200;
+const associationChunkSize = 25;
 const identityChunkSize = 500;
 const replayChunkSize = 20;
 const userChunkSize = 2_000;
@@ -98,11 +98,31 @@ function numberResult(result, key) {
 }
 
 async function runMigrationMutation(client, functionReference, args) {
-  const result = await client.mutation(functionReference, args);
-  if (result === null || typeof result !== "object" || Array.isArray(result)) {
-    throw new Error("Expected migration mutation to return an object.");
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    try {
+      const result = await client.mutation(functionReference, args);
+      if (
+        result === null ||
+        typeof result !== "object" ||
+        Array.isArray(result)
+      ) {
+        throw new Error("Expected migration mutation to return an object.");
+      }
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isTooManyWrites = message.includes('"code":"TooManyWrites"');
+      if (!isTooManyWrites || attempt === 8) {
+        throw error;
+      }
+      const backoffMs = attempt * 500;
+      console.warn(
+        `TooManyWrites from ${String(functionReference)}; retrying in ${backoffMs}ms (attempt ${attempt}/8).`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
   }
-  return result;
+  throw new Error("Migration mutation retry loop exhausted unexpectedly.");
 }
 
 function pushFunctions() {

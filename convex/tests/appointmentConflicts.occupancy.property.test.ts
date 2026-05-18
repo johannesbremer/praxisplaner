@@ -157,8 +157,11 @@ describe("appointment conflict occupancy properties", () => {
                 end: window.end,
                 lastModified: now,
                 locationLineageKey: blockedSlotFixture.locationId,
+                occupancyScope: {
+                  kind: "practitioner",
+                  practitionerLineageKey: blockedSlotFixture.practitionerId,
+                },
                 practiceId: blockedSlotFixture.practiceId,
-                practitionerLineageKey: blockedSlotFixture.practitionerId,
                 start: window.start,
                 title: "Property block",
               });

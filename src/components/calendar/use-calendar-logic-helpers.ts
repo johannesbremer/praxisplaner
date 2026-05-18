@@ -6,6 +6,10 @@ import { Temporal } from "temporal-polyfill";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { CalendarAppointmentRecord, CalendarColumnId } from "./types";
 
+import {
+  getAppointmentPractitionerLineageKey,
+  getBlockedSlotPractitionerLineageKey,
+} from "../../../convex/appointmentOccupancy";
 import { invalidStateError } from "../../utils/frontend-errors";
 
 export const TIMEZONE = "Europe/Berlin";
@@ -20,8 +24,12 @@ export interface BlockedSlotConversionOptions {
 
 export interface CalendarBlockedSlotRecord {
   end: string;
-  locationLineageKey: Id<"locations">;
-  practitionerLineageKey?: Id<"practitioners">;
+  placement: {
+    locationLineageKey: Id<"locations">;
+    occupancyScope:
+      | { kind: "location-wide" }
+      | { kind: "practitioner"; practitionerLineageKey: Id<"practitioners"> };
+  };
   start: string;
 }
 
@@ -79,18 +87,20 @@ export function collectDeletedPractitionerCalendarRanges(args: {
   };
 
   for (const appointment of args.appointments) {
+    const practitionerLineageKey = getAppointmentPractitionerLineageKey(
+      appointment.placement.occupancyScope,
+    );
     if (
-      !appointment.practitionerLineageKey ||
-      !args.deletedPractitionerLineageKeys.has(
-        appointment.practitionerLineageKey,
-      )
+      !practitionerLineageKey ||
+      !args.deletedPractitionerLineageKeys.has(practitionerLineageKey)
     ) {
       continue;
     }
 
     if (
       args.effectiveLocationLineageKey !== undefined &&
-      appointment.locationLineageKey !== args.effectiveLocationLineageKey
+      appointment.placement.locationLineageKey !==
+        args.effectiveLocationLineageKey
     ) {
       continue;
     }
@@ -104,7 +114,7 @@ export function collectDeletedPractitionerCalendarRanges(args: {
 
     const end = Temporal.ZonedDateTime.from(appointment.end);
     addRange(
-      appointment.practitionerLineageKey,
+      practitionerLineageKey,
       start.hour * 60 + start.minute,
       end.hour * 60 + end.minute,
     );
@@ -115,11 +125,12 @@ export function collectDeletedPractitionerCalendarRanges(args: {
     args.selectedDate,
     args.effectiveLocationLineageKey,
   )) {
+    const practitionerLineageKey = getBlockedSlotPractitionerLineageKey(
+      blockedSlot.placement.occupancyScope,
+    );
     if (
-      !blockedSlot.practitionerLineageKey ||
-      !args.deletedPractitionerLineageKeys.has(
-        blockedSlot.practitionerLineageKey,
-      )
+      !practitionerLineageKey ||
+      !args.deletedPractitionerLineageKeys.has(practitionerLineageKey)
     ) {
       continue;
     }
@@ -127,7 +138,7 @@ export function collectDeletedPractitionerCalendarRanges(args: {
     const start = Temporal.ZonedDateTime.from(blockedSlot.start).toPlainTime();
     const end = Temporal.ZonedDateTime.from(blockedSlot.end).toPlainTime();
     addRange(
-      blockedSlot.practitionerLineageKey,
+      practitionerLineageKey,
       start.hour * 60 + start.minute,
       end.hour * 60 + end.minute,
     );
@@ -163,7 +174,7 @@ export function filterBlockedSlotsForDateAndLocation<
 
     if (
       effectiveLocationLineageKey !== undefined &&
-      blockedSlot.locationLineageKey !== effectiveLocationLineageKey
+      blockedSlot.placement.locationLineageKey !== effectiveLocationLineageKey
     ) {
       return false;
     }

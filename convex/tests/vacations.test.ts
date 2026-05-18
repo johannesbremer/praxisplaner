@@ -1180,7 +1180,12 @@ describe("vacations", () => {
     expect(
       simulatedAppointments.find(
         (candidate) => candidate.replacesAppointmentId === appointmentId,
-      )?.practitionerLineageKey,
+      ) &&
+        appointmentPractitionerLineageKey(
+          simulatedAppointments.find(
+            (candidate) => candidate.replacesAppointmentId === appointmentId,
+          ),
+        ),
     ).toBe(fixture.preferredPractitionerId);
   });
 
@@ -1246,7 +1251,12 @@ describe("vacations", () => {
     expect(
       simulatedAppointments.find(
         (candidate) => candidate.replacesAppointmentId === appointmentId,
-      )?.practitionerLineageKey,
+      ) &&
+        appointmentPractitionerLineageKey(
+          simulatedAppointments.find(
+            (candidate) => candidate.replacesAppointmentId === appointmentId,
+          ),
+        ),
     ).toBe(fixture.preferredPractitionerId);
   });
 
@@ -1349,7 +1359,12 @@ describe("vacations", () => {
     expect(
       simulatedAppointments.find(
         (candidate) => candidate.replacesAppointmentId === appointmentId,
-      )?.practitionerLineageKey,
+      ) &&
+        appointmentPractitionerLineageKey(
+          simulatedAppointments.find(
+            (candidate) => candidate.replacesAppointmentId === appointmentId,
+          ),
+        ),
     ).toBe(selectedTargetPractitioner.lineageKey);
   });
 
@@ -1508,7 +1523,12 @@ describe("vacations", () => {
     expect(
       simulatedAppointments.find(
         (candidate) => candidate.replacesAppointmentId === appointmentId,
-      )?.practitionerLineageKey,
+      ) &&
+        appointmentPractitionerLineageKey(
+          simulatedAppointments.find(
+            (candidate) => candidate.replacesAppointmentId === appointmentId,
+          ),
+        ),
     ).toBe(fixture.preferredPractitionerId);
     expect(vacations).toHaveLength(1);
     expect(vacations[0]?.portion).toBe("morning");

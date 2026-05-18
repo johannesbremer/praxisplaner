@@ -13,6 +13,7 @@ import {
 } from "../../../convex/identity";
 import { CalendarGrid } from "../../../src/components/calendar/calendar-grid";
 import { assertElement } from "../test-utils";
+import { buildCalendarAppointmentRecord } from "./test-records";
 
 describe("CalendarGrid", () => {
   const doctorHeaderRegex = regex.as(String.raw`Dr\.`);
@@ -41,20 +42,16 @@ describe("CalendarGrid", () => {
       column: args.column,
       duration: args.duration,
       id: args.id,
-      record: {
-        _creationTime: 0,
+      record: buildCalendarAppointmentRecord({
         _id: toTableId<"appointments">(args.id),
         appointmentTypeLineageKey: appointmentType1,
-        appointmentTypeTitle: "Checkup",
-        createdAt: 0n,
         end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
-        lastModified: 0n,
         locationLineageKey: location1,
         practiceId: practice1,
         practitionerLineageKey: args.column,
         start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
         title: args.title,
-      },
+      }),
       startTime: args.startTime,
     },
   });

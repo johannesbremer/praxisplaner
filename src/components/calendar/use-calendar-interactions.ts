@@ -13,6 +13,7 @@ import type {
 } from "./types";
 import type { SimulatedBlockedSlotConversionResult } from "./use-calendar-logic-helpers";
 
+import { getPractitionerLineageKeyFromOccupancy } from "../../../lib/calendar-occupancy";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import { SLOT_DURATION } from "./types";
 import { TIMEZONE } from "./use-calendar-logic-helpers";
@@ -518,7 +519,9 @@ export function useCalendarInteractions({
               );
               const column =
                 manualBlockedSlot?.column ??
-                blockedSlotDoc.practitionerLineageKey ??
+                getPractitionerLineageKeyFromOccupancy(
+                  blockedSlotDoc.placement.occupancyScope,
+                ) ??
                 "ekg";
               startResizing({
                 column,

@@ -2,6 +2,10 @@ import { useEffect, useRef } from "react";
 
 import type { CalendarAppointmentLayout, CalendarColumnId } from "./types";
 
+import {
+  calendarColumnScopeKey,
+  sameCalendarColumnScope,
+} from "../../../lib/calendar-occupancy";
 import { emitCalendarEvent } from "../../devtools/event-client";
 
 export interface CalendarAppointmentSnapshot {
@@ -39,7 +43,7 @@ export function diffCalendarAppointments(
         previous !== undefined &&
         (previous.startTime !== appointment.startTime ||
           previous.duration !== appointment.duration ||
-          previous.column !== appointment.column)
+          !sameCalendarColumnScope(previous.column, appointment.column))
       );
     })
     .map((appointment) => appointment.id);
@@ -121,7 +125,10 @@ export function useCalendarDevtools(args: {
 
     if (args.draggedAppointment) {
       emitCalendarEvent("custom-devtools:calendar-drag", {
-        column: args.dragPreview.column ?? "",
+        column:
+          args.dragPreview.column === null
+            ? ""
+            : calendarColumnScopeKey(args.dragPreview.column),
         dragging: true,
         slotIndex: args.dragPreview.slot,
       });

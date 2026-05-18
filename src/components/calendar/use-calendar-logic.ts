@@ -14,6 +14,12 @@ import {
   asLocationLineageKey,
   asPractitionerLineageKey,
 } from "../../../convex/identity";
+import {
+  calendarColumnScopeKey,
+  createCalendarPlacement,
+  getCalendarResourceColumnFromColumn,
+  getPractitionerLineageKeyFromColumn,
+} from "../../../lib/calendar-occupancy";
 import { createSimulatedContext } from "../../../lib/utils";
 import { findIdInList } from "../../utils/convex-ids";
 import { captureErrorGlobal } from "../../utils/error-tracking";
@@ -29,6 +35,7 @@ import {
 } from "./calendar-view-models";
 import {
   type CalendarAppointmentLayout,
+  type CalendarAppointmentPlacement,
   type CalendarColumnId,
   type NewCalendarProps,
   SLOT_DURATION,
@@ -353,9 +360,13 @@ export function useCalendarLogic({
 
   const getPractitionerIdForColumn = useCallback(
     (column: CalendarColumnId): Id<"practitioners"> | undefined =>
-      typeof column === "string" && (column === "ekg" || column === "labor")
-        ? undefined
-        : getPractitionerIdForLineageKey(column),
+      (() => {
+        const practitionerLineageKey =
+          getPractitionerLineageKeyFromColumn(column);
+        return practitionerLineageKey === undefined
+          ? undefined
+          : getPractitionerIdForLineageKey(practitionerLineageKey);
+      })(),
     [getPractitionerIdForLineageKey],
   );
 
@@ -654,7 +665,7 @@ export function useCalendarLogic({
 
     const uniqueSlots = new Map<string, (typeof combined)[0]>();
     for (const slot of combined) {
-      const key = `${slot.column}-${slot.slot}`;
+      const key = `${calendarColumnScopeKey(slot.column)}-${slot.slot}`;
       const existing = uniqueSlots.get(key);
       const existingIsManual =
         existing && "isManual" in existing ? existing.isManual : false;
@@ -883,17 +894,15 @@ export function useCalendarLogic({
             await planningCommands.updateBlockedSlot({
               end: endZoned.toString(),
               id: blockedSlotDoc._id,
-              ...(newPractitionerId && { practitionerId: newPractitionerId }),
+              occupancyScope:
+                newPractitionerId === undefined
+                  ? { kind: "location-wide" }
+                  : { kind: "practitioner", practitionerId: newPractitionerId },
               start: startZoned.toString(),
             });
           } else {
             const blockedSlotDisplayRefs =
-              resolveBlockedSlotReferenceDisplayIds({
-                locationLineageKey: blockedSlotDoc.locationLineageKey,
-                ...(blockedSlotDoc.practitionerLineageKey && {
-                  practitionerLineageKey: blockedSlotDoc.practitionerLineageKey,
-                }),
-              });
+              resolveBlockedSlotReferenceDisplayIds(blockedSlotDoc);
             if (!blockedSlotDisplayRefs) {
               toast.error(
                 "Gesperrter Zeitraum konnte in der Simulation nicht aktualisiert werden.",
@@ -925,7 +934,10 @@ export function useCalendarLogic({
           await planningCommands.updateBlockedSlot({
             end: endZoned.toString(),
             id: blockedSlotDoc._id,
-            ...(newPractitionerId && { practitionerId: newPractitionerId }),
+            occupancyScope:
+              newPractitionerId === undefined
+                ? { kind: "location-wide" }
+                : { kind: "practitioner", practitionerId: newPractitionerId },
             start: startZoned.toString(),
           });
         }
@@ -1105,11 +1117,35 @@ export function useCalendarLogic({
       return;
     }
 
-    let resourceColumn: "ekg" | "labor" | undefined;
-    if (column === "ekg") {
-      resourceColumn = "ekg";
-    } else if (column === "labor") {
-      resourceColumn = "labor";
+    const locationLineageKey =
+      simulatedContext?.locationLineageKey ??
+      (selectedLocationId
+        ? getLocationLineageKeyForDisplayId(selectedLocationId)
+        : undefined);
+    const resourceColumn = getCalendarResourceColumnFromColumn(column);
+    const requestPlacement: CalendarAppointmentPlacement | undefined =
+      locationLineageKey === undefined
+        ? undefined
+        : practitioner === undefined
+          ? resourceColumn === undefined
+            ? undefined
+            : createCalendarPlacement({
+                locationLineageKey,
+                occupancyScope: {
+                  calendarResourceColumn: resourceColumn,
+                  kind: "resource",
+                },
+              })
+          : createCalendarPlacement({
+              locationLineageKey,
+              occupancyScope: {
+                kind: "practitioner",
+                practitionerLineageKey: practitioner.lineageKey,
+              },
+            });
+    if (requestPlacement === undefined && locationLineageKey !== undefined) {
+      toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
+      return;
     }
 
     const requestArgs: Parameters<typeof buildCalendarAppointmentRequest>[0] = {
@@ -1124,27 +1160,19 @@ export function useCalendarLogic({
         simulatedContext?.locationLineageKey === undefined
           ? selectedLocationId
           : getLocationIdForLineageKey(simulatedContext.locationLineageKey),
-      locationLineageKey:
-        simulatedContext?.locationLineageKey ??
-        (selectedLocationId
-          ? getLocationLineageKeyForDisplayId(selectedLocationId)
-          : undefined),
       mode,
       patient,
       pendingAppointmentTitle,
+      placement: requestPlacement,
       practiceId,
       practitionerId:
         practitioner === undefined
           ? undefined
           : getPractitionerIdForLineageKey(practitioner.lineageKey),
-      practitionerLineageKey: practitioner?.lineageKey,
       selectedDate,
       slot,
       slotDurationMinutes: SLOT_DURATION,
     };
-    if (resourceColumn !== undefined) {
-      requestArgs.calendarResourceColumn = resourceColumn;
-    }
 
     const requestResult = buildCalendarAppointmentRequest(requestArgs);
 
@@ -1159,24 +1187,9 @@ export function useCalendarLogic({
           appointmentTypeLineageKey: asAppointmentTypeLineageKey(
             requestResult.requestContext.appointmentTypeLineageKey,
           ),
-          ...(requestResult.requestContext.calendarResourceColumn === undefined
-            ? {}
-            : {
-                calendarResourceColumn:
-                  requestResult.requestContext.calendarResourceColumn,
-              }),
           isSimulation: requestResult.requestContext.isSimulation,
-          locationLineageKey: asLocationLineageKey(
-            requestResult.requestContext.locationLineageKey,
-          ),
+          placement: requestResult.requestContext.placement,
           practiceId: requestResult.requestContext.practiceId,
-          ...(requestResult.requestContext.practitionerLineageKey === undefined
-            ? {}
-            : {
-                practitionerLineageKey: asPractitionerLineageKey(
-                  requestResult.requestContext.practitionerLineageKey,
-                ),
-              }),
           start: requestResult.requestContext.start,
           title: requestResult.requestContext.title,
         });

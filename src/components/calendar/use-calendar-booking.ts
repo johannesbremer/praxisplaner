@@ -4,6 +4,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { PatientInfo } from "../../types";
+import type { CalendarAppointmentPlacement } from "./types";
 
 import { api } from "../../../convex/_generated/api";
 import { TIMEZONE } from "./use-calendar-logic-helpers";
@@ -17,11 +18,9 @@ export type CalendarAppointmentCreateResult =
       kind: "missing-patient";
       requestContext: {
         appointmentTypeLineageKey: Id<"appointmentTypes">;
-        calendarResourceColumn?: "ekg" | "labor";
         isSimulation: boolean;
-        locationLineageKey: Id<"locations">;
+        placement: CalendarAppointmentPlacement;
         practiceId: Id<"practices">;
-        practitionerLineageKey?: Id<"practitioners">;
         start: string;
         title: string;
       };
@@ -40,16 +39,14 @@ export function buildCalendarAppointmentRequest(args: {
   appointmentTypeLineageKey: Id<"appointmentTypes"> | undefined;
   appointmentTypeName: string | undefined;
   businessStartHour: number;
-  calendarResourceColumn?: "ekg" | "labor";
   isNewPatient: boolean;
   locationId: Id<"locations"> | undefined;
-  locationLineageKey: Id<"locations"> | undefined;
   mode: "real" | "simulation";
   patient: PatientInfo | undefined;
   pendingAppointmentTitle: string | undefined;
+  placement: CalendarAppointmentPlacement | undefined;
   practiceId: Id<"practices"> | undefined;
   practitionerId: Id<"practitioners"> | undefined;
-  practitionerLineageKey: Id<"practitioners"> | undefined;
   selectedDate: Temporal.PlainDate;
   slot: number;
   slotDurationMinutes: number;
@@ -65,7 +62,7 @@ export function buildCalendarAppointmentRequest(args: {
     };
   }
 
-  if (!args.locationId || !args.locationLineageKey) {
+  if (!args.locationId || !args.placement) {
     return {
       kind: "error",
       message: "Bitte wählen Sie zuerst einen Standort aus.",
@@ -118,15 +115,9 @@ export function buildCalendarAppointmentRequest(args: {
       kind: "missing-patient",
       requestContext: {
         appointmentTypeLineageKey: args.appointmentTypeLineageKey,
-        ...(args.calendarResourceColumn === undefined
-          ? {}
-          : { calendarResourceColumn: args.calendarResourceColumn }),
         isSimulation: args.mode === "simulation",
-        locationLineageKey: args.locationLineageKey,
+        placement: args.placement,
         practiceId: args.practiceId,
-        ...(args.practitionerLineageKey && {
-          practitionerLineageKey: args.practitionerLineageKey,
-        }),
         start: startISO,
         title,
       },
@@ -147,9 +138,12 @@ export function buildCalendarAppointmentRequest(args: {
         patientId: args.patient.convexPatientId,
       }),
       practiceId: args.practiceId,
-      ...(args.calendarResourceColumn === undefined
-        ? {}
-        : { calendarResourceColumn: args.calendarResourceColumn }),
+      ...(args.placement.occupancyScope.kind === "resource"
+        ? {
+            calendarResourceColumn:
+              args.placement.occupancyScope.calendarResourceColumn,
+          }
+        : {}),
       ...(args.practitionerId && { practitionerId: args.practitionerId }),
       start: startISO,
       ...(hasTemporaryPatientDraft

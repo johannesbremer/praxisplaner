@@ -15,7 +15,10 @@ import {
   getEffectiveAppointmentsForOccupancyView,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
-import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
+import {
+  getAppointmentPractitionerLineageKey,
+  getBlockedSlotPractitionerLineageKey,
+} from "./appointmentOccupancy";
 import {
   asLocationId,
   asLocationLineageKey,
@@ -497,9 +500,11 @@ export function slotOverlapsBlockedSlot(
   ).toInstant();
   const blockedEnd = Temporal.ZonedDateTime.from(blockedSlot.end).toInstant();
 
+  const blockedSlotPractitionerLineageKey =
+    getBlockedSlotPractitionerLineageKey(blockedSlot.occupancyScope);
   if (
-    blockedSlot.practitionerLineageKey &&
-    blockedSlot.practitionerLineageKey !== slot.practitionerLineageKey
+    blockedSlotPractitionerLineageKey &&
+    blockedSlotPractitionerLineageKey !== slot.practitionerLineageKey
   ) {
     return false;
   }

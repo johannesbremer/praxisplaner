@@ -9,6 +9,8 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { CalendarOccupancyScope } from "./appointmentOccupancy";
 import type { LocationLineageKey } from "./identity";
 
+import { calendarOccupancyScopesConflict } from "../lib/calendar-occupancy";
+
 export type AppointmentBookingScope = "real" | "simulation";
 
 export interface AppointmentConflictCandidate {
@@ -181,13 +183,7 @@ function findFirstCalendarOccupancyConflict(args: {
         {
           end: blockedSlot.end,
           locationKey: blockedSlot.locationLineageKey,
-          occupancyScope:
-            blockedSlot.practitionerLineageKey === undefined
-              ? { kind: "location-wide" }
-              : {
-                  kind: "practitioner",
-                  practitionerLineageKey: blockedSlot.practitionerLineageKey,
-                },
+          occupancyScope: blockedSlot.occupancyScope,
           start: blockedSlot.start,
         },
         args.candidate,
@@ -251,20 +247,6 @@ function getEffectiveBlockedSlotsForOccupancyView(
   );
 }
 
-function normalizeOccupancyScope(scope: CalendarOccupancyScope) {
-  switch (scope.kind) {
-    case "location-wide": {
-      return { kind: scope.kind, value: undefined };
-    }
-    case "practitioner": {
-      return { kind: scope.kind, value: scope.practitionerLineageKey };
-    }
-    case "resource": {
-      return { kind: scope.kind, value: scope.calendarResourceColumn };
-    }
-  }
-}
-
 function overlapsCalendarOccupancyCandidate(
   existing: {
     end: string;
@@ -278,13 +260,11 @@ function overlapsCalendarOccupancyCandidate(
     return false;
   }
 
-  const existingScope = normalizeOccupancyScope(existing.occupancyScope);
-  const candidateScope = normalizeOccupancyScope(candidate.occupancyScope);
   if (
-    existingScope.kind !== "location-wide" &&
-    candidateScope.kind !== "location-wide" &&
-    (existingScope.kind !== candidateScope.kind ||
-      existingScope.value !== candidateScope.value)
+    !calendarOccupancyScopesConflict(
+      existing.occupancyScope,
+      candidate.occupancyScope,
+    )
   ) {
     return false;
   }

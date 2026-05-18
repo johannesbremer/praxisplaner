@@ -262,17 +262,19 @@ async function insertBlockedSlotRecord(
         lineageKey: location.lineageKey,
         ruleSetId: location.ruleSetId,
       }),
+      occupancyScope:
+        practitioner === null
+          ? { kind: "location-wide" }
+          : {
+              kind: "practitioner",
+              practitionerLineageKey: requireLineageKey({
+                entityId: practitioner._id,
+                entityType: "practitioner",
+                lineageKey: practitioner.lineageKey,
+                ruleSetId: practitioner.ruleSetId,
+              }),
+            },
       practiceId: args.practiceId,
-      ...(practitioner
-        ? {
-            practitionerLineageKey: requireLineageKey({
-              entityId: practitioner._id,
-              entityType: "practitioner",
-              lineageKey: practitioner.lineageKey,
-              ruleSetId: practitioner.ruleSetId,
-            }),
-          }
-        : {}),
       ...(args.replacesBlockedSlotId === undefined
         ? {}
         : { replacesBlockedSlotId: args.replacesBlockedSlotId }),
@@ -1463,7 +1465,10 @@ describe("appointments update safety", () => {
       expect(updated?.start).toBe(movedWindow.start);
       expect(updated?.end).toBe(movedWindow.end);
       expect(updated?.locationLineageKey).toBe(baseData.locationId);
-      expect(updated?.practitionerLineageKey).toBe(baseData.practitionerId);
+      expect(updated?.occupancyScope).toEqual({
+        kind: "practitioner",
+        practitionerLineageKey: baseData.practitionerId,
+      });
     });
   });
 
@@ -2547,8 +2552,11 @@ describe("appointments update safety", () => {
         end: realWindow.end,
         lastModified: now,
         locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: baseData.practitionerId,
         start: realWindow.start,
         title: "Real blocked slot",
       });
@@ -2558,8 +2566,11 @@ describe("appointments update safety", () => {
         isSimulation: true,
         lastModified: now,
         locationLineageKey: foreignLocationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: foreignPractitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: foreignPractitionerId,
         start: simulationWindow.start,
         title: "Foreign simulation blocked slot",
       });
@@ -3773,8 +3784,11 @@ describe("calendar day appointment queries", () => {
           .toString(),
         lastModified: now,
         locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: baseData.practitionerId,
         start: targetRange.date
           .toZonedDateTime({
             plainTime: { hour: 10, minute: 0 },
@@ -3793,8 +3807,11 @@ describe("calendar day appointment queries", () => {
           .toString(),
         lastModified: now,
         locationLineageKey: otherLocationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: baseData.practitionerId,
         start: targetRange.date
           .toZonedDateTime({
             plainTime: { hour: 12, minute: 0 },

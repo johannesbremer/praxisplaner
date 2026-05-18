@@ -1,8 +1,28 @@
-import type { Infer } from "convex/values";
-
 import { v } from "convex/values";
 
+import type {
+  CalendarResourceColumn,
+  AppointmentOccupancyScope as SharedAppointmentOccupancyScope,
+  BlockedSlotOccupancyScope as SharedBlockedSlotOccupancyScope,
+  CalendarOccupancyScope as SharedCalendarOccupancyScope,
+} from "../lib/calendar-occupancy";
 import type { Id } from "./_generated/dataModel";
+export type { CalendarResourceColumn } from "../lib/calendar-occupancy";
+import {
+  blockedSlotOccupancyScopeFromPractitioner,
+  isPractitionerOccupancyScope,
+  isResourceOccupancyScope,
+} from "../lib/calendar-occupancy";
+
+export type AppointmentOccupancyScope = SharedAppointmentOccupancyScope<
+  Id<"practitioners">
+>;
+export type BlockedSlotOccupancyScope = SharedBlockedSlotOccupancyScope<
+  Id<"practitioners">
+>;
+export type CalendarOccupancyScope = SharedCalendarOccupancyScope<
+  Id<"practitioners">
+>;
 
 export const calendarResourceColumnValidator = v.union(
   v.literal("ekg"),
@@ -27,15 +47,15 @@ export const calendarOccupancyScopeValidator = v.union(
   }),
 );
 
-export type AppointmentOccupancyScope = Infer<
-  typeof appointmentOccupancyScopeValidator
->;
-export type CalendarOccupancyScope = Infer<
-  typeof calendarOccupancyScopeValidator
->;
-export type CalendarResourceColumn = Infer<
-  typeof calendarResourceColumnValidator
->;
+export const blockedSlotOccupancyScopeValidator = v.union(
+  v.object({
+    kind: v.literal("practitioner"),
+    practitionerLineageKey: v.id("practitioners"),
+  }),
+  v.object({
+    kind: v.literal("location-wide"),
+  }),
+);
 
 export function appointmentOccupancyScopeFromRefs(args: {
   calendarResourceColumn?: CalendarResourceColumn | undefined;
@@ -69,16 +89,32 @@ export function appointmentOccupancyScopeFromRefs(args: {
   );
 }
 
+export function blockedSlotOccupancyScopeFromPractitionerRef(
+  practitionerLineageKey?: Id<"practitioners">,
+): BlockedSlotOccupancyScope {
+  return blockedSlotOccupancyScopeFromPractitioner(practitionerLineageKey);
+}
+
 export function getAppointmentCalendarResourceColumn(
   scope: AppointmentOccupancyScope | undefined,
 ): CalendarResourceColumn | undefined {
-  return scope?.kind === "resource" ? scope.calendarResourceColumn : undefined;
+  return scope !== undefined && isResourceOccupancyScope(scope)
+    ? scope.calendarResourceColumn
+    : undefined;
 }
 
 export function getAppointmentPractitionerLineageKey(
   scope: AppointmentOccupancyScope | undefined,
 ): Id<"practitioners"> | undefined {
-  return scope?.kind === "practitioner"
+  return scope !== undefined && isPractitionerOccupancyScope(scope)
+    ? scope.practitionerLineageKey
+    : undefined;
+}
+
+export function getBlockedSlotPractitionerLineageKey(
+  scope: BlockedSlotOccupancyScope | undefined,
+): Id<"practitioners"> | undefined {
+  return scope !== undefined && isPractitionerOccupancyScope(scope)
     ? scope.practitionerLineageKey
     : undefined;
 }

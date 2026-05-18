@@ -8,6 +8,7 @@ import {
   toTableId,
 } from "../../../convex/identity";
 import { useCalendarVisibleDay } from "../../components/calendar/use-calendar-visible-day";
+import { buildCalendarAppointmentRecord } from "./test-records";
 
 describe("useCalendarVisibleDay", () => {
   test("keeps special resource columns interactive when they already contain appointments", () => {
@@ -20,20 +21,17 @@ describe("useCalendarVisibleDay", () => {
     const { result } = renderHook(() =>
       useCalendarVisibleDay({
         appointmentsData: [
-          {
-            _creationTime: 0,
+          buildCalendarAppointmentRecord({
             _id: toTableId<"appointments">("appointment_1"),
             appointmentTypeLineageKey,
             appointmentTypeTitle: "Labor",
             calendarResourceColumn: "labor",
-            createdAt: 0n,
             end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
-            lastModified: 0n,
             locationLineageKey,
             practiceId: toTableId<"practices">("practice_1"),
             start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
             title: "Labor booking",
-          },
+          }),
         ],
         baseSchedulesData: [],
         blockedSlotsData: [],
