@@ -1801,12 +1801,31 @@ async function updateAppointmentByMode(
   const existingPractitionerLineageKey = getAppointmentPractitionerLineageKey(
     existingAppointment.occupancyScope,
   );
+  const explicitlyUsingResourceColumn =
+    filteredUpdateData.calendarResourceColumn !== undefined &&
+    filteredUpdateData.calendarResourceColumn !== null;
 
   const resolvedStoredReferences: StoredAppointmentReferences =
     filteredUpdateData.appointmentTypeId !== undefined ||
     filteredUpdateData.locationId !== undefined ||
-    filteredUpdateData.practitionerId !== undefined
+    filteredUpdateData.practitionerId !== undefined ||
+    explicitlyUsingResourceColumn
       ? await (async () => {
+          if (
+            explicitlyUsingResourceColumn &&
+            filteredUpdateData.appointmentTypeId === undefined &&
+            filteredUpdateData.locationId === undefined &&
+            filteredUpdateData.practitionerId === undefined
+          ) {
+            return {
+              appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+                existingAppointment.appointmentTypeLineageKey,
+              ),
+              locationLineageKey: asLocationLineageKey(
+                existingAppointment.locationLineageKey,
+              ),
+            };
+          }
           if (!editingRuleSetId) {
             throw new Error(
               "Das Regelset fuer die Terminbearbeitung konnte nicht bestimmt werden.",
@@ -1828,16 +1847,17 @@ async function updateAppointmentByMode(
               ),
               ruleSetId: editingRuleSetId,
             }));
-          const practitionerIdForWrite =
-            filteredUpdateData.practitionerId ??
-            (existingPractitionerLineageKey
-              ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
-                  lineageKey: asPractitionerLineageKey(
-                    existingPractitionerLineageKey,
-                  ),
-                  ruleSetId: editingRuleSetId,
-                })
-              : undefined);
+          const practitionerIdForWrite = explicitlyUsingResourceColumn
+            ? undefined
+            : (filteredUpdateData.practitionerId ??
+              (existingPractitionerLineageKey
+                ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+                    lineageKey: asPractitionerLineageKey(
+                      existingPractitionerLineageKey,
+                    ),
+                    ruleSetId: editingRuleSetId,
+                  })
+                : undefined));
 
           return resolveStoredAppointmentReferencesForWrite(ctx.db, {
             appointmentTypeId: asAppointmentTypeId(appointmentTypeIdForWrite),
@@ -1891,7 +1911,8 @@ async function updateAppointmentByMode(
 
   if (
     filteredUpdateData.appointmentTypeId !== undefined ||
-    filteredUpdateData.practitionerId !== undefined
+    (filteredUpdateData.practitionerId !== undefined &&
+      !explicitlyUsingResourceColumn)
   ) {
     const appointmentTypeRuleSetId =
       appointmentTypeRecord?.ruleSetId ?? practitionerRecord?.ruleSetId;
@@ -1918,16 +1939,17 @@ async function updateAppointmentByMode(
       entityLabel: "Terminart",
     });
 
-    const practitionerIdForValidation =
-      filteredUpdateData.practitionerId ??
-      (existingPractitionerLineageKey
-        ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
-            lineageKey: asPractitionerLineageKey(
-              existingPractitionerLineageKey,
-            ),
-            ruleSetId: activeAppointmentType.ruleSetId,
-          })
-        : undefined);
+    const practitionerIdForValidation = explicitlyUsingResourceColumn
+      ? undefined
+      : (filteredUpdateData.practitionerId ??
+        (existingPractitionerLineageKey
+          ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+              lineageKey: asPractitionerLineageKey(
+                existingPractitionerLineageKey,
+              ),
+              ruleSetId: activeAppointmentType.ruleSetId,
+            })
+          : undefined));
 
     if (
       practitionerIdForValidation &&

@@ -816,6 +816,24 @@ function buildCurrentOnlineReplayRow(match, maps) {
     insuranceType === "pkv"
       ? normalizeBeihilfeStatus(pkv?.beihilfe)
       : undefined;
+  const hasPkvDetails =
+    pkvInsuranceType !== undefined ||
+    pkvTariff !== undefined ||
+    beihilfeStatus !== undefined ||
+    pkv !== undefined;
+  const sessionStep = isNewPatient
+    ? inferNewSnapshotStep({
+        dataSharingSubmitted: true,
+        hasConsent: true,
+        hasMatchedAppointment: true,
+        hasPkvDetails,
+        hzvStatus,
+        insuranceType,
+        locationName,
+        personalData,
+        pvsConsent,
+      })
+    : "existing-confirmation";
 
   return {
     bookedDurationMinutes: durationMinutes(match.pvsStart, match.pvsEnd),
@@ -837,7 +855,7 @@ function buildCurrentOnlineReplayRow(match, maps) {
     pvsPatientNumber: Number(match.pvsPatientSourceId),
     reasonDescription:
       match.legacyType || match.legacyTitle || match.pvsReason || "Import",
-    sessionStep: isNewPatient ? "new-confirmation" : "existing-confirmation",
+    sessionStep,
     source: "legacy-pocketbase",
     sourceSessionKey: `legacy-pocketbase:current:${match.legacyAppointmentId}`,
     userAuthId: `legacy-pocketbase:${userId}`,

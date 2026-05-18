@@ -777,33 +777,58 @@ export function useCalendarPlanningWorkbench(args: {
           timeUpdates.end = nextEnd;
         }
 
+        const usesResourceColumn =
+          optimisticArgs.calendarResourceColumn !== undefined &&
+          optimisticArgs.calendarResourceColumn !== null;
         const lineageRefs =
           optimisticArgs.locationId === undefined &&
-          optimisticArgs.practitionerId === undefined
+          optimisticArgs.practitionerId === undefined &&
+          !usesResourceColumn
             ? null
             : resolveBlockedSlotReferenceLineageKeys({
                 locationId: optimisticArgs.locationId ?? appointment.locationId,
-                ...(optimisticArgs.practitionerId === undefined
-                  ? appointment.practitionerId === undefined
-                    ? {}
-                    : { practitionerId: appointment.practitionerId }
-                  : { practitionerId: optimisticArgs.practitionerId }),
+                ...(usesResourceColumn
+                  ? {}
+                  : optimisticArgs.practitionerId === undefined
+                    ? appointment.practitionerId === undefined
+                      ? {}
+                      : { practitionerId: appointment.practitionerId }
+                    : { practitionerId: optimisticArgs.practitionerId }),
               });
+        const {
+          calendarResourceColumn: _currentCalendarResourceColumn,
+          practitionerLineageKey: _currentPractitionerLineageKey,
+          ...currentRecordWithoutOccupancyScope
+        } = currentRecord;
+        void _currentCalendarResourceColumn;
+        void _currentPractitionerLineageKey;
+        const nextCalendarResourceColumn =
+          optimisticArgs.calendarResourceColumn === undefined
+            ? optimisticArgs.practitionerId === undefined
+              ? currentRecord.calendarResourceColumn
+              : undefined
+            : (optimisticArgs.calendarResourceColumn ?? undefined);
+        const nextPractitionerLineageKey =
+          usesResourceColumn || lineageRefs === null
+            ? usesResourceColumn
+              ? undefined
+              : currentRecord.practitionerLineageKey
+            : lineageRefs.practitionerLineageKey;
 
         const nextRecord: CalendarAppointmentRecord = {
-          ...currentRecord,
+          ...currentRecordWithoutOccupancyScope,
           ...timeUpdates,
           ...(lineageRefs === null
             ? {}
             : {
                 locationLineageKey: lineageRefs.locationLineageKey,
-                ...(lineageRefs.practitionerLineageKey === undefined
-                  ? {}
-                  : {
-                      practitionerLineageKey:
-                        lineageRefs.practitionerLineageKey,
-                    }),
               }),
+          ...(nextCalendarResourceColumn === undefined
+            ? {}
+            : { calendarResourceColumn: nextCalendarResourceColumn }),
+          ...(nextPractitionerLineageKey === undefined
+            ? {}
+            : { practitionerLineageKey: nextPractitionerLineageKey }),
           ...(optimisticArgs.title !== undefined && {
             title: optimisticArgs.title,
           }),
@@ -813,11 +838,13 @@ export function useCalendarPlanningWorkbench(args: {
         return toCalendarAppointmentResult({
           appointmentTypeId: appointment.appointmentTypeId,
           locationId: optimisticArgs.locationId ?? appointment.locationId,
-          ...(optimisticArgs.practitionerId === undefined
-            ? appointment.practitionerId === undefined
-              ? {}
-              : { practitionerId: appointment.practitionerId }
-            : { practitionerId: optimisticArgs.practitionerId }),
+          ...(usesResourceColumn
+            ? {}
+            : optimisticArgs.practitionerId === undefined
+              ? appointment.practitionerId === undefined
+                ? {}
+                : { practitionerId: appointment.practitionerId }
+              : { practitionerId: optimisticArgs.practitionerId }),
           record: nextRecord,
         });
       });
@@ -1299,9 +1326,12 @@ export function useCalendarPlanningWorkbench(args: {
         return;
       }
       const nextPractitionerLineageKey =
-        args.practitionerId === undefined
-          ? before?.practitionerLineageKey
-          : getPractitionerLineageKeyForDisplayId(args.practitionerId);
+        args.calendarResourceColumn !== undefined &&
+        args.calendarResourceColumn !== null
+          ? undefined
+          : args.practitionerId === undefined
+            ? before?.practitionerLineageKey
+            : getPractitionerLineageKeyForDisplayId(args.practitionerId);
       if (
         args.practitionerId !== undefined &&
         nextPractitionerLineageKey === undefined
@@ -1353,7 +1383,10 @@ export function useCalendarPlanningWorkbench(args: {
         end: typedEnd ?? before.end,
         locationLineageKey: nextLocationLineageKey ?? before.locationLineageKey,
         practitionerLineageKey:
-          nextPractitionerLineageKey ?? before.practitionerLineageKey,
+          args.calendarResourceColumn !== undefined &&
+          args.calendarResourceColumn !== null
+            ? undefined
+            : (nextPractitionerLineageKey ?? before.practitionerLineageKey),
         start: typedStart ?? before.start,
       };
       const {

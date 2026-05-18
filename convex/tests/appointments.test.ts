@@ -1180,6 +1180,53 @@ describe("appointments update safety", () => {
     ).resolves.toBeNull();
   });
 
+  test("updateAppointment moves practitioner appointments into resource columns", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_practitioner_to_resource";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-practitioner-to-resource@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-practitioner-to-resource@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const window = makeSlotWindow(4);
+    const appointmentId = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        calendarResourceColumn: "ekg",
+        id: appointmentId,
+      }),
+    ).resolves.toBeNull();
+
+    const updatedAppointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", appointmentId);
+    });
+
+    expect(updatedAppointment?.occupancyScope).toEqual({
+      calendarResourceColumn: "ekg",
+      kind: "resource",
+    });
+  });
+
   test("createAppointment rejects creating an appointment on an occupied blocked slot", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
