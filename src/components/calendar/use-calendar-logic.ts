@@ -965,13 +965,12 @@ export function useCalendarLogic({
 
       const endZoned = startZoned.add({ minutes: draggedAppointment.duration });
 
-      const newPractitionerId =
-        getPractitionerIdForColumn(column) ??
-        (draggedAppointment.record.practitionerLineageKey === undefined
-          ? undefined
-          : getPractitionerIdForLineageKey(
-              draggedAppointment.record.practitionerLineageKey,
-            ));
+      const targetResourceColumn: "ekg" | "labor" | undefined =
+        column === "ekg" ? "ekg" : column === "labor" ? "labor" : undefined;
+      const targetPractitionerId =
+        targetResourceColumn === undefined
+          ? getPractitionerIdForColumn(column)
+          : undefined;
 
       if (simulatedContext && draggedAppointment.record.isSimulation !== true) {
         await planningCommands.convertRealAppointmentToSimulation(
@@ -980,7 +979,12 @@ export function useCalendarLogic({
             columnOverride: column,
             durationMinutes: draggedAppointment.duration,
             endISO: endZoned.toString(),
-            ...(newPractitionerId && { practitionerId: newPractitionerId }),
+            ...(targetResourceColumn === undefined
+              ? { calendarResourceColumn: null }
+              : { calendarResourceColumn: targetResourceColumn }),
+            ...(targetPractitionerId && {
+              practitionerId: targetPractitionerId,
+            }),
             startISO: startZoned.toString(),
           },
         );
@@ -990,7 +994,12 @@ export function useCalendarLogic({
             end: endZoned.toString(),
             id: draggedAppointment.record._id,
             start: startZoned.toString(),
-            ...(newPractitionerId && { practitionerId: newPractitionerId }),
+            ...(targetResourceColumn === undefined
+              ? { calendarResourceColumn: null }
+              : { calendarResourceColumn: targetResourceColumn }),
+            ...(targetPractitionerId && {
+              practitionerId: targetPractitionerId,
+            }),
           });
         } catch (error) {
           captureErrorGlobal(error, {

@@ -1585,6 +1585,9 @@ function getAppointmentBookingScope(
 
 const appointmentUpdateArgsValidator = {
   appointmentTypeId: v.optional(v.id("appointmentTypes")),
+  calendarResourceColumn: v.optional(
+    v.union(v.literal("ekg"), v.literal("labor"), v.null()),
+  ),
   end: v.optional(v.string()),
   id: v.id("appointments"),
   isSimulation: v.optional(v.boolean()),
@@ -1601,6 +1604,7 @@ const appointmentUpdateArgsValidator = {
 
 interface AppointmentUpdateArgs {
   appointmentTypeId?: Id<"appointmentTypes">;
+  calendarResourceColumn?: "ekg" | "labor" | null;
   end?: string;
   id: Id<"appointments">;
   isSimulation?: boolean;
@@ -1856,6 +1860,20 @@ async function updateAppointmentByMode(
     resolvedStoredReferences.locationLineageKey;
   const resolvedPractitionerLineageKey =
     resolvedStoredReferences.practitionerLineageKey;
+  const resolvedCalendarResourceColumn =
+    filteredUpdateData.calendarResourceColumn === undefined
+      ? filteredUpdateData.practitionerId === undefined
+        ? existingAppointment.calendarResourceColumn
+        : undefined
+      : (filteredUpdateData.calendarResourceColumn ?? undefined);
+  if (
+    resolvedPractitionerLineageKey !== undefined &&
+    resolvedCalendarResourceColumn !== undefined
+  ) {
+    throw new Error(
+      "Appointments must use either a practitioner or a resource column, not both.",
+    );
+  }
   const resolvedStart = filteredUpdateData.start ?? existingAppointment.start;
   const resolvedEnd = filteredUpdateData.end ?? existingAppointment.end;
   const resolvedIsSimulation = existingAppointment.isSimulation;
@@ -1920,6 +1938,8 @@ async function updateAppointmentByMode(
     resolvedLocationLineageKey !== existingAppointment.locationLineageKey ||
     resolvedPractitionerLineageKey !==
       existingAppointment.practitionerLineageKey ||
+    resolvedCalendarResourceColumn !==
+      existingAppointment.calendarResourceColumn ||
     resolvedStart !== existingAppointment.start ||
     resolvedEnd !== existingAppointment.end;
 
@@ -1936,6 +1956,9 @@ async function updateAppointmentByMode(
             ? {
                 practitionerLineageKey: resolvedPractitionerLineageKey,
               }
+            : {}),
+          ...(resolvedCalendarResourceColumn
+            ? { calendarResourceColumn: resolvedCalendarResourceColumn }
             : {}),
           start: resolvedStart,
         },
@@ -2190,11 +2213,15 @@ async function updateAppointmentByMode(
       ([key]) =>
         key !== "appointmentTypeId" &&
         key !== "locationId" &&
-        key !== "practitionerId",
+        key !== "practitionerId" &&
+        key !== "calendarResourceColumn",
     ),
   ) as Omit<
     typeof filteredUpdateData,
-    "appointmentTypeId" | "locationId" | "practitionerId"
+    | "appointmentTypeId"
+    | "calendarResourceColumn"
+    | "locationId"
+    | "practitionerId"
   >;
 
   await ctx.db.patch("appointments", id, {
@@ -2207,6 +2234,11 @@ async function updateAppointmentByMode(
       : filteredUpdateData.practitionerId === undefined
         ? {}
         : { practitionerLineageKey: undefined }),
+    ...(resolvedCalendarResourceColumn
+      ? { calendarResourceColumn: resolvedCalendarResourceColumn }
+      : existingAppointment.calendarResourceColumn === undefined
+        ? {}
+        : { calendarResourceColumn: undefined }),
     lastModified: BigInt(Date.now()),
   });
 

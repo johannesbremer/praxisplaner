@@ -1,6 +1,7 @@
 import type { Id } from "../../../convex/_generated/dataModel";
 
 interface ConflictAppointmentCandidate {
+  calendarResourceColumn?: "ekg" | "labor";
   end: string;
   isSimulation?: boolean;
   locationLineageKey: Id<"locations">;
@@ -121,11 +122,34 @@ export function mergeCurrentConflictRecordsByIdExcluding<
   });
 }
 
+function getCalendarOccupancyScope(args: {
+  calendarResourceColumn?: "ekg" | "labor";
+  practitionerLineageKey?: Id<"practitioners">;
+}) {
+  if (args.practitionerLineageKey !== undefined) {
+    return {
+      kind: "practitioner" as const,
+      value: args.practitionerLineageKey,
+    };
+  }
+  if (args.calendarResourceColumn !== undefined) {
+    return {
+      kind: "resource" as const,
+      value: args.calendarResourceColumn,
+    };
+  }
+  return {
+    kind: "location-wide" as const,
+    value: undefined,
+  };
+}
+
 function isCalendarOccupancyConflict(args: {
   candidate: ConflictAppointmentCandidate | ConflictBlockedSlotCandidate;
   excludeId?: string;
   existing: {
     _id: string;
+    calendarResourceColumn?: "ekg" | "labor";
     end: string;
     isSimulation?: boolean;
     locationLineageKey: Id<"locations">;
@@ -160,9 +184,13 @@ function isCalendarOccupancyConflict(args: {
     return false;
   }
 
+  const existingScope = getCalendarOccupancyScope(args.existing);
+  const candidateScope = getCalendarOccupancyScope(args.candidate);
   if (
-    args.existing.practitionerLineageKey !==
-    args.candidate.practitionerLineageKey
+    existingScope.kind !== "location-wide" &&
+    candidateScope.kind !== "location-wide" &&
+    (existingScope.kind !== candidateScope.kind ||
+      existingScope.value !== candidateScope.value)
   ) {
     return false;
   }

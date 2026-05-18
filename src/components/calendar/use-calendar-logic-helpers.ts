@@ -37,6 +37,7 @@ export interface SimulatedBlockedSlotConversionResult {
 }
 
 export interface SimulationConversionOptions {
+  calendarResourceColumn?: "ekg" | "labor" | null;
   columnOverride?: CalendarColumnId;
   durationMinutes?: number;
   endISO?: string;

@@ -1082,6 +1082,86 @@ describe("appointments update safety", () => {
     ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
   });
 
+  test("updateAppointment preserves resource scope when resizing resource appointments", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_resource_resize";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-resource-resize@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-resource-resize@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const window = makeSlotWindow(4);
+    const resourceAppointmentId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const appointmentType = await ctx.db.get(
+        "appointmentTypes",
+        baseData.appointmentTypeId,
+      );
+      const location = await ctx.db.get("locations", baseData.locationId);
+
+      if (!appointmentType || !location) {
+        throw new Error(
+          "Resource appointment test fixture is missing referenced entities",
+        );
+      }
+
+      return await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: requireLineageKey({
+          entityId: appointmentType._id,
+          entityType: "appointment type",
+          lineageKey: appointmentType.lineageKey,
+          ruleSetId: appointmentType.ruleSetId,
+        }),
+        appointmentTypeTitle: "Labor",
+        calendarResourceColumn: "labor",
+        createdAt: now,
+        end: window.end,
+        lastModified: now,
+        locationLineageKey: requireLineageKey({
+          entityId: location._id,
+          entityType: "location",
+          lineageKey: location.lineageKey,
+          ruleSetId: location.ruleSetId,
+        }),
+        practiceId: baseData.practiceId,
+        start: window.start,
+        title: "Labor booking",
+        userId,
+      });
+    });
+    await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window,
+    });
+
+    const resizedEnd = Temporal.ZonedDateTime.from(window.start)
+      .add({ minutes: 20 })
+      .toString();
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        end: resizedEnd,
+        id: resourceAppointmentId,
+      }),
+    ).resolves.toBeNull();
+  });
+
   test("createAppointment rejects creating an appointment on an occupied blocked slot", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);

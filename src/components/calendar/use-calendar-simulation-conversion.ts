@@ -74,6 +74,7 @@ interface UseCalendarSimulationConversionArgs {
   practiceId: Id<"practices">;
   runCreateAppointment: (args: {
     appointmentTypeId: Id<"appointmentTypes">;
+    calendarResourceColumn?: "ekg" | "labor";
     isNewPatient?: boolean;
     isSimulation?: boolean;
     locationId: Id<"locations">;
@@ -210,13 +211,19 @@ export function useCalendarSimulationConversion({
       }
 
       const practitionerId: Id<"practitioners"> | undefined =
-        options.practitionerId ??
-        getPractitionerIdForColumn(appointment.column) ??
-        (appointmentRecord.practitionerLineageKey === undefined
-          ? undefined
-          : getPractitionerIdForLineageKey(
-              appointmentRecord.practitionerLineageKey,
-            ));
+        options.calendarResourceColumn === undefined
+          ? (options.practitionerId ??
+            getPractitionerIdForColumn(appointment.column) ??
+            (appointmentRecord.practitionerLineageKey === undefined
+              ? undefined
+              : getPractitionerIdForLineageKey(
+                  appointmentRecord.practitionerLineageKey,
+                )))
+          : undefined;
+      const calendarResourceColumn =
+        options.calendarResourceColumn === undefined
+          ? appointmentRecord.calendarResourceColumn
+          : (options.calendarResourceColumn ?? undefined);
 
       const contextLocationId: Id<"locations"> | undefined =
         simulatedContext.locationLineageKey === undefined
@@ -278,6 +285,9 @@ export function useCalendarSimulationConversion({
       if (practitionerId !== undefined) {
         appointmentData.practitionerId = practitionerId;
       }
+      if (calendarResourceColumn !== undefined) {
+        appointmentData.calendarResourceColumn = calendarResourceColumn;
+      }
 
       return await ResultAsync.fromPromise(
         runCreateAppointment(appointmentData),
@@ -316,6 +326,13 @@ export function useCalendarSimulationConversion({
                 ? appointmentRecord.practitionerLineageKey
                 : (getPractitionerLineageKeyForDisplayId(practitionerId) ??
                   appointmentRecord.practitionerLineageKey);
+            const {
+              calendarResourceColumn: _previousCalendarResourceColumn,
+              practitionerLineageKey: _previousPractitionerLineageKey,
+              ...recordWithoutSchedulingScope
+            } = appointmentRecord;
+            void _previousCalendarResourceColumn;
+            void _previousPractitionerLineageKey;
             const parsedStart = parseZonedDateTime(
               startISO,
               "convertRealAppointmentToSimulation.updatedRecord.start",
@@ -328,11 +345,14 @@ export function useCalendarSimulationConversion({
               return null;
             }
             const updatedRecord: CalendarAppointmentRecord = {
-              ...appointmentRecord,
+              ...recordWithoutSchedulingScope,
               _id: newId,
               end: parsedEnd,
               isSimulation: true,
               locationLineageKey: resolvedLocationLineageKey,
+              ...(calendarResourceColumn === undefined
+                ? {}
+                : { calendarResourceColumn }),
               ...(appointmentRecord.patientId === undefined
                 ? {}
                 : { patientId: appointmentRecord.patientId }),

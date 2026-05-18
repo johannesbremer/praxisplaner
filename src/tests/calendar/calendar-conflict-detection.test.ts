@@ -97,6 +97,58 @@ describe("calendar conflict detection", () => {
     ).toBe(true);
   });
 
+  it("does not treat resource appointments as practitioner occupancy", () => {
+    expect(
+      hasCalendarOccupancyConflictInRecords({
+        appointments: [
+          {
+            _id: toTableId<"appointments">("appointment_1"),
+            calendarResourceColumn: "labor",
+            end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
+            isSimulation: false,
+            locationLineageKey: location1,
+            start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
+          },
+        ],
+        blockedSlots: [],
+        candidate: {
+          end: "2026-04-24T09:45:00+02:00[Europe/Berlin]",
+          isSimulation: false,
+          locationLineageKey: location1,
+          practitionerLineageKey: practitioner1,
+          start: "2026-04-24T09:15:00+02:00[Europe/Berlin]",
+        },
+        toEpochMilliseconds,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps resource appointment conflicts inside the same resource column", () => {
+    expect(
+      hasCalendarOccupancyConflictInRecords({
+        appointments: [
+          {
+            _id: toTableId<"appointments">("appointment_1"),
+            calendarResourceColumn: "labor",
+            end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
+            isSimulation: false,
+            locationLineageKey: location1,
+            start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
+          },
+        ],
+        blockedSlots: [],
+        candidate: {
+          calendarResourceColumn: "labor",
+          end: "2026-04-24T09:45:00+02:00[Europe/Berlin]",
+          isSimulation: false,
+          locationLineageKey: location1,
+          start: "2026-04-24T09:15:00+02:00[Europe/Berlin]",
+        },
+        toEpochMilliseconds,
+      }),
+    ).toBe(true);
+  });
+
   it("prefers newer history snapshots over stale full-query records with the same id", () => {
     const merged = mergeConflictRecordsById(
       new Map([

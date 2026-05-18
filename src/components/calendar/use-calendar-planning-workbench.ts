@@ -52,6 +52,7 @@ const appointmentQueryRef = api.appointments.getCalendarDayAppointments;
 const blockedSlotQueryRef = api.appointments.getCalendarDayBlockedSlots;
 
 interface AppointmentCandidate {
+  calendarResourceColumn?: "ekg" | "labor";
   end: string;
   isSimulation: boolean;
   locationLineageKey: LocationLineageKey;
@@ -413,6 +414,7 @@ export function useCalendarPlanningWorkbench(args: {
     (createdArgs: {
       appointmentTypeLineageKey: AppointmentTypeLineageKey;
       appointmentTypeTitle: string;
+      calendarResourceColumn?: "ekg" | "labor";
       createdId: Id<"appointments">;
       createEnd: string;
       createStart: string;
@@ -445,6 +447,9 @@ export function useCalendarPlanningWorkbench(args: {
         isSimulation: createdArgs.isSimulation,
         locationLineageKey: createdArgs.locationLineageKey,
         now: Date.now(),
+        ...(createdArgs.calendarResourceColumn === undefined
+          ? {}
+          : { calendarResourceColumn: createdArgs.calendarResourceColumn }),
         ...(createdArgs.patientId === undefined
           ? {}
           : { patientId: createdArgs.patientId }),
@@ -644,6 +649,10 @@ export function useCalendarPlanningWorkbench(args: {
             start: typedStart,
             title: optimisticArgs.title,
           };
+          if (optimisticArgs.calendarResourceColumn !== undefined) {
+            newAppointmentRecord.calendarResourceColumn =
+              optimisticArgs.calendarResourceColumn;
+          }
 
           if (
             optimisticArgs.practitionerId !== undefined &&
@@ -1155,6 +1164,9 @@ export function useCalendarPlanningWorkbench(args: {
         appointmentTypeLineageKey:
           appointmentReferences.appointmentTypeLineageKey,
         appointmentTypeTitle: appointmentTypeInfo.name,
+        ...(createArgs.calendarResourceColumn === undefined
+          ? {}
+          : { calendarResourceColumn: createArgs.calendarResourceColumn }),
         createdId,
         createEnd,
         createStart: createArgs.start,
@@ -1180,6 +1192,11 @@ export function useCalendarPlanningWorkbench(args: {
             hasAppointmentConflict({
               end: createEnd,
               isSimulation: createArgs.isSimulation,
+              ...(createArgs.calendarResourceColumn === undefined
+                ? {}
+                : {
+                    calendarResourceColumn: createArgs.calendarResourceColumn,
+                  }),
               locationLineageKey: appointmentReferences.locationLineageKey,
               ...(appointmentReferences.practitionerLineageKey && {
                 practitionerLineageKey:
@@ -1208,6 +1225,9 @@ export function useCalendarPlanningWorkbench(args: {
             appointmentTypeLineageKey:
               appointmentReferences.appointmentTypeLineageKey,
             appointmentTypeTitle: appointmentTypeInfo.name,
+            ...(createArgs.calendarResourceColumn === undefined
+              ? {}
+              : { calendarResourceColumn: createArgs.calendarResourceColumn }),
             createdId: recreatedId,
             createEnd,
             createStart: createArgs.start,
@@ -1297,6 +1317,7 @@ export function useCalendarPlanningWorkbench(args: {
       }
 
       const beforeState = {
+        calendarResourceColumn: before.calendarResourceColumn,
         end: before.end,
         locationLineageKey: before.locationLineageKey,
         practitionerLineageKey: before.practitionerLineageKey,
@@ -1323,16 +1344,32 @@ export function useCalendarPlanningWorkbench(args: {
         return;
       }
       const afterState = {
+        calendarResourceColumn:
+          args.calendarResourceColumn === undefined
+            ? args.practitionerId === undefined
+              ? before.calendarResourceColumn
+              : undefined
+            : (args.calendarResourceColumn ?? undefined),
         end: typedEnd ?? before.end,
         locationLineageKey: nextLocationLineageKey ?? before.locationLineageKey,
         practitionerLineageKey:
           nextPractitionerLineageKey ?? before.practitionerLineageKey,
         start: typedStart ?? before.start,
       };
+      const {
+        calendarResourceColumn: _beforeCalendarResourceColumn,
+        practitionerLineageKey: _beforePractitionerLineageKey,
+        ...beforeWithoutSchedulingScope
+      } = before;
+      void _beforeCalendarResourceColumn;
+      void _beforePractitionerLineageKey;
       const afterSnapshot: CalendarAppointmentRecord = {
-        ...before,
+        ...beforeWithoutSchedulingScope,
         end: afterState.end,
         locationLineageKey: afterState.locationLineageKey,
+        ...(afterState.calendarResourceColumn === undefined
+          ? {}
+          : { calendarResourceColumn: afterState.calendarResourceColumn }),
         ...(afterState.practitionerLineageKey === undefined
           ? {}
           : { practitionerLineageKey: afterState.practitionerLineageKey }),
@@ -1346,12 +1383,15 @@ export function useCalendarPlanningWorkbench(args: {
       ) =>
         appointment.start === expected.start &&
         appointment.end === expected.end &&
+        appointment.calendarResourceColumn ===
+          expected.calendarResourceColumn &&
         appointment.locationLineageKey === expected.locationLineageKey &&
         appointment.practitionerLineageKey === expected.practitionerLineageKey;
 
       const candidatePayload = (
         state: typeof beforeState,
       ): {
+        calendarResourceColumn?: "ekg" | "labor";
         end: CalendarAppointmentRecord["end"];
         isSimulation: boolean;
         locationLineageKey: LocationLineageKey;
@@ -1361,6 +1401,9 @@ export function useCalendarPlanningWorkbench(args: {
         end: state.end,
         isSimulation: before.isSimulation ?? false,
         locationLineageKey: state.locationLineageKey,
+        ...(state.calendarResourceColumn && {
+          calendarResourceColumn: state.calendarResourceColumn,
+        }),
         ...(state.practitionerLineageKey && {
           practitionerLineageKey: state.practitionerLineageKey,
         }),
@@ -1406,6 +1449,9 @@ export function useCalendarPlanningWorkbench(args: {
             end: afterState.end,
             id: args.id,
             locationId: displayRefs.locationId,
+            ...(afterState.calendarResourceColumn === undefined
+              ? { calendarResourceColumn: null }
+              : { calendarResourceColumn: afterState.calendarResourceColumn }),
             ...(displayRefs.practitionerId && {
               practitionerId: displayRefs.practitionerId,
             }),
@@ -1451,6 +1497,11 @@ export function useCalendarPlanningWorkbench(args: {
             end: beforeState.end,
             id: args.id,
             locationId: displayRefs.locationId,
+            ...(beforeState.calendarResourceColumn === undefined
+              ? { calendarResourceColumn: null }
+              : {
+                  calendarResourceColumn: beforeState.calendarResourceColumn,
+                }),
             ...(displayRefs.practitionerId && {
               practitionerId: displayRefs.practitionerId,
             }),
@@ -1509,6 +1560,9 @@ export function useCalendarPlanningWorkbench(args: {
         appointmentTypeId: recreatedDisplayRefs.appointmentTypeId,
         isSimulation: deleted.isSimulation ?? false,
         locationId: recreatedDisplayRefs.locationId,
+        ...(deleted.calendarResourceColumn === undefined
+          ? {}
+          : { calendarResourceColumn: deleted.calendarResourceColumn }),
         ...(deleted.patientId && { patientId: deleted.patientId }),
         practiceId: deleted.practiceId,
         ...(recreatedDisplayRefs.practitionerId && {
@@ -1551,6 +1605,9 @@ export function useCalendarPlanningWorkbench(args: {
             hasAppointmentConflict({
               end: createEnd,
               isSimulation: createArgs.isSimulation ?? false,
+              ...(deleted.calendarResourceColumn === undefined
+                ? {}
+                : { calendarResourceColumn: deleted.calendarResourceColumn }),
               locationLineageKey: deleted.locationLineageKey,
               ...(deleted.practitionerLineageKey && {
                 practitionerLineageKey: deleted.practitionerLineageKey,
