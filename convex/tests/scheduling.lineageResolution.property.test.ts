@@ -76,8 +76,11 @@ describe("scheduling lineage resolution properties", () => {
               .toString(),
             lastModified: now,
             locationLineageKey: fixture.locationId,
+            occupancyScope: {
+              kind: "practitioner",
+              practitionerLineageKey: fixture.practitionerId,
+            },
             practiceId: fixture.practiceId,
-            practitionerLineageKey: fixture.practitionerId,
             start: date
               .toZonedDateTime({
                 plainTime: { hour: 9, minute: 0 },

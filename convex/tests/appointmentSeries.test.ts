@@ -409,8 +409,11 @@ describe("appointment series", () => {
         end: blockedFollowUpEnd,
         lastModified: now,
         locationLineageKey: locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: practitionerId,
+        },
         practiceId,
-        practitionerLineageKey: practitionerId,
         start: blockedFollowUpStart,
         title: "Blockiert",
       });
@@ -1013,8 +1016,11 @@ describe("appointment series", () => {
         end: rootEnd,
         lastModified: now,
         locationLineageKey: activeLocationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: activePractitionerId,
+        },
         practiceId,
-        practitionerLineageKey: activePractitionerId,
         start: rootStart,
         title: "Bereits gebucht",
         userId,

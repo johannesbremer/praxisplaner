@@ -18,6 +18,12 @@ import {
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import {
+  appointmentOccupancyScopeFromRefs,
+  calendarResourceColumnValidator,
+  getAppointmentCalendarResourceColumn,
+  getAppointmentPractitionerLineageKey,
+} from "./appointmentOccupancy";
+import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveAppointmentTypeLineageKey,
   resolveLocationIdForRuleSetByLineage,
@@ -116,9 +122,7 @@ const appointmentResultValidator = v.object({
   appointmentTypeLineageKey: v.id("appointmentTypes"),
   appointmentTypeTitle: v.string(),
   bookingIdentityId: v.optional(v.id("bookingIdentities")),
-  calendarResourceColumn: v.optional(
-    v.union(v.literal("ekg"), v.literal("labor")),
-  ),
+  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
   cancelledByPhoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
   createdAt: v.int64(),
   end: v.string(),
@@ -913,9 +917,12 @@ async function remapAppointmentIds(
             asLocationLineageKey(appointment.locationLineageKey),
           ),
         };
-        if (appointment.practitionerLineageKey) {
+        const practitionerLineageKey = getAppointmentPractitionerLineageKey(
+          appointment.occupancyScope,
+        );
+        if (practitionerLineageKey) {
           remappedAppointment.practitionerId = await resolvePractitioner(
-            asPractitionerLineageKey(appointment.practitionerLineageKey),
+            asPractitionerLineageKey(practitionerLineageKey),
           );
         }
         return remappedAppointment;
@@ -937,6 +944,12 @@ function toAppointmentListItem(
   appointment: AppointmentDoc,
 ): AppointmentListItem {
   const timeRange = asTypedDateTimeRange(appointment);
+  const calendarResourceColumn = getAppointmentCalendarResourceColumn(
+    appointment.occupancyScope,
+  );
+  const practitionerLineageKey = getAppointmentPractitionerLineageKey(
+    appointment.occupancyScope,
+  );
   return {
     _creationTime: appointment._creationTime,
     _id: appointment._id,
@@ -952,19 +965,17 @@ function toAppointmentListItem(
     ...(appointment.cancelledAt === undefined
       ? {}
       : { cancelledAt: appointment.cancelledAt }),
-    ...(appointment.calendarResourceColumn === undefined
-      ? {}
-      : { calendarResourceColumn: appointment.calendarResourceColumn }),
+    ...(calendarResourceColumn === undefined ? {} : { calendarResourceColumn }),
     ...(appointment.isSimulation === undefined
       ? {}
       : { isSimulation: appointment.isSimulation }),
     ...(appointment.patientId === undefined
       ? {}
       : { patientId: appointment.patientId }),
-    ...(appointment.practitionerLineageKey
+    ...(practitionerLineageKey
       ? {
-          practitionerId: appointment.practitionerLineageKey,
-          practitionerLineageKey: appointment.practitionerLineageKey,
+          practitionerId: practitionerLineageKey,
+          practitionerLineageKey,
         }
       : {}),
     ...(appointment.reassignmentSourceVacationLineageKey === undefined
@@ -1414,12 +1425,6 @@ export async function createAppointmentFromTrustedSource(
     entityLabel: "Standort",
   });
 
-  if (practitionerId && calendarResourceColumn) {
-    throw new Error(
-      "Appointments must use either a practitioner or a resource column, not both.",
-    );
-  }
-
   if (practitionerId) {
     const practitioner = await ctx.db.get("practitioners", practitionerId);
     requireEntityUsableForNewAppointment({
@@ -1444,6 +1449,12 @@ export async function createAppointmentFromTrustedSource(
         : {}),
     },
   );
+  const occupancyScope = appointmentOccupancyScopeFromRefs({
+    ...(calendarResourceColumn === undefined ? {} : { calendarResourceColumn }),
+    ...(storedReferences.practitionerLineageKey === undefined
+      ? {}
+      : { practitionerLineageKey: storedReferences.practitionerLineageKey }),
+  });
 
   if (
     activeAppointmentType.followUpPlan &&
@@ -1490,14 +1501,9 @@ export async function createAppointmentFromTrustedSource(
 
   const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
     candidate: {
-      ...(args.calendarResourceColumn && {
-        calendarResourceColumn: args.calendarResourceColumn,
-      }),
       end,
       locationLineageKey: storedReferences.locationLineageKey,
-      ...(storedReferences.practitionerLineageKey && {
-        practitionerLineageKey: storedReferences.practitionerLineageKey,
-      }),
+      occupancyScope,
       start: args.start,
     },
     practiceId,
@@ -1518,14 +1524,15 @@ export async function createAppointmentFromTrustedSource(
 
   const insertData = {
     ...rest,
-    ...storedReferences,
+    appointmentTypeLineageKey: storedReferences.appointmentTypeLineageKey,
     appointmentTypeTitle: activeAppointmentType.name,
     ...(bookingIdentityId && { bookingIdentityId }),
-    ...(calendarResourceColumn && { calendarResourceColumn }),
     createdAt: now,
     end,
     isSimulation: isSimulation ?? false,
     lastModified: now,
+    locationLineageKey: storedReferences.locationLineageKey,
+    occupancyScope,
     practiceId,
     ...(resolvedPatientId && { patientId: resolvedPatientId }),
     ...(phoneBookingIdentityId && { phoneBookingIdentityId }),
@@ -1549,9 +1556,7 @@ export const createAppointment = mutation({
   args: {
     appointmentTypeId: v.id("appointmentTypes"),
     bookingIdentityId: v.optional(v.id("bookingIdentities")),
-    calendarResourceColumn: v.optional(
-      v.union(v.literal("ekg"), v.literal("labor")),
-    ),
+    calendarResourceColumn: v.optional(calendarResourceColumnValidator),
     isNewPatient: v.optional(v.boolean()),
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),
@@ -1586,7 +1591,7 @@ function getAppointmentBookingScope(
 const appointmentUpdateArgsValidator = {
   appointmentTypeId: v.optional(v.id("appointmentTypes")),
   calendarResourceColumn: v.optional(
-    v.union(v.literal("ekg"), v.literal("labor"), v.null()),
+    v.union(calendarResourceColumnValidator, v.null()),
   ),
   end: v.optional(v.string()),
   id: v.id("appointments"),
@@ -1793,6 +1798,9 @@ async function updateAppointmentByMode(
     appointmentTypeRecord?.ruleSetId ??
     practitionerRecord?.ruleSetId ??
     locationRecord?.ruleSetId;
+  const existingPractitionerLineageKey = getAppointmentPractitionerLineageKey(
+    existingAppointment.occupancyScope,
+  );
 
   const resolvedStoredReferences: StoredAppointmentReferences =
     filteredUpdateData.appointmentTypeId !== undefined ||
@@ -1822,10 +1830,10 @@ async function updateAppointmentByMode(
             }));
           const practitionerIdForWrite =
             filteredUpdateData.practitionerId ??
-            (existingAppointment.practitionerLineageKey
+            (existingPractitionerLineageKey
               ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
                   lineageKey: asPractitionerLineageKey(
-                    existingAppointment.practitionerLineageKey,
+                    existingPractitionerLineageKey,
                   ),
                   ruleSetId: editingRuleSetId,
                 })
@@ -1846,10 +1854,10 @@ async function updateAppointmentByMode(
           locationLineageKey: asLocationLineageKey(
             existingAppointment.locationLineageKey,
           ),
-          ...(existingAppointment.practitionerLineageKey
+          ...(existingPractitionerLineageKey
             ? {
                 practitionerLineageKey: asPractitionerLineageKey(
-                  existingAppointment.practitionerLineageKey,
+                  existingPractitionerLineageKey,
                 ),
               }
             : {}),
@@ -1863,17 +1871,19 @@ async function updateAppointmentByMode(
   const resolvedCalendarResourceColumn =
     filteredUpdateData.calendarResourceColumn === undefined
       ? filteredUpdateData.practitionerId === undefined
-        ? existingAppointment.calendarResourceColumn
+        ? getAppointmentCalendarResourceColumn(
+            existingAppointment.occupancyScope,
+          )
         : undefined
       : (filteredUpdateData.calendarResourceColumn ?? undefined);
-  if (
-    resolvedPractitionerLineageKey !== undefined &&
-    resolvedCalendarResourceColumn !== undefined
-  ) {
-    throw new Error(
-      "Appointments must use either a practitioner or a resource column, not both.",
-    );
-  }
+  const resolvedOccupancyScope = appointmentOccupancyScopeFromRefs({
+    ...(resolvedCalendarResourceColumn === undefined
+      ? {}
+      : { calendarResourceColumn: resolvedCalendarResourceColumn }),
+    ...(resolvedPractitionerLineageKey === undefined
+      ? {}
+      : { practitionerLineageKey: resolvedPractitionerLineageKey }),
+  });
   const resolvedStart = filteredUpdateData.start ?? existingAppointment.start;
   const resolvedEnd = filteredUpdateData.end ?? existingAppointment.end;
   const resolvedIsSimulation = existingAppointment.isSimulation;
@@ -1910,10 +1920,10 @@ async function updateAppointmentByMode(
 
     const practitionerIdForValidation =
       filteredUpdateData.practitionerId ??
-      (existingAppointment.practitionerLineageKey
+      (existingPractitionerLineageKey
         ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
             lineageKey: asPractitionerLineageKey(
-              existingAppointment.practitionerLineageKey,
+              existingPractitionerLineageKey,
             ),
             ruleSetId: activeAppointmentType.ruleSetId,
           })
@@ -1937,9 +1947,13 @@ async function updateAppointmentByMode(
   const hasSchedulingChange =
     resolvedLocationLineageKey !== existingAppointment.locationLineageKey ||
     resolvedPractitionerLineageKey !==
-      existingAppointment.practitionerLineageKey ||
+      getAppointmentPractitionerLineageKey(
+        existingAppointment.occupancyScope,
+      ) ||
     resolvedCalendarResourceColumn !==
-      existingAppointment.calendarResourceColumn ||
+      getAppointmentCalendarResourceColumn(
+        existingAppointment.occupancyScope,
+      ) ||
     resolvedStart !== existingAppointment.start ||
     resolvedEnd !== existingAppointment.end;
 
@@ -1952,14 +1966,7 @@ async function updateAppointmentByMode(
         candidate: {
           end: resolvedEnd,
           locationLineageKey: resolvedLocationLineageKey,
-          ...(resolvedPractitionerLineageKey
-            ? {
-                practitionerLineageKey: resolvedPractitionerLineageKey,
-              }
-            : {}),
-          ...(resolvedCalendarResourceColumn
-            ? { calendarResourceColumn: resolvedCalendarResourceColumn }
-            : {}),
+          occupancyScope: resolvedOccupancyScope,
           start: resolvedStart,
         },
         practiceId: existingAppointment.practiceId,
@@ -2051,10 +2058,10 @@ async function updateAppointmentByMode(
     }
     const practitionerId =
       filteredUpdateData.practitionerId ??
-      (existingAppointment.practitionerLineageKey
+      (existingPractitionerLineageKey
         ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
             lineageKey: asPractitionerLineageKey(
-              existingAppointment.practitionerLineageKey,
+              existingPractitionerLineageKey,
             ),
             ruleSetId: seriesRecord.ruleSetIdAtBooking,
           })
@@ -2122,11 +2129,16 @@ async function updateAppointmentByMode(
             practitionerId: asPractitionerId(step.practitionerId),
           });
         await ctx.db.patch("appointments", matchingAppointment._id, {
-          ...stepStoredReferences,
+          appointmentTypeLineageKey:
+            stepStoredReferences.appointmentTypeLineageKey,
           ...persistentSimulationFields,
           appointmentTypeTitle: step.appointmentTypeTitle,
           end: step.end,
           lastModified: now,
+          locationLineageKey: stepStoredReferences.locationLineageKey,
+          occupancyScope: appointmentOccupancyScopeFromRefs({
+            practitionerLineageKey: stepStoredReferences.practitionerLineageKey,
+          }),
           ...(resolvedPatientId && { patientId: resolvedPatientId }),
           seriesId,
           seriesStepId: step.stepId,
@@ -2146,7 +2158,8 @@ async function updateAppointmentByMode(
           practitionerId: asPractitionerId(step.practitionerId),
         });
       const insertedAppointmentId = await ctx.db.insert("appointments", {
-        ...stepStoredReferences,
+        appointmentTypeLineageKey:
+          stepStoredReferences.appointmentTypeLineageKey,
         ...persistentSimulationFields,
         appointmentTypeTitle: step.appointmentTypeTitle,
         ...((seriesRecord.bookingIdentityId ??
@@ -2160,6 +2173,10 @@ async function updateAppointmentByMode(
         createdAt: now,
         end: step.end,
         lastModified: now,
+        locationLineageKey: stepStoredReferences.locationLineageKey,
+        occupancyScope: appointmentOccupancyScopeFromRefs({
+          practitionerLineageKey: stepStoredReferences.practitionerLineageKey,
+        }),
         ...(resolvedPatientId && { patientId: resolvedPatientId }),
         practiceId: existingAppointment.practiceId,
         seriesId,
@@ -2228,18 +2245,9 @@ async function updateAppointmentByMode(
     ...persistedUpdateData,
     ...getPersistentSimulationFields(existingAppointment, BigInt(Date.now())),
     appointmentTypeLineageKey: resolvedAppointmentTypeLineageKey,
-    locationLineageKey: resolvedLocationLineageKey,
-    ...(resolvedPractitionerLineageKey
-      ? { practitionerLineageKey: resolvedPractitionerLineageKey }
-      : filteredUpdateData.practitionerId === undefined
-        ? {}
-        : { practitionerLineageKey: undefined }),
-    ...(resolvedCalendarResourceColumn
-      ? { calendarResourceColumn: resolvedCalendarResourceColumn }
-      : existingAppointment.calendarResourceColumn === undefined
-        ? {}
-        : { calendarResourceColumn: undefined }),
     lastModified: BigInt(Date.now()),
+    locationLineageKey: resolvedLocationLineageKey,
+    occupancyScope: resolvedOccupancyScope,
   });
 
   return null;

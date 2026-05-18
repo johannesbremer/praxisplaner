@@ -272,13 +272,16 @@ async function createAppointment(
         lineageKey: location.lineageKey,
         ruleSetId: location.ruleSetId,
       }),
+      occupancyScope: {
+        kind: "practitioner",
+        practitionerLineageKey: requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      },
       practiceId,
-      practitionerLineageKey: requireLineageKey({
-        entityId: practitioner._id,
-        entityType: "practitioner",
-        lineageKey: practitioner.lineageKey,
-        ruleSetId: practitioner.ruleSetId,
-      }),
       start: startZoned.toString(),
       title: appointmentType.name, // Default title is the appointment type name
     });

@@ -13,6 +13,7 @@ import { getPractitionerVacationRangesForDate } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
 import { query } from "./_generated/server";
 import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts";
+import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
@@ -127,17 +128,20 @@ async function getLatestSeenPractitionerDates(
 
   const recordHistory = (items: Doc<"appointments">[]) => {
     for (const item of items) {
+      const practitionerLineageKey = getAppointmentPractitionerLineageKey(
+        item.occupancyScope,
+      );
       if (
         item.cancelledAt !== undefined ||
-        !item.practitionerLineageKey ||
+        !practitionerLineageKey ||
         item.start >= appointment.start
       ) {
         continue;
       }
 
-      const previous = history.get(item.practitionerLineageKey);
+      const previous = history.get(practitionerLineageKey);
       if (!previous || previous < item.start) {
-        history.set(item.practitionerLineageKey, item.start);
+        history.set(practitionerLineageKey, item.start);
       }
     }
   };
@@ -219,7 +223,9 @@ async function previewPractitionerCoverageForAppointment(
     ...(args.appointment.userId ? { userId: args.appointment.userId } : {}),
   };
 
-  if (!args.appointment.practitionerLineageKey) {
+  const appointmentPractitionerLineageKey =
+    getAppointmentPractitionerLineageKey(args.appointment.occupancyScope);
+  if (!appointmentPractitionerLineageKey) {
     return suggestionBase;
   }
 
@@ -537,7 +543,8 @@ export const previewPractitionerAbsenceCoverage = query({
         (appointment) =>
           appointment.cancelledAt === undefined &&
           appointment.isSimulation !== true &&
-          appointment.practitionerLineageKey === selectedPractitionerLineageKey,
+          getAppointmentPractitionerLineageKey(appointment.occupancyScope) ===
+            selectedPractitionerLineageKey,
       )
       .filter((appointment) => {
         const start = Temporal.ZonedDateTime.from(appointment.start);

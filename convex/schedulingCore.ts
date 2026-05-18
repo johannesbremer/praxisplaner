@@ -15,6 +15,7 @@ import {
   getEffectiveAppointmentsForOccupancyView,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
+import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
 import {
   asLocationId,
   asLocationLineageKey,
@@ -447,17 +448,19 @@ export function slotOverlapsAppointment(
   >,
   appointment: Pick<
     Doc<"appointments">,
-    "end" | "locationLineageKey" | "practitionerLineageKey" | "start"
+    "end" | "locationLineageKey" | "occupancyScope" | "start"
   > & {
     locationLineageKey: LocationLineageKey;
-    practitionerLineageKey?: PractitionerLineageKey;
   },
 ): boolean {
   if (slot.locationLineageKey !== appointment.locationLineageKey) {
     return false;
   }
 
-  if (slot.practitionerLineageKey !== appointment.practitionerLineageKey) {
+  if (
+    slot.practitionerLineageKey !==
+    getAppointmentPractitionerLineageKey(appointment.occupancyScope)
+  ) {
     return false;
   }
 
@@ -762,13 +765,7 @@ function markSlotsBlockedByAppointments(
           locationLineageKey: asLocationLineageKey(
             appointment.locationLineageKey,
           ),
-          ...(appointment.practitionerLineageKey
-            ? {
-                practitionerLineageKey: asPractitionerLineageKey(
-                  appointment.practitionerLineageKey,
-                ),
-              }
-            : {}),
+          occupancyScope: appointment.occupancyScope,
           start: appointment.start,
         }),
     );

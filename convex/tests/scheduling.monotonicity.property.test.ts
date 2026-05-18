@@ -69,8 +69,11 @@ async function querySlotStatus(blockers: ReadonlySet<BlockerKind>) {
         end: window.end,
         lastModified: now,
         locationLineageKey: fixture.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: fixture.practitionerId,
+        },
         practiceId: fixture.practiceId,
-        practitionerLineageKey: fixture.practitionerId,
         start: window.start,
         title: "Property appointment",
         userId: fixture.userId,

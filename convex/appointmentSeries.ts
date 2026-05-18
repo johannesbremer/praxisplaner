@@ -13,6 +13,7 @@ import {
   findConflictingAppointment,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
+import { appointmentOccupancyScopeFromRefs } from "./appointmentOccupancy";
 import {
   resolveLocationIdForRuleSetByLineage,
   resolveLocationLineageKey,
@@ -243,7 +244,10 @@ export async function createAppointmentSeries(
     const conflictingAppointment = await findConflictingAppointment(ctx.db, {
       candidate: {
         end: step.end,
-        ...occupancyReferences,
+        locationLineageKey: occupancyReferences.locationLineageKey,
+        occupancyScope: appointmentOccupancyScopeFromRefs({
+          practitionerLineageKey: occupancyReferences.practitionerLineageKey,
+        }),
         start: step.start,
       },
       ...(simulationRuleSetId && { draftRuleSetId: simulationRuleSetId }),
@@ -264,7 +268,6 @@ export async function createAppointmentSeries(
 
     const appointmentId = await ctx.db.insert("appointments", {
       appointmentTypeLineageKey: step.appointmentTypeLineageKey,
-      ...occupancyReferences,
       appointmentTypeTitle: step.appointmentTypeTitle,
       ...(args.bookingIdentityId && {
         bookingIdentityId: args.bookingIdentityId,
@@ -278,6 +281,10 @@ export async function createAppointmentSeries(
         simulationValidatedAt: now,
       }),
       lastModified: now,
+      locationLineageKey: occupancyReferences.locationLineageKey,
+      occupancyScope: appointmentOccupancyScopeFromRefs({
+        practitionerLineageKey: occupancyReferences.practitionerLineageKey,
+      }),
       ...(args.patientId && { patientId: args.patientId }),
       practiceId: args.practiceId,
       ...(index === 0 &&
@@ -1323,13 +1330,20 @@ async function validateRootCandidate(
     };
   }
 
+  const rootOccupancyReferences = await resolveOccupancyReferenceLineageKeys(
+    ctx.db,
+    {
+      locationId: asLocationId(args.locationId),
+      practitionerId: asPractitionerId(args.practitionerId),
+    },
+  );
   const conflictingAppointment = await findConflictingAppointment(ctx.db, {
     candidate: {
       end: calculateEndTime(args.start, args.rootDurationMinutes),
-      ...(await resolveOccupancyReferenceLineageKeys(ctx.db, {
-        locationId: asLocationId(args.locationId),
-        practitionerId: asPractitionerId(args.practitionerId),
-      })),
+      locationLineageKey: rootOccupancyReferences.locationLineageKey,
+      occupancyScope: appointmentOccupancyScopeFromRefs({
+        practitionerLineageKey: rootOccupancyReferences.practitionerLineageKey,
+      }),
       start: args.start,
     },
     ...(args.simulationRuleSetId && {

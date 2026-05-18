@@ -8,7 +8,7 @@ import {
 } from "../../src/tests/convex-property-fixtures";
 import { assertAsyncProperty } from "../../src/tests/property-test-utils";
 import { findConflictingCalendarOccupancy } from "../appointmentConflicts";
-import { asLocationLineageKey, asPractitionerLineageKey } from "../identity";
+import { asLocationLineageKey } from "../identity";
 
 describe("appointment conflict occupancy properties", () => {
   test("resource appointments do not block practitioner occupancy in the same location", async () => {
@@ -25,11 +25,11 @@ describe("appointment conflict occupancy properties", () => {
       await ctx.db.insert("appointments", {
         appointmentTypeLineageKey: fixture.appointmentTypeId,
         appointmentTypeTitle: "Resource booking",
-        calendarResourceColumn: "labor",
         createdAt: now,
         end: window.end,
         lastModified: now,
         locationLineageKey: fixture.locationId,
+        occupancyScope: { calendarResourceColumn: "labor", kind: "resource" },
         practiceId: fixture.practiceId,
         start: window.start,
         title: "Labor booking",
@@ -40,9 +40,10 @@ describe("appointment conflict occupancy properties", () => {
         candidate: {
           end: window.end,
           locationLineageKey: asLocationLineageKey(fixture.locationId),
-          practitionerLineageKey: asPractitionerLineageKey(
-            fixture.practitionerId,
-          ),
+          occupancyScope: {
+            kind: "practitioner",
+            practitionerLineageKey: fixture.practitionerId,
+          },
           start: window.start,
         },
         occupancyView: "live",
@@ -67,11 +68,11 @@ describe("appointment conflict occupancy properties", () => {
       await ctx.db.insert("appointments", {
         appointmentTypeLineageKey: fixture.appointmentTypeId,
         appointmentTypeTitle: "Resource booking",
-        calendarResourceColumn: "labor",
         createdAt: now,
         end: window.end,
         lastModified: now,
         locationLineageKey: fixture.locationId,
+        occupancyScope: { calendarResourceColumn: "labor", kind: "resource" },
         practiceId: fixture.practiceId,
         start: window.start,
         title: "Labor booking",
@@ -80,9 +81,9 @@ describe("appointment conflict occupancy properties", () => {
 
       return await findConflictingCalendarOccupancy(ctx.db, {
         candidate: {
-          calendarResourceColumn: "labor",
           end: window.end,
           locationLineageKey: asLocationLineageKey(fixture.locationId),
+          occupancyScope: { calendarResourceColumn: "labor", kind: "resource" },
           start: window.start,
         },
         occupancyView: "live",
@@ -117,8 +118,11 @@ describe("appointment conflict occupancy properties", () => {
                 end: window.end,
                 lastModified: now,
                 locationLineageKey: appointmentFixture.locationId,
+                occupancyScope: {
+                  kind: "practitioner",
+                  practitionerLineageKey: appointmentFixture.practitionerId,
+                },
                 practiceId: appointmentFixture.practiceId,
-                practitionerLineageKey: appointmentFixture.practitionerId,
                 start: window.start,
                 title: "Property appointment",
                 userId: appointmentFixture.userId,
@@ -130,9 +134,10 @@ describe("appointment conflict occupancy properties", () => {
                   locationLineageKey: asLocationLineageKey(
                     appointmentFixture.locationId,
                   ),
-                  practitionerLineageKey: asPractitionerLineageKey(
-                    appointmentFixture.practitionerId,
-                  ),
+                  occupancyScope: {
+                    kind: "practitioner",
+                    practitionerLineageKey: appointmentFixture.practitionerId,
+                  },
                   start: window.start,
                 },
                 occupancyView: "live",
@@ -164,9 +169,10 @@ describe("appointment conflict occupancy properties", () => {
                   locationLineageKey: asLocationLineageKey(
                     blockedSlotFixture.locationId,
                   ),
-                  practitionerLineageKey: asPractitionerLineageKey(
-                    blockedSlotFixture.practitionerId,
-                  ),
+                  occupancyScope: {
+                    kind: "practitioner",
+                    practitionerLineageKey: blockedSlotFixture.practitionerId,
+                  },
                   start: window.start,
                 },
                 occupancyView: "live",

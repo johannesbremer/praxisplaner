@@ -2,6 +2,7 @@ import type { GenericDatabaseReader } from "convex/server";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
+import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
 import { isActivationBoundSimulation } from "./appointmentSimulation";
 import { requireLineageKey } from "./lineage";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
@@ -222,13 +223,19 @@ async function buildAppointmentCoverageDiffSection(
           `Benutzer ${simulationAppointment.userId}`)
         : "Unbekannt";
 
+    const beforePractitionerLineageKey = getAppointmentPractitionerLineageKey(
+      replacedAppointment.occupancyScope,
+    );
+    const afterPractitionerLineageKey = getAppointmentPractitionerLineageKey(
+      simulationAppointment.occupancyScope,
+    );
     const beforePractitioner =
-      (replacedAppointment.practitionerLineageKey
-        ? practitionerNameById.get(replacedAppointment.practitionerLineageKey)
+      (beforePractitionerLineageKey
+        ? practitionerNameById.get(beforePractitionerLineageKey)
         : undefined) ?? "Unzugewiesen";
     const afterPractitioner =
-      (simulationAppointment.practitionerLineageKey
-        ? practitionerNameById.get(simulationAppointment.practitionerLineageKey)
+      (afterPractitionerLineageKey
+        ? practitionerNameById.get(afterPractitionerLineageKey)
         : undefined) ?? "Unzugewiesen";
 
     removed.push(

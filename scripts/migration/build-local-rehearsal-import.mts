@@ -338,11 +338,15 @@ function buildAppointmentsZip() {
       end: interval.end,
       lastModified: importTimestamp,
       locationLineageKey: location.lineageKey,
+      occupancyScope:
+        calendarResourceColumn === undefined
+          ? {
+              kind: "practitioner",
+              practitionerLineageKey: practitioner.lineageKey,
+            }
+          : { calendarResourceColumn, kind: "resource" },
       ...(patientId ? { patientId } : {}),
       practiceId: practice._id,
-      ...(calendarResourceColumn === undefined
-        ? { practitionerLineageKey: practitioner.lineageKey }
-        : { calendarResourceColumn }),
       start: interval.start,
       title: [
         appointment.Vorname,
@@ -380,13 +384,25 @@ function buildAppointmentsZip() {
     .map((lineageKey) => `"${lineageKey}"`)
     .join(" | ");
   const practitionerLineageKeyAlternatives = [
-    ...new Set(documents.map((document) => document.practitionerLineageKey)),
+    ...new Set(
+      documents.flatMap((document) =>
+        document.occupancyScope.kind === "practitioner"
+          ? [document.occupancyScope.practitionerLineageKey]
+          : [],
+      ),
+    ),
   ]
     .filter(Boolean)
     .map((lineageKey) => `"${lineageKey}"`)
     .join(" | ");
   const calendarResourceColumnAlternatives = [
-    ...new Set(documents.map((document) => document.calendarResourceColumn)),
+    ...new Set(
+      documents.flatMap((document) =>
+        document.occupancyScope.kind === "resource"
+          ? [document.occupancyScope.calendarResourceColumn]
+          : [],
+      ),
+    ),
   ]
     .filter(Boolean)
     .map((column) => `"${column}"`)
@@ -401,14 +417,14 @@ function buildAppointmentsZip() {
     ...(practitionerLineageKeyAlternatives.length === 0
       ? []
       : [
-          `${baseSchemaPrefix}, "practitionerLineageKey": ${practitionerLineageKeyAlternatives}${patientField}${baseSchemaSuffix}`,
-          `${baseSchemaPrefix}, "practitionerLineageKey": ${practitionerLineageKeyAlternatives}${baseSchemaSuffix}`,
+          `${baseSchemaPrefix}, "occupancyScope": {"kind": "practitioner", "practitionerLineageKey": ${practitionerLineageKeyAlternatives}}${patientField}${baseSchemaSuffix}`,
+          `${baseSchemaPrefix}, "occupancyScope": {"kind": "practitioner", "practitionerLineageKey": ${practitionerLineageKeyAlternatives}}${baseSchemaSuffix}`,
         ]),
     ...(calendarResourceColumnAlternatives.length === 0
       ? []
       : [
-          `${baseSchemaPrefix}, "calendarResourceColumn": ${calendarResourceColumnAlternatives}${patientField}${baseSchemaSuffix}`,
-          `${baseSchemaPrefix}, "calendarResourceColumn": ${calendarResourceColumnAlternatives}${baseSchemaSuffix}`,
+          `${baseSchemaPrefix}, "occupancyScope": {"kind": "resource", "calendarResourceColumn": ${calendarResourceColumnAlternatives}}${patientField}${baseSchemaSuffix}`,
+          `${baseSchemaPrefix}, "occupancyScope": {"kind": "resource", "calendarResourceColumn": ${calendarResourceColumnAlternatives}}${baseSchemaSuffix}`,
         ]),
   ];
   if (schemaVariants.length === 0) {

@@ -6,15 +6,15 @@ import type {
 import { Temporal } from "temporal-polyfill";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
-import type { LocationLineageKey, PractitionerLineageKey } from "./identity";
+import type { CalendarOccupancyScope } from "./appointmentOccupancy";
+import type { LocationLineageKey } from "./identity";
 
 export type AppointmentBookingScope = "real" | "simulation";
 
 export interface AppointmentConflictCandidate {
-  calendarResourceColumn?: CalendarResourceColumn;
   end: string;
   locationLineageKey: LocationLineageKey;
-  practitionerLineageKey?: PractitionerLineageKey;
+  occupancyScope: CalendarOccupancyScope;
   start: string;
 }
 export type AppointmentOccupancyView = "draftEffective" | "live";
@@ -23,8 +23,6 @@ type CalendarOccupancyConflict =
   | { kind: "appointment"; record: Doc<"appointments"> }
   | { kind: "blockedSlot"; record: Doc<"blockedSlots"> };
 
-type CalendarResourceColumn = "ekg" | "labor";
-
 type DatabaseLike =
   | GenericDatabaseReader<DataModel>
   | GenericDatabaseWriter<DataModel>;
@@ -32,11 +30,7 @@ type DatabaseLike =
 export function appointmentOverlapsCandidate(
   appointment: Pick<
     Doc<"appointments">,
-    | "calendarResourceColumn"
-    | "end"
-    | "locationLineageKey"
-    | "practitionerLineageKey"
-    | "start"
+    "end" | "locationLineageKey" | "occupancyScope" | "start"
   >,
   candidate: AppointmentConflictCandidate,
 ): boolean {
@@ -44,11 +38,8 @@ export function appointmentOverlapsCandidate(
     {
       end: appointment.end,
       locationKey: appointment.locationLineageKey,
-      practitionerKey: appointment.practitionerLineageKey,
+      occupancyScope: appointment.occupancyScope,
       start: appointment.start,
-      ...(appointment.calendarResourceColumn === undefined
-        ? {}
-        : { calendarResourceColumn: appointment.calendarResourceColumn }),
     },
     candidate,
   );
@@ -190,7 +181,13 @@ function findFirstCalendarOccupancyConflict(args: {
         {
           end: blockedSlot.end,
           locationKey: blockedSlot.locationLineageKey,
-          practitionerKey: blockedSlot.practitionerLineageKey,
+          occupancyScope:
+            blockedSlot.practitionerLineageKey === undefined
+              ? { kind: "location-wide" }
+              : {
+                  kind: "practitioner",
+                  practitionerLineageKey: blockedSlot.practitionerLineageKey,
+                },
           start: blockedSlot.start,
         },
         args.candidate,
@@ -254,41 +251,25 @@ function getEffectiveBlockedSlotsForOccupancyView(
   );
 }
 
-function getOccupancyScope(args: {
-  calendarResourceColumn?: CalendarResourceColumn | undefined;
-  practitionerKey?: string | undefined;
-  practitionerLineageKey?: PractitionerLineageKey;
-}) {
-  if (args.practitionerLineageKey !== undefined) {
-    return {
-      kind: "practitioner" as const,
-      value: args.practitionerLineageKey,
-    };
+function normalizeOccupancyScope(scope: CalendarOccupancyScope) {
+  switch (scope.kind) {
+    case "location-wide": {
+      return { kind: scope.kind, value: undefined };
+    }
+    case "practitioner": {
+      return { kind: scope.kind, value: scope.practitionerLineageKey };
+    }
+    case "resource": {
+      return { kind: scope.kind, value: scope.calendarResourceColumn };
+    }
   }
-  if (args.practitionerKey !== undefined) {
-    return {
-      kind: "practitioner" as const,
-      value: args.practitionerKey,
-    };
-  }
-  if (args.calendarResourceColumn !== undefined) {
-    return {
-      kind: "resource" as const,
-      value: args.calendarResourceColumn,
-    };
-  }
-  return {
-    kind: "location-wide" as const,
-    value: undefined,
-  };
 }
 
 function overlapsCalendarOccupancyCandidate(
   existing: {
-    calendarResourceColumn?: CalendarResourceColumn;
     end: string;
     locationKey: string;
-    practitionerKey: string | undefined;
+    occupancyScope: CalendarOccupancyScope;
     start: string;
   },
   candidate: AppointmentConflictCandidate,
@@ -297,8 +278,8 @@ function overlapsCalendarOccupancyCandidate(
     return false;
   }
 
-  const existingScope = getOccupancyScope(existing);
-  const candidateScope = getOccupancyScope(candidate);
+  const existingScope = normalizeOccupancyScope(existing.occupancyScope);
+  const candidateScope = normalizeOccupancyScope(candidate.occupancyScope);
   if (
     existingScope.kind !== "location-wide" &&
     candidateScope.kind !== "location-wide" &&

@@ -43,6 +43,7 @@ import {
   isZonedDateTimeString,
 } from "../lib/typed-regex.js";
 import { internalQuery } from "./_generated/server";
+import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
 import { requireLineageKey } from "./lineage";
 import { createDepthBoundedRecursiveUnionValidator } from "./recursiveValidator";
 
@@ -282,8 +283,11 @@ export async function buildPreloadedDayData(
     const locationIdForRuleSet = locationIdByLineage.get(
       apt.locationLineageKey,
     );
-    const practitionerIdForRuleSet = apt.practitionerLineageKey
-      ? practitionerIdByLineage.get(apt.practitionerLineageKey)
+    const practitionerLineageKey = getAppointmentPractitionerLineageKey(
+      apt.occupancyScope,
+    );
+    const practitionerIdForRuleSet = practitionerLineageKey
+      ? practitionerIdByLineage.get(practitionerLineageKey)
       : undefined;
 
     // Parse times once per appointment (expensive operation)
@@ -356,8 +360,11 @@ export async function buildPreloadedDayData(
       );
     }
 
-    const practitionerIdForRuleSet = apt.practitionerLineageKey
-      ? practitionerIdByLineage.get(apt.practitionerLineageKey)
+    const practitionerLineageKey = getAppointmentPractitionerLineageKey(
+      apt.occupancyScope,
+    );
+    const practitionerIdForRuleSet = practitionerLineageKey
+      ? practitionerIdByLineage.get(practitionerLineageKey)
       : undefined;
     if (practitionerIdForRuleSet) {
       const practitionerAllKey = `practitioner:${practitionerIdForRuleSet}:__all__`;

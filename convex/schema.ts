@@ -3,6 +3,7 @@ import type { Infer } from "convex/values";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+import { appointmentOccupancyScopeValidator } from "./appointmentOccupancy";
 import {
   beihilfeStatusValidator,
   dataSharingPersonValidator,
@@ -387,9 +388,6 @@ export default defineSchema({
     appointmentTypeLineageKey: v.id("appointmentTypes"), // Stable reference across rule set versions
     appointmentTypeTitle: v.string(), // Snapshot of appointment type name at booking time
     bookingIdentityId: v.optional(v.id("bookingIdentities")),
-    calendarResourceColumn: v.optional(
-      v.union(v.literal("ekg"), v.literal("labor")),
-    ),
     cancelledAt: v.optional(v.int64()),
     cancelledByPhoneBookingIdentityId: v.optional(
       v.id("phoneBookingIdentities"),
@@ -397,10 +395,10 @@ export default defineSchema({
     cancelledByUserId: v.optional(v.id("users")),
     isSimulation: v.optional(v.boolean()),
     locationLineageKey: v.id("locations"), // Stable reference across rule set versions
+    occupancyScope: appointmentOccupancyScopeValidator,
     patientId: v.optional(v.id("patients")), // Real patient from PVS
     phoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
     practiceId: v.id("practices"), // Multi-tenancy support
-    practitionerLineageKey: v.optional(v.id("practitioners")), // Stable reference across rule set versions
     reassignmentSourceVacationLineageKey: v.optional(v.id("vacations")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     seriesId: v.optional(v.string()),
@@ -421,7 +419,6 @@ export default defineSchema({
     .index("by_bookingIdentityId", ["bookingIdentityId"])
     .index("by_bookingIdentityId_start", ["bookingIdentityId", "start"])
     .index("by_patientId", ["patientId"])
-    .index("by_practitionerLineageKey", ["practitionerLineageKey"])
     .index("by_isSimulation", ["isSimulation"])
     .index("by_practiceId_isSimulation", ["practiceId", "isSimulation"])
     .index("by_replacesAppointmentId", ["replacesAppointmentId"])

@@ -82,8 +82,11 @@ describe("ruleEngine preloaded day data properties", () => {
               isSimulation: false,
               lastModified: now,
               locationLineageKey: locationId,
+              occupancyScope: {
+                kind: "practitioner",
+                practitionerLineageKey: practitionerId,
+              },
               practiceId,
-              practitionerLineageKey: practitionerId,
               start: start.toString(),
               title: `Property appointment ${index}`,
             });

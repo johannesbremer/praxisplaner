@@ -8,6 +8,7 @@ import type { InternalSchedulingResultSlot } from "./scheduling";
 
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
+import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
@@ -414,6 +415,9 @@ function toTelefonkiAppointment(appointment: Doc<"appointments">): null | {
   if (appointment.isSimulation === true) {
     return null;
   }
+  const practitionerLineageKey = getAppointmentPractitionerLineageKey(
+    appointment.occupancyScope,
+  );
   return {
     appointmentId: appointment._id,
     appointmentTypeTitle: appointment.appointmentTypeTitle,
@@ -422,9 +426,7 @@ function toTelefonkiAppointment(appointment: Doc<"appointments">): null | {
     }),
     end: appointment.end,
     locationLineageKey: appointment.locationLineageKey,
-    ...(appointment.practitionerLineageKey !== undefined && {
-      practitionerLineageKey: appointment.practitionerLineageKey,
-    }),
+    ...(practitionerLineageKey === undefined ? {} : { practitionerLineageKey }),
     start: appointment.start,
     title: appointment.title,
   };

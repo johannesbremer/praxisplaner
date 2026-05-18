@@ -33,6 +33,10 @@ import {
   resolvePractitionerIdForRuleSet,
 } from "./appointmentCoverage";
 import {
+  appointmentOccupancyScopeFromRefs,
+  getAppointmentPractitionerLineageKey,
+} from "./appointmentOccupancy";
+import {
   resolveLocationLineageKey,
   resolvePractitionerLineageKey,
   resolveStoredAppointmentReferencesForWrite,
@@ -177,7 +181,10 @@ async function createAutomaticReassignmentSimulationsForDeletedPractitioner(
   >();
 
   for (const appointment of effectiveAppointments) {
-    if (appointment.practitionerLineageKey !== args.practitionerLineageKey) {
+    if (
+      getAppointmentPractitionerLineageKey(appointment.occupancyScope) !==
+      args.practitionerLineageKey
+    ) {
       continue;
     }
 
@@ -272,12 +279,16 @@ async function createAutomaticReassignmentSimulationsForDeletedPractitioner(
     );
 
     const simulationAppointmentId = await ctx.db.insert("appointments", {
-      ...storedReferences,
+      appointmentTypeLineageKey: storedReferences.appointmentTypeLineageKey,
       appointmentTypeTitle: appointment.appointmentTypeTitle,
       createdAt: now,
       end: appointment.end,
       isSimulation: true,
       lastModified: now,
+      locationLineageKey: storedReferences.locationLineageKey,
+      occupancyScope: appointmentOccupancyScopeFromRefs({
+        practitionerLineageKey: storedReferences.practitionerLineageKey,
+      }),
       ...(appointment.patientId ? { patientId: appointment.patientId } : {}),
       practiceId: args.practiceId,
       replacesAppointmentId: appointment._id,

@@ -5,6 +5,7 @@ import type { Id } from "./_generated/dataModel";
 
 import { regex } from "../lib/arkregex.js";
 import { mutation, type MutationCtx, query } from "./_generated/server";
+import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
 import {
   beihilfeStatusValidator,
   dataSharingContactInputValidator,
@@ -1789,16 +1790,20 @@ async function resolveReplayAppointment(
     (row) =>
       row.patientId === patient._id &&
       row.appointmentTypeTitle === args.replayRow.pvsAppointmentTypeTitle &&
-      row.practitionerLineageKey !== undefined,
+      getAppointmentPractitionerLineageKey(row.occupancyScope) !== undefined,
   );
 
-  if (!appointment?.practitionerLineageKey) {
+  const practitionerLineageKey =
+    appointment === undefined
+      ? undefined
+      : getAppointmentPractitionerLineageKey(appointment.occupancyScope);
+  if (!appointment || !practitionerLineageKey) {
     return null;
   }
 
   const practitioner = await ctx.db.get(
     "practitioners",
-    appointment.practitionerLineageKey,
+    practitionerLineageKey,
   );
 
   if (!practitioner) {
@@ -1811,11 +1816,11 @@ async function resolveReplayAppointment(
     bookedDurationMinutes: args.replayRow.bookedDurationMinutes,
     locationLineageKey: appointment.locationLineageKey,
     patientId: patient._id,
-    practitionerLineageKey: appointment.practitionerLineageKey,
+    practitionerLineageKey,
     practitionerName: practitioner.name,
     reasonDescription: args.replayRow.reasonDescription,
     selectedSlot: {
-      practitionerLineageKey: appointment.practitionerLineageKey,
+      practitionerLineageKey,
       practitionerName: practitioner.name,
       startTime: appointment.start,
     },
