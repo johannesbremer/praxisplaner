@@ -1882,6 +1882,25 @@ export function useCalendarPlanningWorkbench(args: {
         placement: state.placement,
         start: state.start,
       });
+      const updatePayloadForState = (
+        state: typeof beforeState,
+        displayRefs: NonNullable<
+          ReturnType<typeof resolveBlockedSlotReferenceDisplayIds>
+        >,
+      ): Parameters<typeof updateBlockedSlotMutation>[0] => ({
+        end: state.end,
+        id: args.id,
+        locationId: displayRefs.locationId,
+        occupancyScope:
+          displayRefs.practitionerId === undefined
+            ? { kind: "location-wide" }
+            : {
+                kind: "practitioner",
+                practitionerId: displayRefs.practitionerId,
+              },
+        start: state.start,
+        title: state.title,
+      });
 
       pushHistoryAction({
         label: "Sperrung aktualisiert",
@@ -1914,16 +1933,9 @@ export function useCalendarPlanningWorkbench(args: {
             };
           }
 
-          await runUpdateBlockedSlotInternal({
-            end: afterState.end,
-            id: args.id,
-            locationId: displayRefs.locationId,
-            ...(displayRefs.practitionerId && {
-              practitionerId: displayRefs.practitionerId,
-            }),
-            start: afterState.start,
-            title: afterState.title,
-          });
+          await runUpdateBlockedSlotInternal(
+            updatePayloadForState(afterState, displayRefs),
+          );
           rememberBlockedSlotHistoryDoc(afterSnapshot);
           return { status: "applied" };
         },
@@ -1957,16 +1969,9 @@ export function useCalendarPlanningWorkbench(args: {
             };
           }
 
-          await runUpdateBlockedSlotInternal({
-            end: beforeState.end,
-            id: args.id,
-            locationId: displayRefs.locationId,
-            ...(displayRefs.practitionerId && {
-              practitionerId: displayRefs.practitionerId,
-            }),
-            start: beforeState.start,
-            title: beforeState.title,
-          });
+          await runUpdateBlockedSlotInternal(
+            updatePayloadForState(beforeState, displayRefs),
+          );
           rememberBlockedSlotHistoryDoc(before);
           return { status: "applied" };
         },

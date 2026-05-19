@@ -83,6 +83,17 @@ function normalizePatientSearchText(value) {
   return value.trim().replaceAll(/\s+/gu, " ").toLocaleLowerCase();
 }
 
+function normalizedNameMatch(onlineName, sourceOfTruthName) {
+  const online = normalizePatientSearchText(onlineName);
+  const sourceOfTruth = normalizePatientSearchText(sourceOfTruthName);
+
+  return (
+    online.length > 0 &&
+    sourceOfTruth.length > 0 &&
+    sourceOfTruth.includes(online)
+  );
+}
+
 function parsePvsWallClock(value) {
   const match = value.match(
     /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-]\d{2}:\d{2})$/,
@@ -103,12 +114,8 @@ function parseLegacyWallClock(value) {
   return `${match[1]}T${match[2]}`;
 }
 
-function matchKey(fields) {
-  return [
-    fields.startWallClock,
-    normalizePatientSearchText(fields.firstName),
-    normalizePatientSearchText(fields.lastName),
-  ].join("|");
+function startWallClockKey(fields) {
+  return fields.startWallClock;
 }
 
 function isExcludedResourceRoom(room) {
@@ -176,8 +183,8 @@ function buildPvsIndex() {
       doctor: row.Arzt,
       end: row.Ende,
       endWallClock: parsePvsWallClock(row.Ende),
-      firstName: row.Vorname,
-      lastName: row.Nachname,
+      firstName: normalizePatientSearchText(row.Vorname),
+      lastName: normalizePatientSearchText(row.Nachname),
       locationRoom: row.Raum,
       patientSourceId: row.ID,
       reason: row.Termingrund,
@@ -185,7 +192,7 @@ function buildPvsIndex() {
       startWallClock: parsePvsWallClock(row.Beginn),
       type: row.Terminart,
     };
-    const key = matchKey(appointment);
+    const key = startWallClockKey(appointment);
     const bucket = index.get(key) ?? [];
     bucket.push(appointment);
     index.set(key, bucket);
@@ -298,8 +305,8 @@ function classifyAppointments(legacyRows, pvsIndex) {
   let missingName = 0;
 
   for (const row of legacyRows) {
-    const firstName = row.firstName ?? "";
-    const lastName = row.lastName ?? "";
+    const firstName = normalizePatientSearchText(row.firstName ?? "");
+    const lastName = normalizePatientSearchText(row.lastName ?? "");
     if (!firstName.trim() || !lastName.trim()) {
       missingName += 1;
       unmatched.push({ ...row, reason: "missing_name" });
@@ -308,12 +315,19 @@ function classifyAppointments(legacyRows, pvsIndex) {
 
     const startWallClock = parseLegacyWallClock(row.legacyStart);
     const endWallClock = parseLegacyWallClock(row.legacyEnd);
-    const candidates = pvsIndex.get(
-      matchKey({ firstName, lastName, startWallClock }),
-    );
+    const candidates = pvsIndex
+      .get(startWallClockKey({ startWallClock }))
+      ?.filter(
+        (candidate) =>
+          normalizedNameMatch(firstName, candidate.firstName) &&
+          normalizedNameMatch(lastName, candidate.lastName),
+      );
 
     if (!candidates || candidates.length === 0) {
-      unmatched.push({ ...row, reason: "no_exact_start_and_name_match" });
+      unmatched.push({
+        ...row,
+        reason: "no_exact_start_and_source_of_truth_substring_name_match",
+      });
       continue;
     }
 
@@ -321,7 +335,8 @@ function classifyAppointments(legacyRows, pvsIndex) {
       ambiguous.push({
         ...row,
         candidateCount: candidates.length,
-        reason: "multiple_pvs_rows_for_exact_start_and_name",
+        reason:
+          "multiple_pvs_rows_for_exact_start_and_source_of_truth_substring_name",
       });
       continue;
     }
@@ -343,7 +358,7 @@ function classifyAppointments(legacyRows, pvsIndex) {
       legacyType: row.legacyType,
       legacyUserEmail: row.legacyUserEmail,
       matchRule:
-        "exact_local_wall_clock_start_and_exact_normalized_first_last_name",
+        "exact_local_wall_clock_start_and_source_of_truth_substring_first_last_name",
       patientFirstName: firstName,
       patientLastName: lastName,
       pvsDoctor: candidate.doctor,
@@ -551,7 +566,7 @@ function main() {
     legacyAppointmentsBySource: countBy(legacyRows, "sourceKind"),
     legacyUserCount: legacyUserRows.length,
     matchPolicy:
-      "Automatic identity correlation requires one non-resource Praxistimer row with the same local wall-clock start and exact normalized first and last name. Automatic patient association additionally requires an exact matching end time. Praxistimer EKG, Labor, and Mufu rooms are excluded from candidate matching.",
+      "Automatic identity correlation requires one non-resource Praxistimer row with the same local wall-clock start whose trimmed lowercase first and last names contain the corresponding trimmed lowercase online names. Automatic patient association additionally requires an exact matching end time. Praxistimer EKG, Labor, and Mufu rooms are excluded from candidate matching.",
     missingNameCount: result.missingName,
     pvsAppointmentCount: pvs.rows,
     pvsExcludedResourceRoomAppointmentCount: pvs.excludedResourceRoomRows,

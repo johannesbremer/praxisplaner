@@ -19,6 +19,7 @@ import {
   createCalendarPlacement,
   getCalendarResourceColumnFromColumn,
   getPractitionerLineageKeyFromColumn,
+  sameCalendarColumnScope,
 } from "../../../lib/calendar-occupancy";
 import { createSimulatedContext } from "../../../lib/utils";
 import { findIdInList } from "../../utils/convex-ids";
@@ -471,7 +472,10 @@ export function useCalendarLogic({
       const endSlot = startSlot + Math.ceil(duration / SLOT_DURATION);
 
       return baseAppointmentLayouts.some((apt) => {
-        if (apt.id === excludeId || apt.column !== column) {
+        if (
+          apt.id === excludeId ||
+          !sameCalendarColumnScope(apt.column, column)
+        ) {
           return false;
         }
 
@@ -539,7 +543,7 @@ export function useCalendarLogic({
   const getMaxAvailableDuration = useCallback(
     (column: CalendarColumnId, startSlot: number) => {
       const occupiedSlots = baseAppointmentLayouts
-        .filter((apt) => apt.column === column)
+        .filter((apt) => sameCalendarColumnScope(apt.column, column))
         .map((apt) => ({
           end:
             timeToSlot(apt.startTime) + Math.ceil(apt.duration / SLOT_DURATION),
@@ -730,7 +734,8 @@ export function useCalendarLogic({
       setDragPreview((prev) => {
         if (
           prev.visible &&
-          prev.column === column &&
+          prev.column !== null &&
+          sameCalendarColumnScope(prev.column, column) &&
           prev.slot === availableSlot
         ) {
           return prev;
@@ -762,7 +767,8 @@ export function useCalendarLogic({
         setDragPreview((prev) => {
           if (
             prev.visible &&
-            prev.column === column &&
+            prev.column !== null &&
+            sameCalendarColumnScope(prev.column, column) &&
             prev.slot === availableSlot
           ) {
             return prev;
@@ -1067,7 +1073,9 @@ export function useCalendarLogic({
   const addAppointment = (column: CalendarColumnId, slot: number) => {
     // Check if this slot is blocked (including breaks and rules)
     const blockedSlotData = allBlockedSlots.find(
-      (blocked) => blocked.column === column && blocked.slot === slot,
+      (blocked) =>
+        sameCalendarColumnScope(blocked.column, column) &&
+        blocked.slot === slot,
     );
 
     if (blockedSlotData) {
