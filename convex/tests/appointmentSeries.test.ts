@@ -1274,6 +1274,99 @@ describe("appointment series", () => {
     expect(seriesRecord?.rootAppointmentId).toBeDefined();
   });
 
+  test("createAppointmentSeries rejects booking identities from another practice", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const { practiceId: otherPracticeId } = await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_cross_practice_series_user",
+      "cross-practice-series@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        lineageKey: targetAppointmentTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 2,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const bookingIdentityId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      return await ctx.db.insert("bookingIdentities", {
+        createdAt: now,
+        email: "cross-practice-series@example.com",
+        kind: "online",
+        lastModified: now,
+        practiceId: otherPracticeId,
+        searchFirstName: "cross",
+        searchLastName: "practice",
+        sourceIdentityId: "other-practice-identity",
+        sourceSystem: "legacy-online",
+      });
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    await expect(
+      t.mutation(api.appointments.createAppointmentSeries, {
+        bookingIdentityId,
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Ersttermin",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      }),
+    ).rejects.toThrow(
+      "Booking identity does not belong to the appointment practice.",
+    );
+  });
+
   test("replanned optional follow-up appointments inherit the stored booking identity", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
@@ -1678,6 +1771,15 @@ describe("appointment series", () => {
         .toPlainDate()
         .toString(),
     ).toBe(monday.add({ days: 3 }).toString());
+
+    await expect(
+      t.mutation(api.appointments.updateAppointment, {
+        calendarResourceColumn: "ekg",
+        id: createdSeries.rootAppointmentId,
+      }),
+    ).rejects.toThrow(
+      "Kettentermine können nicht in EKG- oder Labor-Spalten verschoben werden.",
+    );
 
     await t.mutation(api.appointments.deleteAppointment, {
       id: createdSeries.rootAppointmentId,

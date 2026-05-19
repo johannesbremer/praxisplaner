@@ -13,7 +13,10 @@ import type {
 } from "../../../convex/identity";
 import type { ZonedDateTimeString } from "../../../convex/typedDtos";
 import type { CalendarDayQueryArgs } from "./calendar-query-args";
-import type { CalendarReferenceMaps } from "./calendar-reference-adapters";
+import type {
+  BlockedSlotDisplayOccupancyScope,
+  CalendarReferenceMaps,
+} from "./calendar-reference-adapters";
 import type {
   CalendarAppointmentPlacement,
   CalendarAppointmentRecord,
@@ -49,6 +52,7 @@ import {
   resolveAppointmentPlacementDisplayRefs,
   resolveBlockedSlotDisplayRefs,
   resolveBlockedSlotLineageRefs,
+  resolveBlockedSlotPlacementDisplayRefs,
   toBlockedSlotEditorRecord,
 } from "./calendar-reference-adapters";
 import {
@@ -1841,9 +1845,17 @@ export function useCalendarPlanningWorkbench(args: {
       const afterPlacement = createBlockedSlotPlacement({
         locationLineageKey:
           nextLocationLineageKey ?? before.placement.locationLineageKey,
-        ...(nextPractitionerLineageKey === undefined
-          ? {}
-          : { practitionerLineageKey: nextPractitionerLineageKey }),
+        occupancyScope:
+          args.occupancyScope === undefined
+            ? before.placement.occupancyScope
+            : args.occupancyScope.kind === "location-wide"
+              ? { kind: "location-wide" }
+              : nextPractitionerLineageKey === undefined
+                ? before.placement.occupancyScope
+                : {
+                    kind: "practitioner",
+                    practitionerLineageKey: nextPractitionerLineageKey,
+                  },
       });
       const afterState = {
         end: args.end ?? before.end,
@@ -1884,20 +1896,15 @@ export function useCalendarPlanningWorkbench(args: {
       });
       const updatePayloadForState = (
         state: typeof beforeState,
-        displayRefs: NonNullable<
-          ReturnType<typeof resolveBlockedSlotReferenceDisplayIds>
-        >,
+        displayRefs: {
+          locationId: Id<"locations">;
+          occupancyScope: BlockedSlotDisplayOccupancyScope;
+        },
       ): Parameters<typeof updateBlockedSlotMutation>[0] => ({
         end: state.end,
         id: args.id,
         locationId: displayRefs.locationId,
-        occupancyScope:
-          displayRefs.practitionerId === undefined
-            ? { kind: "location-wide" }
-            : {
-                kind: "practitioner",
-                practitionerId: displayRefs.practitionerId,
-              },
+        occupancyScope: displayRefs.occupancyScope,
         start: state.start,
         title: state.title,
       });
@@ -1922,8 +1929,9 @@ export function useCalendarPlanningWorkbench(args: {
             };
           }
 
-          const displayRefs = resolveBlockedSlotReferenceDisplayIds(
+          const displayRefs = resolveBlockedSlotPlacementDisplayRefs(
             afterState.placement,
+            referenceMaps,
           );
           if (!displayRefs) {
             return {
@@ -1958,8 +1966,9 @@ export function useCalendarPlanningWorkbench(args: {
             };
           }
 
-          const displayRefs = resolveBlockedSlotReferenceDisplayIds(
+          const displayRefs = resolveBlockedSlotPlacementDisplayRefs(
             beforeState.placement,
+            referenceMaps,
           );
           if (!displayRefs) {
             return {
@@ -1987,8 +1996,8 @@ export function useCalendarPlanningWorkbench(args: {
       getPractitionerLineageKeyForDisplayId,
       hasBlockedSlotConflict,
       pushHistoryAction,
+      referenceMaps,
       rememberBlockedSlotHistoryDoc,
-      resolveBlockedSlotReferenceDisplayIds,
       runUpdateBlockedSlotInternal,
     ],
   );
@@ -2105,16 +2114,12 @@ export function useCalendarPlanningWorkbench(args: {
 
 function createBlockedSlotPlacement(args: {
   locationLineageKey: LocationLineageKey;
-  practitionerLineageKey?: PractitionerLineageKey;
+  occupancyScope:
+    | { kind: "location-wide" }
+    | { kind: "practitioner"; practitionerLineageKey: PractitionerLineageKey };
 }): CalendarBlockedSlotPlacement {
   return createCalendarPlacement({
     locationLineageKey: args.locationLineageKey,
-    occupancyScope:
-      args.practitionerLineageKey === undefined
-        ? { kind: "location-wide" }
-        : {
-            kind: "practitioner",
-            practitionerLineageKey: args.practitionerLineageKey,
-          },
+    occupancyScope: args.occupancyScope,
   });
 }

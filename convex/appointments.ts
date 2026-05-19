@@ -1248,6 +1248,23 @@ export const createAppointmentSeries = mutation({
       }
     }
 
+    if (args.bookingIdentityId) {
+      const bookingIdentity = await ctx.db.get(
+        "bookingIdentities",
+        args.bookingIdentityId,
+      );
+      if (!bookingIdentity) {
+        throw new Error(
+          `Booking Identity with ID ${args.bookingIdentityId} not found`,
+        );
+      }
+      if (bookingIdentity.practiceId !== args.practiceId) {
+        throw new Error(
+          "Booking identity does not belong to the appointment practice.",
+        );
+      }
+    }
+
     const { patientDateOfBirth: rawPatientDateOfBirth, start, ...rest } = args;
     const patientDateOfBirth = asOptionalIsoDateString(rawPatientDateOfBirth);
     return await createAppointmentSeriesHelper(ctx, {
@@ -1916,6 +1933,16 @@ async function updateAppointmentByMode(
   const resolvedEnd = filteredUpdateData.end ?? existingAppointment.end;
   const resolvedIsSimulation = existingAppointment.isSimulation;
   const resolvedSimulationRuleSetId = existingAppointment.simulationRuleSetId;
+
+  if (
+    existingAppointment.seriesId !== undefined &&
+    explicitlyUsingResourceColumn
+  ) {
+    throw appointmentChainError(
+      "CHAIN_REPLAN_FAILED",
+      "Kettentermine können nicht in EKG- oder Labor-Spalten verschoben werden.",
+    );
+  }
 
   if (
     filteredUpdateData.appointmentTypeId !== undefined ||
