@@ -600,11 +600,7 @@ export const get = query({
       lastModified: v.int64(),
       practiceId: v.id("practices"),
       ruleSetId: v.id("ruleSets"),
-      source: v.union(
-        v.literal("current-booking"),
-        v.literal("legacy-pocketbase"),
-        v.literal("telefonki"),
-      ),
+      source: v.union(v.literal("current-booking"), v.literal("legacy-online")),
       sourceSessionKey: v.optional(v.string()),
       state: bookingSessionStepValidator,
       status: v.union(
@@ -692,11 +688,7 @@ export const getActiveForUser = query({
       lastModified: v.int64(),
       practiceId: v.id("practices"),
       ruleSetId: v.id("ruleSets"),
-      source: v.union(
-        v.literal("current-booking"),
-        v.literal("legacy-pocketbase"),
-        v.literal("telefonki"),
-      ),
+      source: v.union(v.literal("current-booking"), v.literal("legacy-online")),
       sourceSessionKey: v.optional(v.string()),
       state: bookingSessionStepValidator,
       status: v.union(

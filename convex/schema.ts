@@ -480,7 +480,12 @@ export default defineSchema({
     searchLastName: v.string(),
     sourceIdentityId: v.optional(v.string()),
     sourceSystem: v.optional(
-      v.union(v.literal("legacy-pocketbase"), v.literal("telefonki")),
+      v.union(
+        v.literal("legacy-online"),
+        v.literal("legacy-telefonki"),
+        v.literal("online"),
+        v.literal("telefonki"),
+      ),
     ),
     userId: v.optional(v.id("users")),
   })
@@ -1168,11 +1173,7 @@ export default defineSchema({
     userId: v.id("users"),
 
     // Persist only the current step; step payload is stored in per-step tables
-    source: v.union(
-      v.literal("current-booking"),
-      v.literal("legacy-pocketbase"),
-      v.literal("telefonki"),
-    ),
+    source: v.union(v.literal("current-booking"), v.literal("legacy-online")),
     sourceSessionKey: v.optional(v.string()),
     state: bookingSessionStorageStateValidator,
     status: v.union(
@@ -1209,7 +1210,7 @@ export default defineSchema({
     legacyUserId: v.string(),
     practiceId: v.id("practices"),
     reason: v.string(),
-    sourceSystem: v.literal("legacy-pocketbase"),
+    sourceSystem: v.literal("legacy-online"),
     userId: v.id("users"),
   })
     .index("by_userId_practiceId", ["userId", "practiceId"])

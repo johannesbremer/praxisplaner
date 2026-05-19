@@ -675,7 +675,7 @@ function buildSnapshotReplayRow(
     ...(practitionerName === undefined ? {} : { practitionerName }),
     ...(insuranceType !== "pkv" || !pvsConsent ? {} : { pvsConsent: true }),
     sessionStep,
-    source: "legacy-pocketbase",
+    source: "legacy-online",
     sourceSessionKey: `legacy-pocketbase:snapshot:${userId}`,
     userAuthId: `legacy-pocketbase:${userId}`,
     userEmail,

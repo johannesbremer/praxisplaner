@@ -472,7 +472,7 @@ describe("bookingSessions user identity handling", () => {
         legacyUserId: "legacy-blocked-user",
         practiceId,
         reason: "Legacy baumdiagramm.isUserBlocked",
-        sourceSystem: "legacy-pocketbase",
+        sourceSystem: "legacy-online",
         userId,
       });
     });
@@ -506,7 +506,7 @@ describe("bookingSessions user identity handling", () => {
         lastModified: 1n,
         practiceId,
         ruleSetId,
-        source: "legacy-pocketbase",
+        source: "legacy-online",
         sourceSessionKey: "legacy-pocketbase:session",
         state: { step: "existing-confirmation" },
         status: "imported",

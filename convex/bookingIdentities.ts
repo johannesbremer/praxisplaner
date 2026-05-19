@@ -21,7 +21,9 @@ const bookingIdentityKindValidator = v.union(
 );
 
 const bookingIdentitySourceSystemValidator = v.union(
-  v.literal("legacy-pocketbase"),
+  v.literal("legacy-online"),
+  v.literal("legacy-telefonki"),
+  v.literal("online"),
   v.literal("telefonki"),
 );
 

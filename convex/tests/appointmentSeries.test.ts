@@ -1236,7 +1236,7 @@ describe("appointment series", () => {
         searchFirstName: "real",
         searchLastName: "series",
         sourceIdentityId: "legacy-user-1",
-        sourceSystem: "legacy-pocketbase",
+        sourceSystem: "legacy-online",
       });
     });
 
@@ -1366,7 +1366,7 @@ describe("appointment series", () => {
         searchFirstName: "replan",
         searchLastName: "series",
         sourceIdentityId: "legacy-user-optional-1",
-        sourceSystem: "legacy-pocketbase",
+        sourceSystem: "legacy-online",
       });
     });
 

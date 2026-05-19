@@ -241,7 +241,10 @@ const bookingIdentityImportRowValidator = v.object({
   lastName: v.optional(v.string()),
   sourceIdentityId: v.string(),
   sourceKey: v.string(),
-  sourceSystem: v.union(v.literal("legacy-pocketbase"), v.literal("telefonki")),
+  sourceSystem: v.union(
+    v.literal("legacy-online"),
+    v.literal("legacy-telefonki"),
+  ),
   userEmail: v.optional(v.string()),
   userSourceId: v.optional(v.string()),
 });
@@ -297,7 +300,7 @@ const legacyBookingReplayRowValidator = v.object({
     v.literal("new-calendar-selection"),
     v.literal("new-confirmation"),
   ),
-  source: v.union(v.literal("legacy-pocketbase"), v.literal("telefonki")),
+  source: v.literal("legacy-online"),
   sourceSessionKey: v.string(),
   userAuthId: v.string(),
   userEmail: v.string(),
@@ -398,12 +401,12 @@ async function ensureBookingIdentityImported(
 
 function parseBookingIdentitySourceKey(sourceKey: string): {
   sourceIdentityId: string;
-  sourceSystem: "legacy-pocketbase" | "telefonki";
+  sourceSystem: "legacy-online" | "legacy-telefonki";
 } {
   const [sourceSystem, , ...identityParts] = sourceKey.split(":");
   const sourceIdentityId = identityParts.join(":");
   if (
-    (sourceSystem !== "legacy-pocketbase" && sourceSystem !== "telefonki") ||
+    (sourceSystem !== "legacy-online" && sourceSystem !== "legacy-telefonki") ||
     sourceIdentityId.length === 0
   ) {
     throw new Error(`Unsupported booking identity source key: ${sourceKey}`);
@@ -627,7 +630,7 @@ export const importLegacyBookingBlocks = mutation({
         legacyUserId: block.legacyUserId,
         practiceId: args.practiceId,
         reason: block.reason,
-        sourceSystem: "legacy-pocketbase",
+        sourceSystem: "legacy-online",
         userId: userResult.userId,
       });
       insertedBlocks += 1;
@@ -1169,7 +1172,7 @@ interface LegacyBookingReplayRowInput {
     | "new-pvs-consent"
     | "patient-status"
     | "privacy";
-  source: "legacy-pocketbase" | "telefonki";
+  source: "legacy-online";
   sourceSessionKey: string;
   userAuthId: string;
   userEmail: string;

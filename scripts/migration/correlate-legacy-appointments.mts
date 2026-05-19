@@ -392,7 +392,7 @@ function bookingIdentityKind(sourceKind) {
 }
 
 function bookingIdentitySourceSystem(sourceKind) {
-  return sourceKind === "telefonki" ? "telefonki" : "legacy-pocketbase";
+  return sourceKind === "telefonki" ? "legacy-telefonki" : "legacy-online";
 }
 
 function bookingIdentitySourceId(row) {
