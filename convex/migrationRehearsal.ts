@@ -677,39 +677,6 @@ export const importLegacyBookingStepReplay = mutation({
         replayRow,
         ruleSetId: args.ruleSetId,
       });
-      if (
-        replayRow.sessionStep.endsWith("confirmation") &&
-        resolvedReplayContext.kind === "resolved" &&
-        resolvedReplayContext.context.appointment === undefined
-      ) {
-        skippedMissingAppointment += 1;
-        skippedRows.push({
-          ...(replayRow.legacyAppointmentId === undefined
-            ? {}
-            : { legacyAppointmentId: replayRow.legacyAppointmentId }),
-          ...(replayRow.locationName === undefined
-            ? {}
-            : { locationName: replayRow.locationName }),
-          ...(replayRow.practitionerName === undefined
-            ? {}
-            : { practitionerName: replayRow.practitionerName }),
-          ...(replayRow.pvsAppointmentStart === undefined
-            ? {}
-            : { pvsAppointmentStart: replayRow.pvsAppointmentStart }),
-          ...(replayRow.pvsAppointmentTypeTitle === undefined
-            ? {}
-            : { pvsAppointmentTypeTitle: replayRow.pvsAppointmentTypeTitle }),
-          ...(replayRow.pvsPatientNumber === undefined
-            ? {}
-            : { pvsPatientNumber: replayRow.pvsPatientNumber }),
-          reason: "missing_appointment",
-          sessionStep: replayRow.sessionStep,
-          source: replayRow.source,
-          sourceSessionKey: replayRow.sourceSessionKey,
-          userAuthId: replayRow.userAuthId,
-        });
-        continue;
-      }
       if (resolvedReplayContext.kind === "skipped") {
         skippedMissingAppointment += 1;
         skippedRows.push({
@@ -1853,14 +1820,6 @@ async function resolveReplayContext(
       args.replayRow.locationName,
     ));
 
-  if (
-    args.replayRow.sessionStep !== "privacy" &&
-    args.replayRow.sessionStep !== "location" &&
-    locationLineageKey === undefined
-  ) {
-    return { kind: "skipped", reason: "missing_location" };
-  }
-
   const practitionerLineageKey =
     appointment?.practitionerLineageKey ??
     (await resolvePractitionerLineageKey(ctx, {
@@ -1868,15 +1827,6 @@ async function resolveReplayContext(
       practitionerName: args.replayRow.practitionerName,
       ruleSetId: args.ruleSetId,
     }));
-
-  if (
-    (args.replayRow.sessionStep === "existing-data-input" ||
-      args.replayRow.sessionStep === "existing-calendar-selection" ||
-      args.replayRow.sessionStep === "existing-confirmation") &&
-    practitionerLineageKey === undefined
-  ) {
-    return { kind: "skipped", reason: "missing_practitioner" };
-  }
 
   return {
     context: {

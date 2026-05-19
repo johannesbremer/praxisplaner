@@ -295,37 +295,6 @@ function personalDataFromLegacyUser(userId, args) {
   });
 }
 
-function personalDataFromMatch(match, personalByUser, phoneUserById) {
-  if (match.sourceKind === "telefonki") {
-    const phoneUser = phoneUserById.get(match.legacyIdentityId);
-    return personalDataFromFields({
-      dateOfBirth: match.birthDate,
-      firstName: match.patientFirstName,
-      gender: normalizeGender(phoneUser?.geschlecht),
-      lastName: match.patientLastName,
-      phoneNumber: phoneUser?.phone ?? "",
-    });
-  }
-
-  const personal = personalByUser.get(match.legacyIdentityId);
-  return personalDataFromFields({
-    city: personal?.ort ?? "",
-    dateOfBirth: personal?.geburtstag ?? match.birthDate,
-    email: normalizeEmail(
-      match.legacyUserEmail,
-      match.legacyIdentityId,
-      "legacy-users.invalid",
-    ),
-    firstName: personal?.vorname ?? match.patientFirstName,
-    gender: normalizeGender(personal?.geschlecht),
-    lastName: personal?.name ?? match.patientLastName,
-    phoneNumber: personal?.tel ?? "",
-    postalCode: personal?.plz ?? "",
-    street: personal?.strasse ?? "",
-    title: personal?.dr ?? "",
-  });
-}
-
 function dataSharingContactsForUser(userId, dataSharingByUser) {
   return (dataSharingByUser.get(userId) ?? [])
     .map((contact) => ({
@@ -345,14 +314,6 @@ function dataSharingContactsForUser(userId, dataSharingByUser) {
         contact.lastName.length > 0 ||
         contact.phoneNumber.length > 0,
     );
-}
-
-function dataSharingContactsForMatch(match, dataSharingByUser) {
-  if (match.sourceKind === "telefonki") {
-    return [];
-  }
-
-  return dataSharingContactsForUser(match.legacyIdentityId, dataSharingByUser);
 }
 
 function medicalHistoryFromUser(userId, anamneseByUser, anamneseTextByUser) {
@@ -425,26 +386,6 @@ function reasonDescriptionFromSnapshot(args) {
 
 function isTruthyLegacyFlag(value) {
   return value === 1 || value === "1" || value === true;
-}
-
-function sourceForKind(sourceKind) {
-  return sourceKind === "telefonki" ? "telefonki" : "legacy-pocketbase";
-}
-
-function userAuthIdForMatch(match) {
-  return match.sourceKind === "telefonki"
-    ? `telefonki:${match.legacyIdentityId}`
-    : `legacy-pocketbase:${match.legacyIdentityId}`;
-}
-
-function userEmailForMatch(match) {
-  return match.sourceKind === "telefonki"
-    ? `${match.legacyIdentityId}@telefonki-users.invalid`
-    : normalizeEmail(
-        match.legacyUserEmail,
-        match.legacyIdentityId,
-        "legacy-users.invalid",
-      );
 }
 
 function readSourceMaps() {
@@ -615,9 +556,6 @@ function buildSnapshotReplayRow(
     currentAppointment === undefined
       ? undefined
       : currentMatchByLegacyAppointmentId.get(currentAppointment.id);
-  if (currentMatch !== undefined) {
-    return undefined;
-  }
   const locationName =
     normalizeLocationName(baum.zweigstelle) ??
     normalizeLocationName(currentMatch?.legacyLocation) ??
@@ -761,140 +699,6 @@ function buildSnapshotReplayRow(
   };
 }
 
-function buildCurrentOnlineReplayRow(match, maps) {
-  const userId = match.legacyIdentityId;
-  const baum = maps.baumByUser.get(userId);
-  const userEmail =
-    maps.userById.get(userId)?.email ?? `${userId}@legacy-users.invalid`;
-  const personalData = personalDataFromLegacyUser(userId, {
-    fallbackMatch: match,
-    personalByUser: maps.personalByUser,
-    userEmail,
-  });
-  if (!personalData) {
-    return undefined;
-  }
-
-  const locationName =
-    normalizeLocationName(baum?.zweigstelle) ??
-    normalizeLocationName(match.legacyLocation) ??
-    normalizeLocationName(match.pvsLocationRoom);
-  const currentAppointment = maps.currentAppointmentsByUser.get(userId);
-  const practitionerName =
-    trimToUndefined(match.pvsDoctor) ??
-    practitionerNameFromDoc(
-      maps.docsById.get(currentAppointment?.doc ?? baum?.doc),
-    );
-  const dataSharingContacts = dataSharingContactsForUser(
-    userId,
-    maps.dataSharingByUser,
-  );
-  const medicalHistory = medicalHistoryFromUser(
-    userId,
-    maps.anamneseByUser,
-    maps.anamneseTextByUser,
-  );
-  const isNewPatient = baum?.neupatient === "ja";
-  const pkv = maps.pkvByUser.get(userId);
-  const pvsConsent = isTruthyLegacyFlag(baum?.pvs);
-  const insuranceType = isNewPatient
-    ? normalizeInsuranceType({
-        hasPkvRow: pkv !== undefined,
-        kasse: baum?.kasse,
-        pvsConsent,
-      })
-    : undefined;
-  const hzvStatus =
-    insuranceType === "gkv"
-      ? normalizeHzvStatus(baum?.hausarztvertrag)
-      : undefined;
-  const pkvInsuranceType =
-    insuranceType === "pkv" ? normalizePkvInsuranceType(pkv?.kasse) : undefined;
-  const pkvTariff =
-    insuranceType === "pkv" ? normalizePkvTariff(pkv?.tarif) : undefined;
-  const beihilfeStatus =
-    insuranceType === "pkv"
-      ? normalizeBeihilfeStatus(pkv?.beihilfe)
-      : undefined;
-  const hasPkvDetails =
-    pkvInsuranceType !== undefined ||
-    pkvTariff !== undefined ||
-    beihilfeStatus !== undefined ||
-    pkv !== undefined;
-  const sessionStep = isNewPatient
-    ? inferNewSnapshotStep({
-        dataSharingSubmitted: true,
-        hasConsent: true,
-        hasMatchedAppointment: true,
-        hasPkvDetails,
-        hzvStatus,
-        insuranceType,
-        locationName,
-        personalData,
-        pvsConsent,
-      })
-    : "existing-confirmation";
-
-  return {
-    bookedDurationMinutes: durationMinutes(match.pvsStart, match.pvsEnd),
-    createdAt: parseDate(match.legacyStart).getTime(),
-    dataSharingContacts,
-    ...(beihilfeStatus === undefined ? {} : { beihilfeStatus }),
-    ...(insuranceType === undefined ? {} : { insuranceType }),
-    ...(hzvStatus === undefined ? {} : { hzvStatus }),
-    legacyAppointmentId: match.legacyAppointmentId,
-    ...(locationName === undefined ? {} : { locationName }),
-    ...(medicalHistory === undefined ? {} : { medicalHistory }),
-    personalData,
-    pvsAppointmentStart: toStoredPvsDateTime(match.pvsStart),
-    pvsAppointmentTypeTitle: match.pvsType,
-    ...(pkvInsuranceType === undefined ? {} : { pkvInsuranceType }),
-    ...(pkvTariff === undefined ? {} : { pkvTariff }),
-    ...(practitionerName === undefined ? {} : { practitionerName }),
-    ...(insuranceType !== "pkv" || !pvsConsent ? {} : { pvsConsent: true }),
-    pvsPatientNumber: Number(match.pvsPatientSourceId),
-    reasonDescription:
-      match.legacyType || match.legacyTitle || match.pvsReason || "Import",
-    sessionStep,
-    source: "legacy-pocketbase",
-    sourceSessionKey: `legacy-pocketbase:current:${match.legacyAppointmentId}`,
-    userAuthId: `legacy-pocketbase:${userId}`,
-    userEmail,
-  };
-}
-
-function buildHistoricalReplayRow(match, maps) {
-  const personalData = personalDataFromMatch(
-    match,
-    maps.personalByUser,
-    maps.phoneUserById,
-  );
-  if (!personalData) {
-    return undefined;
-  }
-
-  return {
-    bookedDurationMinutes: durationMinutes(match.pvsStart, match.pvsEnd),
-    createdAt: parseDate(match.legacyStart).getTime(),
-    dataSharingContacts: dataSharingContactsForMatch(
-      match,
-      maps.dataSharingByUser,
-    ),
-    legacyAppointmentId: match.legacyAppointmentId,
-    personalData,
-    pvsAppointmentStart: toStoredPvsDateTime(match.pvsStart),
-    pvsAppointmentTypeTitle: match.pvsType,
-    pvsPatientNumber: Number(match.pvsPatientSourceId),
-    reasonDescription:
-      match.legacyType || match.legacyTitle || match.pvsReason || "Import",
-    sessionStep: "existing-confirmation",
-    source: sourceForKind(match.sourceKind),
-    sourceSessionKey: `${sourceForKind(match.sourceKind)}:history:${match.legacyAppointmentId}`,
-    userAuthId: userAuthIdForMatch(match),
-    userEmail: userEmailForMatch(match),
-  };
-}
-
 function main() {
   mkdirSync(reportRoot, { recursive: true });
   const matches = parseCsv(readFileSync(matchesPath, "utf8"));
@@ -908,14 +712,10 @@ function main() {
   const snapshotRows = [...maps.baumByUser.keys()]
     .map((userId) => buildSnapshotReplayRow(userId, maps, currentOnlineMatches))
     .filter(Boolean);
-  const historicalRows = matches
-    .map((match) =>
-      match.sourceKind === "online"
-        ? buildCurrentOnlineReplayRow(match, maps)
-        : buildHistoricalReplayRow(match, maps),
-    )
-    .filter(Boolean);
-  const replayRows = [...snapshotRows, ...historicalRows];
+  const replayRows = snapshotRows;
+  const appointmentLinkedReplayRows = replayRows.filter(
+    (row) => row.legacyAppointmentId !== undefined,
+  );
 
   const blockRows = maps.blockedUsers.map((row) => ({
     legacyUserId: row.legacyUserId,
@@ -932,8 +732,8 @@ function main() {
   console.log(
     JSON.stringify(
       {
+        appointmentLinkedReplayRows: appointmentLinkedReplayRows.length,
         blockedUsers: blockRows.length,
-        historicalReplayRows: historicalRows.length,
         replayRows: replayRows.length,
         replayRowsBySource: Object.fromEntries(
           [...Map.groupBy(replayRows, (row) => row.source).entries()].map(

@@ -395,40 +395,45 @@ function bookingIdentitySourceSystem(sourceKind) {
   return sourceKind === "telefonki" ? "telefonki" : "legacy-pocketbase";
 }
 
-function bookingIdentitySourceId(match) {
-  return match.legacyProfileId || match.legacyIdentityId;
+function bookingIdentitySourceId(row) {
+  return row.legacyProfileId || row.legacyIdentityId;
 }
 
-function bookingIdentitySourceKey(match) {
+function bookingIdentitySourceKey(row) {
   return [
-    bookingIdentitySourceSystem(match.sourceKind),
-    bookingIdentityKind(match.sourceKind),
-    bookingIdentitySourceId(match),
+    bookingIdentitySourceSystem(row.sourceKind),
+    bookingIdentityKind(row.sourceKind),
+    bookingIdentitySourceId(row),
   ].join(":");
 }
 
-function buildBookingIdentityRows(matches) {
+function buildBookingIdentityRows(legacyRows) {
   const bySourceKey = new Map();
 
-  for (const match of matches) {
-    const sourceKey = bookingIdentitySourceKey(match);
+  for (const row of legacyRows) {
+    const sourceIdentityId = bookingIdentitySourceId(row);
+    if (!sourceIdentityId) {
+      continue;
+    }
+
+    const sourceKey = bookingIdentitySourceKey(row);
     if (bySourceKey.has(sourceKey)) {
       continue;
     }
 
     bySourceKey.set(sourceKey, {
-      dateOfBirth: match.birthDate,
-      firstName: match.patientFirstName,
-      kind: bookingIdentityKind(match.sourceKind),
-      lastName: match.patientLastName,
-      sourceIdentityId: bookingIdentitySourceId(match),
+      dateOfBirth: row.birthDate,
+      firstName: row.firstName,
+      kind: bookingIdentityKind(row.sourceKind),
+      lastName: row.lastName,
+      sourceIdentityId,
       sourceKey,
-      sourceSystem: bookingIdentitySourceSystem(match.sourceKind),
-      ...(match.sourceKind === "telefonki"
+      sourceSystem: bookingIdentitySourceSystem(row.sourceKind),
+      ...(row.sourceKind === "telefonki"
         ? {}
         : {
-            userEmail: match.legacyUserEmail,
-            userSourceId: match.legacyIdentityId,
+            userEmail: row.legacyUserEmail,
+            userSourceId: row.legacyIdentityId,
           }),
     });
   }
@@ -532,7 +537,7 @@ function main() {
     username: user.username,
     verified: user.verified === 1,
   }));
-  const bookingIdentityRows = buildBookingIdentityRows(result.matches);
+  const bookingIdentityRows = buildBookingIdentityRows(legacyRows);
   const associationRows = buildAssociationRows(result.matches);
   const { appendOnlyRows, conflictRows } =
     splitAssociationRowsByConflict(associationRows);
