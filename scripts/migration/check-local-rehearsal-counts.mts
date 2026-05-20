@@ -22,6 +22,7 @@ const tables = [
   "bookingIdentities",
   "bookingIdentityPatientAssociations",
   "legacyBookingBlocks",
+  "practitionerAssociations",
 ] as const;
 
 function pushFunctions() {

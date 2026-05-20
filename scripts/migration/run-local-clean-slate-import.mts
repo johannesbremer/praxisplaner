@@ -301,6 +301,9 @@ async function main() {
         "--yes",
         ".cache/migration/rehearsal/appointments-rehearsal.zip",
       ]);
+      run("node", [
+        "scripts/migration/build-pvs-practitioner-associations.mts",
+      ]);
       run("node", ["scripts/migration/correlate-legacy-appointments.mts"]);
       run("node", ["scripts/migration/build-legacy-booking-step-replay.mts"]);
       run("node", [

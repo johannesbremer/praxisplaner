@@ -231,6 +231,36 @@ function readOnlineAppointments() {
   `);
 }
 
+function readOnlineSnapshotUsers() {
+  const rows = readSqliteJson(`
+    select
+      'online_snapshot' as sourceKind,
+      b.user as legacyIdentityId,
+      p.id as legacyProfileId,
+      u.email as legacyUserEmail,
+      p.vorname as firstName,
+      p.name as lastName,
+      p.geburtstag as birthDate
+    from baumdiagramm b
+    left join personal p on p.user = b.user
+    left join users u on u.id = b.user
+    where b.user != ''
+    order by b.updated desc, b.created desc, b.id desc
+  `);
+
+  const latestByUser = new Map();
+  for (const row of rows) {
+    if (latestByUser.has(row.legacyIdentityId)) {
+      continue;
+    }
+    latestByUser.set(row.legacyIdentityId, row);
+  }
+
+  return [...latestByUser.values()].sort((left, right) =>
+    left.legacyIdentityId.localeCompare(right.legacyIdentityId),
+  );
+}
+
 function readOldOnlineAppointments() {
   return readSqliteJson(`
     select
@@ -407,6 +437,10 @@ function bookingIdentitySourceKey(row) {
   ].join(":");
 }
 
+function optionalString(value) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
 function buildBookingIdentityRows(legacyRows) {
   const bySourceKey = new Map();
 
@@ -422,18 +456,28 @@ function buildBookingIdentityRows(legacyRows) {
     }
 
     bySourceKey.set(sourceKey, {
-      dateOfBirth: row.birthDate,
-      firstName: row.firstName,
+      ...(optionalString(row.birthDate) === undefined
+        ? {}
+        : { dateOfBirth: optionalString(row.birthDate) }),
+      ...(optionalString(row.firstName) === undefined
+        ? {}
+        : { firstName: optionalString(row.firstName) }),
       kind: bookingIdentityKind(row.sourceKind),
-      lastName: row.lastName,
+      ...(optionalString(row.lastName) === undefined
+        ? {}
+        : { lastName: optionalString(row.lastName) }),
       sourceIdentityId,
       sourceKey,
       sourceSystem: bookingIdentitySourceSystem(row.sourceKind),
       ...(row.sourceKind === "telefonki"
         ? {}
         : {
-            userEmail: row.legacyUserEmail,
-            userSourceId: row.legacyIdentityId,
+            ...(optionalString(row.legacyUserEmail) === undefined
+              ? {}
+              : { userEmail: optionalString(row.legacyUserEmail) }),
+            ...(optionalString(row.legacyIdentityId) === undefined
+              ? {}
+              : { userSourceId: optionalString(row.legacyIdentityId) }),
           }),
     });
   }
@@ -521,6 +565,7 @@ function main() {
   mkdirSync(reportRoot, { recursive: true });
 
   const pvs = buildPvsIndex();
+  const onlineSnapshotUsers = readOnlineSnapshotUsers();
   const legacyRows = [
     ...readOnlineAppointments(),
     ...readOldOnlineAppointments(),
@@ -537,7 +582,10 @@ function main() {
     username: user.username,
     verified: user.verified === 1,
   }));
-  const bookingIdentityRows = buildBookingIdentityRows(legacyRows);
+  const bookingIdentityRows = buildBookingIdentityRows([
+    ...legacyRows,
+    ...onlineSnapshotUsers,
+  ]);
   const associationRows = buildAssociationRows(result.matches);
   const { appendOnlyRows, conflictRows } =
     splitAssociationRowsByConflict(associationRows);
@@ -564,11 +612,16 @@ function main() {
     bookingIdentityAssociationCount: appendOnlyRows.length,
     bookingIdentityAssociationSkippedForConflictCount: conflictRows.length,
     bookingIdentityCount: bookingIdentityRows.length,
+    bookingIdentityCountBySourceSystem: countBy(
+      bookingIdentityRows,
+      "sourceSystem",
+    ),
     legacyOnlineAppointmentCount: countMatchesWhere(legacyRows, (row) =>
       onlineSourceKinds.has(row.sourceKind),
     ),
     legacyAppointmentCount: legacyRows.length,
     legacyAppointmentsBySource: countBy(legacyRows, "sourceKind"),
+    legacyOnlineSnapshotUserCount: onlineSnapshotUsers.length,
     legacyUserCount: legacyUserRows.length,
     matchPolicy:
       "Automatic identity correlation requires one non-resource Praxistimer row with the same local wall-clock start whose trimmed lowercase first and last names contain the corresponding trimmed lowercase online names. Automatic patient association additionally requires an exact matching end time. Praxistimer EKG, Labor, and Mufu rooms are excluded from candidate matching.",

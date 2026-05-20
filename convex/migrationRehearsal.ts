@@ -17,6 +17,12 @@ import {
   pkvTariffValidator,
 } from "./bookingValidators";
 import { insertSelfLineageEntity } from "./lineage";
+import {
+  attachPatientToBookingIdentityPractitionerAssociations,
+  resolvePreferredPractitionerAssociation,
+  upsertAppointmentHistoryPractitionerAssociation,
+  upsertPractitionerAssociation,
+} from "./practitionerAssociations";
 
 function assertMigrationRehearsalEnabled(): void {
   if (process.env["MIGRATION_REHEARSAL_ENABLED"] !== "true") {
@@ -27,9 +33,6 @@ function assertMigrationRehearsalEnabled(): void {
 }
 
 const SEARCH_WHITESPACE_REGEX = regex.as(String.raw`\s+`, "gu");
-const DIACRITIC_REGEX = regex.as(String.raw`\p{Diacritic}`, "gu");
-const NON_ALPHANUMERIC_REGEX = regex.as(String.raw`[^a-z0-9]+`, "gu");
-const SPLIT_WHITESPACE_REGEX = regex.as(String.raw`\s+`, "u");
 
 export const replaceReferenceTables = mutation({
   args: {
@@ -318,6 +321,12 @@ const bookingIdentityAssociationImportRowValidator = v.object({
   status: v.literal("active"),
 });
 
+const pvsPatientPractitionerAssociationImportRowValidator = v.object({
+  matchedAppointmentCount: v.number(),
+  patientId: v.id("patients"),
+  practitionerLineageKey: v.id("practitioners"),
+});
+
 const replayImportSkipReasonValidator = v.union(
   v.literal("missing_appointment"),
   v.literal("missing_location"),
@@ -336,6 +345,16 @@ const replayImportSkipRowValidator = v.object({
   source: legacyBookingReplayRowValidator.fields.source,
   sourceSessionKey: v.string(),
   userAuthId: v.string(),
+});
+
+const practitionerAssociationDivergenceRowValidator = v.object({
+  appointmentHistoryPractitionerLineageKey: v.id("practitioners"),
+  bookingIdentityId: v.optional(v.id("bookingIdentities")),
+  legacyAppointmentId: v.optional(v.string()),
+  patientId: v.id("patients"),
+  sourceSessionKey: v.string(),
+  userAuthId: v.string(),
+  winningPractitionerLineageKey: v.id("practitioners"),
 });
 
 async function ensureBookingIdentityImported(
@@ -399,6 +418,33 @@ async function ensureBookingIdentityImported(
   return { bookingIdentityId, inserted: true };
 }
 
+async function findLegacyOnlineBookingIdentityByUserAuthId(
+  ctx: MutationCtx,
+  args: {
+    practiceId: Id<"practices">;
+    userAuthId: string;
+  },
+): Promise<Id<"bookingIdentities"> | undefined> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_authId", (q) => q.eq("authId", args.userAuthId))
+    .first();
+  if (user === null) {
+    return undefined;
+  }
+
+  const identities = await ctx.db
+    .query("bookingIdentities")
+    .withIndex("by_userId", (q) => q.eq("userId", user._id))
+    .collect();
+
+  return identities.find(
+    (row) =>
+      row.practiceId === args.practiceId &&
+      row.sourceSystem === "legacy-online",
+  )?._id;
+}
+
 function parseBookingIdentitySourceKey(sourceKey: string): {
   sourceIdentityId: string;
   sourceSystem: "legacy-online" | "legacy-telefonki";
@@ -458,6 +504,8 @@ export const importBookingIdentityAssociations = mutation({
     const now = BigInt(Date.now());
     let insertedAssociations = 0;
     let reusedAssociations = 0;
+    let associatedPractitioners = 0;
+    let skippedNoClearPractitioner = 0;
     let skippedMissingIdentity = 0;
     let skippedMissingPatient = 0;
 
@@ -507,6 +555,24 @@ export const importBookingIdentityAssociations = mutation({
       );
 
       if (existingAssociation) {
+        await attachPatientToBookingIdentityPractitionerAssociations(ctx.db, {
+          bookingIdentityId: bookingIdentity._id,
+          now,
+          patientId: patient._id,
+          practiceId: args.practiceId,
+        });
+        const practitionerAssociation =
+          await upsertAppointmentHistoryPractitionerAssociation(ctx.db, {
+            bookingIdentityId: bookingIdentity._id,
+            now,
+            patientId: patient._id,
+            practiceId: args.practiceId,
+          });
+        if (practitionerAssociation.kind === "associated") {
+          associatedPractitioners += 1;
+        } else {
+          skippedNoClearPractitioner += 1;
+        }
         reusedAssociations += 1;
         continue;
       }
@@ -531,21 +597,43 @@ export const importBookingIdentityAssociations = mutation({
         pvsPatientNumber: association.pvsPatientNumber,
         status: "active",
       });
+      await attachPatientToBookingIdentityPractitionerAssociations(ctx.db, {
+        bookingIdentityId: bookingIdentity._id,
+        now,
+        patientId: patient._id,
+        practiceId: args.practiceId,
+      });
+      const practitionerAssociation =
+        await upsertAppointmentHistoryPractitionerAssociation(ctx.db, {
+          bookingIdentityId: bookingIdentity._id,
+          now,
+          patientId: patient._id,
+          practiceId: args.practiceId,
+        });
+      if (practitionerAssociation.kind === "associated") {
+        associatedPractitioners += 1;
+      } else {
+        skippedNoClearPractitioner += 1;
+      }
       insertedAssociations += 1;
     }
 
     return {
+      associatedPractitioners,
       insertedAssociations,
       reusedAssociations,
       skippedMissingIdentity,
       skippedMissingPatient,
+      skippedNoClearPractitioner,
     };
   },
   returns: v.object({
+    associatedPractitioners: v.number(),
     insertedAssociations: v.number(),
     reusedAssociations: v.number(),
     skippedMissingIdentity: v.number(),
     skippedMissingPatient: v.number(),
+    skippedNoClearPractitioner: v.number(),
   }),
 });
 
@@ -584,6 +672,49 @@ export const importLegacyUsers = mutation({
   returns: v.object({
     insertedUsers: v.number(),
     reusedUsers: v.number(),
+  }),
+});
+
+export const importPvsPatientPractitionerAssociations = mutation({
+  args: {
+    associations: v.array(pvsPatientPractitionerAssociationImportRowValidator),
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    assertMigrationRehearsalEnabled();
+
+    const now = BigInt(Date.now());
+    let importedAssociations = 0;
+    let skippedMissingPatient = 0;
+
+    for (const association of args.associations) {
+      const patient = await ctx.db.get("patients", association.patientId);
+      if (
+        patient?.practiceId !== args.practiceId ||
+        patient.recordType !== "pvs"
+      ) {
+        skippedMissingPatient += 1;
+        continue;
+      }
+
+      await upsertPractitionerAssociation(ctx.db, {
+        evidence: {
+          matchedAppointmentCount: association.matchedAppointmentCount,
+        },
+        now,
+        patientId: association.patientId,
+        practiceId: args.practiceId,
+        practitionerLineageKey: association.practitionerLineageKey,
+        source: "appointment-history",
+      });
+      importedAssociations += 1;
+    }
+
+    return { importedAssociations, skippedMissingPatient };
+  },
+  returns: v.object({
+    importedAssociations: v.number(),
+    skippedMissingPatient: v.number(),
   }),
 });
 
@@ -659,8 +790,12 @@ export const importLegacyBookingStepReplay = mutation({
     let reusedSessions = 0;
     let insertedUsers = 0;
     let reusedUsers = 0;
+    let associatedPractitioners = 0;
     let skippedMissingAppointment = 0;
     const skippedRows: Infer<typeof replayImportSkipRowValidator>[] = [];
+    const practitionerAssociationDivergences: Infer<
+      typeof practitionerAssociationDivergenceRowValidator
+    >[] = [];
 
     for (const replayRow of args.replayRows) {
       const existingSession = await ctx.db
@@ -722,6 +857,66 @@ export const importLegacyBookingStepReplay = mutation({
         reusedUsers += 1;
       }
 
+      if (resolvedReplayContext.context.practitionerLineageKey !== undefined) {
+        const bookingIdentityId =
+          await findLegacyOnlineBookingIdentityByUserAuthId(ctx, {
+            practiceId: args.practiceId,
+            userAuthId: replayRow.userAuthId,
+          });
+        const patientId = resolvedReplayContext.context.appointment?.patientId;
+        if (bookingIdentityId !== undefined || patientId !== undefined) {
+          if (patientId !== undefined) {
+            const existingAssociation =
+              await resolvePreferredPractitionerAssociation(ctx.db, {
+                patientId,
+                practiceId: args.practiceId,
+              });
+            if (
+              existingAssociation !== null &&
+              existingAssociation.source === "appointment-history" &&
+              existingAssociation.practitionerLineageKey !==
+                resolvedReplayContext.context.practitionerLineageKey
+            ) {
+              practitionerAssociationDivergences.push({
+                appointmentHistoryPractitionerLineageKey:
+                  existingAssociation.practitionerLineageKey,
+                ...(bookingIdentityId === undefined
+                  ? {}
+                  : { bookingIdentityId }),
+                ...(replayRow.legacyAppointmentId === undefined
+                  ? {}
+                  : { legacyAppointmentId: replayRow.legacyAppointmentId }),
+                patientId,
+                sourceSessionKey: replayRow.sourceSessionKey,
+                userAuthId: replayRow.userAuthId,
+                winningPractitionerLineageKey:
+                  resolvedReplayContext.context.practitionerLineageKey,
+              });
+            }
+          }
+          await upsertPractitionerAssociation(ctx.db, {
+            ...(bookingIdentityId === undefined ? {} : { bookingIdentityId }),
+            evidence: {
+              ...(replayRow.legacyAppointmentId === undefined
+                ? {}
+                : { legacyAppointmentId: replayRow.legacyAppointmentId }),
+              legacyIdentityId: replayRow.userAuthId,
+              ...(replayRow.practitionerName === undefined
+                ? {}
+                : { legacyPractitionerName: replayRow.practitionerName }),
+              sourceSessionKey: replayRow.sourceSessionKey,
+            },
+            now: rowTimestamp,
+            ...(patientId === undefined ? {} : { patientId }),
+            practiceId: args.practiceId,
+            practitionerLineageKey:
+              resolvedReplayContext.context.practitionerLineageKey,
+            source: "legacy-baumdiagramm",
+          });
+          associatedPractitioners += 1;
+        }
+      }
+
       const sessionId = await ctx.db.insert("bookingSessions", {
         createdAt: rowTimestamp,
         expiresAt: rowTimestamp,
@@ -760,8 +955,10 @@ export const importLegacyBookingStepReplay = mutation({
     }
 
     return {
+      associatedPractitioners,
       insertedSessions,
       insertedUsers,
+      practitionerAssociationDivergences,
       reusedSessions,
       reusedUsers,
       skippedMissingAppointment,
@@ -769,8 +966,12 @@ export const importLegacyBookingStepReplay = mutation({
     };
   },
   returns: v.object({
+    associatedPractitioners: v.number(),
     insertedSessions: v.number(),
     insertedUsers: v.number(),
+    practitionerAssociationDivergences: v.array(
+      practitionerAssociationDivergenceRowValidator,
+    ),
     reusedSessions: v.number(),
     reusedUsers: v.number(),
     skippedMissingAppointment: v.number(),
@@ -783,10 +984,12 @@ export const countBookingIdentityAssociationImport = query({
   handler: async (ctx) => {
     assertMigrationRehearsalEnabled();
 
-    const [bookingIdentities, associations] = await Promise.all([
-      ctx.db.query("bookingIdentities").collect(),
-      ctx.db.query("bookingIdentityPatientAssociations").collect(),
-    ]);
+    const [bookingIdentities, associations, practitionerAssociations] =
+      await Promise.all([
+        ctx.db.query("bookingIdentities").collect(),
+        ctx.db.query("bookingIdentityPatientAssociations").collect(),
+        ctx.db.query("practitionerAssociations").collect(),
+      ]);
     const [bookingBlocks, importedSessions] = await Promise.all([
       ctx.db.query("legacyBookingBlocks").collect(),
       ctx.db
@@ -814,6 +1017,7 @@ export const countBookingIdentityAssociationImport = query({
       legacyBookingBlocks: bookingBlocks.length,
       legacyBookingSessions: importedSessions.length,
       legacyUsers: legacyUsers.length,
+      practitionerAssociations: practitionerAssociations.length,
     };
   },
   returns: v.object({
@@ -823,6 +1027,7 @@ export const countBookingIdentityAssociationImport = query({
     legacyBookingBlocks: v.number(),
     legacyBookingSessions: v.number(),
     legacyUsers: v.number(),
+    practitionerAssociations: v.number(),
   }),
 });
 
@@ -843,6 +1048,7 @@ const rehearsalCountTableNameValidator = v.union(
   v.literal("bookingIdentities"),
   v.literal("bookingIdentityPatientAssociations"),
   v.literal("legacyBookingBlocks"),
+  v.literal("practitionerAssociations"),
 );
 
 export const countRehearsalTablePage = query({
@@ -1014,6 +1220,16 @@ export const countRehearsalTablePage = query({
           isDone: result.isDone,
         };
       }
+      case "practitionerAssociations": {
+        const result = await ctx.db
+          .query("practitionerAssociations")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
     }
   },
   returns: v.object({
@@ -1101,6 +1317,10 @@ export const countRehearsalTable = query({
       }
       case "legacyBookingBlocks": {
         const rows = await ctx.db.query("legacyBookingBlocks").collect();
+        return rows.length;
+      }
+      case "practitionerAssociations": {
+        const rows = await ctx.db.query("practitionerAssociations").collect();
         return rows.length;
       }
     }
@@ -1600,17 +1820,6 @@ async function insertImportedNewReplaySteps(
   });
 }
 
-function normalizeNameForMatching(value: string): string[] {
-  return value
-    .normalize("NFD")
-    .replaceAll(DIACRITIC_REGEX, "")
-    .toLocaleLowerCase()
-    .replaceAll(NON_ALPHANUMERIC_REGEX, " ")
-    .trim()
-    .split(SPLIT_WHITESPACE_REGEX)
-    .filter((token) => token.length >= 3 && token !== "dr");
-}
-
 function normalizeSearch(
   firstPart: string | undefined,
   secondPart: string | undefined,
@@ -1623,16 +1832,6 @@ function normalizeSearch(
     }
   }
   return parts.join(" ").toLocaleLowerCase();
-}
-
-function practitionerLocationToken(locationName: string | undefined) {
-  if (locationName === "Bad Iburg") {
-    return "iburg";
-  }
-  if (locationName === "Dissen a.T.W.") {
-    return "dissen";
-  }
-  return;
 }
 
 async function resolveLocationLineageKey(
@@ -1657,7 +1856,6 @@ async function resolveLocationLineageKey(
 async function resolvePractitionerLineageKey(
   ctx: MutationCtx,
   args: {
-    locationName: string | undefined;
     practitionerName: string | undefined;
     ruleSetId: Id<"ruleSets">;
   },
@@ -1676,48 +1874,7 @@ async function resolvePractitionerLineageKey(
   if (exact?.lineageKey) {
     return exact.lineageKey;
   }
-
-  const practitioners = await ctx.db
-    .query("practitioners")
-    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
-    .collect();
-  const hintTokens = normalizeNameForMatching(practitionerName);
-  if (hintTokens.length === 0) {
-    return undefined;
-  }
-  const locationToken = practitionerLocationToken(args.locationName);
-  const scored = practitioners
-    .map((practitioner) => {
-      const nameTokens = normalizeNameForMatching(practitioner.name);
-      const sharedTokens = hintTokens.filter((token) =>
-        nameTokens.includes(token),
-      );
-      const locationScore =
-        locationToken && nameTokens.includes(locationToken) ? 2 : 0;
-      return {
-        lineageKey: practitioner.lineageKey,
-        score: sharedTokens.length + locationScore,
-      };
-    })
-    .filter(
-      (
-        candidate,
-      ): candidate is { lineageKey: Id<"practitioners">; score: number } =>
-        candidate.lineageKey !== undefined && candidate.score > 0,
-    )
-    .toSorted((left, right) => right.score - left.score);
-
-  if (scored.length === 0) {
-    return undefined;
-  }
-  const [best, second] = scored;
-  if (!best) {
-    return undefined;
-  }
-  if (best.score === second?.score) {
-    return undefined;
-  }
-  return best.lineageKey;
+  return undefined;
 }
 
 async function resolveReplayAppointment(
@@ -1826,7 +1983,6 @@ async function resolveReplayContext(
   const practitionerLineageKey =
     appointment?.practitionerLineageKey ??
     (await resolvePractitionerLineageKey(ctx, {
-      locationName: args.replayRow.locationName,
       practitionerName: args.replayRow.practitionerName,
       ruleSetId: args.ruleSetId,
     }));

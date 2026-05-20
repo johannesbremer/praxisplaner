@@ -36,6 +36,7 @@ import type * as patients from "../patients.js";
 import type * as practiceAccess from "../practiceAccess.js";
 import type * as practicePhoneNumbers from "../practicePhoneNumbers.js";
 import type * as practices from "../practices.js";
+import type * as practitionerAssociations from "../practitionerAssociations.js";
 import type * as publicHolidays from "../publicHolidays.js";
 import type * as recursiveValidator from "../recursiveValidator.js";
 import type * as ruleEngine from "../ruleEngine.js";
@@ -90,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   practiceAccess: typeof practiceAccess;
   practicePhoneNumbers: typeof practicePhoneNumbers;
   practices: typeof practices;
+  practitionerAssociations: typeof practitionerAssociations;
   publicHolidays: typeof publicHolidays;
   recursiveValidator: typeof recursiveValidator;
   ruleEngine: typeof ruleEngine;

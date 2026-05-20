@@ -2,6 +2,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { importedPractitionerNameFromLegacyDoc } from "./legacy-practitioner-mapping.js";
+
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const legacyDbPath = join(workspaceRoot, ".cache/migration/source/data.db");
 const reportRoot = join(workspaceRoot, ".cache/migration/reports");
@@ -365,15 +367,6 @@ function medicalHistoryFromUser(userId, anamneseByUser, anamneseTextByUser) {
   };
 }
 
-function practitionerNameFromDoc(doc) {
-  if (!doc) {
-    return undefined;
-  }
-  return (
-    [doc.Nachname, doc.Vorname].filter(Boolean).join(" ").trim() || undefined
-  );
-}
-
 function reasonDescriptionFromSnapshot(args) {
   return (
     trimToUndefined(args.currentMatch?.legacyType) ??
@@ -427,11 +420,6 @@ function readSourceMaps() {
       row,
     ]),
   );
-  const docsById = new Map(
-    readSqliteJson("select * from docs order by Nachname, Vorname").map(
-      (row) => [row.id, row],
-    ),
-  );
   const termingrundById = new Map(
     readSqliteJson("select * from terminarten order by title").map((row) => [
       row.id,
@@ -468,7 +456,6 @@ function readSourceMaps() {
     blockedUsers,
     currentAppointmentsByUser,
     dataSharingByUser,
-    docsById,
     personalByUser,
     phoneUserById,
     pkvByUser,
@@ -560,11 +547,12 @@ function buildSnapshotReplayRow(
     normalizeLocationName(baum.zweigstelle) ??
     normalizeLocationName(currentMatch?.legacyLocation) ??
     normalizeLocationName(currentMatch?.pvsLocationRoom);
-  const practitionerName =
-    trimToUndefined(currentMatch?.pvsDoctor) ??
-    practitionerNameFromDoc(
-      maps.docsById.get(currentAppointment?.doc ?? baum.doc),
-    );
+  const legacyPractitionerDocId =
+    trimToUndefined(currentAppointment?.doc) ?? trimToUndefined(baum.doc);
+  const practitionerName = importedPractitionerNameFromLegacyDoc({
+    docId: legacyPractitionerDocId,
+    locationName,
+  });
   const personalData = personalDataFromLegacyUser(userId, {
     fallbackMatch: currentMatch,
     personalByUser: maps.personalByUser,

@@ -926,6 +926,40 @@ export default defineSchema({
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
     name: v.string(),
   }),
+
+  practitionerAssociations: defineTable({
+    bookingIdentityId: v.optional(v.id("bookingIdentities")),
+    createdAt: v.int64(),
+    evidence: v.optional(
+      v.object({
+        legacyAppointmentId: v.optional(v.string()),
+        legacyIdentityId: v.optional(v.string()),
+        legacyPractitionerName: v.optional(v.string()),
+        matchedAppointmentCount: v.optional(v.number()),
+        sourceSessionKey: v.optional(v.string()),
+      }),
+    ),
+    lastModified: v.int64(),
+    patientId: v.optional(v.id("patients")),
+    practiceId: v.id("practices"),
+    practitionerLineageKey: v.id("practitioners"),
+    source: v.union(
+      v.literal("legacy-baumdiagramm"),
+      v.literal("appointment-history"),
+      v.literal("manual"),
+    ),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_patientId", ["patientId"])
+    .index("by_bookingIdentityId", ["bookingIdentityId"])
+    .index("by_patientId_practitionerLineageKey", [
+      "patientId",
+      "practitionerLineageKey",
+    ])
+    .index("by_bookingIdentityId_practitionerLineageKey", [
+      "bookingIdentityId",
+      "practitionerLineageKey",
+    ]),
   vacations: defineTable({
     createdAt: v.int64(),
     date: v.string(), // YYYY-MM-DD

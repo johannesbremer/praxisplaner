@@ -10,6 +10,10 @@ import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
 } from "./practiceAccess";
+import {
+  attachPatientToBookingIdentityPractitionerAssociations,
+  upsertAppointmentHistoryPractitionerAssociation,
+} from "./practitionerAssociations";
 
 type Reader = GenericDatabaseReader<DataModel>;
 const SEARCH_WHITESPACE_REGEX = regex.as(String.raw`\s+`, "gu");
@@ -125,6 +129,19 @@ export const associateBookingIdentityWithPvsPatient = mutation({
       (association) => association.patientId === args.patientId,
     );
     if (existingSamePatient) {
+      const now = BigInt(Date.now());
+      await attachPatientToBookingIdentityPractitionerAssociations(ctx.db, {
+        bookingIdentityId: args.bookingIdentityId,
+        now,
+        patientId: args.patientId,
+        practiceId: args.practiceId,
+      });
+      await upsertAppointmentHistoryPractitionerAssociation(ctx.db, {
+        bookingIdentityId: args.bookingIdentityId,
+        now,
+        patientId: args.patientId,
+        practiceId: args.practiceId,
+      });
       return existingSamePatient._id;
     }
 
@@ -142,30 +159,46 @@ export const associateBookingIdentityWithPvsPatient = mutation({
       );
     }
 
-    return await ctx.db.insert("bookingIdentityPatientAssociations", {
+    const associationId = await ctx.db.insert(
+      "bookingIdentityPatientAssociations",
+      {
+        bookingIdentityId: args.bookingIdentityId,
+        createdAt: now,
+        createdByUserId: userId,
+        ...(args.evidenceCount === undefined
+          ? {}
+          : { evidenceCount: args.evidenceCount }),
+        ...(args.legacyAppointmentId === undefined
+          ? {}
+          : { legacyAppointmentId: args.legacyAppointmentId }),
+        ...(args.legacyIdentityId === undefined
+          ? {}
+          : { legacyIdentityId: args.legacyIdentityId }),
+        method: args.method,
+        patientId: args.patientId,
+        practiceId: args.practiceId,
+        ...(args.pvsAppointmentSourceKey === undefined
+          ? {}
+          : { pvsAppointmentSourceKey: args.pvsAppointmentSourceKey }),
+        ...(args.pvsPatientNumber === undefined
+          ? {}
+          : { pvsPatientNumber: args.pvsPatientNumber }),
+        status: "active",
+      },
+    );
+    await attachPatientToBookingIdentityPractitionerAssociations(ctx.db, {
       bookingIdentityId: args.bookingIdentityId,
-      createdAt: now,
-      createdByUserId: userId,
-      ...(args.evidenceCount === undefined
-        ? {}
-        : { evidenceCount: args.evidenceCount }),
-      ...(args.legacyAppointmentId === undefined
-        ? {}
-        : { legacyAppointmentId: args.legacyAppointmentId }),
-      ...(args.legacyIdentityId === undefined
-        ? {}
-        : { legacyIdentityId: args.legacyIdentityId }),
-      method: args.method,
+      now,
       patientId: args.patientId,
       practiceId: args.practiceId,
-      ...(args.pvsAppointmentSourceKey === undefined
-        ? {}
-        : { pvsAppointmentSourceKey: args.pvsAppointmentSourceKey }),
-      ...(args.pvsPatientNumber === undefined
-        ? {}
-        : { pvsPatientNumber: args.pvsPatientNumber }),
-      status: "active",
     });
+    await upsertAppointmentHistoryPractitionerAssociation(ctx.db, {
+      bookingIdentityId: args.bookingIdentityId,
+      now,
+      patientId: args.patientId,
+      practiceId: args.practiceId,
+    });
+    return associationId;
   },
   returns: v.id("bookingIdentityPatientAssociations"),
 });

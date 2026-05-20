@@ -21,8 +21,13 @@ const bookingStepReplayPath = join(
   reportRoot,
   "legacy-booking-step-replay.source.jsonl",
 );
+const pvsPractitionerAssociationPath = join(
+  reportRoot,
+  "pvs-patient-practitioner-associations.source.jsonl",
+);
 const associationChunkSize = 25;
 const identityChunkSize = 500;
+const pvsPractitionerAssociationChunkSize = 500;
 const replayChunkSize = 20;
 const userChunkSize = 2_000;
 const convexCliEnv = {
@@ -59,6 +64,11 @@ const migrationFunctionReferences = {
     Record<string, unknown>,
     unknown
   >("migrationRehearsal:importLegacyUsers"),
+  importPvsPatientPractitionerAssociations: makeFunctionReference<
+    "mutation",
+    Record<string, unknown>,
+    unknown
+  >("migrationRehearsal:importPvsPatientPractitionerAssociations"),
 };
 
 function readJsonl(path) {
@@ -178,6 +188,9 @@ async function main() {
   const bookingStepReplayRows = existsSync(bookingStepReplayPath)
     ? readJsonl(bookingStepReplayPath)
     : [];
+  const pvsPractitionerAssociations = existsSync(pvsPractitionerAssociationPath)
+    ? readJsonl(pvsPractitionerAssociationPath)
+    : [];
   const practice = getSeedPractice();
 
   execFileSync(
@@ -207,8 +220,10 @@ async function main() {
     reusedIdentities: 0,
   };
   const associationTotals = {
+    associatedPractitionersFromIdentityLinks: 0,
     insertedAssociations: 0,
     reusedAssociations: 0,
+    skippedNoClearPractitioner: 0,
     skippedMissingIdentity: 0,
     skippedMissingPatient: 0,
   };
@@ -217,18 +232,42 @@ async function main() {
     insertedUsers: 0,
     reusedUsers: 0,
   };
+  const pvsPractitionerAssociationTotals = {
+    importedPvsPractitionerAssociations: 0,
+    skippedMissingPvsPractitionerAssociationPatients: 0,
+  };
   const blockTotals = {
     insertedBlocks: 0,
     reusedBlocks: 0,
   };
   const replayTotals = {
+    associatedPractitionersFromReplay: 0,
     insertedSessions: 0,
     reusedSessions: 0,
     skippedMissingAppointment: 0,
   };
   const skippedReplayRows = [];
+  const practitionerAssociationDivergences = [];
 
   mkdirSync(reportRoot, { recursive: true });
+
+  for (const pvsPractitionerAssociationChunk of chunk(
+    pvsPractitionerAssociations,
+    pvsPractitionerAssociationChunkSize,
+  )) {
+    const result = await runMigrationMutation(
+      convex,
+      migrationFunctionReferences.importPvsPatientPractitionerAssociations,
+      {
+        associations: pvsPractitionerAssociationChunk,
+        practiceId: practice._id,
+      },
+    );
+    pvsPractitionerAssociationTotals.importedPvsPractitionerAssociations +=
+      numberResult(result, "importedAssociations");
+    pvsPractitionerAssociationTotals.skippedMissingPvsPractitionerAssociationPatients +=
+      numberResult(result, "skippedMissingPatient");
+  }
 
   for (const userChunk of chunk(users, userChunkSize)) {
     const result = await runMigrationMutation(
@@ -271,6 +310,10 @@ async function main() {
     for (const key of Object.keys(associationTotals)) {
       associationTotals[key] += numberResult(result, key);
     }
+    associationTotals.associatedPractitionersFromIdentityLinks += numberResult(
+      result,
+      "associatedPractitioners",
+    );
   }
 
   for (const blockChunk of chunk(bookingBlocks, userChunkSize)) {
@@ -304,8 +347,17 @@ async function main() {
       result,
       "skippedMissingAppointment",
     );
+    replayTotals.associatedPractitionersFromReplay += numberResult(
+      result,
+      "associatedPractitioners",
+    );
     if (Array.isArray(result.skippedRows)) {
       skippedReplayRows.push(...result.skippedRows);
+    }
+    if (Array.isArray(result.practitionerAssociationDivergences)) {
+      practitionerAssociationDivergences.push(
+        ...result.practitionerAssociationDivergences,
+      );
     }
     userTotals.insertedUsers += numberResult(result, "insertedUsers");
     userTotals.reusedUsers += numberResult(result, "reusedUsers");
@@ -320,6 +372,17 @@ async function main() {
     skippedReplayRows.map((row) => JSON.stringify(row)).join("\n") +
       (skippedReplayRows.length === 0 ? "" : "\n"),
   );
+  const practitionerDivergenceReportPath = join(
+    reportRoot,
+    "practitioner-association-divergences.import-report.jsonl",
+  );
+  writeFileSync(
+    practitionerDivergenceReportPath,
+    practitionerAssociationDivergences
+      .map((row) => JSON.stringify(row))
+      .join("\n") +
+      (practitionerAssociationDivergences.length === 0 ? "" : "\n"),
+  );
 
   console.log(
     JSON.stringify(
@@ -328,12 +391,19 @@ async function main() {
         bookingBlockSourceRows: bookingBlocks.length,
         bookingStepReplaySourceRows: bookingStepReplayRows.length,
         identitySourceRows: identities.length,
+        practitionerAssociationDivergenceReportPath:
+          practitionerDivergenceReportPath,
+        practitionerAssociationDivergences:
+          practitionerAssociationDivergences.length,
+        pvsPractitionerAssociationSourceRows:
+          pvsPractitionerAssociations.length,
         practiceId: practice._id,
         skippedReplayReportPath,
         skippedReplayRows: skippedReplayRows.length,
         userSourceRows: users.length,
         ...associationTotals,
         ...blockTotals,
+        ...pvsPractitionerAssociationTotals,
         ...replayTotals,
         ...identityTotals,
         ...userTotals,
