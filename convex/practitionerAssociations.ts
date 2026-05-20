@@ -22,10 +22,60 @@ export interface PractitionerAssociationEvidence {
   sourceSessionKey?: string;
 }
 
+export type PractitionerAssociationPrecedencePolicy = "import" | "runtime";
+
 export type PractitionerAssociationSource =
   | "appointment-history"
   | "legacy-baumdiagramm"
   | "manual";
+
+export type PractitionerAssociationStatus =
+  | "active"
+  | "rejected"
+  | "superseded";
+
+export async function applyAppointmentHistoryPractitionerAssociation(
+  db: Writer,
+  args: {
+    bookingIdentityId?: Id<"bookingIdentities">;
+    createdByUserId?: Id<"users">;
+    now: bigint;
+    patientId: Id<"patients">;
+    practiceId: Id<"practices">;
+    precedencePolicy: PractitionerAssociationPrecedencePolicy;
+  },
+): Promise<
+  | {
+      associationId: Id<"practitionerAssociations">;
+      kind: "associated" | "rejected" | "unchanged";
+    }
+  | { kind: "no_clear_winner" }
+> {
+  const guess = await derivePractitionerAssociationFromAppointmentHistory(db, {
+    patientId: args.patientId,
+    practiceId: args.practiceId,
+  });
+
+  if (guess === null) {
+    return { kind: "no_clear_winner" };
+  }
+
+  return await setPractitionerAssociation(db, {
+    ...(args.bookingIdentityId === undefined
+      ? {}
+      : { bookingIdentityId: args.bookingIdentityId }),
+    ...(args.createdByUserId === undefined
+      ? {}
+      : { createdByUserId: args.createdByUserId }),
+    evidence: { matchedAppointmentCount: guess.appointmentCount },
+    now: args.now,
+    patientId: args.patientId,
+    practiceId: args.practiceId,
+    practitionerLineageKey: guess.practitionerLineageKey,
+    precedencePolicy: args.precedencePolicy,
+    source: "appointment-history",
+  });
+}
 
 export function assertPractitionerAssociationSubject(args: {
   bookingIdentityId?: Id<"bookingIdentities">;
@@ -38,37 +88,51 @@ export function assertPractitionerAssociationSubject(args: {
   }
 }
 
-export async function attachPatientToBookingIdentityPractitionerAssociations(
+export async function canonicalizeBookingIdentityPractitionerAssociations(
   db: Writer,
   args: {
     bookingIdentityId: Id<"bookingIdentities">;
     now: bigint;
     patientId: Id<"patients">;
     practiceId: Id<"practices">;
+    precedencePolicy: PractitionerAssociationPrecedencePolicy;
+    userId?: Id<"users">;
   },
 ): Promise<number> {
-  const rows = await db
-    .query("practitionerAssociations")
-    .withIndex("by_bookingIdentityId", (q) =>
-      q.eq("bookingIdentityId", args.bookingIdentityId),
-    )
-    .collect();
+  const activeBookingIdentityRows = await listActiveBookingIdentityAssociations(
+    db,
+    {
+      bookingIdentityId: args.bookingIdentityId,
+      practiceId: args.practiceId,
+    },
+  );
 
-  let patched = 0;
-  for (const row of rows) {
-    if (
-      row.practiceId !== args.practiceId ||
-      row.patientId === args.patientId
-    ) {
+  let superseded = 0;
+  for (const row of activeBookingIdentityRows) {
+    if (row.patientId === args.patientId) {
       continue;
     }
-    await db.patch("practitionerAssociations", row._id, {
-      lastModified: args.now,
+
+    await setPractitionerAssociation(db, {
+      bookingIdentityId: args.bookingIdentityId,
+      ...(args.userId === undefined ? {} : { createdByUserId: args.userId }),
+      ...(row.evidence === undefined ? {} : { evidence: row.evidence }),
+      now: args.now,
       patientId: args.patientId,
+      practiceId: args.practiceId,
+      practitionerLineageKey: row.practitionerLineageKey,
+      precedencePolicy: args.precedencePolicy,
+      source: row.source,
     });
-    patched += 1;
+    await supersedePractitionerAssociation(db, {
+      now: args.now,
+      row,
+      ...(args.userId === undefined ? {} : { userId: args.userId }),
+    });
+    superseded += 1;
   }
-  return patched;
+
+  return superseded;
 }
 
 export async function derivePractitionerAssociationFromAppointmentHistory(
@@ -133,12 +197,11 @@ export async function resolvePreferredPractitionerAssociation(
   },
 ): Promise<Doc<"practitionerAssociations"> | null> {
   if (args.patientId !== undefined) {
-    const patientRows = await db
-      .query("practitionerAssociations")
-      .withIndex("by_patientId", (q) => q.eq("patientId", args.patientId))
-      .collect();
     const patientAssociation = latestAssociation(
-      patientRows.filter((row) => row.practiceId === args.practiceId),
+      await listActivePatientAssociations(db, {
+        patientId: args.patientId,
+        practiceId: args.practiceId,
+      }),
     );
     if (patientAssociation !== null) {
       return patientAssociation;
@@ -149,141 +212,142 @@ export async function resolvePreferredPractitionerAssociation(
     return null;
   }
 
-  const bookingIdentityRows = await db
-    .query("practitionerAssociations")
-    .withIndex("by_bookingIdentityId", (q) =>
-      q.eq("bookingIdentityId", args.bookingIdentityId),
-    )
-    .collect();
   return latestAssociation(
-    bookingIdentityRows.filter((row) => row.practiceId === args.practiceId),
+    await listActiveBookingIdentityAssociations(db, {
+      bookingIdentityId: args.bookingIdentityId,
+      practiceId: args.practiceId,
+    }),
   );
 }
 
-export async function upsertAppointmentHistoryPractitionerAssociation(
+export async function setPractitionerAssociation(
   db: Writer,
   args: {
     bookingIdentityId?: Id<"bookingIdentities">;
+    createdByUserId?: Id<"users">;
+    evidence?: PractitionerAssociationEvidence;
     now: bigint;
-    patientId: Id<"patients">;
+    patientId?: Id<"patients">;
     practiceId: Id<"practices">;
+    practitionerLineageKey: Id<"practitioners">;
+    precedencePolicy: PractitionerAssociationPrecedencePolicy;
+    source: PractitionerAssociationSource;
   },
-): Promise<
-  | {
-      associationId: Id<"practitionerAssociations">;
-      kind: "associated";
-    }
-  | { kind: "no_clear_winner" }
-> {
-  const guess = await derivePractitionerAssociationFromAppointmentHistory(db, {
-    patientId: args.patientId,
-    practiceId: args.practiceId,
-  });
+): Promise<{
+  associationId: Id<"practitionerAssociations">;
+  kind: "associated" | "rejected" | "unchanged";
+}> {
+  assertPractitionerAssociationSubject(args);
 
-  if (guess === null) {
-    return { kind: "no_clear_winner" };
+  const current = await resolveAuthoritativePractitionerAssociationForWrite(
+    db,
+    args,
+  );
+  if (current?.practitionerLineageKey === args.practitionerLineageKey) {
+    return { associationId: current._id, kind: "unchanged" };
   }
 
-  const associationId = await upsertPractitionerAssociation(db, {
+  if (
+    current !== null &&
+    !incomingSourceCanSupersede(
+      current.source,
+      args.source,
+      args.precedencePolicy,
+    )
+  ) {
+    const associationId = await insertPractitionerAssociation(db, {
+      ...(args.bookingIdentityId === undefined
+        ? {}
+        : { bookingIdentityId: args.bookingIdentityId }),
+      ...(args.createdByUserId === undefined
+        ? {}
+        : { createdByUserId: args.createdByUserId }),
+      ...(args.evidence === undefined ? {} : { evidence: args.evidence }),
+      now: args.now,
+      ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+      practiceId: args.practiceId,
+      practitionerLineageKey: args.practitionerLineageKey,
+      source: args.source,
+      status: "rejected",
+    });
+    return { associationId, kind: "rejected" };
+  }
+
+  await supersedeAuthoritativePractitionerAssociationsForWrite(db, {
     ...(args.bookingIdentityId === undefined
       ? {}
       : { bookingIdentityId: args.bookingIdentityId }),
-    evidence: { matchedAppointmentCount: guess.appointmentCount },
     now: args.now,
-    patientId: args.patientId,
+    ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
     practiceId: args.practiceId,
-    practitionerLineageKey: guess.practitionerLineageKey,
-    source: "appointment-history",
+    ...(args.createdByUserId === undefined
+      ? {}
+      : { userId: args.createdByUserId }),
+  });
+  const associationId = await insertPractitionerAssociation(db, {
+    ...(args.bookingIdentityId === undefined
+      ? {}
+      : { bookingIdentityId: args.bookingIdentityId }),
+    ...(args.createdByUserId === undefined
+      ? {}
+      : { createdByUserId: args.createdByUserId }),
+    ...(args.evidence === undefined ? {} : { evidence: args.evidence }),
+    now: args.now,
+    ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+    practiceId: args.practiceId,
+    practitionerLineageKey: args.practitionerLineageKey,
+    source: args.source,
+    status: "active",
   });
 
   return { associationId, kind: "associated" };
 }
 
-export async function upsertPractitionerAssociation(
+function incomingSourceCanSupersede(
+  currentSource: PractitionerAssociationSource,
+  incomingSource: PractitionerAssociationSource,
+  precedencePolicy: PractitionerAssociationPrecedencePolicy,
+): boolean {
+  if (currentSource === incomingSource) {
+    return true;
+  }
+
+  return (
+    sourcePrecedenceRank(incomingSource, precedencePolicy) >
+    sourcePrecedenceRank(currentSource, precedencePolicy)
+  );
+}
+
+async function insertPractitionerAssociation(
   db: Writer,
   args: {
     bookingIdentityId?: Id<"bookingIdentities">;
+    createdByUserId?: Id<"users">;
     evidence?: PractitionerAssociationEvidence;
     now: bigint;
     patientId?: Id<"patients">;
     practiceId: Id<"practices">;
     practitionerLineageKey: Id<"practitioners">;
     source: PractitionerAssociationSource;
+    status: PractitionerAssociationStatus;
   },
 ): Promise<Id<"practitionerAssociations">> {
-  assertPractitionerAssociationSubject(args);
-
-  const existing = await findAssociationForUpsert(db, args);
-  const patch = {
-    ...(args.bookingIdentityId === undefined
-      ? {}
-      : { bookingIdentityId: args.bookingIdentityId }),
-    ...(args.evidence === undefined ? {} : { evidence: args.evidence }),
-    lastModified: args.now,
-    ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
-    source: args.source,
-  };
-
-  if (existing !== null) {
-    await db.patch("practitionerAssociations", existing._id, patch);
-    return existing._id;
-  }
-
   return await db.insert("practitionerAssociations", {
     ...(args.bookingIdentityId === undefined
       ? {}
       : { bookingIdentityId: args.bookingIdentityId }),
     createdAt: args.now,
+    ...(args.createdByUserId === undefined
+      ? {}
+      : { createdByUserId: args.createdByUserId }),
     ...(args.evidence === undefined ? {} : { evidence: args.evidence }),
     lastModified: args.now,
     ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
     practiceId: args.practiceId,
     practitionerLineageKey: args.practitionerLineageKey,
     source: args.source,
+    status: args.status,
   });
-}
-
-async function findAssociationForUpsert(
-  db: Reader,
-  args: {
-    bookingIdentityId?: Id<"bookingIdentities">;
-    patientId?: Id<"patients">;
-    practiceId: Id<"practices">;
-    practitionerLineageKey: Id<"practitioners">;
-  },
-): Promise<Doc<"practitionerAssociations"> | null> {
-  if (args.patientId !== undefined) {
-    const patientMatches = await db
-      .query("practitionerAssociations")
-      .withIndex("by_patientId_practitionerLineageKey", (q) =>
-        q
-          .eq("patientId", args.patientId)
-          .eq("practitionerLineageKey", args.practitionerLineageKey),
-      )
-      .collect();
-    const patientMatch = latestAssociation(
-      patientMatches.filter((row) => row.practiceId === args.practiceId),
-    );
-    if (patientMatch !== null) {
-      return patientMatch;
-    }
-  }
-
-  if (args.bookingIdentityId === undefined) {
-    return null;
-  }
-
-  const bookingIdentityMatches = await db
-    .query("practitionerAssociations")
-    .withIndex("by_bookingIdentityId_practitionerLineageKey", (q) =>
-      q
-        .eq("bookingIdentityId", args.bookingIdentityId)
-        .eq("practitionerLineageKey", args.practitionerLineageKey),
-    )
-    .collect();
-  return latestAssociation(
-    bookingIdentityMatches.filter((row) => row.practiceId === args.practiceId),
-  );
 }
 
 function isLowSignalAppointmentType(appointmentTypeTitle: string): boolean {
@@ -300,10 +364,147 @@ function latestAssociation(
 ): Doc<"practitionerAssociations"> | null {
   return (
     rows.toSorted((left, right) => {
-      if (left.lastModified !== right.lastModified) {
-        return Number(right.lastModified - left.lastModified);
+      if (left.createdAt !== right.createdAt) {
+        return Number(right.createdAt - left.createdAt);
       }
       return right._id.localeCompare(left._id);
     })[0] ?? null
   );
+}
+
+async function listActiveBookingIdentityAssociations(
+  db: Reader,
+  args: {
+    bookingIdentityId: Id<"bookingIdentities">;
+    practiceId: Id<"practices">;
+  },
+): Promise<Doc<"practitionerAssociations">[]> {
+  const rows = await db
+    .query("practitionerAssociations")
+    .withIndex("by_bookingIdentityId_status", (q) =>
+      q.eq("bookingIdentityId", args.bookingIdentityId).eq("status", "active"),
+    )
+    .collect();
+  return rows.filter((row) => row.practiceId === args.practiceId);
+}
+
+async function listActivePatientAssociations(
+  db: Reader,
+  args: {
+    patientId: Id<"patients">;
+    practiceId: Id<"practices">;
+  },
+): Promise<Doc<"practitionerAssociations">[]> {
+  const rows = await db
+    .query("practitionerAssociations")
+    .withIndex("by_patientId_status", (q) =>
+      q.eq("patientId", args.patientId).eq("status", "active"),
+    )
+    .collect();
+  return rows.filter((row) => row.practiceId === args.practiceId);
+}
+
+async function resolveAuthoritativePractitionerAssociationForWrite(
+  db: Reader,
+  args: {
+    bookingIdentityId?: Id<"bookingIdentities">;
+    patientId?: Id<"patients">;
+    practiceId: Id<"practices">;
+  },
+): Promise<Doc<"practitionerAssociations"> | null> {
+  if (args.patientId !== undefined) {
+    return latestAssociation(
+      await listActivePatientAssociations(db, {
+        patientId: args.patientId,
+        practiceId: args.practiceId,
+      }),
+    );
+  }
+
+  if (args.bookingIdentityId === undefined) {
+    return null;
+  }
+
+  return latestAssociation(
+    await listActiveBookingIdentityAssociations(db, {
+      bookingIdentityId: args.bookingIdentityId,
+      practiceId: args.practiceId,
+    }),
+  );
+}
+
+function sourcePrecedenceRank(
+  source: PractitionerAssociationSource,
+  precedencePolicy: PractitionerAssociationPrecedencePolicy,
+): number {
+  const ranks = {
+    import: {
+      "appointment-history": 1,
+      "legacy-baumdiagramm": 2,
+      manual: 3,
+    },
+    runtime: {
+      "appointment-history": 2,
+      "legacy-baumdiagramm": 1,
+      manual: 3,
+    },
+  } satisfies Record<
+    PractitionerAssociationPrecedencePolicy,
+    Record<PractitionerAssociationSource, number>
+  >;
+
+  return ranks[precedencePolicy][source];
+}
+
+async function supersedeAuthoritativePractitionerAssociationsForWrite(
+  db: Writer,
+  args: {
+    bookingIdentityId?: Id<"bookingIdentities">;
+    now: bigint;
+    patientId?: Id<"patients">;
+    practiceId: Id<"practices">;
+    userId?: Id<"users">;
+  },
+): Promise<number> {
+  const rows =
+    args.patientId === undefined
+      ? args.bookingIdentityId === undefined
+        ? []
+        : await listActiveBookingIdentityAssociations(db, {
+            bookingIdentityId: args.bookingIdentityId,
+            practiceId: args.practiceId,
+          })
+      : await listActivePatientAssociations(db, {
+          patientId: args.patientId,
+          practiceId: args.practiceId,
+        });
+
+  for (const row of rows) {
+    await supersedePractitionerAssociation(db, {
+      now: args.now,
+      row,
+      ...(args.userId === undefined ? {} : { userId: args.userId }),
+    });
+  }
+  return rows.length;
+}
+
+async function supersedePractitionerAssociation(
+  db: Writer,
+  args: {
+    now: bigint;
+    row: Doc<"practitionerAssociations">;
+    userId?: Id<"users">;
+  },
+): Promise<void> {
+  if (args.row.status !== "active") {
+    return;
+  }
+
+  await db.patch("practitionerAssociations", args.row._id, {
+    lastModified: args.now,
+    status: "superseded",
+    supersededAt: args.now,
+    ...(args.userId === undefined ? {} : { supersededByUserId: args.userId }),
+  });
 }

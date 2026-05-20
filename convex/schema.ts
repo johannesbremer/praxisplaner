@@ -930,6 +930,7 @@ export default defineSchema({
   practitionerAssociations: defineTable({
     bookingIdentityId: v.optional(v.id("bookingIdentities")),
     createdAt: v.int64(),
+    createdByUserId: v.optional(v.id("users")),
     evidence: v.optional(
       v.object({
         legacyAppointmentId: v.optional(v.string()),
@@ -948,18 +949,20 @@ export default defineSchema({
       v.literal("appointment-history"),
       v.literal("manual"),
     ),
+    status: v.union(
+      v.literal("active"),
+      v.literal("superseded"),
+      v.literal("rejected"),
+    ),
+    supersededAt: v.optional(v.int64()),
+    supersededByUserId: v.optional(v.id("users")),
   })
     .index("by_practiceId", ["practiceId"])
+    .index("by_practiceId_status", ["practiceId", "status"])
     .index("by_patientId", ["patientId"])
+    .index("by_patientId_status", ["patientId", "status"])
     .index("by_bookingIdentityId", ["bookingIdentityId"])
-    .index("by_patientId_practitionerLineageKey", [
-      "patientId",
-      "practitionerLineageKey",
-    ])
-    .index("by_bookingIdentityId_practitionerLineageKey", [
-      "bookingIdentityId",
-      "practitionerLineageKey",
-    ]),
+    .index("by_bookingIdentityId_status", ["bookingIdentityId", "status"]),
   vacations: defineTable({
     createdAt: v.int64(),
     date: v.string(), // YYYY-MM-DD

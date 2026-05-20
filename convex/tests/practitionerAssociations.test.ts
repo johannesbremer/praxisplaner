@@ -7,10 +7,10 @@ import { api } from "../_generated/api";
 import { getAppointmentPractitionerLineageKey } from "../appointmentOccupancy";
 import { insertSelfLineageEntity } from "../lineage";
 import {
-  attachPatientToBookingIdentityPractitionerAssociations,
+  canonicalizeBookingIdentityPractitionerAssociations,
   derivePractitionerAssociationFromAppointmentHistory,
   resolvePreferredPractitionerAssociation,
-  upsertPractitionerAssociation,
+  setPractitionerAssociation,
 } from "../practitionerAssociations";
 import schema from "../schema";
 import { modules } from "./test.setup";
@@ -156,10 +156,11 @@ describe("practitioner associations", () => {
 
     await expect(
       t.run(async (ctx) => {
-        await upsertPractitionerAssociation(ctx.db, {
+        await setPractitionerAssociation(ctx.db, {
           now: BigInt(Date.now()),
           practiceId: fixture.practiceId,
           practitionerLineageKey: fixture.firstPractitionerId,
+          precedencePolicy: "runtime",
           source: "manual",
         });
       }),
@@ -168,65 +169,71 @@ describe("practitioner associations", () => {
     );
 
     await t.run(async (ctx) => {
-      await upsertPractitionerAssociation(ctx.db, {
+      await setPractitionerAssociation(ctx.db, {
         now: BigInt(Date.now()),
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
         practitionerLineageKey: fixture.firstPractitionerId,
+        precedencePolicy: "runtime",
         source: "manual",
       });
-      await upsertPractitionerAssociation(ctx.db, {
+      await setPractitionerAssociation(ctx.db, {
         bookingIdentityId: fixture.bookingIdentityId,
         now: BigInt(Date.now()),
         practiceId: fixture.practiceId,
         practitionerLineageKey: fixture.secondPractitionerId,
+        precedencePolicy: "runtime",
         source: "legacy-baumdiagramm",
       });
-      await upsertPractitionerAssociation(ctx.db, {
+      await setPractitionerAssociation(ctx.db, {
         bookingIdentityId: fixture.bookingIdentityId,
         now: BigInt(Date.now()),
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
-        practitionerLineageKey: fixture.firstPractitionerId,
-        source: "appointment-history",
+        practitionerLineageKey: fixture.secondPractitionerId,
+        precedencePolicy: "runtime",
+        source: "manual",
       });
     });
 
-    const rows = await t.run(async (ctx) => {
-      return await ctx.db.query("practitionerAssociations").collect();
-    });
-    expect(rows).toHaveLength(2);
+    const rows = await t.run(async (ctx) =>
+      ctx.db.query("practitionerAssociations").collect(),
+    );
+    expect(rows).toHaveLength(3);
   });
 
-  test("identity linking patches booking-identity practitioner rows with patient id", async () => {
+  test("identity linking supersedes booking-only rows and inserts canonical patient rows", async () => {
     const t = createTestContext();
     const fixture = await createAssociationFixture(t);
 
     await t.run(async (ctx) => {
-      await upsertPractitionerAssociation(ctx.db, {
+      await setPractitionerAssociation(ctx.db, {
         bookingIdentityId: fixture.bookingIdentityId,
         now: BigInt(Date.now()),
         practiceId: fixture.practiceId,
         practitionerLineageKey: fixture.firstPractitionerId,
+        precedencePolicy: "runtime",
         source: "legacy-baumdiagramm",
       });
-      await attachPatientToBookingIdentityPractitionerAssociations(ctx.db, {
+      await canonicalizeBookingIdentityPractitionerAssociations(ctx.db, {
         bookingIdentityId: fixture.bookingIdentityId,
         now: BigInt(Date.now()),
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
+        precedencePolicy: "runtime",
       });
     });
 
-    const row = await t.run(async (ctx) => {
-      return await ctx.db
-        .query("practitionerAssociations")
-        .withIndex("by_bookingIdentityId", (q) =>
-          q.eq("bookingIdentityId", fixture.bookingIdentityId),
-        )
-        .first();
-    });
-    expect(row?.patientId).toBe(fixture.patientId);
+    const rows = await t.run(async (ctx) =>
+      ctx.db.query("practitionerAssociations").collect(),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((row) => row.status === "active")).toHaveLength(1);
+    expect(rows.filter((row) => row.status === "superseded")).toHaveLength(1);
+
+    const activeRow = rows.find((row) => row.status === "active");
+    expect(activeRow?.patientId).toBe(fixture.patientId);
+    expect(activeRow?.bookingIdentityId).toBe(fixture.bookingIdentityId);
   });
 
   test("read helper prefers patient association over booking-identity association", async () => {
@@ -234,30 +241,118 @@ describe("practitioner associations", () => {
     const fixture = await createAssociationFixture(t);
 
     await t.run(async (ctx) => {
-      await upsertPractitionerAssociation(ctx.db, {
+      await setPractitionerAssociation(ctx.db, {
         bookingIdentityId: fixture.bookingIdentityId,
         now: BigInt(Date.now()),
         practiceId: fixture.practiceId,
         practitionerLineageKey: fixture.secondPractitionerId,
+        precedencePolicy: "runtime",
         source: "legacy-baumdiagramm",
       });
-      await upsertPractitionerAssociation(ctx.db, {
+      await setPractitionerAssociation(ctx.db, {
         now: BigInt(Date.now()),
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
         practitionerLineageKey: fixture.firstPractitionerId,
+        precedencePolicy: "runtime",
         source: "manual",
       });
     });
 
-    const preferred = await t.run(async (ctx) => {
-      return await resolvePreferredPractitionerAssociation(ctx.db, {
+    const preferred = await t.run(async (ctx) =>
+      resolvePreferredPractitionerAssociation(ctx.db, {
         bookingIdentityId: fixture.bookingIdentityId,
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
+      }),
+    );
+    expect(preferred?.practitionerLineageKey).toBe(fixture.firstPractitionerId);
+  });
+
+  test("runtime online disagreement is recorded as rejected and does not replace manual truth", async () => {
+    const t = createTestContext();
+    const fixture = await createAssociationFixture(t);
+
+    await t.run(async (ctx) => {
+      await setPractitionerAssociation(ctx.db, {
+        now: BigInt(Date.now()),
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: fixture.firstPractitionerId,
+        precedencePolicy: "runtime",
+        source: "manual",
+      });
+      await setPractitionerAssociation(ctx.db, {
+        bookingIdentityId: fixture.bookingIdentityId,
+        now: BigInt(Date.now()),
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: fixture.secondPractitionerId,
+        precedencePolicy: "runtime",
+        source: "legacy-baumdiagramm",
       });
     });
+
+    const rows = await t.run(async (ctx) =>
+      ctx.db.query("practitionerAssociations").collect(),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((row) => row.status === "active")).toHaveLength(1);
+    expect(rows.filter((row) => row.status === "rejected")).toHaveLength(1);
+
+    const preferred = await t.run(async (ctx) =>
+      resolvePreferredPractitionerAssociation(ctx.db, {
+        bookingIdentityId: fixture.bookingIdentityId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+      }),
+    );
     expect(preferred?.practitionerLineageKey).toBe(fixture.firstPractitionerId);
+    expect(preferred?.source).toBe("manual");
+  });
+
+  test("import-time Baum-Diagramm supersedes appointment-history", async () => {
+    const t = createTestContext();
+    const fixture = await createAssociationFixture(t);
+
+    await t.run(async (ctx) => {
+      await setPractitionerAssociation(ctx.db, {
+        now: BigInt(Date.now()),
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: fixture.firstPractitionerId,
+        precedencePolicy: "import",
+        source: "appointment-history",
+      });
+      await setPractitionerAssociation(ctx.db, {
+        bookingIdentityId: fixture.bookingIdentityId,
+        now: BigInt(Date.now()),
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: fixture.secondPractitionerId,
+        precedencePolicy: "import",
+        source: "legacy-baumdiagramm",
+      });
+    });
+
+    const rows = await t.run(async (ctx) =>
+      ctx.db.query("practitionerAssociations").collect(),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((row) => row.status === "active")).toHaveLength(1);
+    expect(rows.filter((row) => row.status === "superseded")).toHaveLength(1);
+
+    const preferred = await t.run(async (ctx) =>
+      resolvePreferredPractitionerAssociation(ctx.db, {
+        bookingIdentityId: fixture.bookingIdentityId,
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+      }),
+    );
+    expect(preferred?.practitionerLineageKey).toBe(
+      fixture.secondPractitionerId,
+    );
+    expect(preferred?.source).toBe("legacy-baumdiagramm");
   });
 
   test("replay import attaches practitioner associations through legacy user-linked booking identities", async () => {
@@ -340,12 +435,13 @@ describe("practitioner associations", () => {
 
       expect(result.associatedPractitioners).toBe(1);
 
-      const rows = await t.run(async (ctx) => {
-        return await ctx.db.query("practitionerAssociations").collect();
-      });
+      const rows = await t.run(async (ctx) =>
+        ctx.db.query("practitionerAssociations").collect(),
+      );
       expect(rows).toHaveLength(1);
       expect(rows[0]?.bookingIdentityId).toBeDefined();
       expect(rows[0]?.source).toBe("legacy-baumdiagramm");
+      expect(rows[0]?.status).toBe("active");
       expect(rows[0]?.practitionerLineageKey).toBeDefined();
     } finally {
       if (previousFlag === undefined) {
@@ -396,12 +492,12 @@ describe("practitioner associations", () => {
       practiceId: fixture.practiceId,
     });
 
-    const guess = await t.run(async (ctx) => {
-      return await derivePractitionerAssociationFromAppointmentHistory(ctx.db, {
+    const guess = await t.run(async (ctx) =>
+      derivePractitionerAssociationFromAppointmentHistory(ctx.db, {
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
-      });
-    });
+      }),
+    );
     expect(guess).toEqual({
       appointmentCount: 1,
       practitionerLineageKey: fixture.firstPractitionerId,
@@ -417,12 +513,12 @@ describe("practitioner associations", () => {
       practitionerLineageKey: fixture.secondPractitionerId,
     });
 
-    const tiedGuess = await t.run(async (ctx) => {
-      return await derivePractitionerAssociationFromAppointmentHistory(ctx.db, {
+    const tiedGuess = await t.run(async (ctx) =>
+      derivePractitionerAssociationFromAppointmentHistory(ctx.db, {
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
-      });
-    });
+      }),
+    );
     expect(tiedGuess).toBeNull();
   });
 
@@ -439,19 +535,19 @@ describe("practitioner associations", () => {
       practiceId: fixture.practiceId,
     });
 
-    const appointment = await t.run(async (ctx) => {
-      return await ctx.db.query("appointments").first();
-    });
+    const appointment = await t.run(async (ctx) =>
+      ctx.db.query("appointments").first(),
+    );
     expect(
       getAppointmentPractitionerLineageKey(appointment?.occupancyScope),
     ).toBeUndefined();
 
-    const guess = await t.run(async (ctx) => {
-      return await derivePractitionerAssociationFromAppointmentHistory(ctx.db, {
+    const guess = await t.run(async (ctx) =>
+      derivePractitionerAssociationFromAppointmentHistory(ctx.db, {
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
-      });
-    });
+      }),
+    );
     expect(guess).toBeNull();
   });
 });

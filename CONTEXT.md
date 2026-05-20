@@ -28,6 +28,10 @@ _Avoid_: Real patient
 A person identity captured during appointment booking before or alongside association with a PVS Patient.
 _Avoid_: User, patient entry
 
+**Booking Identity Patient Association**:
+An append-only identity-link record stating that a Booking Identity belongs to a specific PVS Patient.
+_Avoid_: Merged identity, resolved user
+
 **Online Booking Identity**:
 A Booking Identity created from an authenticated online booking user.
 _Avoid_: Online patient
@@ -75,6 +79,10 @@ _Avoid_: Recurrence rule, shared protocol
 **Practitioner**:
 A versioned clinician who can be assigned to Appointment Types, Base Schedules, Appointments, and Absences.
 _Avoid_: Doctor, provider
+
+**Practitioner Association**:
+An append-only record of the Practice's belief that a Patient or Booking Identity is associated with a specific Practitioner.
+_Avoid_: Primary doctor field, patient practitioner column
 
 **Medical Assistant**:
 A versioned medical assistant tracked for absence planning but not used to determine appointment availability.
@@ -191,6 +199,12 @@ _Avoid_: Form data, profile
 - A staff action that requires **Workspace** attribution must provide a valid **Workspace** id from browser storage.
 - Staff reads require **Practice Member** access but not **Workspace** attribution.
 - A **Practice** has many **Practice Members**, **Patients**, **Booking Identities**, **Appointments**, and **Rule Sets**.
+- A **Booking Identity Patient Association** links one **Booking Identity** to one canonical **PVS Patient**.
+- **Booking Identity Patient Association** history is append-only and statusful; the latest active row is the current canonical identity link.
+- A **Practitioner Association** links one **Patient** or **Booking Identity** to one **Practitioner**.
+- **Practitioner Association** history is append-only and statusful; active rows represent current accepted truth and rejected rows preserve conflicting observations.
+- During migration import, deterministic online booking practitioner data outranks appointment-history guesses for the same subject.
+- After import, staff-confirmed or practice-established **Practitioner Associations** remain authoritative over later online booking disagreement.
 - The existing-patient **Booking Path** captures doctor selection, personal data, calendar selection, and confirmation; data-sharing contacts and medical history belong only to the new-patient **Booking Path**.
 - A **Practice** has operational calendar state such as **Appointments** and **Blocked Slots** outside **Rule Set** configuration.
 - A **Practice Member** grants a user access to a **Practice**, but does not by itself make that user a **Practitioner**.

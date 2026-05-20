@@ -11,8 +11,8 @@ import {
   ensurePracticeAccessForQuery,
 } from "./practiceAccess";
 import {
-  attachPatientToBookingIdentityPractitionerAssociations,
-  upsertAppointmentHistoryPractitionerAssociation,
+  applyAppointmentHistoryPractitionerAssociation,
+  canonicalizeBookingIdentityPractitionerAssociations,
 } from "./practitionerAssociations";
 
 type Reader = GenericDatabaseReader<DataModel>;
@@ -128,25 +128,28 @@ export const associateBookingIdentityWithPvsPatient = mutation({
     const existingSamePatient = activeAssociations.find(
       (association) => association.patientId === args.patientId,
     );
+    const now = BigInt(Date.now());
+    const userId = membership.userId;
     if (existingSamePatient) {
-      const now = BigInt(Date.now());
-      await attachPatientToBookingIdentityPractitionerAssociations(ctx.db, {
+      await canonicalizeBookingIdentityPractitionerAssociations(ctx.db, {
         bookingIdentityId: args.bookingIdentityId,
         now,
         patientId: args.patientId,
         practiceId: args.practiceId,
+        precedencePolicy: "runtime",
+        userId,
       });
-      await upsertAppointmentHistoryPractitionerAssociation(ctx.db, {
+      await applyAppointmentHistoryPractitionerAssociation(ctx.db, {
         bookingIdentityId: args.bookingIdentityId,
+        createdByUserId: userId,
         now,
         patientId: args.patientId,
         practiceId: args.practiceId,
+        precedencePolicy: "runtime",
       });
       return existingSamePatient._id;
     }
 
-    const now = BigInt(Date.now());
-    const userId = membership.userId;
     for (const association of activeAssociations) {
       await ctx.db.patch(
         "bookingIdentityPatientAssociations",
@@ -186,17 +189,21 @@ export const associateBookingIdentityWithPvsPatient = mutation({
         status: "active",
       },
     );
-    await attachPatientToBookingIdentityPractitionerAssociations(ctx.db, {
+    await canonicalizeBookingIdentityPractitionerAssociations(ctx.db, {
       bookingIdentityId: args.bookingIdentityId,
       now,
       patientId: args.patientId,
       practiceId: args.practiceId,
+      precedencePolicy: "runtime",
+      userId,
     });
-    await upsertAppointmentHistoryPractitionerAssociation(ctx.db, {
+    await applyAppointmentHistoryPractitionerAssociation(ctx.db, {
       bookingIdentityId: args.bookingIdentityId,
+      createdByUserId: userId,
       now,
       patientId: args.patientId,
       practiceId: args.practiceId,
+      precedencePolicy: "runtime",
     });
     return associationId;
   },

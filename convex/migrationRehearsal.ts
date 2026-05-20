@@ -18,10 +18,10 @@ import {
 } from "./bookingValidators";
 import { insertSelfLineageEntity } from "./lineage";
 import {
-  attachPatientToBookingIdentityPractitionerAssociations,
+  applyAppointmentHistoryPractitionerAssociation,
+  canonicalizeBookingIdentityPractitionerAssociations,
   resolvePreferredPractitionerAssociation,
-  upsertAppointmentHistoryPractitionerAssociation,
-  upsertPractitionerAssociation,
+  setPractitionerAssociation,
 } from "./practitionerAssociations";
 
 function assertMigrationRehearsalEnabled(): void {
@@ -555,22 +555,27 @@ export const importBookingIdentityAssociations = mutation({
       );
 
       if (existingAssociation) {
-        await attachPatientToBookingIdentityPractitionerAssociations(ctx.db, {
+        await canonicalizeBookingIdentityPractitionerAssociations(ctx.db, {
           bookingIdentityId: bookingIdentity._id,
           now,
           patientId: patient._id,
           practiceId: args.practiceId,
+          precedencePolicy: "import",
         });
         const practitionerAssociation =
-          await upsertAppointmentHistoryPractitionerAssociation(ctx.db, {
+          await applyAppointmentHistoryPractitionerAssociation(ctx.db, {
             bookingIdentityId: bookingIdentity._id,
             now,
             patientId: patient._id,
             practiceId: args.practiceId,
+            precedencePolicy: "import",
           });
-        if (practitionerAssociation.kind === "associated") {
+        if (
+          practitionerAssociation.kind === "associated" ||
+          practitionerAssociation.kind === "unchanged"
+        ) {
           associatedPractitioners += 1;
-        } else {
+        } else if (practitionerAssociation.kind === "no_clear_winner") {
           skippedNoClearPractitioner += 1;
         }
         reusedAssociations += 1;
@@ -597,22 +602,27 @@ export const importBookingIdentityAssociations = mutation({
         pvsPatientNumber: association.pvsPatientNumber,
         status: "active",
       });
-      await attachPatientToBookingIdentityPractitionerAssociations(ctx.db, {
+      await canonicalizeBookingIdentityPractitionerAssociations(ctx.db, {
         bookingIdentityId: bookingIdentity._id,
         now,
         patientId: patient._id,
         practiceId: args.practiceId,
+        precedencePolicy: "import",
       });
       const practitionerAssociation =
-        await upsertAppointmentHistoryPractitionerAssociation(ctx.db, {
+        await applyAppointmentHistoryPractitionerAssociation(ctx.db, {
           bookingIdentityId: bookingIdentity._id,
           now,
           patientId: patient._id,
           practiceId: args.practiceId,
+          precedencePolicy: "import",
         });
-      if (practitionerAssociation.kind === "associated") {
+      if (
+        practitionerAssociation.kind === "associated" ||
+        practitionerAssociation.kind === "unchanged"
+      ) {
         associatedPractitioners += 1;
-      } else {
+      } else if (practitionerAssociation.kind === "no_clear_winner") {
         skippedNoClearPractitioner += 1;
       }
       insertedAssociations += 1;
@@ -697,7 +707,7 @@ export const importPvsPatientPractitionerAssociations = mutation({
         continue;
       }
 
-      await upsertPractitionerAssociation(ctx.db, {
+      const result = await setPractitionerAssociation(ctx.db, {
         evidence: {
           matchedAppointmentCount: association.matchedAppointmentCount,
         },
@@ -705,9 +715,12 @@ export const importPvsPatientPractitionerAssociations = mutation({
         patientId: association.patientId,
         practiceId: args.practiceId,
         practitionerLineageKey: association.practitionerLineageKey,
+        precedencePolicy: "import",
         source: "appointment-history",
       });
-      importedAssociations += 1;
+      if (result.kind !== "rejected") {
+        importedAssociations += 1;
+      }
     }
 
     return { importedAssociations, skippedMissingPatient };
@@ -894,7 +907,7 @@ export const importLegacyBookingStepReplay = mutation({
               });
             }
           }
-          await upsertPractitionerAssociation(ctx.db, {
+          const result = await setPractitionerAssociation(ctx.db, {
             ...(bookingIdentityId === undefined ? {} : { bookingIdentityId }),
             evidence: {
               ...(replayRow.legacyAppointmentId === undefined
@@ -911,9 +924,12 @@ export const importLegacyBookingStepReplay = mutation({
             practiceId: args.practiceId,
             practitionerLineageKey:
               resolvedReplayContext.context.practitionerLineageKey,
+            precedencePolicy: "import",
             source: "legacy-baumdiagramm",
           });
-          associatedPractitioners += 1;
+          if (result.kind !== "rejected") {
+            associatedPractitioners += 1;
+          }
         }
       }
 
