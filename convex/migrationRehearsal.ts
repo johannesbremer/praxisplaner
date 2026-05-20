@@ -813,8 +813,11 @@ export const importLegacyBookingStepReplay = mutation({
     for (const replayRow of args.replayRows) {
       const existingSession = await ctx.db
         .query("bookingSessions")
-        .withIndex("by_sourceSessionKey", (q) =>
-          q.eq("sourceSessionKey", replayRow.sourceSessionKey),
+        .withIndex("by_practiceId_source_sourceSessionKey", (q) =>
+          q
+            .eq("practiceId", args.practiceId)
+            .eq("source", replayRow.source)
+            .eq("sourceSessionKey", replayRow.sourceSessionKey),
         )
         .first();
 
@@ -1467,6 +1470,36 @@ async function ensureImportedUser(
   return { inserted: true, userId };
 }
 
+function getReplayImportSkipReason(args: {
+  appointment: null | ResolvedReplayAppointment;
+  locationLineageKey: Id<"locations"> | undefined;
+  practitionerLineageKey: Id<"practitioners"> | undefined;
+  sessionStep: LegacyBookingReplayRowInput["sessionStep"];
+}): Infer<typeof replayImportSkipReasonValidator> | null {
+  if (
+    replayStepRequiresLocation(args.sessionStep) &&
+    args.locationLineageKey === undefined
+  ) {
+    return "missing_location";
+  }
+
+  if (
+    replayStepRequiresPractitioner(args.sessionStep) &&
+    args.practitionerLineageKey === undefined
+  ) {
+    return "missing_practitioner";
+  }
+
+  if (
+    replayStepRequiresAppointment(args.sessionStep) &&
+    args.appointment === null
+  ) {
+    return "missing_appointment";
+  }
+
+  return null;
+}
+
 async function insertImportedExistingReplaySteps(
   ctx: MutationCtx,
   args: {
@@ -1850,6 +1883,28 @@ function normalizeSearch(
   return parts.join(" ").toLocaleLowerCase();
 }
 
+function replayStepRequiresAppointment(
+  step: LegacyBookingReplayRowInput["sessionStep"],
+): boolean {
+  return step === "existing-confirmation" || step === "new-confirmation";
+}
+
+function replayStepRequiresLocation(
+  step: LegacyBookingReplayRowInput["sessionStep"],
+): boolean {
+  return step !== "privacy";
+}
+
+function replayStepRequiresPractitioner(
+  step: LegacyBookingReplayRowInput["sessionStep"],
+): boolean {
+  return (
+    step === "existing-data-input" ||
+    step === "existing-calendar-selection" ||
+    step === "existing-confirmation"
+  );
+}
+
 async function resolveLocationLineageKey(
   ctx: MutationCtx,
   ruleSetId: Id<"ruleSets">,
@@ -1981,7 +2036,10 @@ async function resolveReplayContext(
   | { context: ResolvedReplayContext; kind: "resolved" }
   | {
       kind: "skipped";
-      reason: "missing_location" | "missing_practitioner";
+      reason:
+        | "missing_appointment"
+        | "missing_location"
+        | "missing_practitioner";
     }
 > {
   const appointment = await resolveReplayAppointment(ctx, {
@@ -2002,6 +2060,16 @@ async function resolveReplayContext(
       practitionerName: args.replayRow.practitionerName,
       ruleSetId: args.ruleSetId,
     }));
+
+  const preflightSkipReason = getReplayImportSkipReason({
+    appointment,
+    locationLineageKey,
+    practitionerLineageKey,
+    sessionStep: args.replayRow.sessionStep,
+  });
+  if (preflightSkipReason !== null) {
+    return { kind: "skipped", reason: preflightSkipReason };
+  }
 
   return {
     context: {

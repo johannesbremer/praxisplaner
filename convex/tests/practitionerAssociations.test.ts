@@ -452,6 +452,168 @@ describe("practitioner associations", () => {
     }
   });
 
+  test("replay import skips existing-data-input rows with unresolved practitioners before inserting sessions", async () => {
+    const previousFlag = process.env["MIGRATION_REHEARSAL_ENABLED"];
+    process.env["MIGRATION_REHEARSAL_ENABLED"] = "true";
+
+    try {
+      const t = createTestContext();
+      const { practiceId, ruleSetId, userAuthId } = await t.run(async (ctx) => {
+        const practiceId = await ctx.db.insert("practices", {
+          name: "Skip Practice",
+        });
+        const ruleSetId = await ctx.db.insert("ruleSets", {
+          createdAt: Date.now(),
+          description: "Skip Rule Set",
+          draftRevision: 0,
+          practiceId,
+          saved: true,
+          version: 1,
+        });
+        await insertSelfLineageEntity(ctx.db, "locations", {
+          name: "Dissen a.T.W.",
+          practiceId,
+          ruleSetId,
+        });
+
+        return {
+          practiceId,
+          ruleSetId,
+          userAuthId: "legacy-pocketbase:user-skip",
+        };
+      });
+
+      const result = await t.mutation(
+        api.migrationRehearsal.importLegacyBookingStepReplay,
+        {
+          practiceId,
+          replayRows: [
+            {
+              createdAt: Date.now(),
+              dataSharingContacts: [],
+              locationName: "Dissen a.T.W.",
+              personalData: {
+                dateOfBirth: "1990-01-01",
+                firstName: "Ada",
+                lastName: "Lovelace",
+                phoneNumber: "0123456789",
+              },
+              practitionerName: "Missing Practitioner",
+              sessionStep: "existing-data-input",
+              source: "legacy-online",
+              sourceSessionKey: "legacy-pocketbase:snapshot:skip-user",
+              userAuthId,
+              userEmail: "skip@example.com",
+            },
+          ],
+          ruleSetId,
+        },
+      );
+
+      expect(result.insertedSessions).toBe(0);
+      expect(result.skippedMissingAppointment).toBe(1);
+
+      const sessionCount = await t.run(async (ctx) =>
+        ctx.db.query("bookingSessions").collect(),
+      );
+      expect(sessionCount).toHaveLength(0);
+    } finally {
+      if (previousFlag === undefined) {
+        delete process.env["MIGRATION_REHEARSAL_ENABLED"];
+      } else {
+        process.env["MIGRATION_REHEARSAL_ENABLED"] = previousFlag;
+      }
+    }
+  });
+
+  test("replay deduplication is scoped by practice", async () => {
+    const previousFlag = process.env["MIGRATION_REHEARSAL_ENABLED"];
+    process.env["MIGRATION_REHEARSAL_ENABLED"] = "true";
+
+    try {
+      const t = createTestContext();
+      const setup = await t.run(async (ctx) => {
+        const practiceA = await ctx.db.insert("practices", { name: "A" });
+        const practiceB = await ctx.db.insert("practices", { name: "B" });
+        const ruleSetA = await ctx.db.insert("ruleSets", {
+          createdAt: Date.now(),
+          description: "A",
+          draftRevision: 0,
+          practiceId: practiceA,
+          saved: true,
+          version: 1,
+        });
+        const ruleSetB = await ctx.db.insert("ruleSets", {
+          createdAt: Date.now(),
+          description: "B",
+          draftRevision: 0,
+          practiceId: practiceB,
+          saved: true,
+          version: 1,
+        });
+        await insertSelfLineageEntity(ctx.db, "locations", {
+          name: "Dissen a.T.W.",
+          practiceId: practiceA,
+          ruleSetId: ruleSetA,
+        });
+        await insertSelfLineageEntity(ctx.db, "locations", {
+          name: "Dissen a.T.W.",
+          practiceId: practiceB,
+          ruleSetId: ruleSetB,
+        });
+
+        return { practiceA, practiceB, ruleSetA, ruleSetB };
+      });
+
+      const replayRow = {
+        createdAt: Date.now(),
+        dataSharingContacts: [],
+        locationName: "Dissen a.T.W.",
+        sessionStep: "existing-doctor-selection" as const,
+        source: "legacy-online" as const,
+        sourceSessionKey: "legacy-pocketbase:snapshot:shared",
+        userAuthId: "legacy-pocketbase:shared-user",
+        userEmail: "shared@example.com",
+      };
+
+      const first = await t.mutation(
+        api.migrationRehearsal.importLegacyBookingStepReplay,
+        {
+          practiceId: setup.practiceA,
+          replayRows: [replayRow],
+          ruleSetId: setup.ruleSetA,
+        },
+      );
+      const second = await t.mutation(
+        api.migrationRehearsal.importLegacyBookingStepReplay,
+        {
+          practiceId: setup.practiceB,
+          replayRows: [replayRow],
+          ruleSetId: setup.ruleSetB,
+        },
+      );
+
+      expect(first.insertedSessions).toBe(1);
+      expect(first.reusedSessions).toBe(0);
+      expect(second.insertedSessions).toBe(1);
+      expect(second.reusedSessions).toBe(0);
+
+      const sessions = await t.run(async (ctx) =>
+        ctx.db.query("bookingSessions").collect(),
+      );
+      expect(sessions).toHaveLength(2);
+      expect(new Set(sessions.map((session) => session.practiceId))).toEqual(
+        new Set([setup.practiceA, setup.practiceB]),
+      );
+    } finally {
+      if (previousFlag === undefined) {
+        delete process.env["MIGRATION_REHEARSAL_ENABLED"];
+      } else {
+        process.env["MIGRATION_REHEARSAL_ENABLED"] = previousFlag;
+      }
+    }
+  });
+
   test("appointment-history derivation excludes low-signal and resource rows and skips ties", async () => {
     const t = createTestContext();
     const fixture = await createAssociationFixture(t);

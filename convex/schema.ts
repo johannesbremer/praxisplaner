@@ -1240,6 +1240,11 @@ export default defineSchema({
       "status",
       "source",
     ])
+    .index("by_practiceId_source_sourceSessionKey", [
+      "practiceId",
+      "source",
+      "sourceSessionKey",
+    ])
     .index("by_sourceSessionKey", ["sourceSessionKey"]),
 
   legacyBookingBlocks: defineTable({

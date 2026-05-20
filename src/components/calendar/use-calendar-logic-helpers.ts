@@ -22,6 +22,11 @@ export interface BlockedSlotConversionOptions {
   title?: string;
 }
 
+export type BlockedSlotDropResolution =
+  | { kind: "location-wide" }
+  | { kind: "practitioner"; practitionerId: Id<"practitioners"> }
+  | { kind: "reject-resource-column" };
+
 export interface CalendarBlockedSlotRecord {
   end: string;
   placement: {
@@ -204,4 +209,22 @@ export function parsePlainTimeResult(
       invalidStateError(`Invalid time format: ${value}`, source, error),
     );
   }
+}
+
+export function resolveBlockedSlotDropOccupancyScope(args: {
+  column: CalendarColumnId;
+  getPractitionerIdForColumn: (
+    column: CalendarColumnId,
+  ) => Id<"practitioners"> | undefined;
+}): BlockedSlotDropResolution {
+  const practitionerId = args.getPractitionerIdForColumn(args.column);
+  if (practitionerId !== undefined) {
+    return { kind: "practitioner", practitionerId };
+  }
+
+  if (args.column.kind === "resource") {
+    return { kind: "reject-resource-column" };
+  }
+
+  return { kind: "location-wide" };
 }

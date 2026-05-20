@@ -46,7 +46,11 @@ import { buildCalendarAppointmentRequest } from "./use-calendar-booking";
 import { useCalendarData } from "./use-calendar-data";
 import { useCalendarDevtools } from "./use-calendar-devtools";
 import { useCalendarInteractions } from "./use-calendar-interactions";
-import { handleEditBlockedSlot, TIMEZONE } from "./use-calendar-logic-helpers";
+import {
+  handleEditBlockedSlot,
+  resolveBlockedSlotDropOccupancyScope,
+  TIMEZONE,
+} from "./use-calendar-logic-helpers";
 import { useCalendarPlanningWorkbench } from "./use-calendar-planning-workbench";
 import { useCalendarReferenceResolver } from "./use-calendar-reference-resolver";
 import { useCalendarSimulationConversion } from "./use-calendar-simulation-conversion";
@@ -889,7 +893,16 @@ export function useCalendarLogic({
           minutes: blockedSlot.duration ?? 30,
         });
 
-        const newPractitionerId = getPractitionerIdForColumn(column);
+        const dropOccupancyScope = resolveBlockedSlotDropOccupancyScope({
+          column,
+          getPractitionerIdForColumn,
+        });
+        if (dropOccupancyScope.kind === "reject-resource-column") {
+          toast.error(
+            "Gesperrte Zeitraeume koennen nicht auf EKG- oder Labor-Spalten verschoben werden.",
+          );
+          return;
+        }
 
         if (simulatedContext) {
           if (!blockedSlot.id || !blockedSlotDoc) {
@@ -900,10 +913,7 @@ export function useCalendarLogic({
             await planningCommands.updateBlockedSlot({
               end: endZoned.toString(),
               id: blockedSlotDoc._id,
-              occupancyScope:
-                newPractitionerId === undefined
-                  ? { kind: "location-wide" }
-                  : { kind: "practitioner", practitionerId: newPractitionerId },
+              occupancyScope: dropOccupancyScope,
               start: startZoned.toString(),
             });
           } else {
@@ -926,11 +936,13 @@ export function useCalendarLogic({
                   blockedSlotDoc.title ||
                   blockedSlot.title ||
                   "Gesperrter Zeitraum",
-                ...(newPractitionerId || blockedSlotDisplayRefs.practitionerId
+                ...(dropOccupancyScope.kind === "practitioner" ||
+                blockedSlotDisplayRefs.practitionerId
                   ? {
                       practitionerId:
-                        newPractitionerId ||
-                        blockedSlotDisplayRefs.practitionerId,
+                        (dropOccupancyScope.kind === "practitioner"
+                          ? dropOccupancyScope.practitionerId
+                          : undefined) || blockedSlotDisplayRefs.practitionerId,
                     }
                   : {}),
               },
@@ -940,10 +952,7 @@ export function useCalendarLogic({
           await planningCommands.updateBlockedSlot({
             end: endZoned.toString(),
             id: blockedSlotDoc._id,
-            occupancyScope:
-              newPractitionerId === undefined
-                ? { kind: "location-wide" }
-                : { kind: "practitioner", practitionerId: newPractitionerId },
+            occupancyScope: dropOccupancyScope,
             start: startZoned.toString(),
           });
         }

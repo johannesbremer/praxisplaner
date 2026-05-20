@@ -9,6 +9,7 @@ import {
 import {
   collectDeletedPractitionerCalendarRanges,
   filterBlockedSlotsForDateAndLocation,
+  resolveBlockedSlotDropOccupancyScope,
 } from "../../components/calendar/use-calendar-logic-helpers";
 import { buildCalendarBlockedSlotRecord } from "./test-records";
 
@@ -146,6 +147,23 @@ describe("Manual Blocked Slots Integration", () => {
   };
 
   describe("Database to Frontend Mapping", () => {
+    it("rejects dropping manual blocked slots onto resource columns", () => {
+      const noPractitionerForColumn: (
+        column: Parameters<
+          typeof resolveBlockedSlotDropOccupancyScope
+        >[0]["column"],
+      ) => undefined = (column) => {
+        void column;
+        return;
+      };
+      const result = resolveBlockedSlotDropOccupancyScope({
+        column: { calendarResourceColumn: "ekg", kind: "resource" },
+        getPractitionerIdForColumn: noPractitionerForColumn,
+      });
+
+      expect(result).toEqual({ kind: "reject-resource-column" });
+    });
+
     it("should create manual blocked slots with isManual=true flag", () => {
       const blockedSlotsData = [
         {
