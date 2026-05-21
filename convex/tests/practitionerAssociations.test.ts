@@ -526,6 +526,63 @@ describe("practitioner associations", () => {
     }
   });
 
+  test("replay import preserves missing privacy consent as false", async () => {
+    const previousFlag = process.env["MIGRATION_REHEARSAL_ENABLED"];
+    process.env["MIGRATION_REHEARSAL_ENABLED"] = "true";
+
+    try {
+      const t = createTestContext();
+      const setup = await t.run(async (ctx) => {
+        const practiceId = await ctx.db.insert("practices", {
+          name: "Privacy Import Practice",
+        });
+        const ruleSetId = await ctx.db.insert("ruleSets", {
+          createdAt: Date.now(),
+          description: "Privacy Import Rule Set",
+          draftRevision: 0,
+          practiceId,
+          saved: true,
+          version: 1,
+        });
+
+        return { practiceId, ruleSetId };
+      });
+
+      const result = await t.mutation(
+        api.migrationRehearsal.importLegacyBookingStepReplay,
+        {
+          practiceId: setup.practiceId,
+          replayRows: [
+            {
+              createdAt: Date.now(),
+              dataSharingContacts: [],
+              sessionStep: "privacy",
+              source: "legacy-online",
+              sourceSessionKey: "legacy-pocketbase:snapshot:no-consent",
+              userAuthId: "legacy-pocketbase:no-consent",
+              userEmail: "no-consent@example.com",
+            },
+          ],
+          ruleSetId: setup.ruleSetId,
+        },
+      );
+
+      expect(result.insertedSessions).toBe(1);
+
+      const privacySteps = await t.run(async (ctx) =>
+        ctx.db.query("bookingPrivacySteps").collect(),
+      );
+      expect(privacySteps).toHaveLength(1);
+      expect(privacySteps[0]?.consent).toBe(false);
+    } finally {
+      if (previousFlag === undefined) {
+        delete process.env["MIGRATION_REHEARSAL_ENABLED"];
+      } else {
+        process.env["MIGRATION_REHEARSAL_ENABLED"] = previousFlag;
+      }
+    }
+  });
+
   test("replay deduplication is scoped by practice", async () => {
     const previousFlag = process.env["MIGRATION_REHEARSAL_ENABLED"];
     process.env["MIGRATION_REHEARSAL_ENABLED"] = "true";

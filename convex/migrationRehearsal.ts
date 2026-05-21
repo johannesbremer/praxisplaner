@@ -1529,7 +1529,7 @@ async function insertImportedExistingReplaySteps(
   };
   await ctx.db.insert("bookingPrivacySteps", {
     ...base,
-    consent: true,
+    consent: args.replayRow.sessionStep !== "privacy",
   });
 
   if (args.replayRow.sessionStep === "privacy") {
@@ -1653,7 +1653,7 @@ async function insertImportedNewReplaySteps(
 
   await ctx.db.insert("bookingPrivacySteps", {
     ...base,
-    consent: true,
+    consent: args.replayRow.sessionStep !== "privacy",
   });
 
   if (args.replayRow.sessionStep === "privacy") {
