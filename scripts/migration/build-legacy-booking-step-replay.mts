@@ -367,14 +367,28 @@ function medicalHistoryFromUser(userId, anamneseByUser, anamneseTextByUser) {
   };
 }
 
-function reasonDescriptionFromSnapshot(args) {
-  return (
-    trimToUndefined(args.currentMatch?.legacyType) ??
-    trimToUndefined(args.currentMatch?.legacyTitle) ??
-    trimToUndefined(args.currentAppointmentTitle) ??
-    trimToUndefined(args.termingrundTitle) ??
-    "Import"
-  );
+function normalizeImportedReasonDescription(value, sourceKind) {
+  const trimmed = trimToUndefined(value);
+  if (!trimmed) {
+    return { reasonDescription: undefined, strippedPrefix: undefined };
+  }
+
+  if (sourceKind === "online") {
+    const normalized = trimmed.replace(/^Online:\s*/u, "").trim();
+    return {
+      reasonDescription: normalized,
+      strippedPrefix: normalized === trimmed ? undefined : "Online",
+    };
+  }
+  if (sourceKind === "telefonki") {
+    const normalized = trimmed.replace(/^TelefonKI:\s*/u, "").trim();
+    return {
+      reasonDescription: normalized,
+      strippedPrefix: normalized === trimmed ? undefined : "TelefonKI",
+    };
+  }
+
+  return { reasonDescription: trimmed, strippedPrefix: undefined };
 }
 
 function isTruthyLegacyFlag(value) {
@@ -392,12 +406,6 @@ function readSourceMaps() {
     readSqliteJson("select id, email from users order by created").map(
       (row) => [row.id, row],
     ),
-  );
-  const phoneUserById = new Map(
-    readSqliteJson("select * from phoneusers order by updated").map((row) => [
-      row.id,
-      row,
-    ]),
   );
   const dataSharingByUser = Map.groupBy(
     readSqliteJson("select * from datenweitergabe order by created, id"),
@@ -417,12 +425,6 @@ function readSourceMaps() {
   const pkvByUser = new Map(
     readSqliteJson("select * from pkv order by updated").map((row) => [
       row.user,
-      row,
-    ]),
-  );
-  const termingrundById = new Map(
-    readSqliteJson("select * from terminarten order by title").map((row) => [
-      row.id,
       row,
     ]),
   );
@@ -457,9 +459,7 @@ function readSourceMaps() {
     currentAppointmentsByUser,
     dataSharingByUser,
     personalByUser,
-    phoneUserById,
     pkvByUser,
-    termingrundById,
     userById,
   };
 }
@@ -599,18 +599,11 @@ function buildSnapshotReplayRow(
     pkvTariff !== undefined ||
     beihilfeStatus !== undefined ||
     pkv !== undefined;
-  const currentAppointmentTitle = trimToUndefined(
-    maps.termingrundById.get(currentAppointment?.terminart)?.title ??
-      currentAppointment?.title,
+  const normalizedReason = normalizeImportedReasonDescription(
+    currentMatch?.pvsReason,
+    currentMatch?.sourceKind,
   );
-  const termingrundTitle = trimToUndefined(
-    maps.termingrundById.get(baum.termingrund)?.title,
-  );
-  const reasonDescription = reasonDescriptionFromSnapshot({
-    currentAppointmentTitle,
-    currentMatch,
-    termingrundTitle,
-  });
+  const reasonDescription = normalizedReason.reasonDescription;
   const hasMatchedAppointment =
     currentMatch !== undefined &&
     personalData !== undefined &&
@@ -649,6 +642,13 @@ function buildSnapshotReplayRow(
     });
   }
 
+  if (!sessionStep.endsWith("confirmation")) {
+    return undefined;
+  }
+  if (!currentMatch || !reasonDescription) {
+    return undefined;
+  }
+
   const row = {
     createdAt: parseDate(baum.updated ?? baum.created).getTime(),
     dataSharingContacts,
@@ -662,6 +662,7 @@ function buildSnapshotReplayRow(
     ...(pkvTariff === undefined ? {} : { pkvTariff }),
     ...(practitionerName === undefined ? {} : { practitionerName }),
     ...(insuranceType !== "pkv" || !pvsConsent ? {} : { pvsConsent: true }),
+    reasonDescription,
     sessionStep,
     source: "legacy-online",
     sourceSessionKey: `legacy-pocketbase:snapshot:${userId}`,
@@ -669,21 +670,19 @@ function buildSnapshotReplayRow(
     userEmail,
   };
 
-  if (!sessionStep.endsWith("confirmation") || !currentMatch) {
-    return row;
-  }
-
   return {
-    ...row,
-    bookedDurationMinutes: durationMinutes(
-      currentMatch.pvsStart,
-      currentMatch.pvsEnd,
-    ),
-    legacyAppointmentId: currentMatch.legacyAppointmentId,
-    pvsAppointmentStart: toStoredPvsDateTime(currentMatch.pvsStart),
-    pvsAppointmentTypeTitle: currentMatch.pvsType,
-    pvsPatientNumber: Number(currentMatch.pvsPatientSourceId),
-    reasonDescription,
+    replayRow: {
+      ...row,
+      bookedDurationMinutes: durationMinutes(
+        currentMatch.pvsStart,
+        currentMatch.pvsEnd,
+      ),
+      legacyAppointmentId: currentMatch.legacyAppointmentId,
+      pvsAppointmentStart: toStoredPvsDateTime(currentMatch.pvsStart),
+      pvsAppointmentTypeTitle: currentMatch.pvsType,
+      pvsPatientNumber: Number(currentMatch.pvsPatientSourceId),
+    },
+    strippedPrefix: normalizedReason.strippedPrefix,
   };
 }
 
@@ -697,10 +696,22 @@ function main() {
       .filter((match) => match.sourceKind === "online")
       .map((match) => [match.legacyAppointmentId, match]),
   );
-  const snapshotRows = [...maps.baumByUser.keys()]
+  const snapshotReplayEntries = [...maps.baumByUser.keys()]
     .map((userId) => buildSnapshotReplayRow(userId, maps, currentOnlineMatches))
     .filter(Boolean);
-  const replayRows = snapshotRows;
+  const replayRows = snapshotReplayEntries.map((entry) => entry.replayRow);
+  const strippedReasonPrefixCounts = Object.fromEntries(
+    [
+      ...Map.groupBy(
+        snapshotReplayEntries
+          .map((entry) => entry.strippedPrefix)
+          .filter(Boolean),
+        (prefix) => prefix,
+      ).entries(),
+    ]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([prefix, rows]) => [prefix, rows.length]),
+  );
   const appointmentLinkedReplayRows = replayRows.filter(
     (row) => row.legacyAppointmentId !== undefined,
   );
@@ -733,7 +744,11 @@ function main() {
             .sort(([left], [right]) => left.localeCompare(right))
             .map(([step, rows]) => [step, rows.length]),
         ),
-        snapshotReplayRows: snapshotRows.length,
+        snapshotReplayRows: snapshotReplayEntries.length,
+        strippedReasonPrefixCounts,
+        strippedReasonPrefixes: Object.values(
+          strippedReasonPrefixCounts,
+        ).reduce((sum, count) => sum + count, 0),
       },
       null,
       2,

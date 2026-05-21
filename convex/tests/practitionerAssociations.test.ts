@@ -583,6 +583,142 @@ describe("practitioner associations", () => {
     }
   });
 
+  test("replay import preserves confirmation reason descriptions", async () => {
+    const previousFlag = process.env["MIGRATION_REHEARSAL_ENABLED"];
+    process.env["MIGRATION_REHEARSAL_ENABLED"] = "true";
+
+    try {
+      const t = createTestContext();
+      const setup = await t.run(async (ctx) => {
+        const now = BigInt(Date.now());
+        const practiceId = await ctx.db.insert("practices", {
+          name: "Reason Import Practice",
+        });
+        const ruleSetId = await ctx.db.insert("ruleSets", {
+          createdAt: Date.now(),
+          description: "Reason Import Rule Set",
+          draftRevision: 0,
+          practiceId,
+          saved: true,
+          version: 1,
+        });
+        const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
+          name: "Dissen a.T.W.",
+          practiceId,
+          ruleSetId,
+        });
+        const practitionerId = await insertSelfLineageEntity(
+          ctx.db,
+          "practitioners",
+          {
+            name: "Dr. J. Wedegärtner",
+            practiceId,
+            ruleSetId,
+          },
+        );
+        const appointmentTypeId = await insertSelfLineageEntity(
+          ctx.db,
+          "appointmentTypes",
+          {
+            allowedPractitionerLineageKeys: [practitionerId],
+            createdAt: now,
+            duration: 20,
+            followUpPlan: [],
+            lastModified: now,
+            name: "Akuttermin",
+            practiceId,
+            ruleSetId,
+          },
+        );
+        const patientRowId = await ctx.db.insert("patients", {
+          createdAt: now,
+          firstName: "Ada",
+          lastModified: now,
+          lastName: "Lovelace",
+          patientId: 123,
+          practiceId,
+          recordType: "pvs",
+          searchFirstName: "ada",
+          searchLastName: "lovelace",
+        });
+        const appointmentId = await ctx.db.insert("appointments", {
+          appointmentTypeLineageKey: appointmentTypeId,
+          appointmentTypeTitle: "Akuttermin",
+          createdAt: now,
+          end: "2026-01-02T08:20:00.000Z",
+          lastModified: now,
+          locationLineageKey: locationId,
+          occupancyScope: {
+            kind: "practitioner",
+            practitionerLineageKey: practitionerId,
+          },
+          patientId: patientRowId,
+          practiceId,
+          start: "2026-01-02T08:00:00.000Z",
+          title: "Akuttermin",
+        });
+
+        return {
+          appointmentId,
+          appointmentTypeId,
+          locationId,
+          practiceId,
+          practitionerId,
+          ruleSetId,
+        };
+      });
+
+      const result = await t.mutation(
+        api.migrationRehearsal.importLegacyBookingStepReplay,
+        {
+          practiceId: setup.practiceId,
+          replayRows: [
+            {
+              bookedDurationMinutes: 20,
+              createdAt: Date.now(),
+              dataSharingContacts: [],
+              locationName: "Dissen a.T.W.",
+              personalData: {
+                dateOfBirth: "1990-01-01",
+                firstName: "Ada",
+                lastName: "Lovelace",
+                phoneNumber: "0123456789",
+              },
+              practitionerName: "Dr. J. Wedegärtner",
+              pvsAppointmentStart: "2026-01-02T08:00:00.000Z",
+              pvsAppointmentTypeTitle: "Akuttermin",
+              pvsPatientNumber: 123,
+              reasonDescription: "Rueckenschmerzen seit gestern",
+              sessionStep: "existing-confirmation",
+              source: "legacy-online",
+              sourceSessionKey: "legacy-pocketbase:snapshot:reason-user",
+              userAuthId: "legacy-pocketbase:reason-user",
+              userEmail: "reason@example.com",
+            },
+          ],
+          ruleSetId: setup.ruleSetId,
+        },
+      );
+
+      expect(result.insertedSessions).toBe(1);
+
+      const confirmationSteps = await t.run(async (ctx) =>
+        ctx.db.query("bookingConfirmationSteps").collect(),
+      );
+      expect(confirmationSteps).toHaveLength(1);
+      expect(confirmationSteps[0]?.appointmentId).toBe(setup.appointmentId);
+      expect(confirmationSteps[0]?.reasonDescription).toBe(
+        "Rueckenschmerzen seit gestern",
+      );
+    } finally {
+      if (previousFlag === undefined) {
+        delete process.env["MIGRATION_REHEARSAL_ENABLED"];
+      } else {
+        process.env["MIGRATION_REHEARSAL_ENABLED"] = previousFlag;
+      }
+    }
+  });
+
   test("replay deduplication is scoped by practice", async () => {
     const previousFlag = process.env["MIGRATION_REHEARSAL_ENABLED"];
     process.env["MIGRATION_REHEARSAL_ENABLED"] = "true";

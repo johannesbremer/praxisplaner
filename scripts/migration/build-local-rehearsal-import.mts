@@ -11,6 +11,10 @@ import { join } from "node:path";
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const outputRoot = join(workspaceRoot, ".cache/migration/rehearsal");
 const reportRoot = join(workspaceRoot, ".cache/migration/reports");
+const matchesPath = join(
+  reportRoot,
+  "legacy-appointment-correlation-matches.csv",
+);
 const seedRoot = join(workspaceRoot, "seed_data_preview");
 const importTimestamp = "1778751271000";
 const fallbackDurationMinutes = 5;
@@ -125,6 +129,119 @@ function readConvexJson(output) {
 
 function normalizeSearch(firstName, lastName) {
   return [firstName, lastName].filter(Boolean).join(" ").trim().toLowerCase();
+}
+
+function pvsMatchKey({
+  doctorName,
+  end,
+  locationRoom,
+  patientSourceId,
+  reasonDescription,
+  start,
+  typeTitle,
+}) {
+  return JSON.stringify([
+    doctorName,
+    end,
+    locationRoom,
+    patientSourceId,
+    reasonDescription,
+    start,
+    typeTitle,
+  ]);
+}
+
+function stripPrefixForSourceKind(sourceKind) {
+  if (sourceKind === "online" || sourceKind === "online_old") {
+    return "Online";
+  }
+  if (sourceKind === "telefonki") {
+    return "TelefonKI";
+  }
+  return undefined;
+}
+
+function normalizeMatchedPvsReason(value, stripPrefixes) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { reasonDescription: undefined, strippedPrefix: undefined };
+  }
+
+  if (stripPrefixes?.has("Online")) {
+    const normalized = trimmed.replace(/^Online:\s*/u, "").trim();
+    if (normalized !== trimmed) {
+      return {
+        reasonDescription: normalized,
+        strippedPrefix: "Online",
+      };
+    }
+  }
+  if (stripPrefixes?.has("TelefonKI")) {
+    const normalized = trimmed.replace(/^TelefonKI:\s*/u, "").trim();
+    if (normalized !== trimmed) {
+      return {
+        reasonDescription: normalized,
+        strippedPrefix: "TelefonKI",
+      };
+    }
+  }
+
+  return { reasonDescription: trimmed, strippedPrefix: undefined };
+}
+
+function readMatchedPvsReasonNormalization() {
+  const matches = parseCsv(readFileSync(matchesPath, "utf8"));
+  const stripPrefixesByPvsMatchKey = new Map();
+  const rawReasonByPvsMatchKey = new Map();
+
+  for (const match of matches) {
+    const key = pvsMatchKey({
+      doctorName: match.pvsDoctor,
+      end: match.pvsEnd,
+      locationRoom: match.pvsLocationRoom,
+      patientSourceId: match.pvsPatientSourceId,
+      reasonDescription: match.pvsReason,
+      start: match.pvsStart,
+      typeTitle: match.pvsType,
+    });
+    rawReasonByPvsMatchKey.set(key, match.pvsReason);
+
+    const stripPrefix = stripPrefixForSourceKind(match.sourceKind);
+    if (!stripPrefix) {
+      continue;
+    }
+
+    let stripPrefixes = stripPrefixesByPvsMatchKey.get(key);
+    if (!stripPrefixes) {
+      stripPrefixes = new Set();
+      stripPrefixesByPvsMatchKey.set(key, stripPrefixes);
+    }
+    stripPrefixes.add(stripPrefix);
+  }
+
+  const strippableMatchedPvsAppointmentsByPrefix = new Map();
+  for (const [key, stripPrefixes] of stripPrefixesByPvsMatchKey) {
+    const normalizedReason = normalizeMatchedPvsReason(
+      rawReasonByPvsMatchKey.get(key) ?? "",
+      stripPrefixes,
+    );
+    if (!normalizedReason.strippedPrefix) {
+      continue;
+    }
+    strippableMatchedPvsAppointmentsByPrefix.set(
+      normalizedReason.strippedPrefix,
+      (strippableMatchedPvsAppointmentsByPrefix.get(
+        normalizedReason.strippedPrefix,
+      ) ?? 0) + 1,
+    );
+  }
+
+  return {
+    matchedLegacyAppointmentRows: matches.length,
+    matchedPvsAppointments: rawReasonByPvsMatchKey.size,
+    strippableMatchedPvsAppointmentsByPrefix,
+    stripPrefixesByPvsMatchKey,
+  };
 }
 
 function toIsoDateTime(value) {
@@ -252,6 +369,7 @@ function buildAppointmentsZip() {
   const appointments = parseCsv(
     readFileSync(migrationSourcePath("old-appointments.csv"), "utf8"),
   );
+  const reasonNormalization = readMatchedPvsReasonNormalization();
   const patientBySourceId = getLocalPatientsBySourceId();
   const practice = getSeedPractice();
   const references = getLocalReferences();
@@ -278,6 +396,7 @@ function buildAppointmentsZip() {
     appointmentsWithoutPatient: 0,
     byLocationName: new Map(),
     inferredDurationFromType: 0,
+    strippedReasonPrefixesByPrefix: new Map(),
     written: 0,
   };
   const inferredDurationRows = [];
@@ -308,10 +427,33 @@ function buildAppointmentsZip() {
       appointment.Ende,
       appointmentType.duration,
     );
+    const normalizedReason = normalizeMatchedPvsReason(
+      appointment.Termingrund,
+      reasonNormalization.stripPrefixesByPvsMatchKey.get(
+        pvsMatchKey({
+          doctorName: appointment.Arzt,
+          end: appointment.Ende,
+          locationRoom: appointment.Raum,
+          patientSourceId: appointment.ID,
+          reasonDescription: appointment.Termingrund,
+          start: appointment.Beginn,
+          typeTitle: appointment.Terminart,
+        }),
+      ),
+    );
+    const reasonDescription = normalizedReason.reasonDescription ?? "";
     stats.byLocationName.set(
       location.name,
       (stats.byLocationName.get(location.name) ?? 0) + 1,
     );
+    if (normalizedReason.strippedPrefix) {
+      stats.strippedReasonPrefixesByPrefix.set(
+        normalizedReason.strippedPrefix,
+        (stats.strippedReasonPrefixesByPrefix.get(
+          normalizedReason.strippedPrefix,
+        ) ?? 0) + 1,
+      );
+    }
 
     const patientId = patientBySourceId.get(Number(appointment.ID));
     if (!patientId) {
@@ -325,7 +467,7 @@ function buildAppointmentsZip() {
         end: appointment.Ende,
         inferredDurationMinutes: appointmentType.duration,
         patientSourceId: appointment.ID,
-        reasonDescription: appointment.Termingrund,
+        reasonDescription,
         room: appointment.Raum,
         start: appointment.Beginn,
       });
@@ -348,11 +490,7 @@ function buildAppointmentsZip() {
       ...(patientId ? { patientId } : {}),
       practiceId: practice._id,
       start: interval.start,
-      title: [
-        appointment.Vorname,
-        appointment.Nachname,
-        appointment.Termingrund,
-      ]
+      title: [appointment.Vorname, appointment.Nachname, reasonDescription]
         .filter(Boolean)
         .join(" - "),
     };
@@ -449,6 +587,24 @@ function buildAppointmentsZip() {
     `Location lineage distribution: ${[...stats.byLocationName.entries()]
       .map(([name, count]) => `${name}=${count}`)
       .join(", ")}.`,
+  );
+  console.log(
+    `Matched PVS appointments from correlation table: ${reasonNormalization.matchedPvsAppointments} across ${reasonNormalization.matchedLegacyAppointmentRows} matched legacy rows; source-aware strippable prefixes: ${
+      [
+        ...reasonNormalization.strippableMatchedPvsAppointmentsByPrefix.entries(),
+      ]
+        .map(([prefix, count]) => `${prefix}=${count}`)
+        .join(", ") || "none"
+    }.`,
+  );
+  console.log(
+    `Applied reason prefix strips during appointment import: ${[
+      ...stats.strippedReasonPrefixesByPrefix.values(),
+    ].reduce((sum, count) => sum + count, 0)}; ${
+      [...stats.strippedReasonPrefixesByPrefix.entries()]
+        .map(([prefix, count]) => `${prefix}=${count}`)
+        .join(", ") || "none"
+    }.`,
   );
 }
 
