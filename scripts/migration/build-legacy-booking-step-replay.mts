@@ -610,6 +610,8 @@ function buildSnapshotReplayRow(
     currentMatch.pvsPatientSourceId !== undefined &&
     currentMatch.pvsStart !== undefined &&
     currentMatch.pvsType !== undefined;
+  const hasImportableConfirmation =
+    hasMatchedAppointment && reasonDescription !== undefined;
   const dataSharingSubmitted =
     dataSharingContacts.length > 0 || submitted || currentMatch !== undefined;
 
@@ -624,7 +626,7 @@ function buildSnapshotReplayRow(
     sessionStep = inferNewSnapshotStep({
       dataSharingSubmitted,
       hasConsent,
-      hasMatchedAppointment,
+      hasMatchedAppointment: hasImportableConfirmation,
       hasPkvDetails,
       hzvStatus,
       insuranceType,
@@ -635,18 +637,11 @@ function buildSnapshotReplayRow(
   } else {
     sessionStep = inferExistingSnapshotStep({
       hasConsent,
-      hasMatchedAppointment,
+      hasMatchedAppointment: hasImportableConfirmation,
       locationName,
       personalData,
       practitionerName,
     });
-  }
-
-  if (!sessionStep.endsWith("confirmation")) {
-    return undefined;
-  }
-  if (!currentMatch || !reasonDescription) {
-    return undefined;
   }
 
   const row = {
@@ -669,6 +664,16 @@ function buildSnapshotReplayRow(
     userAuthId: `legacy-pocketbase:${userId}`,
     userEmail,
   };
+
+  if (!sessionStep.endsWith("confirmation")) {
+    return {
+      replayRow: row,
+      strippedPrefix: undefined,
+    };
+  }
+  if (!currentMatch || !reasonDescription) {
+    return undefined;
+  }
 
   return {
     replayRow: {
