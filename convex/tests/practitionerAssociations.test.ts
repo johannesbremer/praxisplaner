@@ -420,6 +420,7 @@ describe("practitioner associations", () => {
             {
               createdAt: Date.now(),
               dataSharingContacts: [],
+              legacyUiStep: "existing-doctor-selection",
               locationName: "Dissen a.T.W.",
               practitionerName: "Dr. J. Wedegärtner",
               sessionStep: "existing-doctor-selection",
@@ -491,6 +492,7 @@ describe("practitioner associations", () => {
             {
               createdAt: Date.now(),
               dataSharingContacts: [],
+              legacyUiStep: "personal-data",
               locationName: "Dissen a.T.W.",
               personalData: {
                 dateOfBirth: "1990-01-01",
@@ -556,6 +558,7 @@ describe("practitioner associations", () => {
             {
               createdAt: Date.now(),
               dataSharingContacts: [],
+              legacyUiStep: "privacy",
               sessionStep: "privacy",
               source: "legacy-online",
               sourceSessionKey: "legacy-pocketbase:snapshot:no-consent",
@@ -572,8 +575,12 @@ describe("practitioner associations", () => {
       const privacySteps = await t.run(async (ctx) =>
         ctx.db.query("bookingPrivacySteps").collect(),
       );
+      const sessions = await t.run(async (ctx) =>
+        ctx.db.query("bookingSessions").collect(),
+      );
       expect(privacySteps).toHaveLength(1);
       expect(privacySteps[0]?.consent).toBe(false);
+      expect(sessions[0]?.legacyUiStep).toBe("privacy");
     } finally {
       if (previousFlag === undefined) {
         delete process.env["MIGRATION_REHEARSAL_ENABLED"];
@@ -677,6 +684,7 @@ describe("practitioner associations", () => {
               bookedDurationMinutes: 20,
               createdAt: Date.now(),
               dataSharingContacts: [],
+              legacyUiStep: "confirmation",
               locationName: "Dissen a.T.W.",
               personalData: {
                 dateOfBirth: "1990-01-01",
@@ -705,11 +713,15 @@ describe("practitioner associations", () => {
       const confirmationSteps = await t.run(async (ctx) =>
         ctx.db.query("bookingConfirmationSteps").collect(),
       );
+      const sessions = await t.run(async (ctx) =>
+        ctx.db.query("bookingSessions").collect(),
+      );
       expect(confirmationSteps).toHaveLength(1);
       expect(confirmationSteps[0]?.appointmentId).toBe(setup.appointmentId);
       expect(confirmationSteps[0]?.reasonDescription).toBe(
         "Rueckenschmerzen seit gestern",
       );
+      expect(sessions[0]?.legacyUiStep).toBe("confirmation");
     } finally {
       if (previousFlag === undefined) {
         delete process.env["MIGRATION_REHEARSAL_ENABLED"];
@@ -761,6 +773,7 @@ describe("practitioner associations", () => {
       const replayRow = {
         createdAt: Date.now(),
         dataSharingContacts: [],
+        legacyUiStep: "existing-doctor-selection" as const,
         locationName: "Dissen a.T.W.",
         sessionStep: "existing-doctor-selection" as const,
         source: "legacy-online" as const,

@@ -28,6 +28,8 @@ import type * as gdt_types from "../gdt/types.js";
 import type * as gdt_validation from "../gdt/validation.js";
 import type * as http from "../http.js";
 import type * as identity from "../identity.js";
+import type * as legacyBookingMigrationShared from "../legacyBookingMigrationShared.js";
+import type * as legacyUnmatchedFutureBookingHolds from "../legacyUnmatchedFutureBookingHolds.js";
 import type * as lineage from "../lineage.js";
 import type * as mfas from "../mfas.js";
 import type * as migrationRehearsal from "../migrationRehearsal.js";
@@ -83,6 +85,8 @@ declare const fullApi: ApiFromModules<{
   "gdt/validation": typeof gdt_validation;
   http: typeof http;
   identity: typeof identity;
+  legacyBookingMigrationShared: typeof legacyBookingMigrationShared;
+  legacyUnmatchedFutureBookingHolds: typeof legacyUnmatchedFutureBookingHolds;
   lineage: typeof lineage;
   mfas: typeof mfas;
   migrationRehearsal: typeof migrationRehearsal;

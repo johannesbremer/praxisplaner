@@ -418,6 +418,53 @@ describe("appointments self-service cancellation", () => {
     ]);
   });
 
+  test("getBookedAppointmentsForCurrentUser includes unresolved imported future booking holds", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_booked_user_with_legacy_hold";
+    const userId = await createUser(t, authId, "booked-hold@example.com");
+
+    const holdWindow = makeSlotWindow(3);
+    const futureAppointmentId = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(5),
+    });
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("legacyUnmatchedFutureBookingHolds", {
+        createdAt: now,
+        end: holdWindow.end,
+        lastModified: now,
+        legacyAppointmentId: "legacy-unmatched-hold-1",
+        legacyTitle: "Akuttermin",
+        locationName: "Dissen a.T.W.",
+        practiceId: baseData.practiceId,
+        practitionerName: "Dr. Legacy",
+        sourceSessionKey: "legacy-pocketbase:unmatched-future-hold:test-1",
+        sourceSystem: "legacy-online",
+        start: holdWindow.start,
+        userId,
+      });
+    });
+
+    const authed = t.withIdentity({
+      email: "booked-hold@example.com",
+      subject: authId,
+    });
+
+    const upcomingAppointments = await authed.query(
+      api.appointments.getBookedAppointmentsForCurrentUser,
+      {},
+    );
+
+    expect(upcomingAppointments).toHaveLength(2);
+    expect(upcomingAppointments[0]?.kind).toBe("legacy-unmatched-future-hold");
+    expect(upcomingAppointments[1]?.kind).toBe("appointment");
+    expect(upcomingAppointments[1]?._id).toBe(futureAppointmentId);
+  });
+
   test("getBookedAppointmentsForCurrentUser remaps appointment type titles for the active display rule set", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
@@ -489,11 +536,15 @@ describe("appointments self-service cancellation", () => {
     );
 
     expect(upcomingAppointments).toHaveLength(1);
+    expect(upcomingAppointments[0]?.kind).toBe("appointment");
     expect(upcomingAppointments[0]?._id).toBe(appointmentId);
-    expect(upcomingAppointments[0]?.appointmentTypeId).not.toBe(
+    if (upcomingAppointments[0]?.kind !== "appointment") {
+      throw new Error("Expected a real appointment summary item.");
+    }
+    expect(upcomingAppointments[0].appointmentTypeId).not.toBe(
       baseData.appointmentTypeId,
     );
-    expect(upcomingAppointments[0]?.appointmentTypeTitle).toBe(
+    expect(upcomingAppointments[0].appointmentTypeTitle).toBe(
       "Display Checkup",
     );
   });
@@ -557,6 +608,7 @@ describe("appointments self-service cancellation", () => {
       api.appointments.getBookedAppointmentForCurrentUser,
       {},
     );
+    expect(upcomingAppointment?.kind).toBe("appointment");
     expect(upcomingAppointment?._id).toBe(realAppointmentId);
   });
 

@@ -16,6 +16,10 @@ import {
   pkvInsuranceTypeValidator,
   pkvTariffValidator,
 } from "./bookingValidators";
+import {
+  legacyUiStepValidator,
+  legacyUnmatchedFutureBookingHoldSourceSystemValidator,
+} from "./legacyBookingMigrationShared";
 import { insertSelfLineageEntity } from "./lineage";
 import {
   applyAppointmentHistoryPractitionerAssociation,
@@ -275,6 +279,7 @@ const legacyBookingReplayRowValidator = v.object({
   hzvStatus: v.optional(hzvStatusValidator),
   insuranceType: v.optional(insuranceTypeValidator),
   legacyAppointmentId: v.optional(v.string()),
+  legacyUiStep: legacyUiStepValidator,
   locationName: v.optional(v.string()),
   medicalHistory: v.optional(medicalHistoryValidator),
   personalData: v.optional(personalDataValidator),
@@ -305,6 +310,21 @@ const legacyBookingReplayRowValidator = v.object({
   ),
   source: v.literal("legacy-online"),
   sourceSessionKey: v.string(),
+  userAuthId: v.string(),
+  userEmail: v.string(),
+});
+
+const legacyUnmatchedFutureBookingHoldImportRowValidator = v.object({
+  createdAt: v.number(),
+  end: v.string(),
+  legacyAppointmentId: v.string(),
+  legacyTitle: v.optional(v.string()),
+  legacyType: v.optional(v.string()),
+  locationName: v.optional(v.string()),
+  practitionerName: v.optional(v.string()),
+  sourceSessionKey: v.string(),
+  sourceSystem: legacyUnmatchedFutureBookingHoldSourceSystemValidator,
+  start: v.string(),
   userAuthId: v.string(),
   userEmail: v.string(),
 });
@@ -940,6 +960,7 @@ export const importLegacyBookingStepReplay = mutation({
         createdAt: rowTimestamp,
         expiresAt: rowTimestamp,
         lastModified: rowTimestamp,
+        legacyUiStep: replayRow.legacyUiStep,
         practiceId: args.practiceId,
         ruleSetId: args.ruleSetId,
         source: replayRow.source,
@@ -998,6 +1019,88 @@ export const importLegacyBookingStepReplay = mutation({
   }),
 });
 
+export const importLegacyUnmatchedFutureBookingHolds = mutation({
+  args: {
+    holds: v.array(legacyUnmatchedFutureBookingHoldImportRowValidator),
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    assertMigrationRehearsalEnabled();
+
+    let insertedHolds = 0;
+    let insertedUsers = 0;
+    let reusedHolds = 0;
+    let reusedUsers = 0;
+
+    for (const hold of args.holds) {
+      const existingHold = await ctx.db
+        .query("legacyUnmatchedFutureBookingHolds")
+        .withIndex("by_practiceId_sourceSystem_sourceSessionKey", (q) =>
+          q
+            .eq("practiceId", args.practiceId)
+            .eq("sourceSystem", hold.sourceSystem)
+            .eq("sourceSessionKey", hold.sourceSessionKey),
+        )
+        .first();
+
+      if (existingHold) {
+        reusedHolds += 1;
+        continue;
+      }
+
+      const rowTimestamp = BigInt(hold.createdAt);
+      const userResult = await ensureImportedUser(ctx, {
+        authId: hold.userAuthId,
+        email: hold.userEmail,
+        now: rowTimestamp,
+      });
+      if (userResult.inserted) {
+        insertedUsers += 1;
+      } else {
+        reusedUsers += 1;
+      }
+
+      await ctx.db.insert("legacyUnmatchedFutureBookingHolds", {
+        createdAt: rowTimestamp,
+        end: hold.end,
+        lastModified: rowTimestamp,
+        legacyAppointmentId: hold.legacyAppointmentId,
+        ...(hold.legacyTitle === undefined
+          ? {}
+          : { legacyTitle: hold.legacyTitle }),
+        ...(hold.legacyType === undefined
+          ? {}
+          : { legacyType: hold.legacyType }),
+        ...(hold.locationName === undefined
+          ? {}
+          : { locationName: hold.locationName }),
+        practiceId: args.practiceId,
+        ...(hold.practitionerName === undefined
+          ? {}
+          : { practitionerName: hold.practitionerName }),
+        sourceSessionKey: hold.sourceSessionKey,
+        sourceSystem: hold.sourceSystem,
+        start: hold.start,
+        userId: userResult.userId,
+      });
+      insertedHolds += 1;
+    }
+
+    return {
+      insertedHolds,
+      insertedUsers,
+      reusedHolds,
+      reusedUsers,
+    };
+  },
+  returns: v.object({
+    insertedHolds: v.number(),
+    insertedUsers: v.number(),
+    reusedHolds: v.number(),
+    reusedUsers: v.number(),
+  }),
+});
+
 export const countBookingIdentityAssociationImport = query({
   args: {},
   handler: async (ctx) => {
@@ -1009,13 +1112,15 @@ export const countBookingIdentityAssociationImport = query({
         ctx.db.query("bookingIdentityPatientAssociations").collect(),
         ctx.db.query("practitionerAssociations").collect(),
       ]);
-    const [bookingBlocks, importedSessions] = await Promise.all([
-      ctx.db.query("legacyBookingBlocks").collect(),
-      ctx.db
-        .query("bookingSessions")
-        .withIndex("by_status_expiresAt", (q) => q.eq("status", "imported"))
-        .collect(),
-    ]);
+    const [bookingBlocks, importedSessions, unresolvedLegacyHolds] =
+      await Promise.all([
+        ctx.db.query("legacyBookingBlocks").collect(),
+        ctx.db
+          .query("bookingSessions")
+          .withIndex("by_status_expiresAt", (q) => q.eq("status", "imported"))
+          .collect(),
+        ctx.db.query("legacyUnmatchedFutureBookingHolds").collect(),
+      ]);
     const legacyUsers = await ctx.db
       .query("users")
       .withIndex("by_authId", (q) =>
@@ -1035,6 +1140,7 @@ export const countBookingIdentityAssociationImport = query({
       bookingIdentities: bookingIdentities.length,
       legacyBookingBlocks: bookingBlocks.length,
       legacyBookingSessions: importedSessions.length,
+      legacyUnmatchedFutureBookingHolds: unresolvedLegacyHolds.length,
       legacyUsers: legacyUsers.length,
       practitionerAssociations: practitionerAssociations.length,
     };
@@ -1045,6 +1151,7 @@ export const countBookingIdentityAssociationImport = query({
     bookingIdentities: v.number(),
     legacyBookingBlocks: v.number(),
     legacyBookingSessions: v.number(),
+    legacyUnmatchedFutureBookingHolds: v.number(),
     legacyUsers: v.number(),
     practitionerAssociations: v.number(),
   }),
@@ -1067,6 +1174,7 @@ const rehearsalCountTableNameValidator = v.union(
   v.literal("bookingIdentities"),
   v.literal("bookingIdentityPatientAssociations"),
   v.literal("legacyBookingBlocks"),
+  v.literal("legacyUnmatchedFutureBookingHolds"),
   v.literal("practitionerAssociations"),
 );
 
@@ -1239,6 +1347,16 @@ export const countRehearsalTablePage = query({
           isDone: result.isDone,
         };
       }
+      case "legacyUnmatchedFutureBookingHolds": {
+        const result = await ctx.db
+          .query("legacyUnmatchedFutureBookingHolds")
+          .paginate(args.paginationOpts);
+        return {
+          continueCursor: result.continueCursor,
+          count: result.page.length,
+          isDone: result.isDone,
+        };
+      }
       case "practitionerAssociations": {
         const result = await ctx.db
           .query("practitionerAssociations")
@@ -1338,6 +1456,12 @@ export const countRehearsalTable = query({
         const rows = await ctx.db.query("legacyBookingBlocks").collect();
         return rows.length;
       }
+      case "legacyUnmatchedFutureBookingHolds": {
+        const rows = await ctx.db
+          .query("legacyUnmatchedFutureBookingHolds")
+          .collect();
+        return rows.length;
+      }
       case "practitionerAssociations": {
         const rows = await ctx.db.query("practitionerAssociations").collect();
         return rows.length;
@@ -1365,6 +1489,20 @@ interface LegacyBookingReplayRowInput {
   hzvStatus?: "has-contract" | "interested" | "no-interest";
   insuranceType?: "gkv" | "pkv";
   legacyAppointmentId?: string;
+  legacyUiStep:
+    | "calendar-selection"
+    | "confirmation"
+    | "data-sharing"
+    | "existing-doctor-selection"
+    | "location"
+    | "medical-history"
+    | "new-gkv-hzv"
+    | "new-insurance-type"
+    | "new-pkv-consent"
+    | "new-pkv-details"
+    | "patient-status"
+    | "personal-data"
+    | "privacy";
   locationName?: string;
   medicalHistory?: {
     allergiesDescription?: string;

@@ -22,6 +22,7 @@ const tables = [
   "bookingIdentities",
   "bookingIdentityPatientAssociations",
   "legacyBookingBlocks",
+  "legacyUnmatchedFutureBookingHolds",
   "practitionerAssociations",
 ] as const;
 

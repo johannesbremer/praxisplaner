@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
-import type { AppointmentResult } from "@/convex/appointments";
+import type { BookedAppointmentSummaryItem } from "@/convex/appointments";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -42,13 +42,13 @@ interface AppointmentConfirmationCardProps {
 }
 
 interface BookedAppointmentsSummaryProps {
-  appointments: AppointmentResult[];
+  appointments: BookedAppointmentSummaryItem[];
   onCancelled?: () => Promise<void> | void;
   practitionerNamesById?: ReadonlyMap<Id<"practitioners">, string>;
 }
 
 interface BookedAppointmentSummaryProps {
-  appointment: AppointmentResult;
+  appointment: Extract<BookedAppointmentSummaryItem, { kind: "appointment" }>;
   onCancelled?: () => Promise<void> | void;
   practitionerName?: string;
 }
@@ -71,6 +71,15 @@ export function BookedAppointmentsSummary({
       </CardHeader>
       <CardContent className="space-y-4">
         {appointments.map((appointment) => {
+          if (appointment.kind === "legacy-unmatched-future-hold") {
+            return (
+              <LegacyUnmatchedFutureBookingHoldSummaryItem
+                hold={appointment}
+                key={`${appointment.kind}:${appointment._id}`}
+              />
+            );
+          }
+
           const practitionerName = appointment.practitionerId
             ? practitionerNamesById?.get(appointment.practitionerId)
             : undefined;
@@ -78,7 +87,7 @@ export function BookedAppointmentsSummary({
           return (
             <BookedAppointmentsSummaryItem
               appointment={appointment}
-              key={appointment._id}
+              key={`${appointment.kind}:${appointment._id}`}
               {...(onCancelled ? { onCancelled } : {})}
               {...(practitionerName ? { practitionerName } : {})}
             />
@@ -409,6 +418,46 @@ function getDurationMinutes(endTime: string, startTime: string): number {
     (endEpochMilliseconds - startEpochMilliseconds) / 60_000,
   );
   return Math.max(1, duration);
+}
+
+function LegacyUnmatchedFutureBookingHoldSummaryItem({
+  hold,
+}: {
+  hold: Extract<
+    BookedAppointmentSummaryItem,
+    { kind: "legacy-unmatched-future-hold" }
+  >;
+}) {
+  const resolvedTitle = hold.legacyTitle ?? "Importierter zukünftiger Termin";
+
+  return (
+    <div className="rounded-lg border p-4 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <p className="font-medium">{resolvedTitle}</p>
+          <p className="text-sm text-muted-foreground">
+            {formatDate(hold.start)} um {formatTime(hold.start)} Uhr
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Standort: {hold.locationName ?? "Praxis"}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Behandler/in: {hold.practitionerName ?? "Behandlungsteam"}
+          </p>
+        </div>
+        <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+          Importierter Altfall
+        </span>
+      </div>
+
+      <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+        Dieser zukünftige Termin wurde aus dem alten Online-System importiert,
+        konnte aber nicht sicher mit dem Quellsystem verknüpft werden. Bitte
+        kontaktieren Sie die Praxis, wenn Sie diesen Termin ändern oder absagen
+        möchten.
+      </div>
+    </div>
+  );
 }
 
 function useAppointmentCancellation(onCancelled?: () => Promise<void> | void) {

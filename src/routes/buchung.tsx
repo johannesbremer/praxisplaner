@@ -480,7 +480,9 @@ function AuthenticatedBookingFlow() {
   );
 
   const nextBookedAppointment = bookedAppointments?.[0];
-  const bookedAppointmentId = nextBookedAppointment?._id;
+  const bookedAppointmentId = nextBookedAppointment
+    ? `${nextBookedAppointment.kind}:${String(nextBookedAppointment._id)}`
+    : undefined;
   const bookedAppointmentStart = nextBookedAppointment?.start;
   useEffect(() => {
     if (!bookedAppointmentStart) {

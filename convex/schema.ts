@@ -21,6 +21,10 @@ import {
   selectedSlotValidator,
 } from "./bookingValidators";
 import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
+import {
+  legacyUiStepValidator,
+  legacyUnmatchedFutureBookingHoldSourceSystemValidator,
+} from "./legacyBookingMigrationShared";
 
 export {
   beihilfeStatusValidator,
@@ -1210,6 +1214,7 @@ export default defineSchema({
     userId: v.id("users"),
 
     // Persist only the current step; step payload is stored in per-step tables
+    legacyUiStep: v.optional(legacyUiStepValidator),
     source: v.union(v.literal("current-booking"), v.literal("legacy-online")),
     sourceSessionKey: v.optional(v.string()),
     state: bookingSessionStorageStateValidator,
@@ -1257,4 +1262,29 @@ export default defineSchema({
   })
     .index("by_userId_practiceId", ["userId", "practiceId"])
     .index("by_legacyUserId", ["legacyUserId"]),
+
+  // Temporary migration-only patient-facing holds for unmatched future online
+  // bookings. These are deliberately kept out of the scheduling model.
+  legacyUnmatchedFutureBookingHolds: defineTable({
+    createdAt: v.int64(),
+    end: v.string(),
+    lastModified: v.int64(),
+    legacyAppointmentId: v.string(),
+    legacyTitle: v.optional(v.string()),
+    legacyType: v.optional(v.string()),
+    locationName: v.optional(v.string()),
+    practiceId: v.id("practices"),
+    practitionerName: v.optional(v.string()),
+    sourceSessionKey: v.string(),
+    sourceSystem: legacyUnmatchedFutureBookingHoldSourceSystemValidator,
+    start: v.string(),
+    userId: v.id("users"),
+  })
+    .index("by_userId_start", ["userId", "start"])
+    .index("by_userId_practiceId_start", ["userId", "practiceId", "start"])
+    .index("by_practiceId_sourceSystem_sourceSessionKey", [
+      "practiceId",
+      "sourceSystem",
+      "sourceSessionKey",
+    ]),
 });

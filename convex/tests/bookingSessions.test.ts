@@ -490,6 +490,57 @@ describe("bookingSessions user identity handling", () => {
     ).rejects.toThrow("blocked from online booking");
   });
 
+  test("create rejects users with unresolved imported future booking holds", async () => {
+    const t = createTestContext();
+    const { practiceId, ruleSetId } = await createPracticeAndRuleSet(t);
+    const authId = "workos_user_with_legacy_hold";
+    const holdStart = Temporal.Now.zonedDateTimeISO("Europe/Berlin")
+      .add({ days: 3 })
+      .with({
+        microsecond: 0,
+        millisecond: 0,
+        minute: 0,
+        nanosecond: 0,
+        second: 0,
+      })
+      .toString();
+    const holdEnd = Temporal.ZonedDateTime.from(holdStart)
+      .add({ minutes: 10 })
+      .toString();
+
+    await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        authId,
+        createdAt: 1n,
+        email: "hold@example.com",
+      });
+      await ctx.db.insert("legacyUnmatchedFutureBookingHolds", {
+        createdAt: 2n,
+        end: holdEnd,
+        lastModified: 2n,
+        legacyAppointmentId: "legacy-hold-1",
+        legacyTitle: "Akuttermin",
+        practiceId,
+        sourceSessionKey: "legacy-pocketbase:unmatched-future-hold:test-1",
+        sourceSystem: "legacy-online",
+        start: holdStart,
+        userId,
+      });
+    });
+
+    const authed = t.withIdentity({
+      email: "hold@example.com",
+      subject: authId,
+    });
+
+    await expect(
+      authed.mutation(api.bookingSessions.create, {
+        practiceId,
+        ruleSetId,
+      }),
+    ).rejects.toThrow("unresolved imported future booking");
+  });
+
   test("cleanupExpired ignores imported legacy sessions", async () => {
     const t = createTestContext();
     const { practiceId, ruleSetId } = await createPracticeAndRuleSet(t);
@@ -1964,8 +2015,23 @@ describe("bookingSessions slot selection validation", () => {
     expect(bookedAppointments).toHaveLength(2);
     expect(seriesRecords).toHaveLength(1);
     expect(
-      new Set(bookedAppointments.map((appointment) => appointment.seriesId))
-        .size,
+      bookedAppointments.every(
+        (appointment) => appointment.kind === "appointment",
+      ),
+    ).toBe(true);
+    expect(
+      new Set(
+        bookedAppointments
+          .filter(
+            (
+              appointment,
+            ): appointment is Extract<
+              (typeof bookedAppointments)[number],
+              { kind: "appointment" }
+            > => appointment.kind === "appointment",
+          )
+          .map((appointment) => appointment.seriesId),
+      ).size,
     ).toBe(1);
   });
 });

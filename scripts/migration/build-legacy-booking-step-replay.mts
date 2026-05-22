@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { Temporal } from "temporal-polyfill";
 
 import { importedPractitionerNameFromLegacyDoc } from "./legacy-practitioner-mapping.js";
 
@@ -10,6 +11,10 @@ const reportRoot = join(workspaceRoot, ".cache/migration/reports");
 const matchesPath = join(
   reportRoot,
   "legacy-appointment-correlation-matches.csv",
+);
+const unmatchedPath = join(
+  reportRoot,
+  "legacy-appointment-correlation-unmatched.csv",
 );
 
 function parseCsv(text) {
@@ -232,6 +237,12 @@ function toStoredPvsDateTime(value) {
   return `${match[1]}T${match[2]}${match[3]}[Europe/Berlin]`;
 }
 
+function toStoredLegacyDateTime(value) {
+  return Temporal.Instant.from(value)
+    .toZonedDateTimeISO("Europe/Berlin")
+    .toString();
+}
+
 function parseDate(value) {
   const timestamp = Date.parse(String(value ?? ""));
   if (!Number.isFinite(timestamp)) {
@@ -278,7 +289,7 @@ function personalDataFromFields(fields) {
 
 function personalDataFromLegacyUser(userId, args) {
   const personal = args.personalByUser.get(userId);
-  const fallbackMatch = args.fallbackMatch;
+  const fallbackMatch = args.allowPvsFallback ? args.fallbackMatch : undefined;
   const fallbackFirstName = fallbackMatch?.patientFirstName;
   const fallbackLastName = fallbackMatch?.patientLastName;
   const fallbackBirthDate = fallbackMatch?.birthDate;
@@ -294,6 +305,37 @@ function personalDataFromLegacyUser(userId, args) {
     postalCode: personal?.plz ?? "",
     street: personal?.strasse ?? "",
     title: personal?.dr ?? "",
+  });
+}
+
+function hasLegacyRequiredIdentityFields(fields) {
+  return (
+    trimToUndefined(fields.gender) !== undefined &&
+    trimToUndefined(fields.firstName) !== undefined &&
+    trimToUndefined(fields.lastName) !== undefined &&
+    trimToUndefined(fields.dateOfBirth) !== undefined &&
+    trimToUndefined(fields.phoneNumber) !== undefined &&
+    trimToUndefined(fields.street) !== undefined &&
+    trimToUndefined(fields.postalCode) !== undefined &&
+    trimToUndefined(fields.city) !== undefined
+  );
+}
+
+function isLegacyPersonalDataComplete(userId, personalByUser) {
+  const personal = personalByUser.get(userId);
+  if (!personal) {
+    return false;
+  }
+
+  return hasLegacyRequiredIdentityFields({
+    city: personal.ort ?? "",
+    dateOfBirth: personal.geburtstag ?? "",
+    firstName: personal.vorname ?? "",
+    gender: personal.geschlecht ?? "",
+    lastName: personal.name ?? "",
+    phoneNumber: personal.tel ?? "",
+    postalCode: personal.plz ?? "",
+    street: personal.strasse ?? "",
   });
 }
 
@@ -316,6 +358,26 @@ function dataSharingContactsForUser(userId, dataSharingByUser) {
         contact.lastName.length > 0 ||
         contact.phoneNumber.length > 0,
     );
+}
+
+function isLegacyDataSharingComplete(userId, dataSharingByUser) {
+  const contacts = dataSharingByUser.get(userId) ?? [];
+  if (contacts.length === 0) {
+    return false;
+  }
+
+  return contacts.every((contact) =>
+    hasLegacyRequiredIdentityFields({
+      city: contact.ort ?? "",
+      dateOfBirth: contact.geburtstag ?? "",
+      firstName: contact.vorname ?? "",
+      gender: contact.geschlecht ?? "",
+      lastName: contact.name ?? "",
+      phoneNumber: contact.tel ?? "",
+      postalCode: contact.plz ?? "",
+      street: contact.str ?? "",
+    }),
+  );
 }
 
 function medicalHistoryFromUser(userId, anamneseByUser, anamneseTextByUser) {
@@ -367,6 +429,82 @@ function medicalHistoryFromUser(userId, anamneseByUser, anamneseTextByUser) {
   };
 }
 
+function isLegacyCheckboxAnamneseComplete(userId, anamneseByUser) {
+  const checkbox = anamneseByUser.get(userId);
+  if (!checkbox) {
+    return false;
+  }
+
+  return (
+    checkbox.diabetes === 1 ||
+    checkbox.schilddruese === 1 ||
+    checkbox.leber === 1 ||
+    checkbox.niere === 1 ||
+    checkbox.blutfett === 1 ||
+    checkbox.gicht === 1 ||
+    checkbox.bluthochdruck === 1 ||
+    checkbox.lunge === 1 ||
+    checkbox.herz === 1 ||
+    checkbox.durchblutung === 1 ||
+    checkbox.krampfadern === 1 ||
+    checkbox.krebs === 1 ||
+    checkbox.depression === 1 ||
+    checkbox.rauchen === 1 ||
+    trimToUndefined(checkbox.sonstiges) !== undefined ||
+    checkbox.keins === 1
+  );
+}
+
+function isLegacyTextAnamneseComplete(userId, anamneseTextByUser) {
+  const text = anamneseTextByUser.get(userId);
+  if (!text) {
+    return false;
+  }
+
+  const selectedAny =
+    text.medikamente === 1 ||
+    text.unvertraeglich === 1 ||
+    text.allergien === 1 ||
+    text.operationen === 1 ||
+    text.beschwerden === 1 ||
+    text.keins === 1;
+  if (!selectedAny) {
+    return false;
+  }
+
+  if (text.medikamente === 1 && trimToUndefined(text.medtext) === undefined) {
+    return false;
+  }
+  if (
+    text.unvertraeglich === 1 &&
+    trimToUndefined(text.unvtext) === undefined
+  ) {
+    return false;
+  }
+  if (text.allergien === 1 && trimToUndefined(text.alltext) === undefined) {
+    return false;
+  }
+  if (text.operationen === 1 && trimToUndefined(text.optext) === undefined) {
+    return false;
+  }
+  if (text.beschwerden === 1 && trimToUndefined(text.betext) === undefined) {
+    return false;
+  }
+
+  return true;
+}
+
+function isLegacyMedicalHistoryComplete(
+  userId,
+  anamneseByUser,
+  anamneseTextByUser,
+) {
+  return (
+    isLegacyCheckboxAnamneseComplete(userId, anamneseByUser) &&
+    isLegacyTextAnamneseComplete(userId, anamneseTextByUser)
+  );
+}
+
 function normalizeImportedReasonDescription(value, sourceKind) {
   const trimmed = trimToUndefined(value);
   if (!trimmed) {
@@ -393,6 +531,18 @@ function normalizeImportedReasonDescription(value, sourceKind) {
 
 function isTruthyLegacyFlag(value) {
   return value === 1 || value === "1" || value === true;
+}
+
+function isLegacyPkvDetailsComplete(pkv) {
+  if (!pkv) {
+    return false;
+  }
+
+  return (
+    trimToUndefined(pkv.beihilfe)?.toLocaleLowerCase() !== "unbekannt" &&
+    trimToUndefined(pkv.kasse)?.toLocaleLowerCase() !== "unbekannt" &&
+    trimToUndefined(pkv.tarif)?.toLocaleLowerCase() !== "unbekannt"
+  );
 }
 
 function readSourceMaps() {
@@ -464,66 +614,97 @@ function readSourceMaps() {
   };
 }
 
-function inferNewSnapshotStep(args) {
-  if (!args.hasConsent) {
-    return "privacy";
+function readSnapshotExportedAt() {
+  const [row] = readSqliteJson(`
+    select max(ts) as ts
+    from (
+      select max(coalesce(updated, created)) as ts from baumdiagramm
+      union all
+      select max(coalesce(updated, created)) as ts from termine
+      union all
+      select max(coalesce(updated, created)) as ts from oldTermine
+      union all
+      select max(coalesce(updated, created)) as ts from personal
+    )
+  `);
+  const value = trimToUndefined(row?.ts);
+  if (!value) {
+    throw new Error("Could not determine legacy snapshot export timestamp.");
   }
-  if (!args.locationName) {
-    return "location";
-  }
+  return parseDate(value);
+}
+
+function inferLegacyUiStepForNewPatient(args) {
   if (!args.insuranceType) {
     return "new-insurance-type";
   }
-  if (args.insuranceType === "gkv") {
-    if (!args.hzvStatus) {
-      return "new-gkv-details";
-    }
-    if (!args.personalData) {
-      return "new-data-input";
-    }
-    if (args.hasMatchedAppointment) {
-      return "new-confirmation";
-    }
-    if (args.dataSharingSubmitted) {
-      return "new-calendar-selection";
-    }
-    return "new-data-sharing";
+  if (args.insuranceType === "gkv" && !args.hzvStatus) {
+    return "new-gkv-hzv";
   }
-  if (!args.pvsConsent) {
-    return "new-pvs-consent";
+  if (args.insuranceType === "pkv" && !args.pvsConsent) {
+    return "new-pkv-consent";
   }
-  if (!args.hasPkvDetails) {
+  if (args.insuranceType === "pkv" && !args.hasPkvDetails) {
     return "new-pkv-details";
   }
-  if (!args.personalData) {
-    return "new-data-input";
+  if (!args.hasLegacyPersonalData) {
+    return "personal-data";
   }
-  if (args.hasMatchedAppointment) {
-    return "new-confirmation";
+  if (!args.hasLegacyDataSharing) {
+    return "data-sharing";
   }
-  if (args.dataSharingSubmitted) {
-    return "new-calendar-selection";
+  if (!args.hasLegacyMedicalHistory) {
+    return "medical-history";
   }
-  return "new-data-sharing";
+  if (args.hasImportableConfirmation) {
+    return "confirmation";
+  }
+  return "calendar-selection";
 }
 
-function inferExistingSnapshotStep(args) {
-  if (!args.hasConsent) {
-    return "privacy";
-  }
-  if (!args.locationName) {
-    return "location";
-  }
+function inferLegacyUiStepForExistingPatient(args) {
   if (!args.practitionerName) {
     return "existing-doctor-selection";
   }
-  if (!args.personalData) {
-    return "existing-data-input";
+  if (!args.hasLegacyPersonalData) {
+    return "personal-data";
   }
-  if (args.hasMatchedAppointment) {
-    return "existing-confirmation";
+  if (args.hasImportableConfirmation) {
+    return "confirmation";
   }
-  return "existing-calendar-selection";
+  return "calendar-selection";
+}
+
+function mapLegacyUiStepToSessionStep(args) {
+  switch (args.legacyUiStep) {
+    case "privacy":
+      return "privacy";
+    case "location":
+      return "location";
+    case "patient-status":
+      return "patient-status";
+    case "existing-doctor-selection":
+      return "existing-doctor-selection";
+    case "new-insurance-type":
+      return "new-insurance-type";
+    case "new-gkv-hzv":
+      return "new-gkv-details";
+    case "new-pkv-consent":
+      return "new-pvs-consent";
+    case "new-pkv-details":
+      return "new-pkv-details";
+    case "data-sharing":
+      return "new-data-sharing";
+    case "medical-history":
+    case "personal-data":
+      return args.isNewPatient ? "new-data-input" : "existing-data-input";
+    case "calendar-selection":
+      return args.isNewPatient
+        ? "new-calendar-selection"
+        : "existing-calendar-selection";
+    case "confirmation":
+      return args.isNewPatient ? "new-confirmation" : "existing-confirmation";
+  }
 }
 
 function buildSnapshotReplayRow(
@@ -554,11 +735,20 @@ function buildSnapshotReplayRow(
     locationName,
   });
   const personalData = personalDataFromLegacyUser(userId, {
+    allowPvsFallback: true,
     fallbackMatch: currentMatch,
     personalByUser: maps.personalByUser,
     userEmail,
   });
+  const hasLegacyPersonalData = isLegacyPersonalDataComplete(
+    userId,
+    maps.personalByUser,
+  );
   const dataSharingContacts = dataSharingContactsForUser(
+    userId,
+    maps.dataSharingByUser,
+  );
+  const hasLegacyDataSharing = isLegacyDataSharingComplete(
     userId,
     maps.dataSharingByUser,
   );
@@ -567,11 +757,15 @@ function buildSnapshotReplayRow(
     maps.anamneseByUser,
     maps.anamneseTextByUser,
   );
+  const hasLegacyMedicalHistory = isLegacyMedicalHistoryComplete(
+    userId,
+    maps.anamneseByUser,
+    maps.anamneseTextByUser,
+  );
   const hasConsent = baum.datenschutz === 1;
   const isNewPatient = baum.neupatient === "ja";
   const hasKnownPatientStatus =
     baum.neupatient === "ja" || baum.neupatient === "nein";
-  const submitted = isTruthyLegacyFlag(baum.abgeschickt);
   const pkv = maps.pkvByUser.get(userId);
   const pvsConsent = isTruthyLegacyFlag(baum.pvs);
   const insuranceType =
@@ -594,11 +788,7 @@ function buildSnapshotReplayRow(
     insuranceType === "pkv"
       ? normalizeBeihilfeStatus(pkv?.beihilfe)
       : undefined;
-  const hasPkvDetails =
-    pkvInsuranceType !== undefined ||
-    pkvTariff !== undefined ||
-    beihilfeStatus !== undefined ||
-    pkv !== undefined;
+  const hasPkvDetails = isLegacyPkvDetailsComplete(pkv);
   const normalizedReason = normalizeImportedReasonDescription(
     currentMatch?.pvsReason,
     currentMatch?.sourceKind,
@@ -612,37 +802,32 @@ function buildSnapshotReplayRow(
     currentMatch.pvsType !== undefined;
   const hasImportableConfirmation =
     hasMatchedAppointment && reasonDescription !== undefined;
-  const dataSharingSubmitted =
-    dataSharingContacts.length > 0 || submitted || currentMatch !== undefined;
-
-  let sessionStep;
-  if (!hasConsent) {
-    sessionStep = "privacy";
-  } else if (!locationName) {
-    sessionStep = "location";
-  } else if (!hasKnownPatientStatus) {
-    sessionStep = "patient-status";
-  } else if (isNewPatient) {
-    sessionStep = inferNewSnapshotStep({
-      dataSharingSubmitted,
-      hasConsent,
-      hasMatchedAppointment: hasImportableConfirmation,
-      hasPkvDetails,
-      hzvStatus,
-      insuranceType,
-      locationName,
-      personalData,
-      pvsConsent,
-    });
-  } else {
-    sessionStep = inferExistingSnapshotStep({
-      hasConsent,
-      hasMatchedAppointment: hasImportableConfirmation,
-      locationName,
-      personalData,
-      practitionerName,
-    });
-  }
+  const legacyUiStep = !hasConsent
+    ? "privacy"
+    : !locationName
+      ? "location"
+      : !hasKnownPatientStatus
+        ? "patient-status"
+        : isNewPatient
+          ? inferLegacyUiStepForNewPatient({
+              hasImportableConfirmation,
+              hasLegacyDataSharing,
+              hasLegacyMedicalHistory,
+              hasLegacyPersonalData,
+              hasPkvDetails,
+              hzvStatus,
+              insuranceType,
+              pvsConsent,
+            })
+          : inferLegacyUiStepForExistingPatient({
+              hasImportableConfirmation,
+              hasLegacyPersonalData,
+              practitionerName,
+            });
+  const sessionStep = mapLegacyUiStepToSessionStep({
+    isNewPatient,
+    legacyUiStep,
+  });
 
   const row = {
     createdAt: parseDate(baum.updated ?? baum.created).getTime(),
@@ -657,6 +842,7 @@ function buildSnapshotReplayRow(
     ...(pkvTariff === undefined ? {} : { pkvTariff }),
     ...(practitionerName === undefined ? {} : { practitionerName }),
     ...(insuranceType !== "pkv" || !pvsConsent ? {} : { pvsConsent: true }),
+    legacyUiStep,
     reasonDescription,
     sessionStep,
     source: "legacy-online",
@@ -691,10 +877,65 @@ function buildSnapshotReplayRow(
   };
 }
 
+function buildUnmatchedFutureBookingHoldRows(
+  snapshotExportedAt,
+  unmatchedRows,
+) {
+  return unmatchedRows
+    .filter(
+      (row) =>
+        row.sourceKind === "online" &&
+        trimToUndefined(row.legacyIdentityId) !== undefined &&
+        parseDate(row.legacyStart).getTime() > snapshotExportedAt.getTime(),
+    )
+    .map((row) => {
+      const legacyIdentityId = trimToUndefined(row.legacyIdentityId);
+      if (!legacyIdentityId) {
+        return undefined;
+      }
+
+      const practitionerName = trimToUndefined(
+        [
+          trimToUndefined(row.legacyDoctorFirstName),
+          trimToUndefined(row.legacyDoctorLastName),
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+      const userEmail =
+        trimToUndefined(row.legacyUserEmail) ??
+        `${legacyIdentityId}@legacy-users.invalid`;
+
+      return {
+        createdAt: snapshotExportedAt.getTime(),
+        end: toStoredLegacyDateTime(row.legacyEnd),
+        legacyAppointmentId: row.legacyAppointmentId,
+        ...(trimToUndefined(row.legacyTitle) === undefined
+          ? {}
+          : { legacyTitle: row.legacyTitle.trim() }),
+        ...(trimToUndefined(row.legacyType) === undefined
+          ? {}
+          : { legacyType: row.legacyType.trim() }),
+        ...(normalizeLocationName(row.legacyLocation) === undefined
+          ? {}
+          : { locationName: normalizeLocationName(row.legacyLocation) }),
+        ...(practitionerName === undefined ? {} : { practitionerName }),
+        sourceSessionKey: `legacy-pocketbase:unmatched-future-hold:${row.legacyAppointmentId}`,
+        sourceSystem: "legacy-online",
+        start: toStoredLegacyDateTime(row.legacyStart),
+        userAuthId: `legacy-pocketbase:${legacyIdentityId}`,
+        userEmail,
+      };
+    })
+    .filter(Boolean);
+}
+
 function main() {
   mkdirSync(reportRoot, { recursive: true });
   const matches = parseCsv(readFileSync(matchesPath, "utf8"));
+  const unmatched = parseCsv(readFileSync(unmatchedPath, "utf8"));
   const maps = readSourceMaps();
+  const snapshotExportedAt = readSnapshotExportedAt();
 
   const currentOnlineMatches = new Map(
     matches
@@ -720,6 +961,10 @@ function main() {
   const appointmentLinkedReplayRows = replayRows.filter(
     (row) => row.legacyAppointmentId !== undefined,
   );
+  const unmatchedFutureBookingHoldRows = buildUnmatchedFutureBookingHoldRows(
+    snapshotExportedAt,
+    unmatched,
+  );
 
   const blockRows = maps.blockedUsers.map((row) => ({
     legacyUserId: row.legacyUserId,
@@ -732,12 +977,21 @@ function main() {
     join(reportRoot, "legacy-booking-step-replay.source.jsonl"),
     replayRows,
   );
+  writeJsonl(
+    join(reportRoot, "legacy-unmatched-future-booking-holds.source.jsonl"),
+    unmatchedFutureBookingHoldRows,
+  );
   writeJsonl(join(reportRoot, "legacy-booking-blocks.source.jsonl"), blockRows);
   console.log(
     JSON.stringify(
       {
         appointmentLinkedReplayRows: appointmentLinkedReplayRows.length,
         blockedUsers: blockRows.length,
+        legacyUiSteps: Object.fromEntries(
+          [...Map.groupBy(replayRows, (row) => row.legacyUiStep).entries()]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([step, rows]) => [step, rows.length]),
+        ),
         replayRows: replayRows.length,
         replayRowsBySource: Object.fromEntries(
           [...Map.groupBy(replayRows, (row) => row.source).entries()].map(
@@ -750,10 +1004,12 @@ function main() {
             .map(([step, rows]) => [step, rows.length]),
         ),
         snapshotReplayRows: snapshotReplayEntries.length,
+        snapshotExportedAt: snapshotExportedAt.toISOString(),
         strippedReasonPrefixCounts,
         strippedReasonPrefixes: Object.values(
           strippedReasonPrefixCounts,
         ).reduce((sum, count) => sum + count, 0),
+        unmatchedFutureBookingHolds: unmatchedFutureBookingHoldRows.length,
       },
       null,
       2,

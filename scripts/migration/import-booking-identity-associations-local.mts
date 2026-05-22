@@ -21,6 +21,10 @@ const bookingStepReplayPath = join(
   reportRoot,
   "legacy-booking-step-replay.source.jsonl",
 );
+const unmatchedFutureBookingHoldsPath = join(
+  reportRoot,
+  "legacy-unmatched-future-booking-holds.source.jsonl",
+);
 const pvsPractitionerAssociationPath = join(
   reportRoot,
   "pvs-patient-practitioner-associations.source.jsonl",
@@ -59,6 +63,11 @@ const migrationFunctionReferences = {
     Record<string, unknown>,
     unknown
   >("migrationRehearsal:importLegacyBookingStepReplay"),
+  importLegacyUnmatchedFutureBookingHolds: makeFunctionReference<
+    "mutation",
+    Record<string, unknown>,
+    unknown
+  >("migrationRehearsal:importLegacyUnmatchedFutureBookingHolds"),
   importLegacyUsers: makeFunctionReference<
     "mutation",
     Record<string, unknown>,
@@ -188,6 +197,11 @@ async function main() {
   const bookingStepReplayRows = existsSync(bookingStepReplayPath)
     ? readJsonl(bookingStepReplayPath)
     : [];
+  const unmatchedFutureBookingHolds = existsSync(
+    unmatchedFutureBookingHoldsPath,
+  )
+    ? readJsonl(unmatchedFutureBookingHoldsPath)
+    : [];
   const pvsPractitionerAssociations = existsSync(pvsPractitionerAssociationPath)
     ? readJsonl(pvsPractitionerAssociationPath)
     : [];
@@ -245,6 +259,10 @@ async function main() {
     insertedSessions: 0,
     reusedSessions: 0,
     skippedMissingAppointment: 0,
+  };
+  const unmatchedFutureHoldTotals = {
+    insertedHolds: 0,
+    reusedHolds: 0,
   };
   const skippedReplayRows = [];
   const practitionerAssociationDivergences = [];
@@ -363,6 +381,27 @@ async function main() {
     userTotals.reusedUsers += numberResult(result, "reusedUsers");
   }
 
+  for (const holdChunk of chunk(unmatchedFutureBookingHolds, replayChunkSize)) {
+    const result = await runMigrationMutation(
+      convex,
+      migrationFunctionReferences.importLegacyUnmatchedFutureBookingHolds,
+      {
+        holds: holdChunk,
+        practiceId: practice._id,
+      },
+    );
+    unmatchedFutureHoldTotals.insertedHolds += numberResult(
+      result,
+      "insertedHolds",
+    );
+    unmatchedFutureHoldTotals.reusedHolds += numberResult(
+      result,
+      "reusedHolds",
+    );
+    userTotals.insertedUsers += numberResult(result, "insertedUsers");
+    userTotals.reusedUsers += numberResult(result, "reusedUsers");
+  }
+
   const skippedReplayReportPath = join(
     reportRoot,
     "legacy-booking-step-replay-skipped.import-report.jsonl",
@@ -391,6 +430,8 @@ async function main() {
         bookingBlockSourceRows: bookingBlocks.length,
         bookingStepReplaySourceRows: bookingStepReplayRows.length,
         identitySourceRows: identities.length,
+        unmatchedFutureBookingHoldSourceRows:
+          unmatchedFutureBookingHolds.length,
         practitionerAssociationDivergenceReportPath:
           practitionerDivergenceReportPath,
         practitionerAssociationDivergences:
@@ -405,6 +446,7 @@ async function main() {
         ...blockTotals,
         ...pvsPractitionerAssociationTotals,
         ...replayTotals,
+        ...unmatchedFutureHoldTotals,
         ...identityTotals,
         ...userTotals,
       },

@@ -57,6 +57,7 @@ import {
   type LocationLineageKey,
   type PractitionerLineageKey,
 } from "./identity";
+import { getFutureLegacyUnmatchedBookingHoldsForUser } from "./legacyUnmatchedFutureBookingHolds";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
   beihilfeStatusValidator,
@@ -846,6 +847,14 @@ async function assertUserCanCreateBookingSession(
 
   if (bookingBlock) {
     throw new Error("This account is blocked from online booking.");
+  }
+
+  const unresolvedFutureHolds =
+    await getFutureLegacyUnmatchedBookingHoldsForUser(ctx, args);
+  if (unresolvedFutureHolds.length > 0) {
+    throw new Error(
+      "This account has an unresolved imported future booking and cannot start another online booking.",
+    );
   }
 }
 

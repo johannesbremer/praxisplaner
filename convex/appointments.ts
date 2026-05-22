@@ -61,6 +61,11 @@ import {
   type PractitionerLineageKey,
 } from "./identity";
 import {
+  getFutureLegacyUnmatchedBookingHoldsForUser,
+  legacyUnmatchedFutureBookingHoldSummaryValidator,
+  toLegacyUnmatchedFutureBookingHoldSummary,
+} from "./legacyUnmatchedFutureBookingHolds";
+import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
   getAccessiblePracticeIdsForQuery,
@@ -194,6 +199,18 @@ export type AppointmentResult = Omit<
 > &
   TypedDateTimeRange;
 export type BlockedSlotResult = BlockedSlotListItem;
+
+const bookedAppointmentSummaryItemValidator = v.union(
+  v.object({
+    ...appointmentResultValidator.fields,
+    kind: v.literal("appointment"),
+  }),
+  legacyUnmatchedFutureBookingHoldSummaryValidator,
+);
+
+export type BookedAppointmentSummaryItem = Infer<
+  typeof bookedAppointmentSummaryItemValidator
+>;
 
 function appointmentChainError(code: string, message: string) {
   return new ConvexError({ code, message });
@@ -1015,6 +1032,15 @@ function toAppointmentListItem(
       : { simulationValidatedAt: appointment.simulationValidatedAt }),
     title: appointment.title,
     ...(appointment.userId === undefined ? {} : { userId: appointment.userId }),
+  };
+}
+
+function toBookedAppointmentSummaryItem(
+  appointment: AppointmentListItem,
+): BookedAppointmentSummaryItem {
+  return {
+    ...appointment,
+    kind: "appointment",
   };
 }
 
@@ -2456,7 +2482,7 @@ export const getBookedAppointmentsForCurrentUser = query({
   handler: async (ctx, args) => {
     return await getBookedAppointmentsForUser(ctx, args);
   },
-  returns: v.array(appointmentResultValidator),
+  returns: v.array(bookedAppointmentSummaryItemValidator),
 });
 
 // Query to get the authenticated user's next booked appointment (future only)
@@ -2470,7 +2496,7 @@ export const getBookedAppointmentForCurrentUser = query({
     const appointments = await getBookedAppointmentsForUser(ctx, args);
     return appointments[0] ?? null;
   },
-  returns: v.union(appointmentResultValidator, v.null()),
+  returns: v.union(bookedAppointmentSummaryItemValidator, v.null()),
 });
 
 async function getBookedAppointmentsForUser(
@@ -2480,7 +2506,7 @@ async function getBookedAppointmentsForUser(
     refreshNonce?: number;
     selectedRuleSetId?: Id<"ruleSets">;
   },
-): Promise<AppointmentListItem[]> {
+): Promise<BookedAppointmentSummaryItem[]> {
   const userId = await getAuthenticatedUserIdForQuery(ctx);
   if (!userId) {
     return [];
@@ -2512,10 +2538,33 @@ async function getBookedAppointmentsForUser(
 
   const displayRuleSetId = getDisplayRuleSetId(args);
   if (displayRuleSetId) {
-    return await remapAppointmentIds(ctx, appointments, displayRuleSetId);
+    const remappedAppointments = await remapAppointmentIds(
+      ctx,
+      appointments,
+      displayRuleSetId,
+    );
+    const unresolvedFutureHolds =
+      await getFutureLegacyUnmatchedBookingHoldsForUser(ctx, { userId });
+    return [
+      ...remappedAppointments.map((appointment) =>
+        toBookedAppointmentSummaryItem(appointment),
+      ),
+      ...unresolvedFutureHolds.map((hold) =>
+        toLegacyUnmatchedFutureBookingHoldSummary(hold),
+      ),
+    ].toSorted((left, right) => left.start.localeCompare(right.start));
   }
 
-  return appointments.map((appointment) => toAppointmentListItem(appointment));
+  const unresolvedFutureHolds =
+    await getFutureLegacyUnmatchedBookingHoldsForUser(ctx, { userId });
+  return [
+    ...appointments.map((appointment) =>
+      toBookedAppointmentSummaryItem(toAppointmentListItem(appointment)),
+    ),
+    ...unresolvedFutureHolds.map((hold) =>
+      toLegacyUnmatchedFutureBookingHoldSummary(hold),
+    ),
+  ].toSorted((left, right) => left.start.localeCompare(right.start));
 }
 
 // Query to get all appointments for a patient (past, present, and future)
