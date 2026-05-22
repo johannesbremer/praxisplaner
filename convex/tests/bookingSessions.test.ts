@@ -236,7 +236,7 @@ describe("booking flow without bookingSessions table", () => {
     }));
     expect(persisted.personalData).toHaveLength(1);
     expect(persisted.contacts).toHaveLength(1);
-    expect(persisted.medicalHistory).toHaveLength(6);
+    expect(persisted.medicalHistory).toHaveLength(1);
   });
 
   test("existing patient flow stays at personal-data until required data exists", async () => {
@@ -307,8 +307,6 @@ describe("booking flow without bookingSessions table", () => {
         lastModified: now,
         legacyAppointmentId: "legacy-1",
         practiceId: fixture.practiceId,
-        sourceSessionKey: "legacy-online:snapshot:blocking-user",
-        sourceSystem: "legacy-online",
         start: "2027-01-02T10:00:00+01:00[Europe/Berlin]",
         userId,
       });

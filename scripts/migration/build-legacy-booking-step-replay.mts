@@ -388,44 +388,50 @@ function medicalHistoryFromUser(userId, anamneseByUser, anamneseTextByUser) {
     return undefined;
   }
 
-  const allergyNotes = [
-    trimToUndefined(text?.alltext),
-    trimToUndefined(text?.unvtext),
-  ]
-    .filter(Boolean)
-    .join("; ");
-  const otherConditions = [
-    checkbox?.bluthochdruck === 1 ? "Bluthochdruck" : undefined,
-    checkbox?.brustenge === 1 ? "Brustenge" : undefined,
-    checkbox?.durchblutung === 1 ? "Durchblutungsstörung" : undefined,
-    checkbox?.blutfett === 1 ? "Fettstoffwechselstörung" : undefined,
-    checkbox?.gicht === 1 ? "Gicht" : undefined,
-    checkbox?.krebs === 1 ? "Krebserkrankung" : undefined,
-    checkbox?.leber === 1 ? "Lebererkrankung" : undefined,
-    checkbox?.niere === 1 ? "Nierenerkrankung" : undefined,
-    checkbox?.schilddruese === 1 ? "Schilddrüsenerkrankung" : undefined,
-    checkbox?.krampfadern === 1 ? "Krampfadern" : undefined,
-    checkbox?.depression === 1 ? "Depression" : undefined,
-    trimToUndefined(text?.betext),
-    trimToUndefined(text?.optext),
-  ]
-    .filter(Boolean)
-    .join("; ");
-
   return {
-    ...(allergyNotes.length > 0 ? { allergiesDescription: allergyNotes } : {}),
-    ...(trimToUndefined(text?.medtext)
-      ? { currentMedications: text.medtext.trim() }
+    ...(trimToUndefined(text?.alltext)
+      ? { allergyNotes: text.alltext.trim() }
       : {}),
-    hasAllergies: checkbox?.allergien === 1 || checkbox?.unvertraeglich === 1,
+    ...(trimToUndefined(text?.medtext)
+      ? {
+          currentMedications: text.medtext.trim(),
+          medicationNotes: text.medtext.trim(),
+        }
+      : {}),
+    hasAllergies: checkbox?.allergien === 1,
+    hasCancer: checkbox?.krebs === 1,
+    hasCirculationDisorder:
+      checkbox?.durchblutung === 1 || checkbox?.brustenge === 1,
+    hasDepression: checkbox?.depression === 1,
     hasDiabetes: checkbox?.diabetes === 1,
-    hasHeartCondition:
-      checkbox?.herz === 1 ||
-      checkbox?.bluthochdruck === 1 ||
-      checkbox?.brustenge === 1 ||
-      checkbox?.durchblutung === 1,
+    hasGout: checkbox?.gicht === 1,
+    hasHeartCondition: checkbox?.herz === 1,
+    hasHypertension: checkbox?.bluthochdruck === 1,
+    hasIntolerance: checkbox?.unvertraeglich === 1,
+    hasKidneyCondition: checkbox?.niere === 1,
+    hasLipidDisorder: checkbox?.blutfett === 1,
+    hasLiverCondition: checkbox?.leber === 1,
     hasLungCondition: checkbox?.lunge === 1,
-    ...(otherConditions.length > 0 ? { otherConditions } : {}),
+    hasOperations: text?.operationen === 1,
+    hasSymptoms: text?.beschwerden === 1,
+    hasThyroidCondition: checkbox?.schilddruese === 1,
+    hasVaricoseVeins: checkbox?.krampfadern === 1,
+    ...(trimToUndefined(text?.unvtext)
+      ? { intoleranceNotes: text.unvtext.trim() }
+      : {}),
+    noAdditionalDetails: text?.keins === 1,
+    noKnownConditions: checkbox?.keins === 1,
+    ...(trimToUndefined(text?.optext)
+      ? { operationNotes: text.optext.trim() }
+      : {}),
+    ...(trimToUndefined(checkbox?.sonstiges)
+      ? { otherConditionNotes: checkbox.sonstiges.trim() }
+      : {}),
+    smokes: checkbox?.rauchen === 1,
+    ...(trimToUndefined(text?.betext)
+      ? { symptomNotes: text.betext.trim() }
+      : {}),
+    takesMedication: text?.medikamente === 1,
   };
 }
 
@@ -839,6 +845,9 @@ function buildSnapshotReplayRow(
     ...(hzvStatus === undefined ? {} : { hzvStatus }),
     ...(locationName === undefined ? {} : { locationName }),
     ...(medicalHistory === undefined ? {} : { medicalHistory }),
+    ...(medicalHistory === undefined
+      ? {}
+      : { medicalHistoryComplete: hasLegacyMedicalHistory }),
     ...(personalData === undefined ? {} : { personalData }),
     ...(pkvInsuranceType === undefined ? {} : { pkvInsuranceType }),
     ...(pkvTariff === undefined ? {} : { pkvTariff }),
@@ -911,9 +920,6 @@ function buildUnmatchedFutureBookingHoldRows(
         createdAt: snapshotExportedAt.getTime(),
         end: toStoredLegacyDateTime(row.legacyEnd),
         legacyAppointmentId: row.legacyAppointmentId,
-        ...(trimToUndefined(row.legacyTitle) === undefined
-          ? {}
-          : { legacyTitle: row.legacyTitle.trim() }),
         ...(trimToUndefined(row.legacyType) === undefined
           ? {}
           : { legacyType: row.legacyType.trim() }),
@@ -921,8 +927,6 @@ function buildUnmatchedFutureBookingHoldRows(
           ? {}
           : { locationName: normalizeLocationName(row.legacyLocation) }),
         ...(practitionerName === undefined ? {} : { practitionerName }),
-        sourceSessionKey: `legacy-pocketbase:unmatched-future-hold:${row.legacyAppointmentId}`,
-        sourceSystem: "legacy-online",
         start: toStoredLegacyDateTime(row.legacyStart),
         userAuthId: `legacy-pocketbase:${legacyIdentityId}`,
         userEmail,

@@ -337,7 +337,6 @@ async function buildRuleSetCanonicalSnapshot(
           "Behandler",
         ),
         name: practitioner.name,
-        tags: toSortedStrings(practitioner.tags ?? []),
       }),
     )
     .toSorted();

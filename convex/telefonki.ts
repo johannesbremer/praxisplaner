@@ -629,7 +629,6 @@ export const getActiveConfig = query({
             ruleSetId: entry.ruleSetId,
           }),
           name: entry.name,
-          tags: entry.tags ?? [],
         })),
       ruleSetId,
     };

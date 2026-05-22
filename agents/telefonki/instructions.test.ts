@@ -23,7 +23,6 @@ describe("TelefonKI instructions", () => {
         {
           lineageKey: toTableId<"practitioners">("practitioners_dynamic"),
           name: "Dr. Dynamisch",
-          tags: [],
         },
       ],
       ruleSetId: toTableId<"ruleSets">("ruleSets_dynamic"),

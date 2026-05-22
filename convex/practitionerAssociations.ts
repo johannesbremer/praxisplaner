@@ -226,13 +226,36 @@ export async function setPractitionerAssociation(
   associationId: Id<"practitionerAssociations">;
   kind: "associated" | "rejected" | "unchanged";
 }> {
-  assertPractitionerAssociationSubject(args);
+  const resolvedPatientId =
+    args.patientId ??
+    (args.bookingIdentityId === undefined
+      ? undefined
+      : await resolveAssociatedPatientIdForBookingIdentity(
+          db,
+          args.bookingIdentityId,
+        ));
+  assertPractitionerAssociationSubject({
+    ...(args.bookingIdentityId === undefined
+      ? {}
+      : { bookingIdentityId: args.bookingIdentityId }),
+    ...(resolvedPatientId === undefined
+      ? {}
+      : { patientId: resolvedPatientId }),
+  });
 
   const current = await resolveAuthoritativePractitionerAssociationForWrite(
     db,
-    args,
+    {
+      ...args,
+      ...(resolvedPatientId === undefined
+        ? {}
+        : { patientId: resolvedPatientId }),
+    },
   );
-  if (current?.practitionerLineageKey === args.practitionerLineageKey) {
+  if (
+    current?.practitionerLineageKey === args.practitionerLineageKey &&
+    (resolvedPatientId === undefined || current.patientId === resolvedPatientId)
+  ) {
     return { associationId: current._id, kind: "unchanged" };
   }
 
@@ -252,7 +275,9 @@ export async function setPractitionerAssociation(
         ? {}
         : { createdByUserId: args.createdByUserId }),
       now: args.now,
-      ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+      ...(resolvedPatientId === undefined
+        ? {}
+        : { patientId: resolvedPatientId }),
       practiceId: args.practiceId,
       practitionerLineageKey: args.practitionerLineageKey,
       source: args.source,
@@ -266,7 +291,9 @@ export async function setPractitionerAssociation(
       ? {}
       : { bookingIdentityId: args.bookingIdentityId }),
     now: args.now,
-    ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+    ...(resolvedPatientId === undefined
+      ? {}
+      : { patientId: resolvedPatientId }),
     practiceId: args.practiceId,
     ...(args.createdByUserId === undefined
       ? {}
@@ -280,7 +307,9 @@ export async function setPractitionerAssociation(
       ? {}
       : { createdByUserId: args.createdByUserId }),
     now: args.now,
-    ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+    ...(resolvedPatientId === undefined
+      ? {}
+      : { patientId: resolvedPatientId }),
     practiceId: args.practiceId,
     practitionerLineageKey: args.practitionerLineageKey,
     source: args.source,
@@ -387,6 +416,27 @@ async function listActivePatientAssociations(
     )
     .collect();
   return rows.filter((row) => row.practiceId === args.practiceId);
+}
+
+async function resolveAssociatedPatientIdForBookingIdentity(
+  db: Reader,
+  bookingIdentityId: Id<"bookingIdentities">,
+): Promise<Id<"patients"> | undefined> {
+  const rows = await db
+    .query("bookingIdentityPatientAssociations")
+    .withIndex("by_bookingIdentityId_status", (q) =>
+      q.eq("bookingIdentityId", bookingIdentityId).eq("status", "active"),
+    )
+    .collect();
+
+  const latest = rows.toSorted((left, right) => {
+    if (left.createdAt !== right.createdAt) {
+      return Number(right.createdAt - left.createdAt);
+    }
+    return right._id.localeCompare(left._id);
+  })[0];
+
+  return latest?.patientId;
 }
 
 async function resolveAuthoritativePractitionerAssociationForWrite(

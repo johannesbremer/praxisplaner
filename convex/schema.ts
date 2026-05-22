@@ -13,14 +13,12 @@ import {
   genderValidator,
   hzvStatusValidator,
   insuranceTypeValidator,
-  medicalHistoryEntryKeyValidator,
   medicalHistoryValidator,
   personalDataValidator,
   pkvInsuranceTypeValidator,
   pkvTariffValidator,
 } from "./bookingValidators";
 import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
-import { legacyUnmatchedFutureBookingHoldSourceSystemValidator } from "./legacyBookingMigrationShared";
 
 export {
   beihilfeStatusValidator,
@@ -30,7 +28,7 @@ export {
   hzvStatusValidator,
   insuranceDetailsValidator,
   insuranceTypeValidator,
-  medicalHistoryEntryKeyValidator,
+  legacyMedicalHistorySnapshotValidator,
   medicalHistoryValidator,
   personalDataValidator,
   pkvDetailsValidator,
@@ -427,9 +425,7 @@ export default defineSchema({
 
   bookingIdentityPatientAssociations: defineTable({
     bookingIdentityId: v.id("bookingIdentities"),
-    confidence: v.optional(v.union(v.literal("exact"), v.literal("manual"))),
     createdAt: v.int64(),
-    createdByUserId: v.optional(v.id("users")),
     legacyAppointmentId: v.optional(v.string()),
     legacyIdentityId: v.optional(v.string()),
     method: v.union(
@@ -449,7 +445,6 @@ export default defineSchema({
       v.literal("rejected"),
     ),
     supersededAt: v.optional(v.int64()),
-    supersededByUserId: v.optional(v.id("users")),
   })
     .index("by_bookingIdentityId_status", ["bookingIdentityId", "status"])
     .index("by_patientId_status", ["patientId", "status"])
@@ -568,26 +563,44 @@ export default defineSchema({
     .index("by_userId", ["userId"]),
 
   bookingMedicalHistoryEntries: defineTable({
-    conditionKey: medicalHistoryEntryKeyValidator,
+    allergyNotes: v.optional(v.string()),
     createdAt: v.int64(),
-    description: v.optional(v.string()),
-    enabled: v.boolean(),
+    hasAllergies: v.boolean(),
+    hasCancer: v.boolean(),
+    hasCirculationDisorder: v.boolean(),
+    hasDepression: v.boolean(),
+    hasDiabetes: v.boolean(),
+    hasGout: v.boolean(),
+    hasHeartCondition: v.boolean(),
+    hasHypertension: v.boolean(),
+    hasIntolerance: v.boolean(),
+    hasKidneyCondition: v.boolean(),
+    hasLipidDisorder: v.boolean(),
+    hasLiverCondition: v.boolean(),
+    hasLungCondition: v.boolean(),
+    hasOperations: v.boolean(),
+    hasSymptoms: v.boolean(),
+    hasThyroidCondition: v.boolean(),
+    hasVaricoseVeins: v.boolean(),
+    intoleranceNotes: v.optional(v.string()),
+    isComplete: v.boolean(),
     lastModified: v.int64(),
+    medicationNotes: v.optional(v.string()),
+    noAdditionalDetails: v.boolean(),
+    noKnownConditions: v.boolean(),
+    operationNotes: v.optional(v.string()),
+    otherConditionNotes: v.optional(v.string()),
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
+    smokes: v.boolean(),
+    symptomNotes: v.optional(v.string()),
+    takesMedication: v.boolean(),
     userId: v.id("users"),
-  })
-    .index("by_userId_practiceId_ruleSetId_conditionKey", [
-      "userId",
-      "practiceId",
-      "ruleSetId",
-      "conditionKey",
-    ])
-    .index("by_userId_practiceId_ruleSetId", [
-      "userId",
-      "practiceId",
-      "ruleSetId",
-    ]),
+  }).index("by_userId_practiceId_ruleSetId", [
+    "userId",
+    "practiceId",
+    "ruleSetId",
+  ]),
 
   bookingNewDataSharingContactRows: defineTable({
     city: v.string(),
@@ -925,7 +938,6 @@ export default defineSchema({
     parentId: v.optional(v.id("practitioners")), // Reference to the entity this was copied from
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"), // Required: practitioners are versioned per rule set
-    tags: v.optional(v.array(v.string())),
   })
     .index("by_practiceId", ["practiceId"])
     .index("by_ruleSetId", ["ruleSetId"])
@@ -1108,21 +1120,17 @@ export default defineSchema({
     end: v.string(),
     lastModified: v.int64(),
     legacyAppointmentId: v.string(),
-    legacyTitle: v.optional(v.string()),
     legacyType: v.optional(v.string()),
     locationName: v.optional(v.string()),
     practiceId: v.id("practices"),
     practitionerName: v.optional(v.string()),
-    sourceSessionKey: v.string(),
-    sourceSystem: legacyUnmatchedFutureBookingHoldSourceSystemValidator,
     start: v.string(),
     userId: v.id("users"),
   })
     .index("by_userId_start", ["userId", "start"])
     .index("by_userId_practiceId_start", ["userId", "practiceId", "start"])
-    .index("by_practiceId_sourceSystem_sourceSessionKey", [
+    .index("by_practiceId_legacyAppointmentId", [
       "practiceId",
-      "sourceSystem",
-      "sourceSessionKey",
+      "legacyAppointmentId",
     ]),
 });

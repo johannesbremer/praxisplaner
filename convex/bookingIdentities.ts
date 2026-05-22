@@ -147,7 +147,6 @@ export const associateBookingIdentityWithPvsPatient = mutation({
         {
           status: "superseded",
           supersededAt: now,
-          supersededByUserId: userId,
         },
       );
     }
@@ -157,7 +156,6 @@ export const associateBookingIdentityWithPvsPatient = mutation({
       {
         bookingIdentityId: args.bookingIdentityId,
         createdAt: now,
-        createdByUserId: userId,
         ...(args.legacyAppointmentId === undefined
           ? {}
           : { legacyAppointmentId: args.legacyAppointmentId }),

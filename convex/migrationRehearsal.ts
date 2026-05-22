@@ -1,21 +1,21 @@
 import { paginationOptsValidator } from "convex/server";
 import { type Infer, v } from "convex/values";
 
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 import { mutation, type MutationCtx, query } from "./_generated/server";
 import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
+import { resolveActivePvsPatientIdForBookingIdentity } from "./bookingIdentities";
 import {
   beihilfeStatusValidator,
   dataSharingContactInputValidator,
   hzvStatusValidator,
   insuranceTypeValidator,
-  medicalHistoryValidator,
+  legacyMedicalHistorySnapshotValidator,
   personalDataValidator,
   pkvInsuranceTypeValidator,
   pkvTariffValidator,
 } from "./bookingValidators";
-import { legacyUnmatchedFutureBookingHoldSourceSystemValidator } from "./legacyBookingMigrationShared";
 import { insertSelfLineageEntity } from "./lineage";
 import {
   applyAppointmentHistoryPractitionerAssociation,
@@ -274,7 +274,8 @@ const legacyBookingReplayRowValidator = v.object({
   insuranceType: v.optional(insuranceTypeValidator),
   legacyAppointmentId: v.optional(v.string()),
   locationName: v.optional(v.string()),
-  medicalHistory: v.optional(medicalHistoryValidator),
+  medicalHistory: v.optional(legacyMedicalHistorySnapshotValidator),
+  medicalHistoryComplete: v.optional(v.boolean()),
   personalData: v.optional(personalDataValidator),
   pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
   pkvTariff: v.optional(pkvTariffValidator),
@@ -309,12 +310,9 @@ const legacyUnmatchedFutureBookingHoldImportRowValidator = v.object({
   createdAt: v.number(),
   end: v.string(),
   legacyAppointmentId: v.string(),
-  legacyTitle: v.optional(v.string()),
   legacyType: v.optional(v.string()),
   locationName: v.optional(v.string()),
   practitionerName: v.optional(v.string()),
-  sourceSessionKey: v.string(),
-  sourceSystem: legacyUnmatchedFutureBookingHoldSourceSystemValidator,
   start: v.string(),
   userAuthId: v.string(),
   userEmail: v.string(),
@@ -323,7 +321,6 @@ const legacyUnmatchedFutureBookingHoldImportRowValidator = v.object({
 const bookingIdentityAssociationImportRowValidator = v.object({
   associationKey: v.string(),
   bookingIdentitySourceKey: v.string(),
-  evidenceCount: v.number(),
   legacyAppointmentId: v.string(),
   legacyIdentityId: v.string(),
   method: v.literal("automatic"),
@@ -871,7 +868,15 @@ export const importLegacyBookingStepReplay = mutation({
             practiceId: args.practiceId,
             userAuthId: replayRow.userAuthId,
           });
-        const patientId = resolvedReplayContext.context.appointment?.patientId;
+        const patientId =
+          resolvedReplayContext.context.appointment?.patientId ??
+          (bookingIdentityId === undefined
+            ? null
+            : await resolveActivePvsPatientIdForBookingIdentity(
+                ctx.db,
+                bookingIdentityId,
+              )) ??
+          undefined;
         if (bookingIdentityId !== undefined || patientId !== undefined) {
           if (patientId !== undefined) {
             const existingAssociation =
@@ -981,11 +986,10 @@ export const importLegacyUnmatchedFutureBookingHolds = mutation({
     for (const hold of args.holds) {
       const existingHold = await ctx.db
         .query("legacyUnmatchedFutureBookingHolds")
-        .withIndex("by_practiceId_sourceSystem_sourceSessionKey", (q) =>
+        .withIndex("by_practiceId_legacyAppointmentId", (q) =>
           q
             .eq("practiceId", args.practiceId)
-            .eq("sourceSystem", hold.sourceSystem)
-            .eq("sourceSessionKey", hold.sourceSessionKey),
+            .eq("legacyAppointmentId", hold.legacyAppointmentId),
         )
         .first();
 
@@ -1011,9 +1015,6 @@ export const importLegacyUnmatchedFutureBookingHolds = mutation({
         end: hold.end,
         lastModified: rowTimestamp,
         legacyAppointmentId: hold.legacyAppointmentId,
-        ...(hold.legacyTitle === undefined
-          ? {}
-          : { legacyTitle: hold.legacyTitle }),
         ...(hold.legacyType === undefined
           ? {}
           : { legacyType: hold.legacyType }),
@@ -1024,8 +1025,6 @@ export const importLegacyUnmatchedFutureBookingHolds = mutation({
         ...(hold.practitionerName === undefined
           ? {}
           : { practitionerName: hold.practitionerName }),
-        sourceSessionKey: hold.sourceSessionKey,
-        sourceSystem: hold.sourceSystem,
         start: hold.start,
         userId: userResult.userId,
       });
@@ -1095,6 +1094,88 @@ export const countBookingIdentityAssociationImport = query({
     practitionerAssociations: v.number(),
   }),
 });
+
+export const getRehearsalDiagnostics = query({
+  args: {},
+  handler: async (ctx) => {
+    assertMigrationRehearsalEnabled();
+
+    const [
+      bookingIdentityPatientAssociations,
+      bookingNewInsuranceTypeSteps,
+      practitionerAssociations,
+    ] = await Promise.all([
+      ctx.db.query("bookingIdentityPatientAssociations").collect(),
+      ctx.db.query("bookingNewInsuranceTypeSteps").collect(),
+      ctx.db.query("practitionerAssociations").collect(),
+    ]);
+
+    const insuranceTypeCounts = { gkv: 0, pkv: 0 };
+    for (const row of bookingNewInsuranceTypeSteps) {
+      insuranceTypeCounts[row.insuranceType] += 1;
+    }
+    const practitionerAssociationsWithoutPatientId =
+      practitionerAssociations.filter((row) => row.patientId === undefined);
+    const activePatientAssociationByBookingIdentityId = new Map(
+      bookingIdentityPatientAssociations
+        .filter((row) => row.status === "active")
+        .map((row) => [row.bookingIdentityId, row.patientId]),
+    );
+    const resolvablePractitionerAssociationsWithoutPatientId =
+      practitionerAssociationsWithoutPatientId.filter(
+        (row) =>
+          row.bookingIdentityId !== undefined &&
+          activePatientAssociationByBookingIdentityId.has(
+            row.bookingIdentityId,
+          ),
+      );
+
+    return {
+      bookingNewInsuranceTypeCounts: insuranceTypeCounts,
+      practitionerAssociationsWithoutPatientId:
+        practitionerAssociationsWithoutPatientId.length,
+      practitionerAssociationsWithoutPatientIdBySource:
+        countPractitionerAssociationsBySource(
+          practitionerAssociationsWithoutPatientId,
+        ),
+      resolvablePractitionerAssociationsWithoutPatientId:
+        resolvablePractitionerAssociationsWithoutPatientId.length,
+    };
+  },
+  returns: v.object({
+    bookingNewInsuranceTypeCounts: v.object({
+      gkv: v.number(),
+      pkv: v.number(),
+    }),
+    practitionerAssociationsWithoutPatientId: v.number(),
+    practitionerAssociationsWithoutPatientIdBySource: v.object({
+      appointmentHistory: v.number(),
+      legacyBaumdiagramm: v.number(),
+      manual: v.number(),
+    }),
+    resolvablePractitionerAssociationsWithoutPatientId: v.number(),
+  }),
+});
+
+function countPractitionerAssociationsBySource(
+  rows: Doc<"practitionerAssociations">[],
+) {
+  const counts = {
+    appointmentHistory: 0,
+    legacyBaumdiagramm: 0,
+    manual: 0,
+  };
+  for (const row of rows) {
+    if (row.source === "appointment-history") {
+      counts.appointmentHistory += 1;
+    } else if (row.source === "legacy-baumdiagramm") {
+      counts.legacyBaumdiagramm += 1;
+    } else {
+      counts.manual += 1;
+    }
+  }
+  return counts;
+}
 
 const rehearsalCountTableNameValidator = v.union(
   v.literal("bookingPrivacySteps"),
@@ -1383,14 +1464,36 @@ interface LegacyBookingReplayRowInput {
   legacyAppointmentId?: string;
   locationName?: string;
   medicalHistory?: {
-    allergiesDescription?: string;
+    allergyNotes?: string;
     currentMedications?: string;
     hasAllergies: boolean;
+    hasCancer: boolean;
+    hasCirculationDisorder: boolean;
+    hasDepression: boolean;
     hasDiabetes: boolean;
+    hasGout: boolean;
     hasHeartCondition: boolean;
+    hasHypertension: boolean;
+    hasIntolerance: boolean;
+    hasKidneyCondition: boolean;
+    hasLipidDisorder: boolean;
+    hasLiverCondition: boolean;
     hasLungCondition: boolean;
-    otherConditions?: string;
+    hasOperations: boolean;
+    hasSymptoms: boolean;
+    hasThyroidCondition: boolean;
+    hasVaricoseVeins: boolean;
+    intoleranceNotes?: string;
+    medicationNotes?: string;
+    noAdditionalDetails: boolean;
+    noKnownConditions: boolean;
+    operationNotes?: string;
+    otherConditionNotes?: string;
+    smokes: boolean;
+    symptomNotes?: string;
+    takesMedication: boolean;
   };
+  medicalHistoryComplete?: boolean;
   personalData?: {
     city?: string;
     dateOfBirth: string;
@@ -1726,54 +1829,58 @@ async function insertImportedNewReplaySteps(
   });
 
   if (args.replayRow.medicalHistory !== undefined) {
-    const medicalHistoryRows = [
-      {
-        conditionKey: "allergies",
-        enabled: args.replayRow.medicalHistory.hasAllergies,
-        ...(args.replayRow.medicalHistory.allergiesDescription === undefined
-          ? {}
-          : {
-              description: args.replayRow.medicalHistory.allergiesDescription,
-            }),
-      },
-      {
-        conditionKey: "current-medications",
-        enabled:
-          (args.replayRow.medicalHistory.currentMedications?.trim().length ??
-            0) > 0,
-        ...(args.replayRow.medicalHistory.currentMedications === undefined
-          ? {}
-          : { description: args.replayRow.medicalHistory.currentMedications }),
-      },
-      {
-        conditionKey: "diabetes",
-        enabled: args.replayRow.medicalHistory.hasDiabetes,
-      },
-      {
-        conditionKey: "heart-condition",
-        enabled: args.replayRow.medicalHistory.hasHeartCondition,
-      },
-      {
-        conditionKey: "lung-condition",
-        enabled: args.replayRow.medicalHistory.hasLungCondition,
-      },
-      {
-        conditionKey: "other-conditions",
-        enabled:
-          (args.replayRow.medicalHistory.otherConditions?.trim().length ?? 0) >
-          0,
-        ...(args.replayRow.medicalHistory.otherConditions === undefined
-          ? {}
-          : { description: args.replayRow.medicalHistory.otherConditions }),
-      },
-    ] as const;
-
-    for (const row of medicalHistoryRows) {
-      await ctx.db.insert("bookingMedicalHistoryEntries", {
-        ...base,
-        ...row,
-      });
-    }
+    await ctx.db.insert("bookingMedicalHistoryEntries", {
+      ...base,
+      ...(args.replayRow.medicalHistory.allergyNotes === undefined
+        ? {}
+        : { allergyNotes: args.replayRow.medicalHistory.allergyNotes }),
+      hasAllergies: args.replayRow.medicalHistory.hasAllergies,
+      hasCancer: args.replayRow.medicalHistory.hasCancer,
+      hasCirculationDisorder:
+        args.replayRow.medicalHistory.hasCirculationDisorder,
+      hasDepression: args.replayRow.medicalHistory.hasDepression,
+      hasDiabetes: args.replayRow.medicalHistory.hasDiabetes,
+      hasGout: args.replayRow.medicalHistory.hasGout,
+      hasHeartCondition: args.replayRow.medicalHistory.hasHeartCondition,
+      hasHypertension: args.replayRow.medicalHistory.hasHypertension,
+      hasIntolerance: args.replayRow.medicalHistory.hasIntolerance,
+      hasKidneyCondition: args.replayRow.medicalHistory.hasKidneyCondition,
+      hasLipidDisorder: args.replayRow.medicalHistory.hasLipidDisorder,
+      hasLiverCondition: args.replayRow.medicalHistory.hasLiverCondition,
+      hasLungCondition: args.replayRow.medicalHistory.hasLungCondition,
+      hasOperations: args.replayRow.medicalHistory.hasOperations,
+      hasSymptoms: args.replayRow.medicalHistory.hasSymptoms,
+      hasThyroidCondition: args.replayRow.medicalHistory.hasThyroidCondition,
+      hasVaricoseVeins: args.replayRow.medicalHistory.hasVaricoseVeins,
+      ...(args.replayRow.medicalHistory.intoleranceNotes === undefined
+        ? {}
+        : { intoleranceNotes: args.replayRow.medicalHistory.intoleranceNotes }),
+      isComplete: args.replayRow.medicalHistoryComplete === true,
+      ...(args.replayRow.medicalHistory.medicationNotes === undefined &&
+      args.replayRow.medicalHistory.currentMedications === undefined
+        ? {}
+        : {
+            medicationNotes:
+              args.replayRow.medicalHistory.medicationNotes ??
+              args.replayRow.medicalHistory.currentMedications,
+          }),
+      noAdditionalDetails: args.replayRow.medicalHistory.noAdditionalDetails,
+      noKnownConditions: args.replayRow.medicalHistory.noKnownConditions,
+      ...(args.replayRow.medicalHistory.operationNotes === undefined
+        ? {}
+        : { operationNotes: args.replayRow.medicalHistory.operationNotes }),
+      ...(args.replayRow.medicalHistory.otherConditionNotes === undefined
+        ? {}
+        : {
+            otherConditionNotes:
+              args.replayRow.medicalHistory.otherConditionNotes,
+          }),
+      smokes: args.replayRow.medicalHistory.smokes,
+      ...(args.replayRow.medicalHistory.symptomNotes === undefined
+        ? {}
+        : { symptomNotes: args.replayRow.medicalHistory.symptomNotes }),
+      takesMedication: args.replayRow.medicalHistory.takesMedication,
+    });
   }
 
   if (args.replayRow.sessionStep === "new-data-input") {

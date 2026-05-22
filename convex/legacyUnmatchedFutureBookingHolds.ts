@@ -4,8 +4,6 @@ import { Temporal } from "temporal-polyfill";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./bookingSessions.shared";
 
-import { legacyUnmatchedFutureBookingHoldSourceSystemValidator } from "./legacyBookingMigrationShared";
-
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 
 export const legacyUnmatchedFutureBookingHoldSummaryValidator = v.object({
@@ -16,13 +14,10 @@ export const legacyUnmatchedFutureBookingHoldSummaryValidator = v.object({
   kind: v.literal("legacy-unmatched-future-hold"),
   lastModified: v.int64(),
   legacyAppointmentId: v.string(),
-  legacyTitle: v.optional(v.string()),
   legacyType: v.optional(v.string()),
   locationName: v.optional(v.string()),
   practiceId: v.id("practices"),
   practitionerName: v.optional(v.string()),
-  sourceSessionKey: v.string(),
-  sourceSystem: legacyUnmatchedFutureBookingHoldSourceSystemValidator,
   start: v.string(),
   userId: v.id("users"),
 });

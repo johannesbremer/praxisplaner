@@ -498,14 +498,12 @@ function buildAssociationRows(matches) {
     const associationKey = `${sourceKey}:pvs:${match.pvsPatientSourceId}`;
     const existing = byAssociationKey.get(associationKey);
     if (existing) {
-      existing.evidenceCount += 1;
       continue;
     }
 
     byAssociationKey.set(associationKey, {
       associationKey,
       bookingIdentitySourceKey: sourceKey,
-      evidenceCount: 1,
       legacyAppointmentId: match.legacyAppointmentId,
       legacyIdentityId: match.legacyIdentityId,
       method: "automatic",

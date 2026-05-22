@@ -380,7 +380,7 @@ function LegacyUnmatchedFutureBookingHoldSummaryItem({
     { kind: "legacy-unmatched-future-hold" }
   >;
 }) {
-  const resolvedTitle = hold.legacyTitle ?? "Importierter zukünftiger Termin";
+  const resolvedTitle = hold.legacyType ?? "Importierter zukünftiger Termin";
 
   return (
     <div className="rounded-lg border p-4 space-y-4">

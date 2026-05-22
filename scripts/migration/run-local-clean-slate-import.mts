@@ -102,6 +102,33 @@ function run(command, args, options = {}) {
   });
 }
 
+function runWithRetry(
+  command,
+  args,
+  options = {},
+  retries = 10,
+  retryDelayMilliseconds = 500,
+) {
+  let attempt = 0;
+  for (;;) {
+    try {
+      run(command, args, options);
+      return;
+    } catch (error) {
+      attempt += 1;
+      if (attempt > retries) {
+        throw error;
+      }
+      Atomics.wait(
+        new Int32Array(new SharedArrayBuffer(4)),
+        0,
+        0,
+        retryDelayMilliseconds,
+      );
+    }
+  }
+}
+
 function startLocalBackend(): Promise<ChildProcess> {
   const config = readLocalDeploymentConfig();
   const backendBinaryPath = join(
@@ -218,7 +245,7 @@ async function main() {
   await withLocalRehearsalEnv(async () => {
     const backend = await startLocalBackend();
     try {
-      run("pnpm", [
+      runWithRetry("pnpm", [
         "exec",
         "convex",
         "env",
@@ -228,7 +255,7 @@ async function main() {
         "--deployment",
         "local",
       ]);
-      run("pnpm", [
+      runWithRetry("pnpm", [
         "exec",
         "convex",
         "env",
@@ -238,7 +265,7 @@ async function main() {
         "--deployment",
         "local",
       ]);
-      run("pnpm", [
+      runWithRetry("pnpm", [
         "exec",
         "convex",
         "env",
@@ -248,7 +275,7 @@ async function main() {
         "--deployment",
         "local",
       ]);
-      run("pnpm", [
+      runWithRetry("pnpm", [
         "exec",
         "convex",
         "env",

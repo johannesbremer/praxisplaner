@@ -438,12 +438,10 @@ describe("appointments self-service cancellation", () => {
         end: holdWindow.end,
         lastModified: now,
         legacyAppointmentId: "legacy-unmatched-hold-1",
-        legacyTitle: "Akuttermin",
+        legacyType: "Akuttermin",
         locationName: "Dissen a.T.W.",
         practiceId: baseData.practiceId,
         practitionerName: "Dr. Legacy",
-        sourceSessionKey: "legacy-pocketbase:unmatched-future-hold:test-1",
-        sourceSystem: "legacy-online",
         start: holdWindow.start,
         userId,
       });

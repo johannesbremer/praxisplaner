@@ -1634,7 +1634,6 @@ describe("Copy-on-Write Entity Reference Validation", () => {
           name: "Dr. Geloescht",
           practiceId,
           ruleSetId: draftRuleSetId,
-          tags: [],
         },
         practitionerLineageKey,
       );

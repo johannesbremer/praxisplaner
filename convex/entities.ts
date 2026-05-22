@@ -1063,7 +1063,6 @@ export const createPractitioner = mutation({
     name: v.string(),
     practiceId: v.id("practices"),
     selectedRuleSetId: v.id("ruleSets"),
-    tags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -1113,7 +1112,6 @@ export const createPractitioner = mutation({
         await ctx.db.patch("practitioners", existingByLineage._id, {
           deleted: false,
           name: args.name,
-          tags: args.tags ?? [],
         });
 
         const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
@@ -1131,7 +1129,6 @@ export const createPractitioner = mutation({
       name: args.name,
       practiceId: args.practiceId,
       ruleSetId,
-      ...(args.tags && { tags: args.tags }),
     });
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
@@ -1150,7 +1147,6 @@ export const updatePractitioner = mutation({
     practiceId: v.id("practices"),
     practitionerId: v.id("practitioners"),
     selectedRuleSetId: v.id("ruleSets"),
-    tags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -1193,15 +1189,11 @@ export const updatePractitioner = mutation({
     }
 
     // Update the practitioner (use the entity in the unsaved rule set)
-    const updates: Partial<{ name: string; tags: string[] | undefined }> = {};
+    const updates: Partial<{ name: string }> = {};
 
     if (args.name !== undefined) {
       updates.name = args.name;
     }
-    if (args.tags !== undefined) {
-      updates.tags = args.tags;
-    }
-
     // SAFETY: Verify entity belongs to unsaved rule set before patching
     await verifyEntityInUnsavedRuleSet(
       ctx.db,
@@ -1541,7 +1533,6 @@ export const deletePractitionerWithDependencies = mutation({
           id: practitioner._id,
           lineageKey: requirePractitionerLineageKey(practitioner),
           name: practitioner.name,
-          ...(practitioner.tags && { tags: practitioner.tags }),
         },
         practitionerConditionPatches,
         reassignmentSimulationIds,
@@ -1587,16 +1578,12 @@ export const restorePractitionerWithDependencies = mutation({
         name: args.snapshot.practitioner.name,
         practiceId: args.practiceId,
         ruleSetId,
-        ...(args.snapshot.practitioner.tags && {
-          tags: args.snapshot.practitioner.tags,
-        }),
       }));
 
     if (existingByLineage && isDeletedRuleSetEntity(existingByLineage)) {
       await ctx.db.patch("practitioners", existingByLineage._id, {
         deleted: false,
         name: args.snapshot.practitioner.name,
-        tags: args.snapshot.practitioner.tags ?? [],
       });
     }
 

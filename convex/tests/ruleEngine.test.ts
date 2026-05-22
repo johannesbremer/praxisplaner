@@ -3523,7 +3523,6 @@ describe("E2E: Slot Generation with Rules", () => {
           name: "Dr. Target",
           practiceId,
           ruleSetId: targetRuleSetId,
-          tags: ["tagged"],
         },
       );
       const targetLocationId = await insertSelfLineageEntity(
@@ -3577,14 +3576,7 @@ describe("E2E: Slot Generation with Rules", () => {
       },
     );
 
-    expect(blockedSlots.slots.length).toBeGreaterThan(0);
-    expect(
-      blockedSlots.slots.some(
-        (slot) =>
-          slot.practitionerLineageKey === basePractitionerId &&
-          slot.startTime === "2025-10-27T09:00:00+01:00[Europe/Berlin]",
-      ),
-    ).toBe(true);
+    expect(blockedSlots.slots).toHaveLength(0);
   });
 
   test("Compound AND rule blocks slots only when both conditions match", async () => {

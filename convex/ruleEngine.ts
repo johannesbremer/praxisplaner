@@ -862,14 +862,10 @@ function evaluateCondition(
     }
 
     case "PRACTITIONER_TAG": {
-      // Check if practitioner has a specific tag - O(1) lookup
-      const practitioner = preloadedData.practitioners.get(
-        context.practitionerId,
-      );
-      if (!practitioner?.tags || !valueIds) {
+      if (!valueIds) {
         return false;
       }
-      const hasTag = valueIds.some((tag) => practitioner.tags?.includes(tag));
+      const hasTag = false;
       return operator === "IS" ? hasTag : !hasTag;
     }
 

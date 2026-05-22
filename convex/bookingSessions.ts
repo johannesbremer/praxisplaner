@@ -81,22 +81,6 @@ type DeletableFlowRow =
   | Doc<"bookingPatientStatusSteps">
   | Doc<"bookingPersonalDataSteps">
   | Doc<"bookingPrivacySteps">;
-type MedicalHistoryConditionKey =
-  | "allergies"
-  | "current-medications"
-  | "diabetes"
-  | "heart-condition"
-  | "lung-condition"
-  | "other-conditions";
-
-const REQUIRED_MEDICAL_HISTORY_KEYS: readonly MedicalHistoryConditionKey[] = [
-  "allergies",
-  "current-medications",
-  "diabetes",
-  "heart-condition",
-  "lung-condition",
-  "other-conditions",
-];
 
 async function assertSlotAllowedByRules(
   ctx: MutationCtx,
@@ -230,8 +214,11 @@ async function deleteFlowRows(
   const rows = await loadFlowRows(ctx, flowKey);
 
   await deleteDataSharingContacts(ctx, flowKey);
-  for (const entry of rows.medicalHistoryEntries) {
-    await ctx.db.delete("bookingMedicalHistoryEntries", entry._id);
+  if (rows.medicalHistoryEntry) {
+    await ctx.db.delete(
+      "bookingMedicalHistoryEntries",
+      rows.medicalHistoryEntry._id,
+    );
   }
   if (rows.newDataSharing) {
     await ctx.db.delete("bookingNewDataSharingSteps", rows.newDataSharing._id);
@@ -522,10 +509,9 @@ function hasFlowStepRows(rows: BookingFlowRows): boolean {
 }
 
 function hasRequiredMedicalHistoryEntries(
-  rows: BookingFlowRows["medicalHistoryEntries"],
+  row: BookingFlowRows["medicalHistoryEntry"],
 ): boolean {
-  const seen = new Set(rows.map((row) => row.conditionKey));
-  return REQUIRED_MEDICAL_HISTORY_KEYS.every((key) => seen.has(key));
+  return row?.isComplete === true;
 }
 
 async function loadFlowRows(
@@ -544,7 +530,7 @@ async function loadFlowRows(
     personalData,
     privacy,
     dataSharingContacts,
-    medicalHistoryEntries,
+    medicalHistoryEntry,
   ] = await Promise.all([
     getFlowRow(ctx, "bookingExistingDoctorSelectionSteps", flowKey),
     getFlowRow(ctx, "bookingLocationSteps", flowKey),
@@ -573,14 +559,14 @@ async function loadFlowRows(
           .eq("practiceId", flowKey.practiceId)
           .eq("ruleSetId", flowKey.ruleSetId),
       )
-      .collect(),
+      .first(),
   ]);
 
   return {
     dataSharingContacts,
     existingDoctor,
     location,
-    medicalHistoryEntries,
+    medicalHistoryEntry,
     newDataSharing,
     newGkvDetail,
     newInsuranceType,
@@ -613,25 +599,47 @@ function materializeDataSharingContacts(
 }
 
 function materializeMedicalHistory(
-  rows: BookingFlowRows["medicalHistoryEntries"],
+  row: BookingFlowRows["medicalHistoryEntry"],
 ): BookingMedicalHistory | undefined {
-  if (rows.length === 0) {
+  if (!row) {
     return undefined;
   }
 
-  const byKey = new Map(rows.map((row) => [row.conditionKey, row] as const));
-  const allergiesDescription = byKey.get("allergies")?.description;
-  const currentMedications = byKey.get("current-medications")?.description;
-  const otherConditions = byKey.get("other-conditions")?.description;
+  const allergiesDescription = [row.allergyNotes, row.intoleranceNotes]
+    .filter((value) => value !== undefined && value.trim() !== "")
+    .join("; ");
+  const otherConditionParts = [
+    row.hasThyroidCondition ? "Schilddrüsenerkrankung" : undefined,
+    row.hasLiverCondition ? "Lebererkrankung" : undefined,
+    row.hasKidneyCondition ? "Nierenerkrankung" : undefined,
+    row.hasLipidDisorder ? "Fettstoffwechselstörung" : undefined,
+    row.hasGout ? "Gicht" : undefined,
+    row.hasHypertension ? "Bluthochdruck" : undefined,
+    row.hasCirculationDisorder ? "Durchblutungsstörung" : undefined,
+    row.hasVaricoseVeins ? "Krampfadern" : undefined,
+    row.hasCancer ? "Krebserkrankung" : undefined,
+    row.hasDepression ? "Depression" : undefined,
+    row.smokes ? "Rauchen" : undefined,
+    row.operationNotes,
+    row.symptomNotes,
+    row.otherConditionNotes,
+  ].filter((value) => value !== undefined && value.trim() !== "");
 
   return {
-    ...(allergiesDescription === undefined ? {} : { allergiesDescription }),
-    ...(currentMedications === undefined ? {} : { currentMedications }),
-    hasAllergies: byKey.get("allergies")?.enabled ?? false,
-    hasDiabetes: byKey.get("diabetes")?.enabled ?? false,
-    hasHeartCondition: byKey.get("heart-condition")?.enabled ?? false,
-    hasLungCondition: byKey.get("lung-condition")?.enabled ?? false,
-    ...(otherConditions === undefined ? {} : { otherConditions }),
+    ...(allergiesDescription.length === 0 ? {} : { allergiesDescription }),
+    ...(row.medicationNotes === undefined
+      ? {}
+      : { currentMedications: row.medicationNotes }),
+    hasAllergies: row.hasAllergies || row.hasIntolerance,
+    hasDiabetes: row.hasDiabetes,
+    hasHeartCondition:
+      row.hasHeartCondition ||
+      row.hasHypertension ||
+      row.hasCirculationDisorder,
+    hasLungCondition: row.hasLungCondition,
+    ...(otherConditionParts.length === 0
+      ? {}
+      : { otherConditions: otherConditionParts.join("; ") }),
   };
 }
 
@@ -711,11 +719,11 @@ async function materializeState(
 
       const personalData = materializePersonalData(rows.personalData);
       const medicalHistory = materializeMedicalHistory(
-        rows.medicalHistoryEntries,
+        rows.medicalHistoryEntry,
       );
       if (
         !personalData ||
-        !hasRequiredMedicalHistoryEntries(rows.medicalHistoryEntries)
+        !hasRequiredMedicalHistoryEntries(rows.medicalHistoryEntry)
       ) {
         return {
           hzvStatus: rows.newGkvDetail.hzvStatus,
@@ -779,12 +787,10 @@ async function materializeState(
     }
 
     const personalData = materializePersonalData(rows.personalData);
-    const medicalHistory = materializeMedicalHistory(
-      rows.medicalHistoryEntries,
-    );
+    const medicalHistory = materializeMedicalHistory(rows.medicalHistoryEntry);
     if (
       !personalData ||
-      !hasRequiredMedicalHistoryEntries(rows.medicalHistoryEntries)
+      !hasRequiredMedicalHistoryEntries(rows.medicalHistoryEntry)
     ) {
       return {
         ...(rows.newPkvDetail.beihilfeStatus === undefined
@@ -892,81 +898,57 @@ async function materializeState(
   };
 }
 
-function medicalHistoryRowsFromInput(
+function medicalHistoryRowFromInput(
   flowKey: BookingFlowKey,
   medicalHistory: BookingMedicalHistory,
   now: bigint,
-): Omit<Doc<"bookingMedicalHistoryEntries">, "_creationTime" | "_id">[] {
-  const rows: Omit<
-    Doc<"bookingMedicalHistoryEntries">,
-    "_creationTime" | "_id"
-  >[] = [
-    {
-      conditionKey: "allergies",
-      createdAt: now,
-      enabled: medicalHistory.hasAllergies,
-      lastModified: now,
-      practiceId: flowKey.practiceId,
-      ruleSetId: flowKey.ruleSetId,
-      userId: flowKey.userId,
-      ...(medicalHistory.allergiesDescription === undefined
-        ? {}
-        : { description: medicalHistory.allergiesDescription }),
-    },
-    {
-      conditionKey: "current-medications",
-      createdAt: now,
-      enabled: (medicalHistory.currentMedications?.trim().length ?? 0) > 0,
-      lastModified: now,
-      practiceId: flowKey.practiceId,
-      ruleSetId: flowKey.ruleSetId,
-      userId: flowKey.userId,
-      ...(medicalHistory.currentMedications === undefined
-        ? {}
-        : { description: medicalHistory.currentMedications }),
-    },
-    {
-      conditionKey: "diabetes",
-      createdAt: now,
-      enabled: medicalHistory.hasDiabetes,
-      lastModified: now,
-      practiceId: flowKey.practiceId,
-      ruleSetId: flowKey.ruleSetId,
-      userId: flowKey.userId,
-    },
-    {
-      conditionKey: "heart-condition",
-      createdAt: now,
-      enabled: medicalHistory.hasHeartCondition,
-      lastModified: now,
-      practiceId: flowKey.practiceId,
-      ruleSetId: flowKey.ruleSetId,
-      userId: flowKey.userId,
-    },
-    {
-      conditionKey: "lung-condition",
-      createdAt: now,
-      enabled: medicalHistory.hasLungCondition,
-      lastModified: now,
-      practiceId: flowKey.practiceId,
-      ruleSetId: flowKey.ruleSetId,
-      userId: flowKey.userId,
-    },
-    {
-      conditionKey: "other-conditions",
-      createdAt: now,
-      enabled: (medicalHistory.otherConditions?.trim().length ?? 0) > 0,
-      lastModified: now,
-      practiceId: flowKey.practiceId,
-      ruleSetId: flowKey.ruleSetId,
-      userId: flowKey.userId,
-      ...(medicalHistory.otherConditions === undefined
-        ? {}
-        : { description: medicalHistory.otherConditions }),
-    },
-  ];
-
-  return rows;
+): Omit<Doc<"bookingMedicalHistoryEntries">, "_creationTime" | "_id"> {
+  const medicationNotes = medicalHistory.currentMedications?.trim();
+  const allergyNotes = medicalHistory.allergiesDescription?.trim();
+  const otherConditionNotes = medicalHistory.otherConditions?.trim();
+  return {
+    ...(allergyNotes === undefined || allergyNotes === ""
+      ? {}
+      : { allergyNotes }),
+    createdAt: now,
+    hasAllergies: medicalHistory.hasAllergies,
+    hasCancer: false,
+    hasCirculationDisorder: false,
+    hasDepression: false,
+    hasDiabetes: medicalHistory.hasDiabetes,
+    hasGout: false,
+    hasHeartCondition: medicalHistory.hasHeartCondition,
+    hasHypertension: false,
+    hasIntolerance: false,
+    hasKidneyCondition: false,
+    hasLipidDisorder: false,
+    hasLiverCondition: false,
+    hasLungCondition: medicalHistory.hasLungCondition,
+    hasOperations: false,
+    hasSymptoms: false,
+    hasThyroidCondition: false,
+    hasVaricoseVeins: false,
+    isComplete: true,
+    lastModified: now,
+    ...(medicationNotes === undefined || medicationNotes === ""
+      ? {}
+      : { medicationNotes }),
+    noAdditionalDetails:
+      !medicalHistory.hasAllergies && (medicationNotes?.length ?? 0) === 0,
+    noKnownConditions:
+      !medicalHistory.hasDiabetes &&
+      !medicalHistory.hasHeartCondition &&
+      !medicalHistory.hasLungCondition &&
+      (otherConditionNotes?.length ?? 0) === 0,
+    ...(otherConditionNotes === undefined || otherConditionNotes === ""
+      ? {}
+      : { otherConditionNotes }),
+    practiceId: flowKey.practiceId,
+    ruleSetId: flowKey.ruleSetId,
+    smokes: false,
+    takesMedication: (medicationNotes?.length ?? 0) > 0,
+    userId: flowKey.userId,
+  };
 }
 
 async function persistDataSharingContacts(
@@ -1002,17 +984,16 @@ async function persistMedicalHistory(
         .eq("practiceId", flowKey.practiceId)
         .eq("ruleSetId", flowKey.ruleSetId),
     )
-    .collect();
+    .first();
 
-  for (const row of existingRows) {
-    await ctx.db.delete("bookingMedicalHistoryEntries", row._id);
-  }
-
-  for (const row of medicalHistoryRowsFromInput(
+  const row = medicalHistoryRowFromInput(
     flowKey,
     medicalHistory,
     BigInt(Date.now()),
-  )) {
+  );
+  if (existingRows) {
+    await ctx.db.patch("bookingMedicalHistoryEntries", existingRows._id, row);
+  } else {
     await ctx.db.insert("bookingMedicalHistoryEntries", row);
   }
 }
@@ -1023,8 +1004,11 @@ async function removeRowsAfterInsuranceType(
 ): Promise<void> {
   const rows = await loadFlowRows(ctx, flowKey);
   await deleteDataSharingContacts(ctx, flowKey);
-  for (const entry of rows.medicalHistoryEntries) {
-    await ctx.db.delete("bookingMedicalHistoryEntries", entry._id);
+  if (rows.medicalHistoryEntry) {
+    await ctx.db.delete(
+      "bookingMedicalHistoryEntries",
+      rows.medicalHistoryEntry._id,
+    );
   }
   const deletions = [
     rows.newDataSharing,
@@ -1044,8 +1028,11 @@ async function removeRowsAfterLocationSelection(
 ): Promise<void> {
   const rows = await loadFlowRows(ctx, flowKey);
   await deleteDataSharingContacts(ctx, flowKey);
-  for (const entry of rows.medicalHistoryEntries) {
-    await ctx.db.delete("bookingMedicalHistoryEntries", entry._id);
+  if (rows.medicalHistoryEntry) {
+    await ctx.db.delete(
+      "bookingMedicalHistoryEntries",
+      rows.medicalHistoryEntry._id,
+    );
   }
   const deletions = [
     rows.newDataSharing,
@@ -1079,8 +1066,11 @@ async function removeRowsAfterPatientStatus(
 ): Promise<void> {
   const rows = await loadFlowRows(ctx, flowKey);
   await deleteDataSharingContacts(ctx, flowKey);
-  for (const entry of rows.medicalHistoryEntries) {
-    await ctx.db.delete("bookingMedicalHistoryEntries", entry._id);
+  if (rows.medicalHistoryEntry) {
+    await ctx.db.delete(
+      "bookingMedicalHistoryEntries",
+      rows.medicalHistoryEntry._id,
+    );
   }
   const deletions = [
     rows.newDataSharing,
