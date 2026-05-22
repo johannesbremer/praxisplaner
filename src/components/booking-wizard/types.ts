@@ -4,7 +4,6 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type {
   BookingStepGroup,
   CalendarSelectionStepName,
-  ConfirmationStepName,
   DataInputStepName,
 } from "@/lib/booking-session-steps";
 
@@ -15,7 +14,6 @@ import {
   getBookingSessionStepLabel,
   isBackLockedStep,
   isCalendarSelectionStepName,
-  isConfirmationStepName,
   isDataInputStepName,
 } from "@/lib/booking-session-steps";
 
@@ -26,7 +24,6 @@ type ActiveBookingSession =
 
 // Type helper to extract state at a specific step
 export type CalendarSelectionState = StateAtStep<CalendarSelectionStepName>;
-export type ConfirmationState = StateAtStep<ConfirmationStepName>;
 export type DataInputState = StateAtStep<DataInputStepName>;
 export type StateAtStep<S extends BookingSessionState["step"]> = Extract<
   BookingSessionState,
@@ -70,12 +67,6 @@ export function isCalendarSelectionState(
   state: BookingSessionState,
 ): state is CalendarSelectionState {
   return isCalendarSelectionStepName(state.step);
-}
-
-export function isConfirmationState(
-  state: BookingSessionState,
-): state is ConfirmationState {
-  return isConfirmationStepName(state.step);
 }
 
 export function isDataInputState(

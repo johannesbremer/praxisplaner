@@ -17,14 +17,14 @@ async function getLatestBookingPersonalData(
   db: DatabaseReader,
   userId: Id<"users">,
 ): Promise<BookingPersonalData | null> {
-  const latestConfirmationStep = await db
-    .query("bookingConfirmationSteps")
+  const latestPersonalDataStep = await db
+    .query("bookingPersonalDataSteps")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
     .order("desc")
     .first();
 
-  return latestConfirmationStep
-    ? asPersonalDataInput(latestConfirmationStep.personalData)
+  return latestPersonalDataStep
+    ? asPersonalDataInput(latestPersonalDataStep.personalData)
     : null;
 }
 

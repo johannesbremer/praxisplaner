@@ -26,17 +26,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
-import {
-  getBookingSessionStepKind,
-  isConfirmationStepName,
-} from "@/lib/booking-session-steps";
+import { getBookingSessionStepKind } from "@/lib/booking-session-steps";
 
 import {
   BookedAppointmentsSummary,
   type BookingSessionState,
   CalendarSelectionStep,
   canGoBack,
-  ConfirmationStep,
   DataInputStep,
   DataSharingStep,
   DoctorSelectionStep,
@@ -64,7 +60,6 @@ export const Route = createFileRoute("/buchung")({
 // Step group labels for progress indicator
 const STEP_GROUP_LABELS: Record<ReturnType<typeof getStepGroup>, string> = {
   booking: "Termin",
-  confirmation: "Bestätigung",
   consent: "Einwilligung",
   info: "Angaben",
 };
@@ -74,7 +69,6 @@ const STEP_GROUP_ORDER: ReturnType<typeof getStepGroup>[] = [
   "consent",
   "info",
   "booking",
-  "confirmation",
 ];
 
 /**
@@ -195,7 +189,6 @@ function AuthenticatedBookingFlow() {
   const isCreatingSessionRef = useRef(false);
   const stepContainerRef = useRef<HTMLDivElement>(null);
   const isInitializingPracticeRef = useRef(false);
-  const isReturningToCalendarRef = useRef(false);
 
   // Fetch practice data
   const practicesQuery = useQuery(api.practices.getAllPractices, {});
@@ -248,9 +241,6 @@ function AuthenticatedBookingFlow() {
   const createSession = useMutation(api.bookingSessions.create);
   const removeSession = useMutation(api.bookingSessions.remove);
   const goBackMutation = useMutation(api.bookingSessions.goBack);
-  const returnToCalendarSelectionAfterCancellation = useMutation(
-    api.bookingSessions.returnToCalendarSelectionAfterCancellation,
-  );
 
   useEffect(() => {
     if (
@@ -514,56 +504,6 @@ function AuthenticatedBookingFlow() {
 
   const isShowingBookedAppointment =
     bookedAppointments !== undefined && bookedAppointments.length > 0;
-  const isSessionAtConfirmationStep =
-    session !== undefined &&
-    session !== null &&
-    isConfirmationStepName(session.state.step);
-  const shouldReturnToCalendarAfterAppointmentElapsed =
-    bookedAppointments?.length === 0 && isSessionAtConfirmationStep;
-
-  useEffect(() => {
-    if (
-      !shouldReturnToCalendarAfterAppointmentElapsed ||
-      !resolvedSessionId ||
-      isReturningToCalendarRef.current
-    ) {
-      return;
-    }
-
-    isReturningToCalendarRef.current = true;
-    void wrapAsyncResult(
-      () =>
-        returnToCalendarSelectionAfterCancellation({
-          sessionId: resolvedSessionId,
-        }),
-      (error) =>
-        frontendErrorFromUnknown(error, {
-          kind: "unknown",
-          message: "Schrittwechsel fehlgeschlagen.",
-          source: "BookingPage.returnToCalendarSelectionAfterCancellation",
-        }),
-    )
-      .match(
-        () => void 0,
-        (error) => {
-          captureFrontendError(error, {
-            context: "BookingPage.returnToCalendarSelectionAfterCancellation",
-            sessionId: resolvedSessionId,
-          });
-          toast.error("Schrittwechsel fehlgeschlagen", {
-            description: error.message || "Bitte versuchen Sie es erneut.",
-          });
-        },
-      )
-      .finally(() => {
-        isReturningToCalendarRef.current = false;
-      });
-  }, [
-    resolvedSessionId,
-    returnToCalendarSelectionAfterCancellation,
-    shouldReturnToCalendarAfterAppointmentElapsed,
-  ]);
-
   // Loading state
   if (!practicesQuery) {
     return (
@@ -655,21 +595,6 @@ function AuthenticatedBookingFlow() {
     );
   }
 
-  if (shouldReturnToCalendarAfterAppointmentElapsed) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Card className="w-96">
-          <CardContent className="py-6">
-            <div className="flex items-center justify-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Termin wird aktualisiert...</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   // Session expired or not found
   if (!isShowingBookedAppointment && session === null) {
     return (
@@ -697,19 +622,6 @@ function AuthenticatedBookingFlow() {
   let stepContent: ReactElement;
 
   if (isShowingBookedAppointment) {
-    const handleBookedAppointmentCancelled = async () => {
-      if (
-        !resolvedSessionId ||
-        !session ||
-        !isConfirmationStepName(session.state.step)
-      ) {
-        return;
-      }
-      await returnToCalendarSelectionAfterCancellation({
-        sessionId: resolvedSessionId,
-      });
-    };
-
     const practitionerNamesById = new Map<Id<"practitioners">, string>(
       (practitioners ?? []).flatMap((practitioner) => [
         [practitioner._id, practitioner.name] as const,
@@ -717,12 +629,11 @@ function AuthenticatedBookingFlow() {
       ]),
     );
 
-    currentGroup = "confirmation";
+    currentGroup = "booking";
     showBackButton = false;
     stepContent = (
       <BookedAppointmentsSummary
         appointments={bookedAppointments}
-        onCancelled={handleBookedAppointmentCancelled}
         practitionerNamesById={practitionerNamesById}
       />
     );
@@ -854,9 +765,6 @@ function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
   switch (getBookingSessionStepKind(step)) {
     case "calendar-selection": {
       return <CalendarSelectionStep {...stepProps} />;
-    }
-    case "confirmation": {
-      return <ConfirmationStep {...stepProps} />;
     }
     case "data-input": {
       return <DataInputStep {...stepProps} />;

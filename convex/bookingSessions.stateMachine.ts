@@ -19,12 +19,10 @@ const STEP_SNAPSHOT_TABLES_BY_STEP: Record<
   StepTableName[]
 > = {
   "existing-calendar-selection": ["bookingPersonalDataSteps"],
-  "existing-confirmation": ["bookingConfirmationSteps"],
   "existing-data-input": ["bookingExistingDoctorSelectionSteps"],
   "existing-doctor-selection": ["bookingPatientStatusSteps"],
   location: [],
   "new-calendar-selection": ["bookingNewDataSharingSteps"],
-  "new-confirmation": ["bookingConfirmationSteps"],
   "new-data-input": ["bookingNewGkvDetailSteps", "bookingNewPkvDetailSteps"],
   "new-data-input-complete": ["bookingPersonalDataSteps"],
   "new-data-sharing": [
@@ -53,21 +51,6 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "practitionerName",
     "personalData",
   ],
-  "existing-confirmation": [
-    "appointmentId",
-    "appointmentTypeLineageKey",
-    "appointmentTypeName",
-    "bookedDurationMinutes",
-    "isNewPatient",
-    "locationLineageKey",
-    "locationName",
-    "practitionerLineageKey",
-    "practitionerName",
-    "personalData",
-    "reasonDescription",
-    "selectedSlot",
-    "patientId",
-  ],
   "existing-data-input": [
     "isNewPatient",
     "locationLineageKey",
@@ -94,28 +77,6 @@ const STEP_SNAPSHOT_ALLOWED_FIELDS: Record<
     "personalData",
     "medicalHistory",
     "dataSharingContacts",
-  ],
-  "new-confirmation": [
-    "appointmentId",
-    "appointmentTypeLineageKey",
-    "appointmentTypeName",
-    "bookedDurationMinutes",
-    "insuranceType",
-    "isNewPatient",
-    "locationLineageKey",
-    "locationName",
-    "hzvStatus",
-    "pvsConsent",
-    "pkvInsuranceType",
-    "pkvTariff",
-    "beihilfeStatus",
-    "personalData",
-    "medicalHistory",
-    "dataSharingContacts",
-    "reasonDescription",
-    "emergencyContacts",
-    "selectedSlot",
-    "patientId",
   ],
   "new-data-input": [
     "insuranceType",
@@ -205,18 +166,6 @@ const STEP_SNAPSHOT_ALLOWED_INTERNAL_FIELDS: Record<
     "practitionerLineageKey",
     "personalData",
   ],
-  "existing-confirmation": [
-    "appointmentId",
-    "appointmentTypeLineageKey",
-    "bookedDurationMinutes",
-    "isNewPatient",
-    "locationLineageKey",
-    "practitionerLineageKey",
-    "personalData",
-    "reasonDescription",
-    "selectedSlot",
-    "patientId",
-  ],
   "existing-data-input": [
     "isNewPatient",
     "locationLineageKey",
@@ -236,26 +185,6 @@ const STEP_SNAPSHOT_ALLOWED_INTERNAL_FIELDS: Record<
     "personalData",
     "medicalHistory",
     "dataSharingContacts",
-  ],
-  "new-confirmation": [
-    "appointmentId",
-    "appointmentTypeLineageKey",
-    "bookedDurationMinutes",
-    "insuranceType",
-    "isNewPatient",
-    "locationLineageKey",
-    "hzvStatus",
-    "pvsConsent",
-    "pkvInsuranceType",
-    "pkvTariff",
-    "beihilfeStatus",
-    "personalData",
-    "medicalHistory",
-    "dataSharingContacts",
-    "reasonDescription",
-    "emergencyContacts",
-    "selectedSlot",
-    "patientId",
   ],
   "new-data-input": [
     "insuranceType",
@@ -321,7 +250,6 @@ const STEP_SNAPSHOT_ALLOWED_INTERNAL_FIELDS: Record<
 
 const PKV_STEPS_REQUIRING_PVS_CONSENT = new Set<BookingSessionState["step"]>([
   "new-calendar-selection",
-  "new-confirmation",
   "new-data-input",
   "new-data-input-complete",
   "new-data-sharing",
@@ -330,12 +258,6 @@ const PKV_STEPS_REQUIRING_PVS_CONSENT = new Set<BookingSessionState["step"]>([
 ]);
 
 export interface BookingSessionMaterializers {
-  resolveAppointmentTypeName: (
-    appointmentTypeLineageKey: Extract<
-      InternalBookingSessionState,
-      { appointmentTypeLineageKey: unknown }
-    >["appointmentTypeLineageKey"],
-  ) => Promise<string>;
   resolveLocationName: (
     locationLineageKey: Extract<
       InternalBookingSessionState,
@@ -408,19 +330,6 @@ export type BookingSessionTransitionInput =
     }
   | {
       base: StepBase;
-      kind: "selectExistingPatientSlot";
-      slotAttempt: Pick<
-        StepTableInput<"bookingConfirmationSteps">,
-        | "appointmentId"
-        | "appointmentTypeLineageKey"
-        | "bookedDurationMinutes"
-        | "reasonDescription"
-        | "selectedSlot"
-      > & { personalData: BookingPersonalData };
-      state: InternalBookingSessionState;
-    }
-  | {
-      base: StepBase;
       kind: "selectLocation";
       locationLineageKey: StepTableInput<"bookingLocationSteps">["locationLineageKey"];
       state: InternalBookingSessionState;
@@ -428,19 +337,6 @@ export type BookingSessionTransitionInput =
   | {
       base: StepBase;
       kind: "selectNewPatient";
-      state: InternalBookingSessionState;
-    }
-  | {
-      base: StepBase;
-      kind: "selectNewPatientSlot";
-      slotAttempt: Pick<
-        StepTableInput<"bookingConfirmationSteps">,
-        | "appointmentId"
-        | "appointmentTypeLineageKey"
-        | "bookedDurationMinutes"
-        | "reasonDescription"
-        | "selectedSlot"
-      > & { personalData: BookingPersonalData };
       state: InternalBookingSessionState;
     }
   | {
@@ -511,13 +407,6 @@ export function applyBookingSessionTransition(
     case "selectExistingPatient": {
       return transitionSelectExistingPatient(input.base, input.state);
     }
-    case "selectExistingPatientSlot": {
-      return transitionSelectExistingPatientSlot(
-        input.base,
-        input.state,
-        input.slotAttempt,
-      );
-    }
     case "selectInsuranceType": {
       return transitionSelectInsuranceType(
         input.base,
@@ -534,13 +423,6 @@ export function applyBookingSessionTransition(
     }
     case "selectNewPatient": {
       return transitionSelectNewPatient(input.base, input.state);
-    }
-    case "selectNewPatientSlot": {
-      return transitionSelectNewPatientSlot(
-        input.base,
-        input.state,
-        input.slotAttempt,
-      );
     }
     case "submitExistingPatientData": {
       return transitionSubmitExistingPatientData(
@@ -594,12 +476,6 @@ export async function materializeBookingSessionUiState(
 ): Promise<BookingSessionState> {
   const materialized: Record<string, unknown> = { ...state };
 
-  if ("appointmentTypeLineageKey" in state) {
-    materialized["appointmentTypeName"] =
-      await materializers.resolveAppointmentTypeName(
-        state.appointmentTypeLineageKey,
-      );
-  }
   if ("locationLineageKey" in state) {
     materialized["locationName"] = await materializers.resolveLocationName(
       state.locationLineageKey,
@@ -775,52 +651,6 @@ function transitionSelectExistingPatient(
   };
 }
 
-function transitionSelectExistingPatientSlot(
-  base: StepBase,
-  state: InternalBookingSessionState,
-  args: Pick<
-    StepTableInput<"bookingConfirmationSteps">,
-    | "appointmentId"
-    | "appointmentTypeLineageKey"
-    | "bookedDurationMinutes"
-    | "reasonDescription"
-    | "selectedSlot"
-  > & {
-    personalData: BookingPersonalData;
-  },
-): BookingSessionTransition {
-  const current = assertInternalStep(state, "existing-calendar-selection");
-  const calendarSnapshot = {
-    ...base,
-    appointmentTypeLineageKey: args.appointmentTypeLineageKey,
-    dataSharingContacts: [],
-    isNewPatient: false,
-    locationLineageKey: current.locationLineageKey,
-    personalData: args.personalData,
-    practitionerLineageKey: current.practitionerLineageKey,
-    reasonDescription: args.reasonDescription,
-    selectedSlot: args.selectedSlot,
-  } satisfies StepTableInput<"bookingCalendarSelectionSteps">;
-
-  return {
-    nextStep: "existing-confirmation",
-    writes: [
-      {
-        data: calendarSnapshot,
-        tableName: "bookingCalendarSelectionSteps",
-      },
-      {
-        data: {
-          ...calendarSnapshot,
-          appointmentId: args.appointmentId,
-          bookedDurationMinutes: args.bookedDurationMinutes,
-        },
-        tableName: "bookingConfirmationSteps",
-      },
-    ],
-  };
-}
-
 function transitionSelectInsuranceType(
   base: StepBase,
   state: InternalBookingSessionState,
@@ -875,52 +705,6 @@ function transitionSelectNewPatient(
           locationLineageKey: current.locationLineageKey,
         },
         tableName: "bookingPatientStatusSteps",
-      },
-    ],
-  };
-}
-
-function transitionSelectNewPatientSlot(
-  base: StepBase,
-  state: InternalBookingSessionState,
-  args: Pick<
-    StepTableInput<"bookingConfirmationSteps">,
-    | "appointmentId"
-    | "appointmentTypeLineageKey"
-    | "bookedDurationMinutes"
-    | "reasonDescription"
-    | "selectedSlot"
-  > & {
-    personalData: BookingPersonalData;
-  },
-): BookingSessionTransition {
-  const current = assertInternalStep(state, "new-calendar-selection");
-  const calendarSnapshot = newPatientSlotSnapshot({
-    base,
-    personalData: args.personalData,
-    reasonDescription: args.reasonDescription,
-    selectedSlot: args.selectedSlot,
-    state: current,
-  });
-
-  return {
-    nextStep: "new-confirmation",
-    writes: [
-      {
-        data: {
-          ...calendarSnapshot,
-          appointmentTypeLineageKey: args.appointmentTypeLineageKey,
-        },
-        tableName: "bookingCalendarSelectionSteps",
-      },
-      {
-        data: {
-          ...calendarSnapshot,
-          appointmentId: args.appointmentId,
-          appointmentTypeLineageKey: args.appointmentTypeLineageKey,
-          bookedDurationMinutes: args.bookedDurationMinutes,
-        },
-        tableName: "bookingConfirmationSteps",
       },
     ],
   };
@@ -1011,7 +795,6 @@ function transitionSubmitNewPatientData(
 
 const STEP_NAV_GRAPH: Record<StepName, StepNavNode> = {
   "existing-calendar-selection": { canGoBack: false, prev: null },
-  "existing-confirmation": { canGoBack: false, prev: null },
   "existing-data-input": {
     canGoBack: true,
     prev: "existing-doctor-selection",
@@ -1019,7 +802,6 @@ const STEP_NAV_GRAPH: Record<StepName, StepNavNode> = {
   "existing-doctor-selection": { canGoBack: true, prev: "patient-status" },
   location: { canGoBack: true, prev: "privacy" },
   "new-calendar-selection": { canGoBack: false, prev: null },
-  "new-confirmation": { canGoBack: false, prev: null },
   "new-data-input": {
     canGoBack: true,
     computePrev: (state) =>
@@ -1461,58 +1243,6 @@ function newDataSharingSnapshot(args: {
     locationLineageKey: args.state.locationLineageKey,
     personalData: args.personalData,
     pvsConsent: true,
-  };
-}
-
-function newPatientSlotSnapshot(args: {
-  base: StepBase;
-  personalData: BookingPersonalData;
-  reasonDescription: StepTableInput<"bookingCalendarSelectionSteps">["reasonDescription"];
-  selectedSlot: StepTableInput<"bookingCalendarSelectionSteps">["selectedSlot"];
-  state: InternalStateAtStep<"new-calendar-selection">;
-}): Omit<
-  StepTableInput<"bookingCalendarSelectionSteps">,
-  "appointmentTypeLineageKey"
-> {
-  if (args.state.insuranceType === "gkv") {
-    return {
-      ...args.base,
-      ...(args.state.medicalHistory === undefined
-        ? {}
-        : { medicalHistory: args.state.medicalHistory }),
-      dataSharingContacts: args.state.dataSharingContacts,
-      hzvStatus: args.state.hzvStatus,
-      insuranceType: "gkv",
-      isNewPatient: true,
-      locationLineageKey: args.state.locationLineageKey,
-      personalData: args.personalData,
-      reasonDescription: args.reasonDescription,
-      selectedSlot: args.selectedSlot,
-    };
-  }
-
-  return {
-    ...args.base,
-    ...(args.state.beihilfeStatus === undefined
-      ? {}
-      : { beihilfeStatus: args.state.beihilfeStatus }),
-    ...(args.state.medicalHistory === undefined
-      ? {}
-      : { medicalHistory: args.state.medicalHistory }),
-    ...(args.state.pkvInsuranceType === undefined
-      ? {}
-      : { pkvInsuranceType: args.state.pkvInsuranceType }),
-    ...(args.state.pkvTariff === undefined
-      ? {}
-      : { pkvTariff: args.state.pkvTariff }),
-    dataSharingContacts: args.state.dataSharingContacts,
-    insuranceType: "pkv",
-    isNewPatient: true,
-    locationLineageKey: args.state.locationLineageKey,
-    personalData: args.personalData,
-    pvsConsent: true,
-    reasonDescription: args.reasonDescription,
-    selectedSlot: args.selectedSlot,
   };
 }
 

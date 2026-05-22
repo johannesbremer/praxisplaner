@@ -559,7 +559,7 @@ describe("bookingSessions user identity handling", () => {
         ruleSetId,
         source: "legacy-online",
         sourceSessionKey: "legacy-pocketbase:session",
-        state: { step: "existing-confirmation" },
+        state: { step: "existing-calendar-selection" },
         status: "imported",
         userId,
       });
@@ -1170,7 +1170,6 @@ describe("bookingSessions atomic pending/completed step states", () => {
     };
 
     const materialized = await materializeBookingSessionUiState(state, {
-      resolveAppointmentTypeName: () => Promise.resolve("unused"),
       resolveLocationName: () => Promise.resolve("Main Location"),
       resolvePractitionerName: () => Promise.resolve("Dr. Test"),
     });
@@ -1625,63 +1624,6 @@ describe("bookingSessions slot selection validation", () => {
     ).rejects.toThrow("Geburtsdatum format");
   });
 
-  test("returnToCalendarSelectionAfterCancellation resets existing-confirmation to existing-calendar-selection", async () => {
-    const t = createTestContext();
-    const {
-      appointmentTypeId,
-      locationId,
-      practiceId,
-      practitionerId,
-      ruleSetId,
-    } = await createBookingEntities(t);
-    const authed = makeAuthedClient(t, "return_to_calendar_existing");
-
-    const sessionId = await authed.mutation(api.bookingSessions.create, {
-      practiceId,
-      ruleSetId,
-    });
-    await bootstrapToExistingCalendarSelection(
-      authed,
-      locationId,
-      practitionerId,
-      sessionId,
-    );
-
-    await authed.mutation(api.bookingSessions.selectExistingPatientSlot, {
-      appointmentTypeLineageKey: appointmentTypeId,
-      reasonDescription: "Kontrolle",
-      selectedSlot: makeSelectedSlot(practitionerId),
-      sessionId,
-    });
-
-    const confirmed = await authed.query(api.bookingSessions.get, {
-      sessionId,
-    });
-    assertSessionExists(
-      confirmed,
-      "session should exist at existing confirmation step",
-    );
-    assertStateStep(confirmed.state, "existing-confirmation");
-
-    await authed.mutation(
-      api.bookingSessions.returnToCalendarSelectionAfterCancellation,
-      { sessionId },
-    );
-
-    const atCalendar = await authed.query(api.bookingSessions.get, {
-      sessionId,
-    });
-    assertSessionExists(
-      atCalendar,
-      "session should exist at existing calendar-selection step",
-    );
-    assertStateStep(atCalendar.state, "existing-calendar-selection");
-    expect("appointmentId" in atCalendar.state).toBe(false);
-    expect("reasonDescription" in atCalendar.state).toBe(false);
-    expect("selectedSlot" in atCalendar.state).toBe(false);
-    expect(atCalendar.state.personalData.firstName).toBe("Grace");
-  });
-
   test("selectNewPatientSlot rejects empty reason descriptions", async () => {
     const t = createTestContext();
     const {
@@ -2002,7 +1944,7 @@ describe("bookingSessions slot selection validation", () => {
 
     const session = await authed.query(api.bookingSessions.get, { sessionId });
     assertSessionExists(session, "Session should exist after booking");
-    assertStateStep(session.state, "new-confirmation");
+    assertStateStep(session.state, "new-calendar-selection");
 
     const bookedAppointments = await authed.query(
       api.appointments.getBookedAppointmentsForCurrentUser,
@@ -2133,10 +2075,7 @@ describe("booking session snapshot sanitization", () => {
     }).toThrow("Invalid booking session snapshot");
 
     expect(() => {
-      assertValidSanitizedBookingSessionState("existing-confirmation", {
-        appointmentId: "appointment_1",
-        appointmentTypeLineageKey: "appointment_type_1",
-        bookedDurationMinutes: 30,
+      assertValidSanitizedBookingSessionState("existing-calendar-selection", {
         dataSharingContacts: [],
         isNewPatient: false,
         locationLineageKey: "location_1",
@@ -2146,14 +2085,7 @@ describe("booking session snapshot sanitization", () => {
           lastName: "Hopper",
           phoneNumber: "+491709999999",
         },
-        practitionerLineageKey: "practitioner_1",
-        reasonDescription: "Follow-up",
-        selectedSlot: {
-          practitionerLineageKey: "practitioner_1",
-          practitionerName: "Dr. Grace Hopper",
-          startTime: "not-a-zoned-date-time",
-        },
-        step: "existing-confirmation",
+        step: "existing-calendar-selection",
       });
     }).toThrow("Invalid booking session snapshot");
   });

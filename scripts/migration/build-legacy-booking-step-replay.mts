@@ -703,7 +703,9 @@ function mapLegacyUiStepToSessionStep(args) {
         ? "new-calendar-selection"
         : "existing-calendar-selection";
     case "confirmation":
-      return args.isNewPatient ? "new-confirmation" : "existing-confirmation";
+      return args.isNewPatient
+        ? "new-calendar-selection"
+        : "existing-calendar-selection";
   }
 }
 

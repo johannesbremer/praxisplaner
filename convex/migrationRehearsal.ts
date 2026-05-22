@@ -294,7 +294,6 @@ const legacyBookingReplayRowValidator = v.object({
     v.literal("existing-doctor-selection"),
     v.literal("existing-data-input"),
     v.literal("existing-calendar-selection"),
-    v.literal("existing-confirmation"),
     v.literal("new-insurance-type"),
     v.literal("new-gkv-details"),
     v.literal("new-pvs-consent"),
@@ -302,7 +301,6 @@ const legacyBookingReplayRowValidator = v.object({
     v.literal("new-data-input"),
     v.literal("new-data-sharing"),
     v.literal("new-calendar-selection"),
-    v.literal("new-confirmation"),
   ),
   source: v.literal("legacy-online"),
   sourceSessionKey: v.string(),
@@ -1159,8 +1157,6 @@ const rehearsalCountTableNameValidator = v.union(
   v.literal("bookingPatientStatusSteps"),
   v.literal("bookingExistingDoctorSelectionSteps"),
   v.literal("bookingPersonalDataSteps"),
-  v.literal("bookingCalendarSelectionSteps"),
-  v.literal("bookingConfirmationSteps"),
   v.literal("bookingNewInsuranceTypeSteps"),
   v.literal("bookingNewGkvDetailSteps"),
   v.literal("bookingNewPkvConsentSteps"),
@@ -1182,26 +1178,6 @@ export const countRehearsalTablePage = query({
     assertMigrationRehearsalEnabled();
 
     switch (args.tableName) {
-      case "bookingCalendarSelectionSteps": {
-        const result = await ctx.db
-          .query("bookingCalendarSelectionSteps")
-          .paginate(args.paginationOpts);
-        return {
-          continueCursor: result.continueCursor,
-          count: result.page.length,
-          isDone: result.isDone,
-        };
-      }
-      case "bookingConfirmationSteps": {
-        const result = await ctx.db
-          .query("bookingConfirmationSteps")
-          .paginate(args.paginationOpts);
-        return {
-          continueCursor: result.continueCursor,
-          count: result.page.length,
-          isDone: result.isDone,
-        };
-      }
       case "bookingExistingDoctorSelectionSteps": {
         const result = await ctx.db
           .query("bookingExistingDoctorSelectionSteps")
@@ -1379,16 +1355,6 @@ export const countRehearsalTable = query({
     assertMigrationRehearsalEnabled();
 
     switch (args.tableName) {
-      case "bookingCalendarSelectionSteps": {
-        const rows = await ctx.db
-          .query("bookingCalendarSelectionSteps")
-          .collect();
-        return rows.length;
-      }
-      case "bookingConfirmationSteps": {
-        const rows = await ctx.db.query("bookingConfirmationSteps").collect();
-        return rows.length;
-      }
       case "bookingExistingDoctorSelectionSteps": {
         const rows = await ctx.db
           .query("bookingExistingDoctorSelectionSteps")
@@ -1516,12 +1482,10 @@ interface LegacyBookingReplayRowInput {
   reasonDescription?: string;
   sessionStep:
     | "existing-calendar-selection"
-    | "existing-confirmation"
     | "existing-data-input"
     | "existing-doctor-selection"
     | "location"
     | "new-calendar-selection"
-    | "new-confirmation"
     | "new-data-input"
     | "new-data-sharing"
     | "new-gkv-details"
@@ -1609,10 +1573,7 @@ function getReplayImportSkipReason(args: {
     return "missing_practitioner";
   }
 
-  if (
-    replayStepRequiresAppointment(args.sessionStep) &&
-    args.appointment === null
-  ) {
+  if (replayStepRequiresAppointment() && args.appointment === null) {
     return "missing_appointment";
   }
 
@@ -1635,7 +1596,6 @@ async function insertImportedExistingReplaySteps(
   const practitionerLineageKey =
     args.resolved.appointment?.practitionerLineageKey ??
     args.resolved.practitionerLineageKey;
-  const appointment = args.resolved.appointment;
   const personalData = args.replayRow.personalData;
 
   const base = {
@@ -1708,37 +1668,6 @@ async function insertImportedExistingReplaySteps(
   ) {
     return;
   }
-  if (!appointment) {
-    return;
-  }
-
-  await ctx.db.insert("bookingCalendarSelectionSteps", {
-    ...base,
-    appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
-    dataSharingContacts: [],
-    isNewPatient: false,
-    locationLineageKey,
-    personalData,
-    practitionerLineageKey,
-    reasonDescription: appointment.reasonDescription,
-    selectedSlot: appointment.selectedSlot,
-  });
-  await ctx.db.insert("bookingConfirmationSteps", {
-    ...base,
-    appointmentId: appointment.appointmentId,
-    appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
-    bookedDurationMinutes: appointment.bookedDurationMinutes,
-    dataSharingContacts: [],
-    isNewPatient: false,
-    locationLineageKey,
-    ...(appointment.patientId === undefined
-      ? {}
-      : { patientId: appointment.patientId }),
-    personalData,
-    practitionerLineageKey,
-    reasonDescription: appointment.reasonDescription,
-    selectedSlot: appointment.selectedSlot,
-  });
 }
 
 async function insertImportedNewReplaySteps(
@@ -1754,7 +1683,6 @@ async function insertImportedNewReplaySteps(
   },
 ): Promise<void> {
   const locationLineageKey = args.resolved.locationLineageKey;
-  const appointment = args.resolved.appointment;
   const personalData = args.replayRow.personalData;
 
   const base = {
@@ -1929,63 +1857,6 @@ async function insertImportedNewReplaySteps(
   if (args.replayRow.sessionStep === "new-calendar-selection") {
     return;
   }
-  if (!appointment) {
-    return;
-  }
-
-  await ctx.db.insert("bookingCalendarSelectionSteps", {
-    ...base,
-    appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
-    dataSharingContacts,
-    ...(args.replayRow.hzvStatus === undefined
-      ? {}
-      : { hzvStatus: args.replayRow.hzvStatus }),
-    insuranceType: args.replayRow.insuranceType,
-    isNewPatient: true,
-    locationLineageKey,
-    ...(args.replayRow.medicalHistory === undefined
-      ? {}
-      : { medicalHistory: args.replayRow.medicalHistory }),
-    personalData,
-    ...(args.replayRow.pkvInsuranceType === undefined
-      ? {}
-      : { pkvInsuranceType: args.replayRow.pkvInsuranceType }),
-    ...(args.replayRow.pkvTariff === undefined
-      ? {}
-      : { pkvTariff: args.replayRow.pkvTariff }),
-    ...(args.replayRow.pvsConsent === true ? { pvsConsent: true } : {}),
-    reasonDescription: appointment.reasonDescription,
-    selectedSlot: appointment.selectedSlot,
-  });
-  await ctx.db.insert("bookingConfirmationSteps", {
-    ...base,
-    appointmentId: appointment.appointmentId,
-    appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
-    bookedDurationMinutes: appointment.bookedDurationMinutes,
-    dataSharingContacts,
-    ...(args.replayRow.hzvStatus === undefined
-      ? {}
-      : { hzvStatus: args.replayRow.hzvStatus }),
-    insuranceType: args.replayRow.insuranceType,
-    isNewPatient: true,
-    locationLineageKey,
-    ...(args.replayRow.medicalHistory === undefined
-      ? {}
-      : { medicalHistory: args.replayRow.medicalHistory }),
-    ...(appointment.patientId === undefined
-      ? {}
-      : { patientId: appointment.patientId }),
-    personalData,
-    ...(args.replayRow.pkvInsuranceType === undefined
-      ? {}
-      : { pkvInsuranceType: args.replayRow.pkvInsuranceType }),
-    ...(args.replayRow.pkvTariff === undefined
-      ? {}
-      : { pkvTariff: args.replayRow.pkvTariff }),
-    ...(args.replayRow.pvsConsent === true ? { pvsConsent: true } : {}),
-    reasonDescription: appointment.reasonDescription,
-    selectedSlot: appointment.selectedSlot,
-  });
 }
 
 function normalizeSearch(
@@ -2002,10 +1873,8 @@ function normalizeSearch(
   return parts.join(" ").toLocaleLowerCase();
 }
 
-function replayStepRequiresAppointment(
-  step: LegacyBookingReplayRowInput["sessionStep"],
-): boolean {
-  return step === "existing-confirmation" || step === "new-confirmation";
+function replayStepRequiresAppointment(): boolean {
+  return false;
 }
 
 function replayStepRequiresLocation(
@@ -2018,9 +1887,7 @@ function replayStepRequiresPractitioner(
   step: LegacyBookingReplayRowInput["sessionStep"],
 ): boolean {
   return (
-    step === "existing-data-input" ||
-    step === "existing-calendar-selection" ||
-    step === "existing-confirmation"
+    step === "existing-data-input" || step === "existing-calendar-selection"
   );
 }
 

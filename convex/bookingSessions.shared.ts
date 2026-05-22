@@ -71,8 +71,6 @@ export type StepSnapshotMetaKeys =
   | "userId";
 
 export interface StepTableDocMap {
-  bookingCalendarSelectionSteps: Doc<"bookingCalendarSelectionSteps">;
-  bookingConfirmationSteps: Doc<"bookingConfirmationSteps">;
   bookingExistingDoctorSelectionSteps: Doc<"bookingExistingDoctorSelectionSteps">;
   bookingLocationSteps: Doc<"bookingLocationSteps">;
   bookingNewDataSharingSteps: Doc<"bookingNewDataSharingSteps">;
@@ -102,8 +100,6 @@ export type StepTableInsertData<T extends StepTableName> = StepTableInput<T> & {
 
 export type StepTableName = keyof Pick<
   DataModel,
-  | "bookingCalendarSelectionSteps"
-  | "bookingConfirmationSteps"
   | "bookingExistingDoctorSelectionSteps"
   | "bookingLocationSteps"
   | "bookingNewDataSharingSteps"

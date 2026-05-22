@@ -1,11 +1,9 @@
 export const BOOKING_SESSION_STEP_KIND = {
   "existing-calendar-selection": "calendar-selection",
-  "existing-confirmation": "confirmation",
   "existing-data-input": "data-input",
   "existing-doctor-selection": "doctor-selection",
   location: "location",
   "new-calendar-selection": "calendar-selection",
-  "new-confirmation": "confirmation",
   "new-data-input": "data-input",
   "new-data-input-complete": "data-input",
   "new-data-sharing": "data-sharing",
@@ -25,7 +23,6 @@ export type BookingSessionStepName = keyof typeof BOOKING_SESSION_STEP_KIND;
 
 export const STEP_LABEL_BY_KIND: Record<BookingSessionStepKind, string> = {
   "calendar-selection": "Terminauswahl",
-  confirmation: "Bestätigung",
   "data-input": "Persönliche Daten",
   "data-sharing": "Datenweitergabe",
   "doctor-selection": "Arztauswahl",
@@ -38,14 +35,13 @@ export const STEP_LABEL_BY_KIND: Record<BookingSessionStepKind, string> = {
   "pvs-consent": "PVS-Einwilligung",
 };
 
-export type BookingStepGroup = "booking" | "confirmation" | "consent" | "info";
+export type BookingStepGroup = "booking" | "consent" | "info";
 
 export const STEP_GROUP_BY_KIND: Record<
   BookingSessionStepKind,
   BookingStepGroup
 > = {
   "calendar-selection": "booking",
-  confirmation: "confirmation",
   "data-input": "info",
   "data-sharing": "info",
   "doctor-selection": "info",
@@ -60,20 +56,13 @@ export const STEP_GROUP_BY_KIND: Record<
 
 export const LOCKED_BACK_STEPS = new Set<BookingSessionStepName>([
   "existing-calendar-selection",
-  "existing-confirmation",
   "new-calendar-selection",
-  "new-confirmation",
   "privacy",
 ]);
 
 export const CALENDAR_SELECTION_STEPS = [
   "existing-calendar-selection",
   "new-calendar-selection",
-] as const;
-
-export const CONFIRMATION_STEPS = [
-  "existing-confirmation",
-  "new-confirmation",
 ] as const;
 
 export const DATA_INPUT_STEPS = [
@@ -84,7 +73,6 @@ export const DATA_INPUT_STEPS = [
 
 export type CalendarSelectionStepName =
   (typeof CALENDAR_SELECTION_STEPS)[number];
-export type ConfirmationStepName = (typeof CONFIRMATION_STEPS)[number];
 export type DataInputStepName = (typeof DATA_INPUT_STEPS)[number];
 
 export function getBookingSessionStepGroup(
@@ -105,14 +93,6 @@ export function getBookingSessionStepLabel(
   return STEP_LABEL_BY_KIND[getBookingSessionStepKind(step)];
 }
 
-export function getCalendarSelectionStepForConfirmationStep(
-  step: ConfirmationStepName,
-): CalendarSelectionStepName {
-  return step === "new-confirmation"
-    ? "new-calendar-selection"
-    : "existing-calendar-selection";
-}
-
 export function isBackLockedStep(step: BookingSessionStepName): boolean {
   return LOCKED_BACK_STEPS.has(step);
 }
@@ -123,12 +103,6 @@ export function isCalendarSelectionStepName(
   return (
     step === "existing-calendar-selection" || step === "new-calendar-selection"
   );
-}
-
-export function isConfirmationStepName(
-  step: BookingSessionStepName,
-): step is ConfirmationStepName {
-  return step === "existing-confirmation" || step === "new-confirmation";
 }
 
 export function isDataInputStepName(

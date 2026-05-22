@@ -12,8 +12,6 @@ const tables = [
   "bookingPatientStatusSteps",
   "bookingExistingDoctorSelectionSteps",
   "bookingPersonalDataSteps",
-  "bookingCalendarSelectionSteps",
-  "bookingConfirmationSteps",
   "bookingNewInsuranceTypeSteps",
   "bookingNewGkvDetailSteps",
   "bookingNewPkvConsentSteps",

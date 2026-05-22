@@ -693,7 +693,7 @@ describe("practitioner associations", () => {
               pvsAppointmentTypeTitle: "Akuttermin",
               pvsPatientNumber: 123,
               reasonDescription: "Rueckenschmerzen seit gestern",
-              sessionStep: "existing-confirmation",
+              sessionStep: "existing-calendar-selection",
               source: "legacy-online",
               sourceSessionKey: "legacy-pocketbase:snapshot:reason-user",
               userAuthId: "legacy-pocketbase:reason-user",
@@ -706,18 +706,14 @@ describe("practitioner associations", () => {
 
       expect(result.insertedSessions).toBe(1);
 
-      const confirmationSteps = await t.run(async (ctx) =>
-        ctx.db.query("bookingConfirmationSteps").collect(),
-      );
       const sessions = await t.run(async (ctx) =>
         ctx.db.query("bookingSessions").collect(),
       );
-      expect(confirmationSteps).toHaveLength(1);
-      expect(confirmationSteps[0]?.appointmentId).toBe(setup.appointmentId);
-      expect(confirmationSteps[0]?.reasonDescription).toBe(
-        "Rueckenschmerzen seit gestern",
+      expect(sessions[0]?.state.step).toBe("existing-calendar-selection");
+      const appointment = await t.run(async (ctx) =>
+        ctx.db.get("appointments", setup.appointmentId),
       );
-      expect(sessions[0]?.state.step).toBe("existing-confirmation");
+      expect(appointment?.title).toBe("Akuttermin");
     } finally {
       if (previousFlag === undefined) {
         delete process.env["MIGRATION_REHEARSAL_ENABLED"];

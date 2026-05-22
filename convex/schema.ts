@@ -17,8 +17,6 @@ import {
   personalDataValidator,
   pkvInsuranceTypeValidator,
   pkvTariffValidator,
-  selectedSlotStorageValidator,
-  selectedSlotValidator,
 } from "./bookingValidators";
 import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
 import { legacyUnmatchedFutureBookingHoldSourceSystemValidator } from "./legacyBookingMigrationShared";
@@ -255,53 +253,6 @@ export const bookingSessionStepValidator = v.union(
     step: v.literal("new-calendar-selection"),
   }),
 
-  // A7: Confirmation (slot selected, appointment created)
-  // GKV path
-  v.object({
-    appointmentId: v.id("appointments"),
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
-    appointmentTypeName: v.string(),
-    bookedDurationMinutes: v.number(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
-    hzvStatus: hzvStatusValidator,
-    insuranceType: v.literal("gkv"),
-    isNewPatient: v.literal(true),
-    locationLineageKey: v.id("locations"),
-    locationName: v.string(),
-    medicalHistory: v.optional(medicalHistoryValidator),
-    patientId: v.optional(v.id("patients")),
-    personalData: personalDataValidator,
-    reasonDescription: v.string(),
-    selectedSlot: selectedSlotValidator,
-    step: v.literal("new-confirmation"),
-  }),
-
-  // A7: Confirmation (slot selected, appointment created)
-  // PKV path
-  v.object({
-    appointmentId: v.id("appointments"),
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
-    appointmentTypeName: v.string(),
-    beihilfeStatus: v.optional(beihilfeStatusValidator),
-    bookedDurationMinutes: v.number(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
-    insuranceType: v.literal("pkv"),
-    isNewPatient: v.literal(true),
-    locationLineageKey: v.id("locations"),
-    locationName: v.string(),
-    medicalHistory: v.optional(medicalHistoryValidator),
-    patientId: v.optional(v.id("patients")),
-    personalData: personalDataValidator,
-    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
-    pkvTariff: v.optional(pkvTariffValidator),
-    pvsConsent: v.literal(true),
-    reasonDescription: v.string(),
-    selectedSlot: selectedSlotValidator,
-    step: v.literal("new-confirmation"),
-  }),
-
   // ================================
   // PATH B: EXISTING PATIENT
   // ================================
@@ -334,36 +285,16 @@ export const bookingSessionStepValidator = v.union(
     practitionerName: v.string(),
     step: v.literal("existing-calendar-selection"),
   }),
-
-  // B6: Confirmation (slot selected, appointment created)
-  v.object({
-    appointmentId: v.id("appointments"),
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
-    appointmentTypeName: v.string(),
-    bookedDurationMinutes: v.number(),
-    isNewPatient: v.literal(false),
-    locationLineageKey: v.id("locations"),
-    locationName: v.string(),
-    patientId: v.optional(v.id("patients")),
-    personalData: personalDataValidator,
-    practitionerLineageKey: v.id("practitioners"),
-    practitionerName: v.string(),
-    reasonDescription: v.string(),
-    selectedSlot: selectedSlotValidator,
-    step: v.literal("existing-confirmation"),
-  }),
 );
 
 export type BookingSessionStep = Infer<typeof bookingSessionStepValidator>;
 
 export const bookingSessionStepNameValidator = v.union(
   v.literal("existing-calendar-selection"),
-  v.literal("existing-confirmation"),
   v.literal("existing-data-input"),
   v.literal("existing-doctor-selection"),
   v.literal("location"),
   v.literal("new-calendar-selection"),
-  v.literal("new-confirmation"),
   v.literal("new-data-input"),
   v.literal("new-data-input-complete"),
   v.literal("new-data-sharing"),
@@ -617,63 +548,6 @@ export default defineSchema({
     .index("by_start", ["start"])
     .index("by_isSimulation", ["isSimulation"])
     .index("by_replacesBlockedSlotId", ["replacesBlockedSlotId"]),
-
-  bookingCalendarSelectionSteps: defineTable({
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
-    beihilfeStatus: v.optional(beihilfeStatusValidator),
-    createdAt: v.int64(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
-    hzvStatus: v.optional(hzvStatusValidator),
-    insuranceType: v.optional(insuranceTypeValidator),
-    isNewPatient: v.boolean(),
-    lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    medicalHistory: v.optional(medicalHistoryValidator),
-    personalData: personalDataValidator,
-    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
-    pkvTariff: v.optional(pkvTariffValidator),
-    practiceId: v.id("practices"),
-    practitionerLineageKey: v.optional(v.id("practitioners")),
-    pvsConsent: v.optional(v.literal(true)),
-    reasonDescription: v.string(),
-    ruleSetId: v.id("ruleSets"),
-    selectedSlot: selectedSlotStorageValidator,
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
-
-  bookingConfirmationSteps: defineTable({
-    appointmentId: v.id("appointments"),
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
-    beihilfeStatus: v.optional(beihilfeStatusValidator),
-    bookedDurationMinutes: v.number(),
-    createdAt: v.int64(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
-    hzvStatus: v.optional(hzvStatusValidator),
-    insuranceType: v.optional(insuranceTypeValidator),
-    isNewPatient: v.boolean(),
-    lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    medicalHistory: v.optional(medicalHistoryValidator),
-    patientId: v.optional(v.id("patients")),
-    personalData: personalDataValidator,
-    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
-    pkvTariff: v.optional(pkvTariffValidator),
-    practiceId: v.id("practices"),
-    practitionerLineageKey: v.optional(v.id("practitioners")),
-    pvsConsent: v.optional(v.literal(true)),
-    reasonDescription: v.string(),
-    ruleSetId: v.id("ruleSets"),
-    selectedSlot: selectedSlotStorageValidator,
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
 
   bookingExistingDoctorSelectionSteps: defineTable({
     createdAt: v.int64(),

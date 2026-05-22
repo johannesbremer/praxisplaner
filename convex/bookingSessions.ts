@@ -1,14 +1,8 @@
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
-import type { ConfirmationStepName } from "../lib/booking-session-steps.js";
 import type { Doc, Id } from "./_generated/dataModel";
 
-import {
-  getCalendarSelectionStepForConfirmationStep,
-  isCalendarSelectionStepName,
-  isConfirmationStepName,
-} from "../lib/booking-session-steps.js";
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
 import {
@@ -50,7 +44,6 @@ import {
   materializeBookingSessionUiState,
 } from "./bookingSessions.stateMachine";
 import {
-  type AppointmentTypeLineageKey,
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
   asPractitionerLineageKey,
@@ -92,32 +85,6 @@ type SessionWithInternalState = SessionDoc & {
 const STALE_PUBLIC_SESSION_STATE_ERROR_PREFIX =
   "[BOOKING_SESSION:STALE_PUBLIC_STATE]";
 
-async function hasUpcomingVisibleAppointmentForConfirmationState(
-  ctx: MutationCtx | QueryCtx,
-  state: Extract<InternalBookingSessionState, { step: ConfirmationStepName }>,
-): Promise<boolean> {
-  const appointment = await ctx.db.get("appointments", state.appointmentId);
-  if (!appointment) {
-    return false;
-  }
-
-  if (
-    appointment.cancelledAt !== undefined ||
-    appointment.isSimulation === true
-  ) {
-    return false;
-  }
-
-  try {
-    return (
-      Temporal.ZonedDateTime.from(appointment.start).epochMilliseconds >
-      Temporal.Now.instant().epochMilliseconds
-    );
-  } catch {
-    return false;
-  }
-}
-
 async function hydrateInternalSessionState(
   ctx: MutationCtx | QueryCtx,
   session: SessionDoc,
@@ -125,15 +92,6 @@ async function hydrateInternalSessionState(
   const step = await resolveEffectiveSessionStep(ctx, session);
   const snapshot = await loadInternalStepSnapshot(ctx, session, step);
   return hydrateBookingSessionInternalState(step, snapshot);
-}
-
-function isConfirmationState(
-  state: BookingSessionState | InternalBookingSessionState,
-): state is Extract<
-  InternalBookingSessionState,
-  { step: ConfirmationStepName }
-> {
-  return isConfirmationStepName(state.step);
 }
 
 function isRecoverableSessionHydrationError(error: unknown): boolean {
@@ -150,12 +108,6 @@ async function materializeInternalState(
   state: InternalBookingSessionState,
 ): Promise<BookingSessionState> {
   return await materializeBookingSessionUiState(state, {
-    resolveAppointmentTypeName: async (appointmentTypeLineageKey) =>
-      await resolveAppointmentTypeNameForPublicState(
-        ctx.db,
-        session.ruleSetId,
-        asAppointmentTypeLineageKey(appointmentTypeLineageKey),
-      ),
     resolveLocationName: async (locationLineageKey) =>
       await resolveLocationNameForPublicState(
         ctx.db,
@@ -213,39 +165,6 @@ function requireSelectableRuleSetEntity<
     );
   }
   return entity;
-}
-
-async function resolveAppointmentTypeNameForPublicState(
-  db: MutationCtx["db"] | QueryCtx["db"],
-  ruleSetId: Id<"ruleSets">,
-  appointmentTypeLineageKey: AppointmentTypeLineageKey,
-): Promise<string> {
-  try {
-    const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
-      db,
-      {
-        lineageKey: asAppointmentTypeLineageKey(appointmentTypeLineageKey),
-        ruleSetId,
-      },
-    );
-    const appointmentType = await db.get("appointmentTypes", appointmentTypeId);
-    if (!appointmentType) {
-      throw new Error(
-        `Terminart ${appointmentTypeLineageKey} konnte nicht geladen werden.`,
-      );
-    }
-    if (isRuleSetEntityDeleted(appointmentType)) {
-      throw new Error(
-        `Terminart ${appointmentTypeLineageKey} ist im Regelset nicht mehr verfügbar.`,
-      );
-    }
-    return appointmentType.name;
-  } catch (error) {
-    if (error instanceof Error) {
-      throw stalePublicSessionStateError(error);
-    }
-    throw error;
-  }
 }
 
 async function resolveLocationIdForInternalState(
@@ -330,13 +249,6 @@ async function resolvePractitionerNameForPublicState(
   }
 }
 
-function resolveStoredAppointmentTypeLineageKey(
-  _db: MutationCtx["db"] | QueryCtx["db"],
-  appointmentTypeLineageKey: AppointmentTypeLineageKey,
-) {
-  return appointmentTypeLineageKey;
-}
-
 function resolveStoredLocationLineageKey(
   _db: MutationCtx["db"] | QueryCtx["db"],
   locationLineageKey: LocationLineageKey,
@@ -355,20 +267,6 @@ function stalePublicSessionStateError(error: Error): Error {
   return new Error(
     `${STALE_PUBLIC_SESSION_STATE_ERROR_PREFIX} ${error.message}`,
   );
-}
-
-function toStoredSelectedSlot(
-  db: MutationCtx["db"] | QueryCtx["db"],
-  selectedSlot: ReturnType<typeof asSelectedSlotInput>,
-): StepTableDocMap["bookingCalendarSelectionSteps"]["selectedSlot"] {
-  return {
-    practitionerLineageKey: resolveStoredPractitionerLineageKey(
-      db,
-      asPractitionerLineageKey(selectedSlot.practitionerLineageKey),
-    ),
-    practitionerName: selectedSlot.practitionerName,
-    startTime: selectedSlot.startTime,
-  };
 }
 
 async function tryHydrateInternalSessionState(
@@ -421,16 +319,6 @@ function withInternalHydratedState(
 }
 
 const STEP_QUERY_MAP: StepQueryMap = {
-  bookingCalendarSelectionSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingCalendarSelectionSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingConfirmationSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingConfirmationSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
   bookingExistingDoctorSelectionSteps: (ctx, sessionId) =>
     ctx.db
       .query("bookingExistingDoctorSelectionSteps")
@@ -484,10 +372,6 @@ const STEP_QUERY_MAP: StepQueryMap = {
 };
 
 const STEP_INSERT_MAP: StepInsertMap = {
-  bookingCalendarSelectionSteps: (ctx, data) =>
-    ctx.db.insert("bookingCalendarSelectionSteps", data),
-  bookingConfirmationSteps: (ctx, data) =>
-    ctx.db.insert("bookingConfirmationSteps", data),
   bookingExistingDoctorSelectionSteps: (ctx, data) =>
     ctx.db.insert("bookingExistingDoctorSelectionSteps", data),
   bookingLocationSteps: (ctx, data) =>
@@ -511,10 +395,6 @@ const STEP_INSERT_MAP: StepInsertMap = {
 };
 
 const STEP_PATCH_MAP: StepPatchMap = {
-  bookingCalendarSelectionSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingCalendarSelectionSteps", id, data),
-  bookingConfirmationSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingConfirmationSteps", id, data),
   bookingExistingDoctorSelectionSteps: (ctx, id, data) =>
     ctx.db.patch("bookingExistingDoctorSelectionSteps", id, data),
   bookingLocationSteps: (ctx, id, data) =>
@@ -665,15 +545,6 @@ export const getActiveForUser = query({
       if (!hydratedState) {
         continue;
       }
-      if (
-        isConfirmationState(hydratedState) &&
-        !(await hasUpcomingVisibleAppointmentForConfirmationState(
-          ctx,
-          hydratedState,
-        ))
-      ) {
-        return null;
-      }
 
       return withHydratedState(session, hydratedState);
     }
@@ -745,23 +616,11 @@ export const create = mutation({
           await ctx.db.delete("bookingSessions", session._id);
           continue;
         }
-        let nextStep = hydratedState.step;
-        if (
-          isConfirmationState(hydratedState) &&
-          !(await hasUpcomingVisibleAppointmentForConfirmationState(
-            ctx,
-            hydratedState,
-          ))
-        ) {
-          nextStep = getCalendarSelectionStepForConfirmationStep(
-            hydratedState.step,
-          );
-        }
 
         await ctx.db.patch("bookingSessions", session._id, {
           expiresAt: now + BigInt(SESSION_TTL_MS),
           lastModified: now,
-          state: { step: nextStep },
+          state: { step: hydratedState.step },
         });
         return session._id;
       }
@@ -882,21 +741,16 @@ async function deriveImportedLegacyExistingPatientStep(
   ctx: StepReadCtx,
   session: SessionDoc,
 ): Promise<BookingSessionState["step"]> {
-  const [doctorSelectionStep, personalDataStep, confirmationStep] =
-    await Promise.all([
-      getStepRow(ctx, "bookingExistingDoctorSelectionSteps", session._id),
-      getStepRow(ctx, "bookingPersonalDataSteps", session._id),
-      getStepRow(ctx, "bookingConfirmationSteps", session._id),
-    ]);
+  const [doctorSelectionStep, personalDataStep] = await Promise.all([
+    getStepRow(ctx, "bookingExistingDoctorSelectionSteps", session._id),
+    getStepRow(ctx, "bookingPersonalDataSteps", session._id),
+  ]);
 
   if (!doctorSelectionStep) {
     return "existing-doctor-selection";
   }
   if (!personalDataStep) {
     return "existing-data-input";
-  }
-  if (confirmationStep) {
-    return "existing-confirmation";
   }
   return "existing-calendar-selection";
 }
@@ -927,21 +781,16 @@ async function deriveImportedLegacyNewPatientStep(
     return "new-pkv-details";
   }
 
-  const [personalDataStep, dataSharingStep, confirmationStep] =
-    await Promise.all([
-      getStepRow(ctx, "bookingPersonalDataSteps", session._id),
-      getStepRow(ctx, "bookingNewDataSharingSteps", session._id),
-      getStepRow(ctx, "bookingConfirmationSteps", session._id),
-    ]);
+  const [personalDataStep, dataSharingStep] = await Promise.all([
+    getStepRow(ctx, "bookingPersonalDataSteps", session._id),
+    getStepRow(ctx, "bookingNewDataSharingSteps", session._id),
+  ]);
 
   if (!personalDataStep) {
     return "new-data-input";
   }
   if (!dataSharingStep) {
     return "new-data-sharing";
-  }
-  if (confirmationStep) {
-    return "new-confirmation";
   }
   return "new-calendar-selection";
 }
@@ -997,8 +846,6 @@ function getStepRowId<T extends StepTableName>(
 function getStepRowId(...params: StepRowIdParams) {
   const [tableName, row] = params;
   switch (tableName) {
-    case "bookingCalendarSelectionSteps":
-    case "bookingConfirmationSteps":
     case "bookingExistingDoctorSelectionSteps":
     case "bookingLocationSteps":
     case "bookingNewDataSharingSteps":
@@ -1101,8 +948,6 @@ async function persistTransitionWrite(
   write: BookingSessionTransition["writes"][number],
 ) {
   switch (write.tableName) {
-    case "bookingCalendarSelectionSteps":
-    case "bookingConfirmationSteps":
     case "bookingExistingDoctorSelectionSteps":
     case "bookingLocationSteps":
     case "bookingNewDataSharingSteps":
@@ -1437,38 +1282,6 @@ export const goBack = mutation({
     return previousState.step;
   },
   returns: v.string(),
-});
-
-/**
- * Move a confirmation session back to calendar selection after appointment cancellation.
- * Keeps the previously entered data and clears confirmation-only fields.
- */
-export const returnToCalendarSelectionAfterCancellation = mutation({
-  args: { sessionId: v.id("bookingSessions") },
-  handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    const state = session.state;
-
-    const targetStep = isConfirmationStepName(state.step)
-      ? getCalendarSelectionStepForConfirmationStep(state.step)
-      : null;
-
-    if (!targetStep) {
-      if (isCalendarSelectionStepName(state.step)) {
-        return null;
-      }
-
-      throw new Error(
-        `Cannot return to calendar selection from step '${state.step}'`,
-      );
-    }
-
-    await setSessionStep(ctx, args.sessionId, targetStep);
-
-    await refreshSession(ctx, args.sessionId);
-    return null;
-  },
-  returns: v.null(),
 });
 
 // ============================================================================
@@ -1843,13 +1656,6 @@ export const selectNewPatientSlot = mutation({
       startTime: selectedSlot.startTime,
     });
 
-    const base = getStepBase(session);
-    const appointmentTypeLineageKey = resolveStoredAppointmentTypeLineageKey(
-      ctx.db,
-      asAppointmentTypeLineageKey(args.appointmentTypeLineageKey),
-    );
-    const storedSelectedSlot = toStoredSelectedSlot(ctx.db, selectedSlot);
-
     const locationId = await resolveLocationIdForInternalState(
       ctx.db,
       session.ruleSetId,
@@ -1871,25 +1677,6 @@ export const selectNewPatientSlot = mutation({
       title: `Online-Termin: ${selectedAppointmentType.name}`,
       userId: session.userId,
     });
-    const bookedDurationMinutes = selectedAppointmentType.duration;
-
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base,
-        kind: "selectNewPatientSlot",
-        slotAttempt: {
-          appointmentId,
-          appointmentTypeLineageKey,
-          bookedDurationMinutes,
-          personalData,
-          reasonDescription,
-          selectedSlot: storedSelectedSlot,
-        },
-        state,
-      }),
-    );
     await refreshSession(ctx, args.sessionId);
 
     return { appointmentId };
@@ -2058,32 +1845,6 @@ export const selectExistingPatientSlot = mutation({
       title: `Online-Termin: ${appointmentType.name}`,
       userId: session.userId,
     });
-    const bookedDurationMinutes = appointmentType.duration;
-
-    const base = getStepBase(session);
-    const appointmentTypeLineageKey = resolveStoredAppointmentTypeLineageKey(
-      ctx.db,
-      asAppointmentTypeLineageKey(args.appointmentTypeLineageKey),
-    );
-    const storedSelectedSlot = toStoredSelectedSlot(ctx.db, selectedSlot);
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base,
-        kind: "selectExistingPatientSlot",
-        slotAttempt: {
-          appointmentId,
-          appointmentTypeLineageKey,
-          bookedDurationMinutes,
-          personalData,
-          reasonDescription,
-          selectedSlot: storedSelectedSlot,
-        },
-        state,
-      }),
-    );
-
     await refreshSession(ctx, args.sessionId);
 
     return { appointmentId };
