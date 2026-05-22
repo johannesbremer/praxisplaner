@@ -4,7 +4,6 @@ import { v } from "convex/values";
 
 import type { DataModel, Id } from "./_generated/dataModel";
 
-import { regex } from "../lib/arkregex.js";
 import { mutation, query } from "./_generated/server";
 import {
   ensurePracticeAccessForMutation,
@@ -16,7 +15,6 @@ import {
 } from "./practitionerAssociations";
 
 type Reader = GenericDatabaseReader<DataModel>;
-const SEARCH_WHITESPACE_REGEX = regex.as(String.raw`\s+`, "gu");
 
 const bookingIdentityKindValidator = v.union(
   v.literal("online"),
@@ -56,12 +54,7 @@ export async function resolveActivePvsPatientIdForBookingIdentity(
 
 export const createBookingIdentity = mutation({
   args: {
-    dateOfBirth: v.optional(v.string()),
-    email: v.optional(v.string()),
-    firstName: v.optional(v.string()),
     kind: bookingIdentityKindValidator,
-    lastName: v.optional(v.string()),
-    phoneNumber: v.optional(v.string()),
     practiceId: v.id("practices"),
     sourceIdentityId: v.optional(v.string()),
     sourceSystem: v.optional(bookingIdentitySourceSystemValidator),
@@ -75,8 +68,6 @@ export const createBookingIdentity = mutation({
       ...args,
       createdAt: now,
       lastModified: now,
-      searchFirstName: normalizeSearch(args.firstName, args.lastName),
-      searchLastName: normalizeSearch(args.lastName, args.firstName),
     });
   },
   returns: v.id("bookingIdentities"),
@@ -85,7 +76,6 @@ export const createBookingIdentity = mutation({
 export const associateBookingIdentityWithPvsPatient = mutation({
   args: {
     bookingIdentityId: v.id("bookingIdentities"),
-    evidenceCount: v.optional(v.number()),
     legacyAppointmentId: v.optional(v.string()),
     legacyIdentityId: v.optional(v.string()),
     method: v.union(v.literal("automatic"), v.literal("manual")),
@@ -168,9 +158,6 @@ export const associateBookingIdentityWithPvsPatient = mutation({
         bookingIdentityId: args.bookingIdentityId,
         createdAt: now,
         createdByUserId: userId,
-        ...(args.evidenceCount === undefined
-          ? {}
-          : { evidenceCount: args.evidenceCount }),
         ...(args.legacyAppointmentId === undefined
           ? {}
           : { legacyAppointmentId: args.legacyAppointmentId }),
@@ -242,17 +229,3 @@ export const getActivePvsPatientForBookingIdentity = query({
     return patient;
   },
 });
-
-function normalizeSearch(
-  firstPart: string | undefined,
-  secondPart: string | undefined,
-): string {
-  const parts = [];
-  for (const part of [firstPart, secondPart]) {
-    const compactPart = part?.trim().replaceAll(SEARCH_WHITESPACE_REGEX, " ");
-    if (compactPart) {
-      parts.push(compactPart);
-    }
-  }
-  return parts.join(" ").toLocaleLowerCase();
-}

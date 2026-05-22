@@ -84,13 +84,9 @@ async function createAssociationFixture(t: TestContext) {
     });
     const bookingIdentityId = await ctx.db.insert("bookingIdentities", {
       createdAt: now,
-      firstName: "Ada",
       kind: "online",
       lastModified: now,
-      lastName: "Lovelace",
       practiceId,
-      searchFirstName: "ada",
-      searchLastName: "lovelace",
       sourceIdentityId: "legacy-user-1",
       sourceSystem: "legacy-online",
     });
@@ -393,13 +389,9 @@ describe("practitioner associations", () => {
         });
         await ctx.db.insert("bookingIdentities", {
           createdAt: now,
-          firstName: "Ada",
           kind: "online",
           lastModified: now,
-          lastName: "Lovelace",
           practiceId,
-          searchFirstName: "ada lovelace",
-          searchLastName: "lovelace ada",
           sourceIdentityId: "profile-456",
           sourceSystem: "legacy-online",
           userId,
@@ -513,10 +505,10 @@ describe("practitioner associations", () => {
       expect(result.insertedSessions).toBe(0);
       expect(result.skippedMissingAppointment).toBe(1);
 
-      const sessionCount = await t.run(async (ctx) =>
-        ctx.db.query("bookingSessions").collect(),
+      const privacySteps = await t.run(async (ctx) =>
+        ctx.db.query("bookingPrivacySteps").collect(),
       );
-      expect(sessionCount).toHaveLength(0);
+      expect(privacySteps).toHaveLength(0);
     } finally {
       if (previousFlag === undefined) {
         delete process.env["MIGRATION_REHEARSAL_ENABLED"];
@@ -572,12 +564,8 @@ describe("practitioner associations", () => {
       const privacySteps = await t.run(async (ctx) =>
         ctx.db.query("bookingPrivacySteps").collect(),
       );
-      const sessions = await t.run(async (ctx) =>
-        ctx.db.query("bookingSessions").collect(),
-      );
       expect(privacySteps).toHaveLength(1);
       expect(privacySteps[0]?.consent).toBe(false);
-      expect(sessions[0]?.state.step).toBe("privacy");
     } finally {
       if (previousFlag === undefined) {
         delete process.env["MIGRATION_REHEARSAL_ENABLED"];
@@ -706,10 +694,10 @@ describe("practitioner associations", () => {
 
       expect(result.insertedSessions).toBe(1);
 
-      const sessions = await t.run(async (ctx) =>
-        ctx.db.query("bookingSessions").collect(),
+      const personalDataSteps = await t.run(async (ctx) =>
+        ctx.db.query("bookingPersonalDataSteps").collect(),
       );
-      expect(sessions[0]?.state.step).toBe("existing-calendar-selection");
+      expect(personalDataSteps).toHaveLength(1);
       const appointment = await t.run(async (ctx) =>
         ctx.db.get("appointments", setup.appointmentId),
       );
@@ -795,11 +783,11 @@ describe("practitioner associations", () => {
       expect(second.insertedSessions).toBe(1);
       expect(second.reusedSessions).toBe(0);
 
-      const sessions = await t.run(async (ctx) =>
-        ctx.db.query("bookingSessions").collect(),
+      const privacySteps = await t.run(async (ctx) =>
+        ctx.db.query("bookingPrivacySteps").collect(),
       );
-      expect(sessions).toHaveLength(2);
-      expect(new Set(sessions.map((session) => session.practiceId))).toEqual(
+      expect(privacySteps).toHaveLength(2);
+      expect(new Set(privacySteps.map((step) => step.practiceId))).toEqual(
         new Set([setup.practiceA, setup.practiceB]),
       );
     } finally {

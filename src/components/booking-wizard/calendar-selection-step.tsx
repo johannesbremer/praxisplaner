@@ -54,7 +54,6 @@ interface SlotInfo {
 export function CalendarSelectionStep({
   practiceId,
   ruleSetId,
-  sessionId,
   state,
 }: StepComponentProps) {
   const isCalendarState = isCalendarSelectionState(state);
@@ -170,15 +169,17 @@ export function CalendarSelectionStep({
       isNewPatient
         ? selectNewPatientSlot({
             appointmentTypeLineageKey: selectedAppointmentTypeLineageKey,
+            practiceId,
             reasonDescription: trimmedReason,
+            ruleSetId,
             selectedSlot: slotData,
-            sessionId,
           })
         : selectExistingPatientSlot({
             appointmentTypeLineageKey: selectedAppointmentTypeLineageKey,
+            practiceId,
             reasonDescription: trimmedReason,
+            ruleSetId,
             selectedSlot: slotData,
-            sessionId,
           }),
       (error) =>
         frontendErrorFromUnknown(error, {
@@ -192,7 +193,6 @@ export function CalendarSelectionStep({
         captureFrontendError(error, {
           appointmentTypeLineageKey: appointmentType.lineageKey,
           isNewPatient,
-          sessionId,
           slotStart: selectedSlot.startTime,
         });
         toast.error("Termin konnte nicht ausgewählt werden", {

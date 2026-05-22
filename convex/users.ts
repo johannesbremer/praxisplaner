@@ -24,7 +24,30 @@ async function getLatestBookingPersonalData(
     .first();
 
   return latestPersonalDataStep
-    ? asPersonalDataInput(latestPersonalDataStep.personalData)
+    ? asPersonalDataInput({
+        ...(latestPersonalDataStep.city === undefined
+          ? {}
+          : { city: latestPersonalDataStep.city }),
+        dateOfBirth: latestPersonalDataStep.dateOfBirth,
+        ...(latestPersonalDataStep.email === undefined
+          ? {}
+          : { email: latestPersonalDataStep.email }),
+        firstName: latestPersonalDataStep.firstName,
+        ...(latestPersonalDataStep.gender === undefined
+          ? {}
+          : { gender: latestPersonalDataStep.gender }),
+        lastName: latestPersonalDataStep.lastName,
+        phoneNumber: latestPersonalDataStep.phoneNumber,
+        ...(latestPersonalDataStep.postalCode === undefined
+          ? {}
+          : { postalCode: latestPersonalDataStep.postalCode }),
+        ...(latestPersonalDataStep.street === undefined
+          ? {}
+          : { street: latestPersonalDataStep.street }),
+        ...(latestPersonalDataStep.title === undefined
+          ? {}
+          : { title: latestPersonalDataStep.title }),
+      })
     : null;
 }
 

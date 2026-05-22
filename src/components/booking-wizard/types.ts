@@ -1,6 +1,5 @@
 // Types for the booking wizard components
 
-import type { Id } from "@/convex/_generated/dataModel";
 import type {
   BookingStepGroup,
   CalendarSelectionStepName,
@@ -17,10 +16,11 @@ import {
   isDataInputStepName,
 } from "@/lib/booking-session-steps";
 
+type ActiveBookingSession = NonNullable<
+  (typeof api.bookingSessions.getActiveForUser)["_returnType"]
+>;
 // The session state from Convex
-export type BookingSessionState = NonNullable<ActiveBookingSession>["state"];
-type ActiveBookingSession =
-  (typeof api.bookingSessions.getActiveForUser)["_returnType"];
+export type BookingSessionState = ActiveBookingSession["state"];
 
 // Type helper to extract state at a specific step
 export type CalendarSelectionState = StateAtStep<CalendarSelectionStepName>;
@@ -32,9 +32,8 @@ export type StateAtStep<S extends BookingSessionState["step"]> = Extract<
 
 // Common props for step components
 export interface StepComponentProps {
-  practiceId: Id<"practices">;
-  ruleSetId: Id<"ruleSets">;
-  sessionId: Id<"bookingSessions">;
+  practiceId: ActiveBookingSession["practiceId"];
+  ruleSetId: ActiveBookingSession["ruleSetId"];
   state: BookingSessionState;
 }
 

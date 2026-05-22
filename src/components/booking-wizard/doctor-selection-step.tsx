@@ -20,8 +20,8 @@ import { api } from "@/convex/_generated/api";
 import type { StepComponentProps } from "./types";
 
 export function DoctorSelectionStep({
+  practiceId,
   ruleSetId,
-  sessionId,
 }: StepComponentProps) {
   const practitioners = useQuery(api.entities.getPractitioners, { ruleSetId });
   const selectDoctor = useMutation(api.bookingSessions.selectDoctor);
@@ -30,7 +30,7 @@ export function DoctorSelectionStep({
     practitionerLineageKey: Id<"practitioners">,
   ) => {
     try {
-      await selectDoctor({ practitionerLineageKey, sessionId });
+      await selectDoctor({ practiceId, practitionerLineageKey, ruleSetId });
     } catch (error) {
       console.error("Failed to select doctor:", error);
       toast.error("Ärztin konnte nicht ausgewählt werden", {

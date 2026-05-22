@@ -33,23 +33,31 @@ import {
 
 import type { StepComponentProps } from "./types";
 
-export function PkvDetailsStep({ sessionId, state }: StepComponentProps) {
+export function PkvDetailsStep({
+  practiceId,
+  ruleSetId,
+  state,
+}: StepComponentProps) {
   const confirmPkvDetails = useMutation(api.bookingSessions.confirmPkvDetails);
-  const completedState =
-    state.step === "new-pkv-details-complete" ? state : null;
+  const initialBeihilfeStatus =
+    "beihilfeStatus" in state ? state.beihilfeStatus : undefined;
+  const initialPkvInsuranceType =
+    "pkvInsuranceType" in state ? state.pkvInsuranceType : undefined;
+  const initialPkvTariff = "pkvTariff" in state ? state.pkvTariff : undefined;
 
   const form = useForm({
     defaultValues: {
-      beihilfeStatus: completedState?.beihilfeStatus ?? "",
-      pkvInsuranceType: completedState?.pkvInsuranceType ?? "",
-      pkvTariff: completedState?.pkvTariff ?? "",
+      beihilfeStatus: initialBeihilfeStatus ?? "",
+      pkvInsuranceType: initialPkvInsuranceType ?? "",
+      pkvTariff: initialPkvTariff ?? "",
     } satisfies PkvDetailsFormValue,
     onSubmit: async ({ value }) => {
       try {
         const parsed = pkvDetailsFormSchema.parse(value);
         const payload = {
+          practiceId,
           pvsConsent: true as const, // Already consented in previous step
-          sessionId,
+          ruleSetId,
           ...(parsed.beihilfeStatus === undefined
             ? {}
             : { beihilfeStatus: parsed.beihilfeStatus }),

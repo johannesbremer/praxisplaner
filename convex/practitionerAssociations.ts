@@ -14,14 +14,6 @@ type Writer = GenericDatabaseWriter<DataModel>;
 const LOW_SIGNAL_APPOINTMENT_TYPE_NAMES = new Set(["erkaltung", "magen-darm"]);
 const DIACRITIC_REGEX = regex.as(String.raw`\p{Diacritic}`, "gu");
 
-export interface PractitionerAssociationEvidence {
-  legacyAppointmentId?: string;
-  legacyIdentityId?: string;
-  legacyPractitionerName?: string;
-  matchedAppointmentCount?: number;
-  sourceSessionKey?: string;
-}
-
 export type PractitionerAssociationPrecedencePolicy = "import" | "runtime";
 
 export type PractitionerAssociationSource =
@@ -67,7 +59,6 @@ export async function applyAppointmentHistoryPractitionerAssociation(
     ...(args.createdByUserId === undefined
       ? {}
       : { createdByUserId: args.createdByUserId }),
-    evidence: { matchedAppointmentCount: guess.appointmentCount },
     now: args.now,
     patientId: args.patientId,
     practiceId: args.practiceId,
@@ -116,7 +107,6 @@ export async function canonicalizeBookingIdentityPractitionerAssociations(
     await setPractitionerAssociation(db, {
       bookingIdentityId: args.bookingIdentityId,
       ...(args.userId === undefined ? {} : { createdByUserId: args.userId }),
-      ...(row.evidence === undefined ? {} : { evidence: row.evidence }),
       now: args.now,
       patientId: args.patientId,
       practiceId: args.practiceId,
@@ -225,7 +215,6 @@ export async function setPractitionerAssociation(
   args: {
     bookingIdentityId?: Id<"bookingIdentities">;
     createdByUserId?: Id<"users">;
-    evidence?: PractitionerAssociationEvidence;
     now: bigint;
     patientId?: Id<"patients">;
     practiceId: Id<"practices">;
@@ -262,7 +251,6 @@ export async function setPractitionerAssociation(
       ...(args.createdByUserId === undefined
         ? {}
         : { createdByUserId: args.createdByUserId }),
-      ...(args.evidence === undefined ? {} : { evidence: args.evidence }),
       now: args.now,
       ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
       practiceId: args.practiceId,
@@ -291,7 +279,6 @@ export async function setPractitionerAssociation(
     ...(args.createdByUserId === undefined
       ? {}
       : { createdByUserId: args.createdByUserId }),
-    ...(args.evidence === undefined ? {} : { evidence: args.evidence }),
     now: args.now,
     ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
     practiceId: args.practiceId,
@@ -323,7 +310,6 @@ async function insertPractitionerAssociation(
   args: {
     bookingIdentityId?: Id<"bookingIdentities">;
     createdByUserId?: Id<"users">;
-    evidence?: PractitionerAssociationEvidence;
     now: bigint;
     patientId?: Id<"patients">;
     practiceId: Id<"practices">;
@@ -340,7 +326,6 @@ async function insertPractitionerAssociation(
     ...(args.createdByUserId === undefined
       ? {}
       : { createdByUserId: args.createdByUserId }),
-    ...(args.evidence === undefined ? {} : { evidence: args.evidence }),
     lastModified: args.now,
     ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
     practiceId: args.practiceId,

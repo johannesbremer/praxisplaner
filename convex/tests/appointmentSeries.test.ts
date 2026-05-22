@@ -1229,12 +1229,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       return await ctx.db.insert("bookingIdentities", {
         createdAt: now,
-        email: "real-series-user@example.com",
         kind: "online",
         lastModified: now,
         practiceId,
-        searchFirstName: "real",
-        searchLastName: "series",
         sourceIdentityId: "legacy-user-1",
         sourceSystem: "legacy-online",
       });
@@ -1332,12 +1329,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       return await ctx.db.insert("bookingIdentities", {
         createdAt: now,
-        email: "cross-practice-series@example.com",
         kind: "online",
         lastModified: now,
         practiceId: otherPracticeId,
-        searchFirstName: "cross",
-        searchLastName: "practice",
         sourceIdentityId: "other-practice-identity",
         sourceSystem: "legacy-online",
       });
@@ -1452,12 +1446,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       return await ctx.db.insert("bookingIdentities", {
         createdAt: now,
-        email: "replan-series-user@example.com",
         kind: "online",
         lastModified: now,
         practiceId,
-        searchFirstName: "replan",
-        searchLastName: "series",
         sourceIdentityId: "legacy-user-optional-1",
         sourceSystem: "legacy-online",
       });

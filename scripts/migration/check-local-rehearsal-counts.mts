@@ -6,7 +6,6 @@ const convexCliEnv = {
   CI: "1",
 };
 const tables = [
-  "bookingSessions",
   "bookingPrivacySteps",
   "bookingLocationSteps",
   "bookingPatientStatusSteps",
@@ -19,7 +18,7 @@ const tables = [
   "bookingNewDataSharingSteps",
   "bookingIdentities",
   "bookingIdentityPatientAssociations",
-  "legacyBookingBlocks",
+  "onlineAccountBlocks",
   "legacyUnmatchedFutureBookingHolds",
   "practitionerAssociations",
 ] as const;

@@ -40,7 +40,11 @@ import type { StepComponentProps } from "./types";
 
 import { isDataInputState } from "./types";
 
-export function DataInputStep({ sessionId, state }: StepComponentProps) {
+export function DataInputStep({
+  practiceId,
+  ruleSetId,
+  state,
+}: StepComponentProps) {
   const isNewPatient = isDataInputState(state) && state.isNewPatient;
 
   const initialPersonalData =
@@ -87,7 +91,8 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
         try {
           await submitNewPatientData({
             personalData: parsed.personalData,
-            sessionId,
+            practiceId,
+            ruleSetId,
             ...(medicalHistory && { medicalHistory }),
           });
         } catch (error: unknown) {
@@ -103,7 +108,8 @@ export function DataInputStep({ sessionId, state }: StepComponentProps) {
         try {
           await submitExistingPatientData({
             personalData: parsed.personalData,
-            sessionId,
+            practiceId,
+            ruleSetId,
           });
         } catch (error: unknown) {
           console.error("Failed to submit existing patient data:", error);

@@ -77,19 +77,6 @@ export const dataSharingContactInputValidator = v.object({
   title: v.optional(v.string()),
 });
 
-export const dataSharingPersonValidator = v.object({
-  city: v.string(),
-  dateOfBirth: v.string(),
-  firstName: v.string(),
-  gender: genderValidator,
-  lastName: v.string(),
-  phoneNumber: v.string(),
-  postalCode: v.string(),
-  street: v.string(),
-  title: v.optional(v.string()),
-  userId: v.id("users"),
-});
-
 export const medicalHistoryValidator = v.object({
   allergiesDescription: v.optional(v.string()),
   currentMedications: v.optional(v.string()),
@@ -100,11 +87,14 @@ export const medicalHistoryValidator = v.object({
   otherConditions: v.optional(v.string()),
 });
 
-export const emergencyContactValidator = v.object({
-  name: v.string(),
-  phoneNumber: v.string(),
-  relationship: v.string(),
-});
+export const medicalHistoryEntryKeyValidator = v.union(
+  v.literal("allergies"),
+  v.literal("current-medications"),
+  v.literal("diabetes"),
+  v.literal("heart-condition"),
+  v.literal("lung-condition"),
+  v.literal("other-conditions"),
+);
 
 export const selectedSlotValidator = v.object({
   practitionerLineageKey: v.id("practitioners"),
