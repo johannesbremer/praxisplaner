@@ -122,7 +122,7 @@ async function hydrateInternalSessionState(
   ctx: MutationCtx | QueryCtx,
   session: SessionDoc,
 ): Promise<InternalBookingSessionState> {
-  const step = session.state.step;
+  const step = await resolveEffectiveSessionStep(ctx, session);
   const snapshot = await loadInternalStepSnapshot(ctx, session, step);
   return hydrateBookingSessionInternalState(step, snapshot);
 }
@@ -878,6 +878,100 @@ type StepRowIdParams = {
   [K in StepTableName]: [tableName: K, row: StepTableDocMap[K]];
 }[StepTableName];
 
+async function deriveImportedLegacyExistingPatientStep(
+  ctx: StepReadCtx,
+  session: SessionDoc,
+): Promise<BookingSessionState["step"]> {
+  const [doctorSelectionStep, personalDataStep, confirmationStep] =
+    await Promise.all([
+      getStepRow(ctx, "bookingExistingDoctorSelectionSteps", session._id),
+      getStepRow(ctx, "bookingPersonalDataSteps", session._id),
+      getStepRow(ctx, "bookingConfirmationSteps", session._id),
+    ]);
+
+  if (!doctorSelectionStep) {
+    return "existing-doctor-selection";
+  }
+  if (!personalDataStep) {
+    return "existing-data-input";
+  }
+  if (confirmationStep) {
+    return "existing-confirmation";
+  }
+  return "existing-calendar-selection";
+}
+
+async function deriveImportedLegacyNewPatientStep(
+  ctx: StepReadCtx,
+  session: SessionDoc,
+): Promise<BookingSessionState["step"]> {
+  const [insuranceTypeStep, gkvDetailStep, pkvConsentStep, pkvDetailStep] =
+    await Promise.all([
+      getStepRow(ctx, "bookingNewInsuranceTypeSteps", session._id),
+      getStepRow(ctx, "bookingNewGkvDetailSteps", session._id),
+      getStepRow(ctx, "bookingNewPkvConsentSteps", session._id),
+      getStepRow(ctx, "bookingNewPkvDetailSteps", session._id),
+    ]);
+
+  if (!insuranceTypeStep) {
+    return "new-insurance-type";
+  }
+
+  if (insuranceTypeStep.insuranceType === "gkv" && !gkvDetailStep) {
+    return "new-gkv-details";
+  }
+  if (insuranceTypeStep.insuranceType === "pkv" && !pkvConsentStep) {
+    return "new-pvs-consent";
+  }
+  if (insuranceTypeStep.insuranceType === "pkv" && !pkvDetailStep) {
+    return "new-pkv-details";
+  }
+
+  const [personalDataStep, dataSharingStep, confirmationStep] =
+    await Promise.all([
+      getStepRow(ctx, "bookingPersonalDataSteps", session._id),
+      getStepRow(ctx, "bookingNewDataSharingSteps", session._id),
+      getStepRow(ctx, "bookingConfirmationSteps", session._id),
+    ]);
+
+  if (!personalDataStep) {
+    return "new-data-input";
+  }
+  if (!dataSharingStep) {
+    return "new-data-sharing";
+  }
+  if (confirmationStep) {
+    return "new-confirmation";
+  }
+  return "new-calendar-selection";
+}
+
+async function deriveImportedLegacySessionStep(
+  ctx: StepReadCtx,
+  session: SessionDoc,
+): Promise<BookingSessionState["step"]> {
+  const [privacyStep, locationStep, patientStatusStep] = await Promise.all([
+    getStepRow(ctx, "bookingPrivacySteps", session._id),
+    getStepRow(ctx, "bookingLocationSteps", session._id),
+    getStepRow(ctx, "bookingPatientStatusSteps", session._id),
+  ]);
+
+  if (!privacyStep?.consent) {
+    return "privacy";
+  }
+  if (!locationStep) {
+    return "location";
+  }
+  if (!patientStatusStep) {
+    return "patient-status";
+  }
+
+  if (patientStatusStep.isNewPatient) {
+    return await deriveImportedLegacyNewPatientStep(ctx, session);
+  }
+
+  return await deriveImportedLegacyExistingPatientStep(ctx, session);
+}
 function getStepBase(session: Doc<"bookingSessions">) {
   return {
     practiceId: session.practiceId,
@@ -960,7 +1054,9 @@ async function hasValidStepEntryUserAssociation(
   // The persisted step row owner (`booking*Steps.userId`) must match the
   // booking session owner. For data-sharing steps, each contact also carries
   // an owner `userId` which must match the authenticated session user.
-  const tableNames = getBookingSessionSnapshotTables(session.state.step);
+  const tableNames = getBookingSessionSnapshotTables(
+    await resolveEffectiveSessionStep(ctx, session),
+  );
   if (tableNames.length === 0) {
     return true;
   }
@@ -1032,6 +1128,17 @@ async function refreshSession(
     expiresAt: now + BigInt(SESSION_TTL_MS),
     lastModified: now,
   });
+}
+
+async function resolveEffectiveSessionStep(
+  ctx: StepReadCtx,
+  session: SessionDoc,
+): Promise<BookingSessionState["step"]> {
+  if (session.source !== "legacy-online" || session.status !== "imported") {
+    return session.state.step;
+  }
+
+  return await deriveImportedLegacySessionStep(ctx, session);
 }
 
 async function setSessionStep(

@@ -16,10 +16,7 @@ import {
   pkvInsuranceTypeValidator,
   pkvTariffValidator,
 } from "./bookingValidators";
-import {
-  legacyUiStepValidator,
-  legacyUnmatchedFutureBookingHoldSourceSystemValidator,
-} from "./legacyBookingMigrationShared";
+import { legacyUnmatchedFutureBookingHoldSourceSystemValidator } from "./legacyBookingMigrationShared";
 import { insertSelfLineageEntity } from "./lineage";
 import {
   applyAppointmentHistoryPractitionerAssociation,
@@ -279,7 +276,6 @@ const legacyBookingReplayRowValidator = v.object({
   hzvStatus: v.optional(hzvStatusValidator),
   insuranceType: v.optional(insuranceTypeValidator),
   legacyAppointmentId: v.optional(v.string()),
-  legacyUiStep: legacyUiStepValidator,
   locationName: v.optional(v.string()),
   medicalHistory: v.optional(medicalHistoryValidator),
   personalData: v.optional(personalDataValidator),
@@ -960,7 +956,6 @@ export const importLegacyBookingStepReplay = mutation({
         createdAt: rowTimestamp,
         expiresAt: rowTimestamp,
         lastModified: rowTimestamp,
-        legacyUiStep: replayRow.legacyUiStep,
         practiceId: args.practiceId,
         ruleSetId: args.ruleSetId,
         source: replayRow.source,
@@ -1489,20 +1484,6 @@ interface LegacyBookingReplayRowInput {
   hzvStatus?: "has-contract" | "interested" | "no-interest";
   insuranceType?: "gkv" | "pkv";
   legacyAppointmentId?: string;
-  legacyUiStep:
-    | "calendar-selection"
-    | "confirmation"
-    | "data-sharing"
-    | "existing-doctor-selection"
-    | "location"
-    | "medical-history"
-    | "new-gkv-hzv"
-    | "new-insurance-type"
-    | "new-pkv-consent"
-    | "new-pkv-details"
-    | "patient-status"
-    | "personal-data"
-    | "privacy";
   locationName?: string;
   medicalHistory?: {
     allergiesDescription?: string;

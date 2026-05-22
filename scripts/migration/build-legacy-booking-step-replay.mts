@@ -842,7 +842,6 @@ function buildSnapshotReplayRow(
     ...(pkvTariff === undefined ? {} : { pkvTariff }),
     ...(practitionerName === undefined ? {} : { practitionerName }),
     ...(insuranceType !== "pkv" || !pvsConsent ? {} : { pvsConsent: true }),
-    legacyUiStep,
     reasonDescription,
     sessionStep,
     source: "legacy-online",
@@ -987,11 +986,6 @@ function main() {
       {
         appointmentLinkedReplayRows: appointmentLinkedReplayRows.length,
         blockedUsers: blockRows.length,
-        legacyUiSteps: Object.fromEntries(
-          [...Map.groupBy(replayRows, (row) => row.legacyUiStep).entries()]
-            .sort(([left], [right]) => left.localeCompare(right))
-            .map(([step, rows]) => [step, rows.length]),
-        ),
         replayRows: replayRows.length,
         replayRowsBySource: Object.fromEntries(
           [...Map.groupBy(replayRows, (row) => row.source).entries()].map(

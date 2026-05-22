@@ -420,7 +420,6 @@ describe("practitioner associations", () => {
             {
               createdAt: Date.now(),
               dataSharingContacts: [],
-              legacyUiStep: "existing-doctor-selection",
               locationName: "Dissen a.T.W.",
               practitionerName: "Dr. J. Wedegärtner",
               sessionStep: "existing-doctor-selection",
@@ -492,7 +491,6 @@ describe("practitioner associations", () => {
             {
               createdAt: Date.now(),
               dataSharingContacts: [],
-              legacyUiStep: "personal-data",
               locationName: "Dissen a.T.W.",
               personalData: {
                 dateOfBirth: "1990-01-01",
@@ -558,7 +556,6 @@ describe("practitioner associations", () => {
             {
               createdAt: Date.now(),
               dataSharingContacts: [],
-              legacyUiStep: "privacy",
               sessionStep: "privacy",
               source: "legacy-online",
               sourceSessionKey: "legacy-pocketbase:snapshot:no-consent",
@@ -580,7 +577,7 @@ describe("practitioner associations", () => {
       );
       expect(privacySteps).toHaveLength(1);
       expect(privacySteps[0]?.consent).toBe(false);
-      expect(sessions[0]?.legacyUiStep).toBe("privacy");
+      expect(sessions[0]?.state.step).toBe("privacy");
     } finally {
       if (previousFlag === undefined) {
         delete process.env["MIGRATION_REHEARSAL_ENABLED"];
@@ -684,7 +681,6 @@ describe("practitioner associations", () => {
               bookedDurationMinutes: 20,
               createdAt: Date.now(),
               dataSharingContacts: [],
-              legacyUiStep: "confirmation",
               locationName: "Dissen a.T.W.",
               personalData: {
                 dateOfBirth: "1990-01-01",
@@ -721,7 +717,7 @@ describe("practitioner associations", () => {
       expect(confirmationSteps[0]?.reasonDescription).toBe(
         "Rueckenschmerzen seit gestern",
       );
-      expect(sessions[0]?.legacyUiStep).toBe("confirmation");
+      expect(sessions[0]?.state.step).toBe("existing-confirmation");
     } finally {
       if (previousFlag === undefined) {
         delete process.env["MIGRATION_REHEARSAL_ENABLED"];
@@ -773,7 +769,6 @@ describe("practitioner associations", () => {
       const replayRow = {
         createdAt: Date.now(),
         dataSharingContacts: [],
-        legacyUiStep: "existing-doctor-selection" as const,
         locationName: "Dissen a.T.W.",
         sessionStep: "existing-doctor-selection" as const,
         source: "legacy-online" as const,

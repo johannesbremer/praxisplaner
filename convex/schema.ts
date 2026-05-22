@@ -21,10 +21,7 @@ import {
   selectedSlotValidator,
 } from "./bookingValidators";
 import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
-import {
-  legacyUiStepValidator,
-  legacyUnmatchedFutureBookingHoldSourceSystemValidator,
-} from "./legacyBookingMigrationShared";
+import { legacyUnmatchedFutureBookingHoldSourceSystemValidator } from "./legacyBookingMigrationShared";
 
 export {
   beihilfeStatusValidator,
@@ -1214,7 +1211,6 @@ export default defineSchema({
     userId: v.id("users"),
 
     // Persist only the current step; step payload is stored in per-step tables
-    legacyUiStep: v.optional(legacyUiStepValidator),
     source: v.union(v.literal("current-booking"), v.literal("legacy-online")),
     sourceSessionKey: v.optional(v.string()),
     state: bookingSessionStorageStateValidator,
