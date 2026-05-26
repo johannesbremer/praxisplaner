@@ -92,18 +92,20 @@ type BackTargetStep = Exclude<
   | "new-pkv-details-complete"
 >;
 type BookingFlowRows = Awaited<ReturnType<typeof loadFlowRows>>;
-type DeletableFlowRow =
-  | Doc<"bookingCalendarReachedSteps">
-  | Doc<"bookingExistingDoctorSelectionSteps">
-  | Doc<"bookingLocationSteps">
-  | Doc<"bookingNewDataSharingSteps">
-  | Doc<"bookingNewGkvDetailSteps">
-  | Doc<"bookingNewInsuranceTypeSteps">
-  | Doc<"bookingNewPkvConsentSteps">
-  | Doc<"bookingNewPkvDetailSteps">
-  | Doc<"bookingPatientStatusSteps">
-  | Doc<"bookingPersonalDataSteps">
-  | Doc<"bookingPrivacySteps">;
+type DeletableFlowRow<T extends DeletableFlowTable> = Doc<T>;
+
+type DeletableFlowTable =
+  | "bookingCalendarReachedSteps"
+  | "bookingExistingDoctorSelectionSteps"
+  | "bookingLocationSteps"
+  | "bookingNewDataSharingSteps"
+  | "bookingNewGkvDetailSteps"
+  | "bookingNewInsuranceTypeSteps"
+  | "bookingNewPkvConsentSteps"
+  | "bookingNewPkvDetailSteps"
+  | "bookingPatientStatusSteps"
+  | "bookingPersonalDataSteps"
+  | "bookingPrivacySteps";
 
 async function assertCalendarNotReached(
   ctx: MutationCtx,
@@ -235,15 +237,16 @@ async function deleteDataSharingContacts(
   }
 }
 
-async function deleteFlowRow(
+async function deleteFlowRow<T extends DeletableFlowTable>(
   ctx: MutationCtx,
-  row: DeletableFlowRow | null,
+  tableName: T,
+  row: DeletableFlowRow<T> | null,
 ): Promise<void> {
   if (!row) {
     return;
   }
 
-  await ctx.db.delete(row._id.__tableName, row._id);
+  await ctx.db.delete(tableName, row._id);
 }
 
 async function deleteFlowRows(
@@ -316,10 +319,10 @@ function flowScope<T extends object>(
 }
 
 function getAllowedBackTargetStep(
-  currentStep: BookingSessionState["step"],
+  state: BookingSessionState,
   calendarReached: boolean,
 ): BackTargetStep | null {
-  switch (currentStep) {
+  switch (state.step) {
     case "existing-calendar-selection": {
       return "existing-data-input";
     }
@@ -339,7 +342,9 @@ function getAllowedBackTargetStep(
       return "new-data-sharing";
     }
     case "new-data-input": {
-      return "new-gkv-details";
+      return state.insuranceType === "pkv"
+        ? "new-pkv-details"
+        : "new-gkv-details";
     }
     case "new-data-input-complete": {
       return "new-data-input";
@@ -1162,16 +1167,11 @@ async function removeRowsAfterInsuranceType(
       rows.medicalHistoryEntry._id,
     );
   }
-  const deletions = [
-    rows.newDataSharing,
-    rows.personalData,
-    rows.newPkvDetail,
-    rows.newPkvConsent,
-    rows.newGkvDetail,
-  ];
-  for (const row of deletions) {
-    await deleteFlowRow(ctx, row);
-  }
+  await deleteFlowRow(ctx, "bookingNewDataSharingSteps", rows.newDataSharing);
+  await deleteFlowRow(ctx, "bookingPersonalDataSteps", rows.personalData);
+  await deleteFlowRow(ctx, "bookingNewPkvDetailSteps", rows.newPkvDetail);
+  await deleteFlowRow(ctx, "bookingNewPkvConsentSteps", rows.newPkvConsent);
+  await deleteFlowRow(ctx, "bookingNewGkvDetailSteps", rows.newGkvDetail);
 }
 
 async function removeRowsAfterLocationSelection(
@@ -1186,19 +1186,22 @@ async function removeRowsAfterLocationSelection(
       rows.medicalHistoryEntry._id,
     );
   }
-  const deletions = [
-    rows.newDataSharing,
-    rows.personalData,
-    rows.newPkvDetail,
-    rows.newPkvConsent,
-    rows.newGkvDetail,
+  await deleteFlowRow(ctx, "bookingNewDataSharingSteps", rows.newDataSharing);
+  await deleteFlowRow(ctx, "bookingPersonalDataSteps", rows.personalData);
+  await deleteFlowRow(ctx, "bookingNewPkvDetailSteps", rows.newPkvDetail);
+  await deleteFlowRow(ctx, "bookingNewPkvConsentSteps", rows.newPkvConsent);
+  await deleteFlowRow(ctx, "bookingNewGkvDetailSteps", rows.newGkvDetail);
+  await deleteFlowRow(
+    ctx,
+    "bookingNewInsuranceTypeSteps",
     rows.newInsuranceType,
+  );
+  await deleteFlowRow(
+    ctx,
+    "bookingExistingDoctorSelectionSteps",
     rows.existingDoctor,
-    rows.patientStatus,
-  ];
-  for (const row of deletions) {
-    await deleteFlowRow(ctx, row);
-  }
+  );
+  await deleteFlowRow(ctx, "bookingPatientStatusSteps", rows.patientStatus);
 }
 
 async function removeRowsAfterNewPatientData(
@@ -1224,18 +1227,21 @@ async function removeRowsAfterPatientStatus(
       rows.medicalHistoryEntry._id,
     );
   }
-  const deletions = [
-    rows.newDataSharing,
-    rows.personalData,
-    rows.newPkvDetail,
-    rows.newPkvConsent,
-    rows.newGkvDetail,
+  await deleteFlowRow(ctx, "bookingNewDataSharingSteps", rows.newDataSharing);
+  await deleteFlowRow(ctx, "bookingPersonalDataSteps", rows.personalData);
+  await deleteFlowRow(ctx, "bookingNewPkvDetailSteps", rows.newPkvDetail);
+  await deleteFlowRow(ctx, "bookingNewPkvConsentSteps", rows.newPkvConsent);
+  await deleteFlowRow(ctx, "bookingNewGkvDetailSteps", rows.newGkvDetail);
+  await deleteFlowRow(
+    ctx,
+    "bookingNewInsuranceTypeSteps",
     rows.newInsuranceType,
+  );
+  await deleteFlowRow(
+    ctx,
+    "bookingExistingDoctorSelectionSteps",
     rows.existingDoctor,
-  ];
-  for (const row of deletions) {
-    await deleteFlowRow(ctx, row);
-  }
+  );
 }
 
 async function removeRowsFromExistingDataInput(
@@ -1250,10 +1256,8 @@ async function removeRowsFromExistingDataInput(
       rows.medicalHistoryEntry._id,
     );
   }
-  const deletions = [rows.newDataSharing, rows.personalData];
-  for (const row of deletions) {
-    await deleteFlowRow(ctx, row);
-  }
+  await deleteFlowRow(ctx, "bookingNewDataSharingSteps", rows.newDataSharing);
+  await deleteFlowRow(ctx, "bookingPersonalDataSteps", rows.personalData);
 }
 
 async function removeRowsFromNewDataInput(
@@ -1286,10 +1290,9 @@ async function removeRowsFromNewPkvDetails(
       rows.medicalHistoryEntry._id,
     );
   }
-  const deletions = [rows.newDataSharing, rows.personalData, rows.newPkvDetail];
-  for (const row of deletions) {
-    await deleteFlowRow(ctx, row);
-  }
+  await deleteFlowRow(ctx, "bookingNewDataSharingSteps", rows.newDataSharing);
+  await deleteFlowRow(ctx, "bookingPersonalDataSteps", rows.personalData);
+  await deleteFlowRow(ctx, "bookingNewPkvDetailSteps", rows.newPkvDetail);
 }
 
 async function requireActiveFlow(
@@ -1338,7 +1341,8 @@ async function requireCurrentUserCanStartBooking(
   const hasFutureAppointment = userAppointments.some((appointment) => {
     if (
       appointment.practiceId !== flowKey.practiceId ||
-      appointment.cancelledAt !== undefined
+      appointment.cancelledAt !== undefined ||
+      appointment.isSimulation === true
     ) {
       return false;
     }
@@ -1444,7 +1448,7 @@ async function rewindFlowToStep(
     case "location": {
       await removeRowsAfterLocationSelection(ctx, flowKey);
       const rows = await loadFlowRows(ctx, flowKey);
-      await deleteFlowRow(ctx, rows.location);
+      await deleteFlowRow(ctx, "bookingLocationSteps", rows.location);
       return;
     }
     case "new-data-input": {
@@ -1471,7 +1475,7 @@ async function rewindFlowToStep(
     case "patient-status": {
       await removeRowsAfterPatientStatus(ctx, flowKey);
       const rows = await loadFlowRows(ctx, flowKey);
-      await deleteFlowRow(ctx, rows.patientStatus);
+      await deleteFlowRow(ctx, "bookingPatientStatusSteps", rows.patientStatus);
       return;
     }
     case "privacy": {
@@ -1834,7 +1838,7 @@ export const goBackToStep = mutation({
     await requireCurrentUserCanStartBooking(ctx, flowKey);
     const { rows, state } = await requireActiveFlow(ctx, flowKey);
     const allowedTargetStep = getAllowedBackTargetStep(
-      state.step,
+      state,
       rows.calendarReached !== null,
     );
     if (allowedTargetStep !== args.targetStep) {

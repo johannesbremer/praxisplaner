@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const seedRoot = join(workspaceRoot, "seed_data_preview");
+const fallbackDurationMinutes = 5;
 const convexCliEnv = {
   ...process.env,
   CI: "1",
@@ -94,18 +95,38 @@ function uniqueSorted(values) {
   );
 }
 
+const migratedTimestampPattern =
+  /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-]\d{2}:\d{2})$/u;
+const durationFallbackStats = {
+  appointmentTypes: 0,
+  rows: 0,
+};
+
+function parseMigratedTimestamp(value) {
+  const trimmed = value.trim();
+  const match = migratedTimestampPattern.exec(trimmed);
+  const normalized = match
+    ? `${match[1]}T${match[2]}${match[3]}`
+    : trimmed.replace(" ", "T").replace(" GMT", "");
+  const time = Date.parse(normalized);
+  return Number.isFinite(time) ? time : null;
+}
+
 function inferDurationMinutes(rows) {
   const durations = rows
     .map((row) => {
-      const start = new Date(row.Beginn.replace(" ", "T"));
-      const end = new Date(row.Ende.replace(" ", "T"));
-      const minutes = (end.getTime() - start.getTime()) / 60_000;
+      const start = parseMigratedTimestamp(row.Beginn);
+      const end = parseMigratedTimestamp(row.Ende);
+      const minutes =
+        start === null || end === null ? NaN : (end - start) / 60_000;
       return Number.isFinite(minutes) && minutes > 0 ? minutes : null;
     })
     .filter((minutes) => minutes !== null);
 
   if (durations.length === 0) {
-    return 5;
+    durationFallbackStats.appointmentTypes += 1;
+    durationFallbackStats.rows += rows.length;
+    return fallbackDurationMinutes;
   }
 
   const counts = new Map();
@@ -148,6 +169,11 @@ const appointmentTypes = uniqueSorted(
   duration: inferDurationMinutes(rowsByType.get(name) ?? []),
   name,
 }));
+if (durationFallbackStats.appointmentTypes > 0) {
+  console.warn(
+    `Fell back to ${fallbackDurationMinutes} minute duration for ${durationFallbackStats.appointmentTypes} appointment types covering ${durationFallbackStats.rows} source appointments.`,
+  );
+}
 const practitioners = uniqueSorted(
   appointments
     .map((row) => row.Arzt)

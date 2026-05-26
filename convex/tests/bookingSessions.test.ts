@@ -355,6 +355,52 @@ describe("booking flow without bookingSessions table", () => {
     expect(afterForward?.state.step).toBe("new-calendar-selection");
   });
 
+  test("back navigation returns PKV data input to PKV details", async () => {
+    const t = createAuthedTestContext("pkv_back_from_data_input");
+    const fixture = await createFlowFixture(t);
+
+    await createFlowToPatientStatus(t, fixture);
+    await t.mutation(api.bookingSessions.selectNewPatient, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.selectInsuranceType, {
+      insuranceType: "pkv",
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.acceptPvsConsent, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.confirmPkvDetails, {
+      beihilfeStatus: "yes",
+      pkvInsuranceType: "other",
+      pkvTariff: "premium",
+      practiceId: fixture.practiceId,
+      pvsConsent: true,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    const atDataInput = await t.query(api.bookingSessions.getActiveForUser, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    expect(atDataInput?.state.step).toBe("new-data-input");
+
+    await t.mutation(api.bookingSessions.goBackToStep, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+      targetStep: "new-pkv-details",
+    });
+
+    const afterBack = await t.query(api.bookingSessions.getActiveForUser, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    expect(afterBack?.state.step).toBe("new-pkv-details");
+  });
+
   test("back navigation rejects skipping across protected branch decisions", async () => {
     const t = createAuthedTestContext("new_patient_back_reject_skip");
     const fixture = await createFlowFixture(t);
@@ -572,6 +618,59 @@ describe("booking flow without bookingSessions table", () => {
         ruleSetId: fixture.ruleSetId,
       }),
     ).rejects.toThrow("unresolved imported future booking");
+  });
+
+  test("simulation appointments do not block starting a booking flow", async () => {
+    const t = createAuthedTestContext("simulation_does_not_block");
+    const fixture = await createFlowFixture(t);
+    const userId = await t.run(async (ctx) => {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_authId", (q) =>
+          q.eq("authId", "workos_simulation_does_not_block"),
+        )
+        .first();
+      if (user) {
+        return user._id;
+      }
+      return await ctx.db.insert("users", {
+        authId: "workos_simulation_does_not_block",
+        createdAt: BigInt(Date.now()),
+        email: "simulation_does_not_block@example.com",
+      });
+    });
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: fixture.appointmentTypeLineageKey,
+        appointmentTypeTitle: "Akuttermin",
+        createdAt: now,
+        end: "2027-01-02T10:20:00+01:00[Europe/Berlin]",
+        isSimulation: true,
+        lastModified: now,
+        locationLineageKey: fixture.locationLineageKey,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: fixture.practitionerLineageKey,
+        },
+        practiceId: fixture.practiceId,
+        start: "2027-01-02T10:00:00+01:00[Europe/Berlin]",
+        title: "Simulierter Termin",
+        userId,
+      });
+    });
+
+    await t.mutation(api.bookingSessions.create, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    const session = await t.query(api.bookingSessions.getActiveForUser, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    expect(session?.state.step).toBe("privacy");
   });
 
   test("successful slot selection creates appointment and keeps calendar state for later rebooking", async () => {
