@@ -574,7 +574,7 @@ describe("booking flow without bookingSessions table", () => {
     ).rejects.toThrow("unresolved imported future booking");
   });
 
-  test("successful slot selection creates appointment and clears in-progress rows", async () => {
+  test("successful slot selection creates appointment and keeps calendar state for later rebooking", async () => {
     const t = createAuthedTestContext("flow_booking_success");
     const fixture = await createFlowFixture(t);
 
@@ -620,15 +620,52 @@ describe("booking flow without bookingSessions table", () => {
       practiceId: fixture.practiceId,
       ruleSetId: fixture.ruleSetId,
     });
-    expect(afterBooking).toBeNull();
+    expect(afterBooking?.state.step).toBe("existing-calendar-selection");
 
     const persisted = await t.run(async (ctx) => ({
       appointment: await ctx.db.get("appointments", result.appointmentId),
+      calendarReached: await ctx.db
+        .query("bookingCalendarReachedSteps")
+        .collect(),
       personalData: await ctx.db.query("bookingPersonalDataSteps").collect(),
       privacy: await ctx.db.query("bookingPrivacySteps").collect(),
     }));
     expect(persisted.appointment?.userId).toBeDefined();
-    expect(persisted.personalData).toHaveLength(0);
-    expect(persisted.privacy).toHaveLength(0);
+    expect(persisted.calendarReached).toHaveLength(1);
+    expect(persisted.personalData).toHaveLength(1);
+    expect(persisted.privacy).toHaveLength(1);
+
+    await expect(
+      t.mutation(api.bookingSessions.selectExistingPatientSlot, {
+        appointmentTypeLineageKey: fixture.appointmentTypeLineageKey,
+        practiceId: fixture.practiceId,
+        reasonDescription: "Zweiter Termin",
+        ruleSetId: fixture.ruleSetId,
+        selectedSlot: {
+          practitionerLineageKey: fixture.practitionerLineageKey,
+          practitionerName: "Dr. Test",
+          startTime: "2027-01-03T10:00:00+01:00[Europe/Berlin]",
+        },
+      }),
+    ).rejects.toThrow("already has a future appointment");
+
+    await t.mutation(api.appointments.cancelOwnAppointment, {
+      appointmentId: result.appointmentId,
+    });
+
+    const bookedAppointments = await t.query(
+      api.appointments.getBookedAppointmentsForCurrentUser,
+      { selectedRuleSetId: fixture.ruleSetId },
+    );
+    expect(bookedAppointments).toHaveLength(0);
+
+    const afterCancellation = await t.query(
+      api.bookingSessions.getActiveForUser,
+      {
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      },
+    );
+    expect(afterCancellation?.state.step).toBe("existing-calendar-selection");
   });
 });

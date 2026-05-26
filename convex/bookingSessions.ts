@@ -1831,6 +1831,7 @@ export const goBackToStep = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await requireCurrentUserCanStartBooking(ctx, flowKey);
     const { rows, state } = await requireActiveFlow(ctx, flowKey);
     const allowedTargetStep = getAllowedBackTargetStep(
       state.step,
@@ -2129,6 +2130,7 @@ export const selectNewPatientSlot = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await requireCurrentUserCanStartBooking(ctx, flowKey);
     const { rows, state } = await requireActiveFlow(ctx, flowKey);
     if (state.step !== "new-calendar-selection" || !rows.location) {
       throw new Error(
@@ -2198,7 +2200,6 @@ export const selectNewPatientSlot = mutation({
       title: `Online-Termin: ${appointmentType.name}`,
       userId: flowKey.userId,
     });
-    await deleteFlowRows(ctx, flowKey);
     return { appointmentId };
   },
   returns: v.object({
@@ -2215,6 +2216,7 @@ export const selectExistingPatientSlot = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await requireCurrentUserCanStartBooking(ctx, flowKey);
     const { rows, state } = await requireActiveFlow(ctx, flowKey);
     if (
       state.step !== "existing-calendar-selection" ||
@@ -2288,7 +2290,6 @@ export const selectExistingPatientSlot = mutation({
       title: `Online-Termin: ${appointmentType.name}`,
       userId: flowKey.userId,
     });
-    await deleteFlowRows(ctx, flowKey);
     return { appointmentId };
   },
   returns: v.object({
