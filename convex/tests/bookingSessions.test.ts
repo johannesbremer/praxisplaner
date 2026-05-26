@@ -281,6 +281,260 @@ describe("booking flow without bookingSessions table", () => {
     expect(atCalendar?.state.step).toBe("existing-calendar-selection");
   });
 
+  test("back navigation truncates new-patient flow so forward submission can advance again", async () => {
+    const t = createAuthedTestContext("new_patient_back_forward");
+    const fixture = await createFlowFixture(t);
+
+    await createFlowToPatientStatus(t, fixture);
+    await t.mutation(api.bookingSessions.selectNewPatient, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.selectInsuranceType, {
+      insuranceType: "gkv",
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.confirmGkvDetails, {
+      hzvStatus: "has-contract",
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.submitNewPatientData, {
+      personalData: {
+        dateOfBirth: "1990-01-01",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        phoneNumber: "+491701234567",
+      },
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.submitNewDataSharing, {
+      dataSharingContacts: [],
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    const atCalendar = await t.query(api.bookingSessions.getActiveForUser, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    expect(atCalendar?.state.step).toBe("new-calendar-selection");
+
+    await t.mutation(api.bookingSessions.goBackToStep, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+      targetStep: "new-data-sharing",
+    });
+
+    const afterBack = await t.query(api.bookingSessions.getActiveForUser, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    expect(afterBack?.state.step).toBe("new-data-sharing");
+
+    await expect(
+      t.mutation(api.bookingSessions.goBackToStep, {
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+        targetStep: "new-data-input",
+      }),
+    ).rejects.toThrow("cannot go back to the requested step");
+
+    await t.mutation(api.bookingSessions.submitNewDataSharing, {
+      dataSharingContacts: [],
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    const afterForward = await t.query(api.bookingSessions.getActiveForUser, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    expect(afterForward?.state.step).toBe("new-calendar-selection");
+  });
+
+  test("back navigation rejects skipping across protected branch decisions", async () => {
+    const t = createAuthedTestContext("new_patient_back_reject_skip");
+    const fixture = await createFlowFixture(t);
+
+    await createFlowToPatientStatus(t, fixture);
+    await t.mutation(api.bookingSessions.selectNewPatient, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.selectInsuranceType, {
+      insuranceType: "gkv",
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.confirmGkvDetails, {
+      hzvStatus: "has-contract",
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.submitNewPatientData, {
+      personalData: {
+        dateOfBirth: "1990-01-01",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        phoneNumber: "+491701234567",
+      },
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.submitNewDataSharing, {
+      dataSharingContacts: [],
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    await expect(
+      t.mutation(api.bookingSessions.goBackToStep, {
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+        targetStep: "patient-status",
+      }),
+    ).rejects.toThrow("cannot go back to the requested step");
+
+    const afterRejectedBack = await t.query(
+      api.bookingSessions.getActiveForUser,
+      {
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      },
+    );
+    expect(afterRejectedBack?.state.step).toBe("new-calendar-selection");
+
+    await expect(
+      t.mutation(api.bookingSessions.selectExistingPatient, {
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow("can no longer be changed");
+  });
+
+  test("back navigation truncates existing-patient flow so forward submission can advance again", async () => {
+    const t = createAuthedTestContext("existing_patient_back_forward");
+    const fixture = await createFlowFixture(t);
+
+    await createFlowToPatientStatus(t, fixture);
+    await t.mutation(api.bookingSessions.selectExistingPatient, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.selectDoctor, {
+      practiceId: fixture.practiceId,
+      practitionerLineageKey: fixture.practitionerLineageKey,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.submitExistingPatientData, {
+      personalData: {
+        dateOfBirth: "1975-05-20",
+        firstName: "Grace",
+        lastName: "Hopper",
+        phoneNumber: "+491709999999",
+      },
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    const atCalendar = await t.query(api.bookingSessions.getActiveForUser, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    expect(atCalendar?.state.step).toBe("existing-calendar-selection");
+
+    await t.mutation(api.bookingSessions.goBackToStep, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+      targetStep: "existing-data-input",
+    });
+
+    const afterBack = await t.query(api.bookingSessions.getActiveForUser, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    expect(afterBack?.state.step).toBe("existing-data-input");
+
+    await expect(
+      t.mutation(api.bookingSessions.goBackToStep, {
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+        targetStep: "existing-doctor-selection",
+      }),
+    ).rejects.toThrow("cannot go back to the requested step");
+
+    await t.mutation(api.bookingSessions.submitExistingPatientData, {
+      personalData: {
+        dateOfBirth: "1975-05-20",
+        firstName: "Grace",
+        lastName: "Hopper",
+        phoneNumber: "+491709999999",
+      },
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    const afterForward = await t.query(api.bookingSessions.getActiveForUser, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    expect(afterForward?.state.step).toBe("existing-calendar-selection");
+  });
+
+  test("back navigation rejects changing practitioner from appointment selection", async () => {
+    const t = createAuthedTestContext("existing_patient_back_reject_doctor");
+    const fixture = await createFlowFixture(t);
+
+    await createFlowToPatientStatus(t, fixture);
+    await t.mutation(api.bookingSessions.selectExistingPatient, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.selectDoctor, {
+      practiceId: fixture.practiceId,
+      practitionerLineageKey: fixture.practitionerLineageKey,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.submitExistingPatientData, {
+      personalData: {
+        dateOfBirth: "1975-05-20",
+        firstName: "Grace",
+        lastName: "Hopper",
+        phoneNumber: "+491709999999",
+      },
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    await expect(
+      t.mutation(api.bookingSessions.goBackToStep, {
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+        targetStep: "existing-doctor-selection",
+      }),
+    ).rejects.toThrow("cannot go back to the requested step");
+
+    const afterRejectedBack = await t.query(
+      api.bookingSessions.getActiveForUser,
+      {
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      },
+    );
+    expect(afterRejectedBack?.state.step).toBe("existing-calendar-selection");
+
+    await expect(
+      t.mutation(api.bookingSessions.selectDoctor, {
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: fixture.practitionerLineageKey,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow("can no longer be changed");
+  });
+
   test("future appointments and unmatched imported holds block create", async () => {
     const t = createAuthedTestContext("flow_blocking");
     const fixture = await createFlowFixture(t);

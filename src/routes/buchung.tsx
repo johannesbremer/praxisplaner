@@ -358,6 +358,40 @@ function getPreviousDisplayStep(
   }
 }
 
+function isServerBackTargetStep(
+  step: BookingSessionState["step"],
+): step is Exclude<
+  BookingSessionState["step"],
+  | "existing-calendar-selection"
+  | "new-calendar-selection"
+  | "new-data-input-complete"
+  | "new-gkv-details-complete"
+  | "new-pkv-details-complete"
+> {
+  switch (step) {
+    case "existing-calendar-selection":
+    case "new-calendar-selection":
+    case "new-data-input-complete":
+    case "new-gkv-details-complete":
+    case "new-pkv-details-complete": {
+      return false;
+    }
+    case "existing-data-input":
+    case "existing-doctor-selection":
+    case "location":
+    case "new-data-input":
+    case "new-data-sharing":
+    case "new-gkv-details":
+    case "new-insurance-type":
+    case "new-pkv-details":
+    case "new-pvs-consent":
+    case "patient-status":
+    case "privacy": {
+      return true;
+    }
+  }
+}
+
 /**
  * Main booking page component.
  * Handles authentication check before rendering the booking flow.
@@ -510,6 +544,7 @@ function AuthenticatedBookingFlow() {
 
   // Mutations
   const createSession = useMutation(api.bookingSessions.create);
+  const goBackToStep = useMutation(api.bookingSessions.goBackToStep);
   const removeSession = useMutation(api.bookingSessions.remove);
 
   useEffect(() => {
@@ -612,8 +647,42 @@ function AuthenticatedBookingFlow() {
       displayStepOverride,
     );
     const previousStep = getPreviousDisplayStep(currentState);
-    setDisplayStepOverride(previousStep);
-  }, [activeRuleSetSession, displayStepOverride]);
+    if (previousStep === null) {
+      setDisplayStepOverride(null);
+      return;
+    }
+    if (!isServerBackTargetStep(previousStep)) {
+      return;
+    }
+
+    void wrapAsyncResult(
+      () =>
+        goBackToStep({
+          practiceId: activeRuleSetSession.practiceId,
+          ruleSetId: activeRuleSetSession.ruleSetId,
+          targetStep: previousStep,
+        }),
+      (error) =>
+        frontendErrorFromUnknown(error, {
+          kind: "unknown",
+          message: "Zurückgehen fehlgeschlagen.",
+          source: "BookingPage.handleBack",
+        }),
+    ).match(
+      () => {
+        setDisplayStepOverride(previousStep);
+      },
+      (error) => {
+        captureFrontendError(error, {
+          context: "BookingPage.handleBack",
+          targetStep: previousStep,
+        });
+        toast.error("Zurückgehen fehlgeschlagen", {
+          description: error.message || "Bitte versuchen Sie es erneut.",
+        });
+      },
+    );
+  }, [activeRuleSetSession, displayStepOverride, goBackToStep]);
 
   const handleSignOut = useCallback(() => {
     void wrapAsyncResult(

@@ -532,6 +532,20 @@ export default defineSchema({
     .index("by_isSimulation", ["isSimulation"])
     .index("by_replacesBlockedSlotId", ["replacesBlockedSlotId"]),
 
+  bookingCalendarReachedSteps: defineTable({
+    createdAt: v.int64(),
+    lastModified: v.int64(),
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+    userId: v.id("users"),
+  })
+    .index("by_userId_practiceId_ruleSetId", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+    ])
+    .index("by_userId", ["userId"]),
+
   bookingExistingDoctorSelectionSteps: defineTable({
     createdAt: v.int64(),
     lastModified: v.int64(),

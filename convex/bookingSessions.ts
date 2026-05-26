@@ -69,8 +69,31 @@ const BOOKING_SESSION_RETURN_VALIDATOR = v.union(
   v.null(),
 );
 
+const BACK_TARGET_STEP_VALIDATOR = v.union(
+  v.literal("existing-data-input"),
+  v.literal("existing-doctor-selection"),
+  v.literal("location"),
+  v.literal("new-data-input"),
+  v.literal("new-data-sharing"),
+  v.literal("new-gkv-details"),
+  v.literal("new-insurance-type"),
+  v.literal("new-pkv-details"),
+  v.literal("new-pvs-consent"),
+  v.literal("patient-status"),
+  v.literal("privacy"),
+);
+
+type BackTargetStep = Exclude<
+  BookingSessionState["step"],
+  | "existing-calendar-selection"
+  | "new-calendar-selection"
+  | "new-data-input-complete"
+  | "new-gkv-details-complete"
+  | "new-pkv-details-complete"
+>;
 type BookingFlowRows = Awaited<ReturnType<typeof loadFlowRows>>;
 type DeletableFlowRow =
+  | Doc<"bookingCalendarReachedSteps">
   | Doc<"bookingExistingDoctorSelectionSteps">
   | Doc<"bookingLocationSteps">
   | Doc<"bookingNewDataSharingSteps">
@@ -81,6 +104,22 @@ type DeletableFlowRow =
   | Doc<"bookingPatientStatusSteps">
   | Doc<"bookingPersonalDataSteps">
   | Doc<"bookingPrivacySteps">;
+
+async function assertCalendarNotReached(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const calendarReached = await getFlowRow(
+    ctx,
+    "bookingCalendarReachedSteps",
+    flowKey,
+  );
+  if (calendarReached) {
+    throw new Error(
+      "This booking decision can no longer be changed after appointment selection was reached.",
+    );
+  }
+}
 
 async function assertSlotAllowedByRules(
   ctx: MutationCtx,
@@ -256,6 +295,12 @@ async function deleteFlowRows(
   if (rows.privacy) {
     await ctx.db.delete("bookingPrivacySteps", rows.privacy._id);
   }
+  if (rows.calendarReached) {
+    await ctx.db.delete(
+      "bookingCalendarReachedSteps",
+      rows.calendarReached._id,
+    );
+  }
 }
 
 function flowScope<T extends object>(
@@ -270,6 +315,67 @@ function flowScope<T extends object>(
   };
 }
 
+function getAllowedBackTargetStep(
+  currentStep: BookingSessionState["step"],
+  calendarReached: boolean,
+): BackTargetStep | null {
+  switch (currentStep) {
+    case "existing-calendar-selection": {
+      return "existing-data-input";
+    }
+    case "existing-data-input": {
+      if (calendarReached) {
+        return null;
+      }
+      return "existing-doctor-selection";
+    }
+    case "existing-doctor-selection": {
+      return "patient-status";
+    }
+    case "location": {
+      return "privacy";
+    }
+    case "new-calendar-selection": {
+      return "new-data-sharing";
+    }
+    case "new-data-input": {
+      return "new-gkv-details";
+    }
+    case "new-data-input-complete": {
+      return "new-data-input";
+    }
+    case "new-data-sharing": {
+      if (calendarReached) {
+        return null;
+      }
+      return "new-data-input";
+    }
+    case "new-gkv-details": {
+      return "new-insurance-type";
+    }
+    case "new-gkv-details-complete": {
+      return "new-gkv-details";
+    }
+    case "new-insurance-type": {
+      return "patient-status";
+    }
+    case "new-pkv-details": {
+      return "new-pvs-consent";
+    }
+    case "new-pkv-details-complete": {
+      return "new-pkv-details";
+    }
+    case "new-pvs-consent": {
+      return "new-insurance-type";
+    }
+    case "patient-status": {
+      return "location";
+    }
+    case "privacy": {
+      return null;
+    }
+  }
+}
 async function getFlowKeyForMutation(
   ctx: MutationCtx,
   args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
@@ -279,7 +385,6 @@ async function getFlowKeyForMutation(
     userId: await ensureAuthenticatedUserId(ctx),
   };
 }
-
 async function getFlowKeyForQuery(
   ctx: QueryCtx,
   args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
@@ -294,6 +399,11 @@ async function getFlowKeyForQuery(
     userId,
   };
 }
+function getFlowRow(
+  ctx: MutationCtx | QueryCtx,
+  tableName: "bookingCalendarReachedSteps",
+  flowKey: BookingFlowKey,
+): Promise<Doc<"bookingCalendarReachedSteps"> | null>;
 function getFlowRow(
   ctx: MutationCtx | QueryCtx,
   tableName: "bookingExistingDoctorSelectionSteps",
@@ -347,6 +457,7 @@ function getFlowRow(
 async function getFlowRow(
   ctx: MutationCtx | QueryCtx,
   tableName:
+    | "bookingCalendarReachedSteps"
     | "bookingExistingDoctorSelectionSteps"
     | "bookingLocationSteps"
     | "bookingNewDataSharingSteps"
@@ -360,6 +471,19 @@ async function getFlowRow(
   flowKey: BookingFlowKey,
 ) {
   switch (tableName) {
+    case "bookingCalendarReachedSteps": {
+      return (
+        (await ctx.db
+          .query("bookingCalendarReachedSteps")
+          .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+            q
+              .eq("userId", flowKey.userId)
+              .eq("practiceId", flowKey.practiceId)
+              .eq("ruleSetId", flowKey.ruleSetId),
+          )
+          .first()) ?? null
+      );
+    }
     case "bookingExistingDoctorSelectionSteps": {
       return (
         (await ctx.db
@@ -519,6 +643,7 @@ async function loadFlowRows(
   flowKey: BookingFlowKey,
 ) {
   const [
+    calendarReached,
     existingDoctor,
     location,
     newDataSharing,
@@ -532,6 +657,7 @@ async function loadFlowRows(
     dataSharingContacts,
     medicalHistoryEntry,
   ] = await Promise.all([
+    getFlowRow(ctx, "bookingCalendarReachedSteps", flowKey),
     getFlowRow(ctx, "bookingExistingDoctorSelectionSteps", flowKey),
     getFlowRow(ctx, "bookingLocationSteps", flowKey),
     getFlowRow(ctx, "bookingNewDataSharingSteps", flowKey),
@@ -563,6 +689,7 @@ async function loadFlowRows(
   ]);
 
   return {
+    calendarReached,
     dataSharingContacts,
     existingDoctor,
     location,
@@ -576,6 +703,31 @@ async function loadFlowRows(
     personalData,
     privacy,
   };
+}
+
+async function markCalendarReached(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const existing = await getFlowRow(
+    ctx,
+    "bookingCalendarReachedSteps",
+    flowKey,
+  );
+  const now = BigInt(Date.now());
+  if (existing) {
+    await ctx.db.patch("bookingCalendarReachedSteps", existing._id, {
+      lastModified: now,
+    });
+    return;
+  }
+  await ctx.db.insert(
+    "bookingCalendarReachedSteps",
+    flowScope(flowKey, {
+      createdAt: now,
+      lastModified: now,
+    }),
+  );
 }
 
 function materializeDataSharingContacts(
@@ -1086,6 +1238,60 @@ async function removeRowsAfterPatientStatus(
   }
 }
 
+async function removeRowsFromExistingDataInput(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const rows = await loadFlowRows(ctx, flowKey);
+  await deleteDataSharingContacts(ctx, flowKey);
+  if (rows.medicalHistoryEntry) {
+    await ctx.db.delete(
+      "bookingMedicalHistoryEntries",
+      rows.medicalHistoryEntry._id,
+    );
+  }
+  const deletions = [rows.newDataSharing, rows.personalData];
+  for (const row of deletions) {
+    await deleteFlowRow(ctx, row);
+  }
+}
+
+async function removeRowsFromNewDataInput(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  await removeRowsFromExistingDataInput(ctx, flowKey);
+}
+
+async function removeRowsFromNewDataSharing(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const rows = await loadFlowRows(ctx, flowKey);
+  await deleteDataSharingContacts(ctx, flowKey);
+  if (rows.newDataSharing) {
+    await ctx.db.delete("bookingNewDataSharingSteps", rows.newDataSharing._id);
+  }
+}
+
+async function removeRowsFromNewPkvDetails(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const rows = await loadFlowRows(ctx, flowKey);
+  await deleteDataSharingContacts(ctx, flowKey);
+  if (rows.medicalHistoryEntry) {
+    await ctx.db.delete(
+      "bookingMedicalHistoryEntries",
+      rows.medicalHistoryEntry._id,
+    );
+  }
+  const deletions = [rows.newDataSharing, rows.personalData, rows.newPkvDetail];
+  for (const row of deletions) {
+    await deleteFlowRow(ctx, row);
+  }
+}
+
 async function requireActiveFlow(
   ctx: MutationCtx | QueryCtx,
   flowKey: BookingFlowKey,
@@ -1219,6 +1425,61 @@ async function resolvePractitionerNameForPublicState(
     throw new Error(`Behandler ${practitionerLineageKey} ist nicht verfügbar.`);
   }
   return practitioner.name;
+}
+
+async function rewindFlowToStep(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+  targetStep: BackTargetStep,
+): Promise<void> {
+  switch (targetStep) {
+    case "existing-data-input": {
+      await removeRowsFromExistingDataInput(ctx, flowKey);
+      return;
+    }
+    case "existing-doctor-selection": {
+      await removeRowsAfterPatientStatus(ctx, flowKey);
+      return;
+    }
+    case "location": {
+      await removeRowsAfterLocationSelection(ctx, flowKey);
+      const rows = await loadFlowRows(ctx, flowKey);
+      await deleteFlowRow(ctx, rows.location);
+      return;
+    }
+    case "new-data-input": {
+      await removeRowsFromNewDataInput(ctx, flowKey);
+      return;
+    }
+    case "new-data-sharing": {
+      await removeRowsFromNewDataSharing(ctx, flowKey);
+      return;
+    }
+    case "new-gkv-details":
+    case "new-pvs-consent": {
+      await removeRowsAfterInsuranceType(ctx, flowKey);
+      return;
+    }
+    case "new-insurance-type": {
+      await removeRowsAfterPatientStatus(ctx, flowKey);
+      return;
+    }
+    case "new-pkv-details": {
+      await removeRowsFromNewPkvDetails(ctx, flowKey);
+      return;
+    }
+    case "patient-status": {
+      await removeRowsAfterPatientStatus(ctx, flowKey);
+      const rows = await loadFlowRows(ctx, flowKey);
+      await deleteFlowRow(ctx, rows.patientStatus);
+      return;
+    }
+    case "privacy": {
+      await deleteFlowRows(ctx, flowKey);
+      await upsertPrivacyStep(ctx, flowKey, false);
+      return;
+    }
+  }
 }
 
 async function upsertExistingDoctorStep(
@@ -1563,6 +1824,29 @@ export const remove = mutation({
   returns: v.null(),
 });
 
+export const goBackToStep = mutation({
+  args: {
+    ...FLOW_KEY_VALIDATOR,
+    targetStep: BACK_TARGET_STEP_VALIDATOR,
+  },
+  handler: async (ctx, args) => {
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    const { rows, state } = await requireActiveFlow(ctx, flowKey);
+    const allowedTargetStep = getAllowedBackTargetStep(
+      state.step,
+      rows.calendarReached !== null,
+    );
+    if (allowedTargetStep !== args.targetStep) {
+      throw new Error(
+        "This booking step cannot go back to the requested step.",
+      );
+    }
+    await rewindFlowToStep(ctx, flowKey, args.targetStep);
+    return null;
+  },
+  returns: v.null(),
+});
+
 export const acceptPrivacy = mutation({
   args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
@@ -1580,6 +1864,7 @@ export const selectLocation = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
     const locationId = await resolveLocationIdForRuleSetByLineage(ctx.db, {
       lineageKey: asLocationLineageKey(args.locationLineageKey),
       ruleSetId: flowKey.ruleSetId,
@@ -1603,6 +1888,7 @@ export const selectNewPatient = mutation({
   args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
     await upsertPatientStatusStep(ctx, flowKey, true);
     await removeRowsAfterPatientStatus(ctx, flowKey);
     return null;
@@ -1614,6 +1900,7 @@ export const selectExistingPatient = mutation({
   args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
     await upsertPatientStatusStep(ctx, flowKey, false);
     await removeRowsAfterPatientStatus(ctx, flowKey);
     return null;
@@ -1628,6 +1915,7 @@ export const selectInsuranceType = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
     const { state } = await requireActiveFlow(ctx, flowKey);
     if (
       state.step !== "new-insurance-type" &&
@@ -1655,6 +1943,7 @@ export const confirmGkvDetails = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
     const rows = await loadFlowRows(ctx, flowKey);
     if (rows.newInsuranceType?.insuranceType !== "gkv") {
       throw new Error("GKV details are not available in the current flow.");
@@ -1670,6 +1959,7 @@ export const acceptPvsConsent = mutation({
   args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
     const rows = await loadFlowRows(ctx, flowKey);
     if (rows.newInsuranceType?.insuranceType !== "pkv") {
       throw new Error("PVS consent is not available in the current flow.");
@@ -1691,6 +1981,7 @@ export const confirmPkvDetails = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
     const rows = await loadFlowRows(ctx, flowKey);
     if (rows.newInsuranceType?.insuranceType !== "pkv" || !rows.newPkvConsent) {
       throw new Error("PKV details are not available in the current flow.");
@@ -1718,6 +2009,7 @@ export const submitNewPatientData = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
     const rows = await loadFlowRows(ctx, flowKey);
     const isGkv =
       rows.newInsuranceType?.insuranceType === "gkv" && !!rows.newGkvDetail;
@@ -1771,6 +2063,7 @@ export const submitNewDataSharing = mutation({
         asDataSharingContactInput(contact),
       ),
     );
+    await markCalendarReached(ctx, flowKey);
     return null;
   },
   returns: v.null(),
@@ -1783,6 +2076,7 @@ export const selectDoctor = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
     const practitionerId = await resolvePractitionerIdForRuleSetByLineage(
       ctx.db,
       {
@@ -1820,6 +2114,7 @@ export const submitExistingPatientData = mutation({
       flowKey,
       asPersonalDataInput(args.personalData),
     );
+    await markCalendarReached(ctx, flowKey);
     return null;
   },
   returns: v.null(),
