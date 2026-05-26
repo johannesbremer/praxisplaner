@@ -534,6 +534,7 @@ function AuthenticatedBookingFlow() {
     if (
       currentPractice &&
       practiceActiveRuleSetId &&
+      bookedAppointments?.length === 0 &&
       !isCreatingSessionRef.current &&
       !sessionError &&
       activeRuleSetSession !== undefined &&
@@ -575,6 +576,7 @@ function AuthenticatedBookingFlow() {
   }, [
     currentPractice,
     practiceActiveRuleSetId,
+    bookedAppointments,
     createSession,
     sessionError,
     activeRuleSetSession,
@@ -595,6 +597,11 @@ function AuthenticatedBookingFlow() {
       });
     }
   }, [currentPractice, practiceActiveRuleSetId, removeSession]);
+
+  const handleBookedAppointmentCancelled = useCallback(() => {
+    setSessionError(null);
+    setBookedAppointmentRefreshNonce((current) => current + 1);
+  }, []);
 
   const handleBack = useCallback(() => {
     if (!activeRuleSetSession) {
@@ -891,6 +898,7 @@ function AuthenticatedBookingFlow() {
     stepContent = (
       <BookedAppointmentsSummary
         appointments={bookedAppointments}
+        onCancelled={handleBookedAppointmentCancelled}
         practitionerNamesById={practitionerNamesById}
       />
     );
