@@ -670,7 +670,7 @@ function AuthenticatedBookingFlow() {
         }),
     ).match(
       () => {
-        setDisplayStepOverride(previousStep);
+        setDisplayStepOverride(null);
       },
       (error) => {
         captureFrontendError(error, {
