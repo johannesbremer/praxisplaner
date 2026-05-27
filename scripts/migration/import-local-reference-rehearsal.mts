@@ -2,6 +2,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { normalizeImportedPractitionerName } from "./practitioner-name-normalization.mts";
+
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const seedRoot = join(workspaceRoot, "seed_data_preview");
 const fallbackDurationMinutes = 5;
@@ -177,6 +179,7 @@ if (durationFallbackStats.appointmentTypes > 0) {
 const practitioners = uniqueSorted(
   appointments
     .map((row) => row.Arzt)
+    .map((name) => normalizeImportedPractitionerName(name))
     .filter((name) => !resourceDoctorNames.has(name)),
 );
 

@@ -8,6 +8,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import { normalizeImportedPractitionerName } from "./practitioner-name-normalization.mts";
+
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const outputRoot = join(workspaceRoot, ".cache/migration/rehearsal");
 const reportRoot = join(workspaceRoot, ".cache/migration/reports");
@@ -410,7 +412,9 @@ function buildAppointmentsZip() {
     );
     const practitioner =
       calendarResourceColumn === undefined
-        ? practitionerByName.get(appointment.Arzt)
+        ? practitionerByName.get(
+            normalizeImportedPractitionerName(appointment.Arzt),
+          )
         : undefined;
 
     if (

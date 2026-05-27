@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Temporal } from "temporal-polyfill";
 
-import { importedPractitionerNameFromLegacyDoc } from "./legacy-practitioner-mapping.js";
+import { importedPractitionerNameFromLegacyDoc } from "./legacy-practitioner-mapping.mts";
 
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const legacyDbPath = join(workspaceRoot, ".cache/migration/source/data.db");

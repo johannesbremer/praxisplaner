@@ -68,50 +68,88 @@ export const replaceReferenceTables = mutation({
           .collect(),
       ]);
 
-    await Promise.all([
-      ...baseSchedules.map((row) => ctx.db.delete("baseSchedules", row._id)),
-      ...appointmentTypes.map((row) =>
-        ctx.db.delete("appointmentTypes", row._id),
-      ),
-      ...locations.map((row) => ctx.db.delete("locations", row._id)),
-      ...practitioners.map((row) => ctx.db.delete("practitioners", row._id)),
-    ]);
+    await Promise.all(
+      baseSchedules.map((row) => ctx.db.delete("baseSchedules", row._id)),
+    );
 
     const practitionerLineageKeys: Id<"practitioners">[] = [];
+    const usedPractitionerIds = new Set<Id<"practitioners">>();
+    const practitionerByName = new Map(
+      practitioners.map((practitioner) => [practitioner.name, practitioner]),
+    );
     for (const name of args.practitioners) {
-      const practitionerId = await insertSelfLineageEntity(
-        ctx.db,
-        "practitioners",
-        {
+      const existingPractitioner = practitionerByName.get(name);
+      const practitionerId =
+        existingPractitioner?._id ??
+        (await insertSelfLineageEntity(ctx.db, "practitioners", {
           name,
           practiceId: args.practiceId,
           ruleSetId: args.ruleSetId,
-        },
-      );
+        }));
       await ctx.db.patch("practitioners", practitionerId, {
-        parentId: practitionerId,
-      });
-      practitionerLineageKeys.push(practitionerId);
-    }
-
-    const locationIds: Id<"locations">[] = [];
-    for (const name of args.locations) {
-      const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
+        deleted: false,
         name,
+        parentId: practitionerId,
         practiceId: args.practiceId,
         ruleSetId: args.ruleSetId,
       });
-      await ctx.db.patch("locations", locationId, { parentId: locationId });
+      usedPractitionerIds.add(practitionerId);
+      practitionerLineageKeys.push(practitionerId);
+    }
+    await Promise.all(
+      practitioners
+        .filter((row) => !usedPractitionerIds.has(row._id))
+        .map((row) =>
+          ctx.db.patch("practitioners", row._id, { deleted: true }),
+        ),
+    );
+
+    const locationIds: Id<"locations">[] = [];
+    const usedLocationIds = new Set<Id<"locations">>();
+    const locationByName = new Map(
+      locations.map((location) => [location.name, location]),
+    );
+    for (const name of args.locations) {
+      const existingLocation = locationByName.get(name);
+      const locationId =
+        existingLocation?._id ??
+        (await insertSelfLineageEntity(ctx.db, "locations", {
+          name,
+          practiceId: args.practiceId,
+          ruleSetId: args.ruleSetId,
+        }));
+      await ctx.db.patch("locations", locationId, {
+        deleted: false,
+        name,
+        parentId: locationId,
+        practiceId: args.practiceId,
+        ruleSetId: args.ruleSetId,
+      });
+      usedLocationIds.add(locationId);
       locationIds.push(locationId);
     }
+    await Promise.all(
+      locations
+        .filter((row) => !usedLocationIds.has(row._id))
+        .map((row) => ctx.db.patch("locations", row._id, { deleted: true })),
+    );
 
     const now = BigInt(Date.now());
     const appointmentTypeIds: Id<"appointmentTypes">[] = [];
+    const usedAppointmentTypeIds = new Set<Id<"appointmentTypes">>();
+    const appointmentTypeByName = new Map(
+      appointmentTypes.map((appointmentType) => [
+        appointmentType.name,
+        appointmentType,
+      ]),
+    );
     for (const appointmentType of args.appointmentTypes) {
-      const appointmentTypeId = await insertSelfLineageEntity(
-        ctx.db,
-        "appointmentTypes",
-        {
+      const existingAppointmentType = appointmentTypeByName.get(
+        appointmentType.name,
+      );
+      const appointmentTypeId =
+        existingAppointmentType?._id ??
+        (await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
           allowedPractitionerLineageKeys: practitionerLineageKeys,
           createdAt: now,
           duration: appointmentType.duration,
@@ -119,13 +157,27 @@ export const replaceReferenceTables = mutation({
           name: appointmentType.name,
           practiceId: args.practiceId,
           ruleSetId: args.ruleSetId,
-        },
-      );
+        }));
       await ctx.db.patch("appointmentTypes", appointmentTypeId, {
+        allowedPractitionerLineageKeys: practitionerLineageKeys,
+        deleted: false,
+        duration: appointmentType.duration,
+        lastModified: now,
+        name: appointmentType.name,
         parentId: appointmentTypeId,
+        practiceId: args.practiceId,
+        ruleSetId: args.ruleSetId,
       });
+      usedAppointmentTypeIds.add(appointmentTypeId);
       appointmentTypeIds.push(appointmentTypeId);
     }
+    await Promise.all(
+      appointmentTypes
+        .filter((row) => !usedAppointmentTypeIds.has(row._id))
+        .map((row) =>
+          ctx.db.patch("appointmentTypes", row._id, { deleted: true }),
+        ),
+    );
 
     return {
       appointmentTypes: appointmentTypeIds.length,

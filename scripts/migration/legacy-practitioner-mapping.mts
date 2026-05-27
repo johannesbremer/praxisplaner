@@ -1,18 +1,18 @@
-// @ts-check
+import { normalizeImportedPractitionerName } from "./practitioner-name-normalization.mts";
 
-/**
- * @typedef {{ defaultName: string } | { byLocationName: Map<string, string> }} LegacyPractitionerNameMapping
- */
+type LegacyPractitionerNameMapping =
+  | { defaultName: string }
+  | { byLocationName: Map<string, string> };
 
-/**
- * @typedef {{
- *   docId: string | undefined;
- *   locationName: string | undefined;
- * }} ImportedPractitionerNameFromLegacyDocArgs
- */
+type ImportedPractitionerNameFromLegacyDocArgs = {
+  docId: string | undefined;
+  locationName: string | undefined;
+};
 
-/** @type {Map<string, LegacyPractitionerNameMapping>} */
-const LEGACY_DOC_TO_IMPORTED_PRACTITIONER_NAME = new Map([
+const legacyDocToImportedPractitionerName = new Map<
+  string,
+  LegacyPractitionerNameMapping
+>([
   ["6z7483p3in4p35y", { defaultName: "Dr. A.-K. Averbeck" }],
   [
     "7881w9kibr7s1ss",
@@ -47,23 +47,24 @@ const LEGACY_DOC_TO_IMPORTED_PRACTITIONER_NAME = new Map([
   ["z6mi9ounoj5qa5h", { defaultName: "Frauke Führmeyer" }],
 ]);
 
-/** @type {(args: ImportedPractitionerNameFromLegacyDocArgs) => string | undefined} */
-export const importedPractitionerNameFromLegacyDoc = (args) => {
+export function importedPractitionerNameFromLegacyDoc(
+  args: ImportedPractitionerNameFromLegacyDocArgs,
+): string | undefined {
   if (args.docId === undefined || args.docId.trim().length === 0) {
-    return;
+    return undefined;
   }
 
-  const mapping = LEGACY_DOC_TO_IMPORTED_PRACTITIONER_NAME.get(args.docId);
+  const mapping = legacyDocToImportedPractitionerName.get(args.docId);
   if (mapping === undefined) {
     throw new Error(`Unmapped legacy practitioner doc id: ${args.docId}`);
   }
 
   if ("defaultName" in mapping) {
-    return mapping.defaultName;
+    return normalizeImportedPractitionerName(mapping.defaultName);
   }
 
   if (args.locationName === undefined) {
-    return;
+    return undefined;
   }
 
   const practitionerName = mapping.byLocationName.get(args.locationName);
@@ -73,5 +74,5 @@ export const importedPractitionerNameFromLegacyDoc = (args) => {
     );
   }
 
-  return practitionerName;
-};
+  return normalizeImportedPractitionerName(practitionerName);
+}
