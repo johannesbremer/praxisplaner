@@ -324,7 +324,7 @@ function getAllowedBackTargetStep(
 ): BackTargetStep | null {
   switch (state.step) {
     case "existing-calendar-selection": {
-      return "existing-data-input";
+      return null;
     }
     case "existing-data-input": {
       if (calendarReached) {
@@ -339,7 +339,7 @@ function getAllowedBackTargetStep(
       return "privacy";
     }
     case "new-calendar-selection": {
-      return "new-data-sharing";
+      return null;
     }
     case "new-data-input": {
       return state.insuranceType === "pkv"

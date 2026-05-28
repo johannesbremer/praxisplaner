@@ -89,7 +89,6 @@ async function createPractitioner(
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
   name: string,
-  tags?: string[],
 ) {
   return await t.run(async (ctx) => {
     const practitionerId = await insertSelfLineageEntity(
@@ -99,7 +98,6 @@ async function createPractitioner(
         name,
         practiceId,
         ruleSetId,
-        ...(tags && { tags }),
       },
     );
     return practitionerId;
@@ -3560,10 +3558,10 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     await createRule(t, practiceId, targetRuleSetId, {
-      conditionType: "PRACTITIONER_TAG" as const,
+      conditionType: "PRACTITIONER" as const,
       nodeType: "CONDITION" as const,
       operator: "IS" as const,
-      valueIds: ["tagged"],
+      valueIds: [basePractitionerId],
     });
 
     const blockedSlots = await t.query(
@@ -3576,7 +3574,7 @@ describe("E2E: Slot Generation with Rules", () => {
       },
     );
 
-    expect(blockedSlots.slots).toHaveLength(0);
+    expect(blockedSlots.slots.length).toBeGreaterThan(0);
   });
 
   test("Compound AND rule blocks slots only when both conditions match", async () => {

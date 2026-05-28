@@ -486,7 +486,6 @@ async function copyConditionNode(
       | "LOCATION"
       | "PATIENT_AGE"
       | "PRACTITIONER"
-      | "PRACTITIONER_TAG"
       | "TIME_RANGE";
     copyFromId: Id<"ruleConditions">;
     createdAt: bigint;

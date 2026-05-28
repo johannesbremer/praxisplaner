@@ -1066,7 +1066,6 @@ export default defineSchema({
         v.literal("DAY_OF_WEEK"), // Test day of week (0-6)
         v.literal("LOCATION"), // Test location ID
         v.literal("PRACTITIONER"), // Test practitioner ID
-        v.literal("PRACTITIONER_TAG"), // Test if practitioner has tag
 
         // Time-based
         v.literal("DATE_RANGE"), // Test if date is in range
