@@ -494,9 +494,7 @@ function buildAppointmentsZip() {
       ...(patientId ? { patientId } : {}),
       practiceId: practice._id,
       start: interval.start,
-      title: [appointment.Vorname, appointment.Nachname, reasonDescription]
-        .filter(Boolean)
-        .join(" - "),
+      title: reasonDescription,
     };
   });
   stats.written = documents.length;
