@@ -398,7 +398,7 @@ describe("appointments self-service cancellation", () => {
 
     const upcomingAppointments = await authed.query(
       api.appointments.getBookedAppointmentsForCurrentUser,
-      {},
+      { activeRuleSetId: baseData.ruleSetId },
     );
     expect(upcomingAppointments.map((appointment) => appointment._id)).toEqual([
       firstFutureAppointmentId,
@@ -411,7 +411,7 @@ describe("appointments self-service cancellation", () => {
 
     const afterCancellation = await authed.query(
       api.appointments.getBookedAppointmentsForCurrentUser,
-      {},
+      { activeRuleSetId: baseData.ruleSetId },
     );
     expect(afterCancellation.map((appointment) => appointment._id)).toEqual([
       secondFutureAppointmentId,
@@ -454,7 +454,7 @@ describe("appointments self-service cancellation", () => {
 
     const upcomingAppointments = await authed.query(
       api.appointments.getBookedAppointmentsForCurrentUser,
-      {},
+      { activeRuleSetId: baseData.ruleSetId },
     );
 
     expect(upcomingAppointments).toHaveLength(2);
@@ -499,13 +499,13 @@ describe("appointments self-service cancellation", () => {
 
     expect(displayPracticeAppointments).toHaveLength(0);
 
-    const allPracticeAppointments = await authed.query(
+    const otherPracticeAppointments = await authed.query(
       api.appointments.getBookedAppointmentsForCurrentUser,
-      {},
+      { activeRuleSetId: otherPracticeData.ruleSetId },
     );
 
-    expect(allPracticeAppointments).toHaveLength(1);
-    expect(allPracticeAppointments[0]?.kind).toBe(
+    expect(otherPracticeAppointments).toHaveLength(1);
+    expect(otherPracticeAppointments[0]?.kind).toBe(
       "legacy-unmatched-future-hold",
     );
   });
@@ -651,7 +651,7 @@ describe("appointments self-service cancellation", () => {
 
     const upcomingAppointment = await authed.query(
       api.appointments.getBookedAppointmentForCurrentUser,
-      {},
+      { activeRuleSetId: baseData.ruleSetId },
     );
     expect(upcomingAppointment?.kind).toBe("appointment");
     expect(upcomingAppointment?._id).toBe(realAppointmentId);
@@ -1130,7 +1130,7 @@ describe("appointments self-service cancellation", () => {
 
     const remainingAppointments = await authed.query(
       api.appointments.getBookedAppointmentsForCurrentUser,
-      {},
+      { activeRuleSetId: baseData.ruleSetId },
     );
     expect(remainingAppointments).toHaveLength(0);
   });

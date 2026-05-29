@@ -735,7 +735,7 @@ describe("booking flow without bookingSessions table", () => {
 
     const bookedAppointments = await t.query(
       api.appointments.getBookedAppointmentsForCurrentUser,
-      { selectedRuleSetId: fixture.ruleSetId },
+      { activeRuleSetId: fixture.ruleSetId },
     );
     expect(bookedAppointments).toHaveLength(0);
 

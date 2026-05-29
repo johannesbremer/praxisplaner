@@ -1326,7 +1326,10 @@ async function requireCurrentUserCanStartBooking(
   }
 
   const unresolvedFutureHolds =
-    await getFutureLegacyUnmatchedBookingHoldsForUser(ctx, flowKey);
+    await getFutureLegacyUnmatchedBookingHoldsForUser(ctx, {
+      scope: { practiceId: flowKey.practiceId },
+      userId: flowKey.userId,
+    });
   if (unresolvedFutureHolds.length > 0) {
     throw new Error(
       "This account has an unresolved imported future booking and cannot start another online booking.",

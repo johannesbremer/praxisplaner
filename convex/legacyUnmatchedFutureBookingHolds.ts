@@ -25,10 +25,14 @@ export const legacyUnmatchedFutureBookingHoldSummaryValidator = v.object({
 export type LegacyUnmatchedFutureBookingHoldDoc =
   Doc<"legacyUnmatchedFutureBookingHolds">;
 
+export interface LegacyUnmatchedFutureBookingHoldScope {
+  practiceId: Id<"practices">;
+}
+
 export async function getFutureLegacyUnmatchedBookingHoldsForUser(
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
   args: {
-    practiceId?: Id<"practices">;
+    scope: LegacyUnmatchedFutureBookingHoldScope;
     userId: Id<"users">;
   },
 ): Promise<LegacyUnmatchedFutureBookingHoldDoc[]> {
@@ -36,31 +40,14 @@ export async function getFutureLegacyUnmatchedBookingHoldsForUser(
   const nowStartLowerBound = Temporal.Now.instant()
     .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
     .toString();
-  const practiceId = args.practiceId;
   const holds: LegacyUnmatchedFutureBookingHoldDoc[] = [];
-
-  if (practiceId === undefined) {
-    const query = ctx.db
-      .query("legacyUnmatchedFutureBookingHolds")
-      .withIndex("by_userId_start", (q) =>
-        q.eq("userId", args.userId).gte("start", nowStartLowerBound),
-      );
-    for await (const hold of query) {
-      if (
-        isLegacyUnmatchedFutureBookingHoldVisible(hold, nowEpochMilliseconds)
-      ) {
-        holds.push(hold);
-      }
-    }
-    return holds;
-  }
 
   const query = ctx.db
     .query("legacyUnmatchedFutureBookingHolds")
     .withIndex("by_userId_practiceId_start", (q) =>
       q
         .eq("userId", args.userId)
-        .eq("practiceId", practiceId)
+        .eq("practiceId", args.scope.practiceId)
         .gte("start", nowStartLowerBound),
     );
   for await (const hold of query) {

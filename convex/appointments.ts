@@ -62,6 +62,7 @@ import {
 } from "./identity";
 import {
   getFutureLegacyUnmatchedBookingHoldsForUser,
+  type LegacyUnmatchedFutureBookingHoldScope,
   legacyUnmatchedFutureBookingHoldSummaryValidator,
   toLegacyUnmatchedFutureBookingHoldSummary,
 } from "./legacyUnmatchedFutureBookingHolds";
@@ -605,6 +606,21 @@ async function resolvePreferredAppointmentPatientDateOfBirth(
 /**
  * Remaps entity IDs in appointments from source rule set to target rule set.
  */
+interface AppointmentDisplayScope {
+  practiceId: Id<"practices">;
+  ruleSetId: Id<"ruleSets">;
+}
+
+interface DisplayRuleSetArgs {
+  activeRuleSetId?: Id<"ruleSets">;
+  selectedRuleSetId?: Id<"ruleSets">;
+}
+
+interface RequiredDisplayRuleSetArgs {
+  activeRuleSetId: Id<"ruleSets">;
+  selectedRuleSetId?: Id<"ruleSets">;
+}
+
 function combineBlockedSlotsForSimulation(
   blockedSlots: BlockedSlotDoc[],
 ): BlockedSlotDoc[] {
@@ -711,30 +727,20 @@ function filterBlockedSlotsForCalendarDay(
   );
 }
 
-function getDisplayRuleSetId(args: {
-  activeRuleSetId?: Id<"ruleSets">;
-  selectedRuleSetId?: Id<"ruleSets">;
-}) {
+function getDisplayRuleSetId(args: DisplayRuleSetArgs) {
   return args.selectedRuleSetId ?? args.activeRuleSetId;
 }
 
-async function getDisplayRuleSetPracticeId(
-  db: DatabaseReader,
-  displayRuleSetId: Id<"ruleSets"> | undefined,
-): Promise<Id<"practices"> | undefined> {
-  if (displayRuleSetId === undefined) {
-    return undefined;
-  }
+function getDisplayRuleSetIdFromScope(
+  displayScope: AppointmentDisplayScope | undefined,
+): Id<"ruleSets"> | undefined {
+  return displayScope?.ruleSetId;
+}
 
-  const displayRuleSet = await db.get("ruleSets", displayRuleSetId);
-  if (!displayRuleSet) {
-    throw new ConvexError({
-      code: "NOT_FOUND",
-      message: "Display rule set not found.",
-    });
-  }
-
-  return displayRuleSet.practiceId;
+function getLegacyHoldScopeForDisplayScope(
+  displayScope: AppointmentDisplayScope,
+): LegacyUnmatchedFutureBookingHoldScope {
+  return { practiceId: displayScope.practiceId };
 }
 
 async function getOptionalLocationLineageKey(
@@ -988,6 +994,43 @@ async function remapAppointmentIds(
   );
 }
 
+async function requireAppointmentDisplayScope(
+  db: DatabaseReader,
+  args: RequiredDisplayRuleSetArgs,
+): Promise<AppointmentDisplayScope> {
+  const displayScope = await resolveAppointmentDisplayScope(db, args);
+  if (displayScope === undefined) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "A display rule set is required.",
+    });
+  }
+  return displayScope;
+}
+
+async function resolveAppointmentDisplayScope(
+  db: DatabaseReader,
+  args: DisplayRuleSetArgs,
+): Promise<AppointmentDisplayScope | undefined> {
+  const displayRuleSetId = getDisplayRuleSetId(args);
+  if (displayRuleSetId === undefined) {
+    return undefined;
+  }
+
+  const displayRuleSet = await db.get("ruleSets", displayRuleSetId);
+  if (!displayRuleSet) {
+    throw new ConvexError({
+      code: "NOT_FOUND",
+      message: "Display rule set not found.",
+    });
+  }
+
+  return {
+    practiceId: displayRuleSet.practiceId,
+    ruleSetId: displayRuleSetId,
+  };
+}
+
 function toAppointmentListItem(
   appointment: AppointmentDoc,
 ): AppointmentListItem {
@@ -1091,7 +1134,8 @@ export const getAppointments = query({
       args,
       scope,
     );
-    const displayRuleSetId = getDisplayRuleSetId(args);
+    const displayScope = await resolveAppointmentDisplayScope(ctx.db, args);
+    const displayRuleSetId = getDisplayRuleSetIdFromScope(displayScope);
     const appointments: AppointmentListItem[] = displayRuleSetId
       ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
       : scopedAppointments.map((appointment) =>
@@ -1182,7 +1226,8 @@ export const getCalendarDayAppointments = query({
     const visibleAppointments = resolvedAppointments.filter((appointment) =>
       isAppointmentInSelectedLocation(appointment, selectedLocationLineageKey),
     );
-    const displayRuleSetId = getDisplayRuleSetId(args);
+    const displayScope = await resolveAppointmentDisplayScope(ctx.db, args);
+    const displayRuleSetId = getDisplayRuleSetIdFromScope(displayScope);
 
     return displayRuleSetId
       ? await remapAppointmentIds(ctx, visibleAppointments, displayRuleSetId)
@@ -1229,7 +1274,8 @@ export const getAppointmentsInRange = query({
       scope,
     ).filter((appointment) => isTimeRangeOverlap(appointment, args));
 
-    const displayRuleSetId = getDisplayRuleSetId(args);
+    const displayScope = await resolveAppointmentDisplayScope(ctx.db, args);
+    const displayRuleSetId = getDisplayRuleSetIdFromScope(displayScope);
     const appointments: AppointmentListItem[] = displayRuleSetId
       ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
       : scopedAppointments.map((appointment) =>
@@ -2494,7 +2540,7 @@ export const cancelOwnAppointment = mutation({
 // Query to get the authenticated user's future booked appointments (future only)
 export const getBookedAppointmentsForCurrentUser = query({
   args: {
-    activeRuleSetId: v.optional(v.id("ruleSets")),
+    activeRuleSetId: v.id("ruleSets"),
     refreshNonce: v.optional(v.number()),
     selectedRuleSetId: v.optional(v.id("ruleSets")),
   },
@@ -2507,7 +2553,7 @@ export const getBookedAppointmentsForCurrentUser = query({
 // Query to get the authenticated user's next booked appointment (future only)
 export const getBookedAppointmentForCurrentUser = query({
   args: {
-    activeRuleSetId: v.optional(v.id("ruleSets")),
+    activeRuleSetId: v.id("ruleSets"),
     refreshNonce: v.optional(v.number()),
     selectedRuleSetId: v.optional(v.id("ruleSets")),
   },
@@ -2521,7 +2567,7 @@ export const getBookedAppointmentForCurrentUser = query({
 async function getBookedAppointmentsForUser(
   ctx: QueryCtx,
   args: {
-    activeRuleSetId?: Id<"ruleSets">;
+    activeRuleSetId: Id<"ruleSets">;
     refreshNonce?: number;
     selectedRuleSetId?: Id<"ruleSets">;
   },
@@ -2555,11 +2601,9 @@ async function getBookedAppointmentsForUser(
     }
   }
 
-  const displayRuleSetId = getDisplayRuleSetId(args);
-  const displayPracticeId = await getDisplayRuleSetPracticeId(
-    ctx.db,
-    displayRuleSetId,
-  );
+  const displayScope = await requireAppointmentDisplayScope(ctx.db, args);
+  const displayRuleSetId = getDisplayRuleSetIdFromScope(displayScope);
+  const legacyHoldScope = getLegacyHoldScopeForDisplayScope(displayScope);
   if (displayRuleSetId) {
     const remappedAppointments = await remapAppointmentIds(
       ctx,
@@ -2568,9 +2612,7 @@ async function getBookedAppointmentsForUser(
     );
     const unresolvedFutureHolds =
       await getFutureLegacyUnmatchedBookingHoldsForUser(ctx, {
-        ...(displayPracticeId === undefined
-          ? {}
-          : { practiceId: displayPracticeId }),
+        scope: legacyHoldScope,
         userId,
       });
     return [
@@ -2585,9 +2627,7 @@ async function getBookedAppointmentsForUser(
 
   const unresolvedFutureHolds =
     await getFutureLegacyUnmatchedBookingHoldsForUser(ctx, {
-      ...(displayPracticeId === undefined
-        ? {}
-        : { practiceId: displayPracticeId }),
+      scope: legacyHoldScope,
       userId,
     });
   return [
