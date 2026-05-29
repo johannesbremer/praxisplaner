@@ -21,6 +21,10 @@ import {
   resolvePractitionerIdForRuleSet,
 } from "./appointmentCoverage";
 import {
+  appointmentOccupancyScopeFromRefs,
+  getAppointmentPractitionerLineageKey,
+} from "./appointmentOccupancy";
+import {
   resolvePractitionerLineageKey,
   resolveStoredAppointmentReferencesForWrite,
 } from "./appointmentReferences";
@@ -740,7 +744,10 @@ export const createVacationWithCoverageAdjustments = mutation({
       ) {
         throw new Error("Nur echte, aktive Termine können verschoben werden.");
       }
-      if (appointment.practitionerLineageKey !== absentPractitionerLineageKey) {
+      if (
+        getAppointmentPractitionerLineageKey(appointment.occupancyScope) !==
+        absentPractitionerLineageKey
+      ) {
         throw new Error(
           "Mindestens ein Termin gehört nicht mehr zum ausgewählten Behandler.",
         );
@@ -836,7 +843,9 @@ export const createVacationWithCoverageAdjustments = mutation({
               locationLineageKey: asLocationLineageKey(
                 appointment.locationLineageKey,
               ),
-              practitionerLineageKey: targetPractitionerLineageKey,
+              occupancyScope: appointmentOccupancyScopeFromRefs({
+                practitionerLineageKey: targetPractitionerLineageKey,
+              }),
               start: appointment.start,
             },
             draftRuleSetId: ruleSetId,
@@ -929,10 +938,14 @@ export const createVacationWithCoverageAdjustments = mutation({
       );
 
       const nextAppointmentData = {
-        ...storedReferences,
+        appointmentTypeLineageKey: storedReferences.appointmentTypeLineageKey,
         appointmentTypeTitle: appointment.appointmentTypeTitle,
         end: appointment.end,
         lastModified: now,
+        locationLineageKey: storedReferences.locationLineageKey,
+        occupancyScope: appointmentOccupancyScopeFromRefs({
+          practitionerLineageKey: storedReferences.practitionerLineageKey,
+        }),
         ...(appointment.patientId ? { patientId: appointment.patientId } : {}),
         practiceId: args.practiceId,
         reassignmentSourceVacationLineageKey: vacationLineageKey,

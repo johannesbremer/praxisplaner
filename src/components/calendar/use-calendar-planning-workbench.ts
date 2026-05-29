@@ -1,3 +1,5 @@
+import type { FunctionArgs } from "convex/server";
+
 import { useMutation } from "convex/react";
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
@@ -11,14 +13,25 @@ import type {
 } from "../../../convex/identity";
 import type { ZonedDateTimeString } from "../../../convex/typedDtos";
 import type { CalendarDayQueryArgs } from "./calendar-query-args";
-import type { CalendarReferenceMaps } from "./calendar-reference-adapters";
 import type {
+  BlockedSlotDisplayOccupancyScope,
+  CalendarReferenceMaps,
+} from "./calendar-reference-adapters";
+import type {
+  CalendarAppointmentPlacement,
   CalendarAppointmentRecord,
   CalendarBlockedSlotEditorRecord,
+  CalendarBlockedSlotPlacement,
   CalendarBlockedSlotRecord,
 } from "./types";
 
 import { api } from "../../../convex/_generated/api";
+import {
+  createCalendarPlacement,
+  getCalendarResourceColumnFromOccupancy,
+  getPractitionerLineageKeyFromOccupancy,
+  sameCalendarOccupancyScope,
+} from "../../../lib/calendar-occupancy";
 import {
   createOptimisticId,
   findIdInList,
@@ -36,8 +49,10 @@ import {
 import {
   resolveAppointmentDisplayRefs,
   resolveAppointmentLineageRefs,
+  resolveAppointmentPlacementDisplayRefs,
   resolveBlockedSlotDisplayRefs,
   resolveBlockedSlotLineageRefs,
+  resolveBlockedSlotPlacementDisplayRefs,
   toBlockedSlotEditorRecord,
 } from "./calendar-reference-adapters";
 import {
@@ -51,11 +66,24 @@ import { useCalendarPlanningHistory } from "./use-calendar-planning-history";
 const appointmentQueryRef = api.appointments.getCalendarDayAppointments;
 const blockedSlotQueryRef = api.appointments.getCalendarDayBlockedSlots;
 
+export type CalendarAppointmentCreateCommandArgs = Omit<
+  CreateAppointmentMutationArgs,
+  "calendarResourceColumn" | "locationId" | "practitionerId"
+> & {
+  placement: CalendarAppointmentPlacement;
+};
+
+export type CalendarAppointmentUpdateCommandArgs = Omit<
+  UpdateAppointmentMutationArgs,
+  "calendarResourceColumn" | "locationId" | "practitionerId"
+> & {
+  placement?: CalendarAppointmentPlacement;
+};
+
 interface AppointmentCandidate {
   end: string;
   isSimulation: boolean;
-  locationLineageKey: LocationLineageKey;
-  practitionerLineageKey?: PractitionerLineageKey;
+  placement: CalendarAppointmentPlacement;
   replacesAppointmentId?: Id<"appointments">;
   start: string;
 }
@@ -69,8 +97,7 @@ interface AppointmentTypeInfo {
 interface BlockedSlotCandidate {
   end: string;
   isSimulation: boolean;
-  locationLineageKey: LocationLineageKey;
-  practitionerLineageKey?: PractitionerLineageKey;
+  placement: CalendarBlockedSlotPlacement;
   start: string;
 }
 
@@ -78,17 +105,20 @@ interface CalendarRecordRef<T> {
   current: T;
 }
 
+type CreateAppointmentMutationArgs = FunctionArgs<
+  typeof api.appointments.createAppointment
+>;
+
 interface CreatedAppointmentHistoryArgs {
   appointmentId: Id<"appointments">;
   appointmentTypeLineageKey: AppointmentTypeLineageKey;
   appointmentTypeTitle: string;
   end: CalendarAppointmentRecord["end"];
   isSimulation: boolean;
-  locationLineageKey: LocationLineageKey;
   now: number;
   patientId?: Id<"patients">;
+  placement: CalendarAppointmentPlacement;
   practiceId: Id<"practices">;
-  practitionerLineageKey?: PractitionerLineageKey;
   replacesAppointmentId?: Id<"appointments">;
   start: CalendarAppointmentRecord["start"];
   title: string;
@@ -99,14 +129,17 @@ interface CreatedBlockedSlotHistoryArgs {
   blockedSlotId: Id<"blockedSlots">;
   end: CalendarBlockedSlotRecord["end"];
   isSimulation: boolean;
-  locationLineageKey: LocationLineageKey;
   now: number;
+  placement: CalendarBlockedSlotPlacement;
   practiceId: Id<"practices">;
-  practitionerLineageKey?: PractitionerLineageKey;
   replacesBlockedSlotId?: Id<"blockedSlots">;
   start: CalendarBlockedSlotRecord["start"];
   title: string;
 }
+
+type UpdateAppointmentMutationArgs = FunctionArgs<
+  typeof api.appointments.updateAppointment
+>;
 
 export function useCalendarPlanningWorkbench(args: {
   activeDayAppointmentMapRef: CalendarRecordRef<
@@ -283,12 +316,9 @@ export function useCalendarPlanningWorkbench(args: {
         end: args.end,
         isSimulation: args.isSimulation,
         lastModified: BigInt(args.now),
-        locationLineageKey: args.locationLineageKey,
+        placement: args.placement,
         ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
         practiceId: args.practiceId,
-        ...(args.practitionerLineageKey === undefined
-          ? {}
-          : { practitionerLineageKey: args.practitionerLineageKey }),
         ...(args.replacesAppointmentId === undefined
           ? {}
           : { replacesAppointmentId: args.replacesAppointmentId }),
@@ -325,11 +355,8 @@ export function useCalendarPlanningWorkbench(args: {
         end: args.end,
         isSimulation: args.isSimulation,
         lastModified: BigInt(args.now),
-        locationLineageKey: args.locationLineageKey,
+        placement: args.placement,
         practiceId: args.practiceId,
-        ...(args.practitionerLineageKey === undefined
-          ? {}
-          : { practitionerLineageKey: args.practitionerLineageKey }),
         ...(args.replacesBlockedSlotId === undefined
           ? {}
           : { replacesBlockedSlotId: args.replacesBlockedSlotId }),
@@ -417,10 +444,9 @@ export function useCalendarPlanningWorkbench(args: {
       createEnd: string;
       createStart: string;
       isSimulation: boolean;
-      locationLineageKey: LocationLineageKey;
       patientId?: Id<"patients">;
+      placement: CalendarAppointmentPlacement;
       practiceId: Id<"practices">;
-      practitionerLineageKey?: PractitionerLineageKey;
       replacesAppointmentId?: Id<"appointments">;
       title: string;
       userId?: Id<"users">;
@@ -443,15 +469,12 @@ export function useCalendarPlanningWorkbench(args: {
         appointmentTypeTitle: createdArgs.appointmentTypeTitle,
         end,
         isSimulation: createdArgs.isSimulation,
-        locationLineageKey: createdArgs.locationLineageKey,
         now: Date.now(),
+        placement: createdArgs.placement,
         ...(createdArgs.patientId === undefined
           ? {}
           : { patientId: createdArgs.patientId }),
         practiceId: createdArgs.practiceId,
-        ...(createdArgs.practitionerLineageKey === undefined
-          ? {}
-          : { practitionerLineageKey: createdArgs.practitionerLineageKey }),
         ...(createdArgs.replacesAppointmentId === undefined
           ? {}
           : { replacesAppointmentId: createdArgs.replacesAppointmentId }),
@@ -517,8 +540,7 @@ export function useCalendarPlanningWorkbench(args: {
   const resolveAppointmentReferenceDisplayIds = useCallback(
     (refs: {
       appointmentTypeLineageKey: AppointmentTypeLineageKey;
-      locationLineageKey: LocationLineageKey;
-      practitionerLineageKey?: PractitionerLineageKey;
+      placement: CalendarAppointmentPlacement;
     }) => resolveAppointmentDisplayRefs(refs, referenceMaps),
     [referenceMaps],
   );
@@ -527,23 +549,31 @@ export function useCalendarPlanningWorkbench(args: {
     (refs: {
       appointmentTypeId: Id<"appointmentTypes">;
       locationId: Id<"locations">;
-      practitionerId?: Id<"practitioners">;
+      occupancyScope:
+        | {
+            calendarResourceColumn: "ekg" | "labor";
+            kind: "resource";
+          }
+        | {
+            kind: "practitioner";
+            practitionerId: Id<"practitioners">;
+          };
     }) => resolveAppointmentLineageRefs(refs, referenceMaps),
     [referenceMaps],
   );
 
   const resolveBlockedSlotReferenceDisplayIds = useCallback(
-    (refs: {
-      locationLineageKey: LocationLineageKey;
-      practitionerLineageKey?: PractitionerLineageKey;
-    }) => resolveBlockedSlotDisplayRefs(refs, referenceMaps),
+    (refs: CalendarBlockedSlotPlacement) =>
+      resolveBlockedSlotDisplayRefs(refs, referenceMaps),
     [referenceMaps],
   );
 
   const resolveBlockedSlotReferenceLineageKeys = useCallback(
     (refs: {
       locationId: Id<"locations">;
-      practitionerId?: Id<"practitioners">;
+      occupancyScope:
+        | { kind: "location-wide" }
+        | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
     }) => resolveBlockedSlotLineageRefs(refs, referenceMaps),
     [referenceMaps],
   );
@@ -578,6 +608,67 @@ export function useCalendarPlanningWorkbench(args: {
     api.appointments.updateBlockedSlot,
   );
 
+  const createAppointmentMutationArgsFromCommand = useCallback(
+    (
+      commandArgs: CalendarAppointmentCreateCommandArgs,
+    ): CreateAppointmentMutationArgs | null => {
+      const { placement, ...rest } = commandArgs;
+      const displayRefs = resolveAppointmentPlacementDisplayRefs(
+        placement,
+        referenceMaps,
+      );
+      if (displayRefs === null) {
+        return null;
+      }
+
+      return {
+        ...rest,
+        locationId: displayRefs.locationId,
+        ...(displayRefs.occupancyScope.kind === "resource"
+          ? {
+              calendarResourceColumn:
+                displayRefs.occupancyScope.calendarResourceColumn,
+            }
+          : { practitionerId: displayRefs.occupancyScope.practitionerId }),
+      };
+    },
+    [referenceMaps],
+  );
+
+  const updateAppointmentMutationArgsFromCommand = useCallback(
+    (
+      commandArgs: CalendarAppointmentUpdateCommandArgs,
+    ): null | UpdateAppointmentMutationArgs => {
+      const { placement, ...rest } = commandArgs;
+      if (placement === undefined) {
+        return rest;
+      }
+
+      const displayRefs = resolveAppointmentPlacementDisplayRefs(
+        placement,
+        referenceMaps,
+      );
+      if (displayRefs === null) {
+        return null;
+      }
+
+      return {
+        ...rest,
+        locationId: displayRefs.locationId,
+        ...(displayRefs.occupancyScope.kind === "resource"
+          ? {
+              calendarResourceColumn:
+                displayRefs.occupancyScope.calendarResourceColumn,
+            }
+          : {
+              calendarResourceColumn: null,
+              practitionerId: displayRefs.occupancyScope.practitionerId,
+            }),
+      };
+    },
+    [referenceMaps],
+  );
+
   const runCreateAppointmentInternal = useCallback(
     async (args: Parameters<typeof createAppointmentMutation>[0]) => {
       return await createAppointmentMutation.withOptimisticUpdate(
@@ -604,12 +695,34 @@ export function useCalendarPlanningWorkbench(args: {
           if (!appointmentTypeInfo) {
             return;
           }
+          if (
+            optimisticArgs.calendarResourceColumn === undefined &&
+            optimisticArgs.practitionerId === undefined
+          ) {
+            return;
+          }
+          let optimisticDisplayOccupancyScope:
+            | { calendarResourceColumn: "ekg" | "labor"; kind: "resource" }
+            | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
+          if (optimisticArgs.calendarResourceColumn === undefined) {
+            const practitionerId = optimisticArgs.practitionerId;
+            if (practitionerId === undefined) {
+              return;
+            }
+            optimisticDisplayOccupancyScope = {
+              kind: "practitioner",
+              practitionerId,
+            };
+          } else {
+            optimisticDisplayOccupancyScope = {
+              calendarResourceColumn: optimisticArgs.calendarResourceColumn,
+              kind: "resource",
+            };
+          }
           const lineageRefs = resolveAppointmentReferenceLineageKeys({
             appointmentTypeId: optimisticArgs.appointmentTypeId,
             locationId: optimisticArgs.locationId,
-            ...(optimisticArgs.practitionerId === undefined
-              ? {}
-              : { practitionerId: optimisticArgs.practitionerId }),
+            occupancyScope: optimisticDisplayOccupancyScope,
           });
           if (!lineageRefs) {
             return;
@@ -639,19 +752,11 @@ export function useCalendarPlanningWorkbench(args: {
             end: typedEnd,
             isSimulation: optimisticArgs.isSimulation ?? false,
             lastModified: BigInt(now),
-            locationLineageKey: lineageRefs.locationLineageKey,
+            placement: lineageRefs.placement,
             practiceId: optimisticArgs.practiceId,
             start: typedStart,
             title: optimisticArgs.title,
           };
-
-          if (
-            optimisticArgs.practitionerId !== undefined &&
-            lineageRefs.practitionerLineageKey !== undefined
-          ) {
-            newAppointmentRecord.practitionerLineageKey =
-              lineageRefs.practitionerLineageKey;
-          }
 
           if (optimisticArgs.patientId !== undefined) {
             newAppointmentRecord.patientId = optimisticArgs.patientId;
@@ -768,33 +873,59 @@ export function useCalendarPlanningWorkbench(args: {
           timeUpdates.end = nextEnd;
         }
 
+        const nextDisplayOccupancyScope:
+          | { calendarResourceColumn: "ekg" | "labor"; kind: "resource" }
+          | { kind: "practitioner"; practitionerId: Id<"practitioners"> } =
+          optimisticArgs.calendarResourceColumn === undefined
+            ? optimisticArgs.practitionerId === undefined
+              ? appointment.practitionerId === undefined
+                ? {
+                    calendarResourceColumn:
+                      getCalendarResourceColumnFromOccupancy(
+                        currentRecord.placement.occupancyScope,
+                      ) ?? "ekg",
+                    kind: "resource",
+                  }
+                : {
+                    kind: "practitioner",
+                    practitionerId: appointment.practitionerId,
+                  }
+              : {
+                  kind: "practitioner" as const,
+                  practitionerId: optimisticArgs.practitionerId,
+                }
+            : optimisticArgs.calendarResourceColumn === null
+              ? appointment.practitionerId === undefined
+                ? {
+                    calendarResourceColumn:
+                      getCalendarResourceColumnFromOccupancy(
+                        currentRecord.placement.occupancyScope,
+                      ) ?? "ekg",
+                    kind: "resource",
+                  }
+                : {
+                    kind: "practitioner",
+                    practitionerId: appointment.practitionerId,
+                  }
+              : {
+                  calendarResourceColumn: optimisticArgs.calendarResourceColumn,
+                  kind: "resource" as const,
+                };
         const lineageRefs =
           optimisticArgs.locationId === undefined &&
-          optimisticArgs.practitionerId === undefined
+          optimisticArgs.practitionerId === undefined &&
+          optimisticArgs.calendarResourceColumn === undefined
             ? null
-            : resolveBlockedSlotReferenceLineageKeys({
+            : resolveAppointmentReferenceLineageKeys({
+                appointmentTypeId: appointment.appointmentTypeId,
                 locationId: optimisticArgs.locationId ?? appointment.locationId,
-                ...(optimisticArgs.practitionerId === undefined
-                  ? appointment.practitionerId === undefined
-                    ? {}
-                    : { practitionerId: appointment.practitionerId }
-                  : { practitionerId: optimisticArgs.practitionerId }),
+                occupancyScope: nextDisplayOccupancyScope,
               });
 
         const nextRecord: CalendarAppointmentRecord = {
           ...currentRecord,
           ...timeUpdates,
-          ...(lineageRefs === null
-            ? {}
-            : {
-                locationLineageKey: lineageRefs.locationLineageKey,
-                ...(lineageRefs.practitionerLineageKey === undefined
-                  ? {}
-                  : {
-                      practitionerLineageKey:
-                        lineageRefs.practitionerLineageKey,
-                    }),
-              }),
+          ...(lineageRefs === null ? {} : { placement: lineageRefs.placement }),
           ...(optimisticArgs.title !== undefined && {
             title: optimisticArgs.title,
           }),
@@ -804,11 +935,16 @@ export function useCalendarPlanningWorkbench(args: {
         return toCalendarAppointmentResult({
           appointmentTypeId: appointment.appointmentTypeId,
           locationId: optimisticArgs.locationId ?? appointment.locationId,
-          ...(optimisticArgs.practitionerId === undefined
-            ? appointment.practitionerId === undefined
-              ? {}
-              : { practitionerId: appointment.practitionerId }
-            : { practitionerId: optimisticArgs.practitionerId }),
+          ...(lineageRefs?.placement.occupancyScope.kind === "practitioner"
+            ? {
+                practitionerId:
+                  optimisticArgs.practitionerId ?? appointment.practitionerId,
+              }
+            : optimisticArgs.calendarResourceColumn === undefined
+              ? appointment.practitionerId === undefined
+                ? {}
+                : { practitionerId: appointment.practitionerId }
+              : {}),
           record: nextRecord,
         });
       });
@@ -822,7 +958,7 @@ export function useCalendarPlanningWorkbench(args: {
     [
       calendarDayQueryArgs,
       parseZonedDateTime,
-      resolveBlockedSlotReferenceLineageKeys,
+      resolveAppointmentReferenceLineageKeys,
       updateAppointmentMutation,
     ],
   );
@@ -917,9 +1053,7 @@ export function useCalendarPlanningWorkbench(args: {
           const tempId = createOptimisticId<"blockedSlots">();
           const lineageRefs = resolveBlockedSlotReferenceLineageKeys({
             locationId: optimisticArgs.locationId,
-            ...(optimisticArgs.practitionerId === undefined
-              ? {}
-              : { practitionerId: optimisticArgs.practitionerId }),
+            occupancyScope: optimisticArgs.occupancyScope,
           });
           if (!lineageRefs) {
             return;
@@ -932,19 +1066,11 @@ export function useCalendarPlanningWorkbench(args: {
             end: optimisticArgs.end,
             isSimulation: optimisticArgs.isSimulation ?? false,
             lastModified: BigInt(now),
-            locationLineageKey: lineageRefs.locationLineageKey,
+            placement: lineageRefs,
             practiceId: optimisticArgs.practiceId,
             start: optimisticArgs.start,
             title: optimisticArgs.title,
           };
-
-          if (
-            optimisticArgs.practitionerId !== undefined &&
-            lineageRefs.practitionerLineageKey !== undefined
-          ) {
-            newBlockedSlotRecord.practitionerLineageKey =
-              lineageRefs.practitionerLineageKey;
-          }
 
           if (optimisticArgs.replacesBlockedSlotId !== undefined) {
             newBlockedSlotRecord.replacesBlockedSlotId =
@@ -952,9 +1078,11 @@ export function useCalendarPlanningWorkbench(args: {
           }
           const newBlockedSlot = toCalendarBlockedSlotResult({
             locationId: optimisticArgs.locationId,
-            ...(optimisticArgs.practitionerId === undefined
-              ? {}
-              : { practitionerId: optimisticArgs.practitionerId }),
+            ...(optimisticArgs.occupancyScope.kind === "practitioner"
+              ? {
+                  practitionerId: optimisticArgs.occupancyScope.practitionerId,
+                }
+              : {}),
             record: newBlockedSlotRecord,
           });
 
@@ -1016,17 +1144,21 @@ export function useCalendarPlanningWorkbench(args: {
             }
 
             const currentRecord = toCalendarBlockedSlotRecord(slot);
+            const nextDisplayOccupancyScope =
+              optimisticArgs.occupancyScope ??
+              (slot.practitionerId === undefined
+                ? { kind: "location-wide" as const }
+                : {
+                    kind: "practitioner" as const,
+                    practitionerId: slot.practitionerId,
+                  });
             const lineageRefs =
               optimisticArgs.locationId === undefined &&
-              optimisticArgs.practitionerId === undefined
+              optimisticArgs.occupancyScope === undefined
                 ? null
                 : resolveBlockedSlotReferenceLineageKeys({
                     locationId: optimisticArgs.locationId ?? slot.locationId,
-                    ...(optimisticArgs.practitionerId === undefined
-                      ? slot.practitionerId === undefined
-                        ? {}
-                        : { practitionerId: slot.practitionerId }
-                      : { practitionerId: optimisticArgs.practitionerId }),
+                    occupancyScope: nextDisplayOccupancyScope,
                   });
 
             const nextRecord: CalendarBlockedSlotRecord = {
@@ -1040,17 +1172,7 @@ export function useCalendarPlanningWorkbench(args: {
               ...(optimisticArgs.end !== undefined && {
                 end: optimisticArgs.end,
               }),
-              ...(lineageRefs === null
-                ? {}
-                : {
-                    locationLineageKey: lineageRefs.locationLineageKey,
-                    ...(lineageRefs.practitionerLineageKey === undefined
-                      ? {}
-                      : {
-                          practitionerLineageKey:
-                            lineageRefs.practitionerLineageKey,
-                        }),
-                  }),
+              ...(lineageRefs === null ? {} : { placement: lineageRefs }),
               ...(optimisticArgs.replacesBlockedSlotId !== undefined && {
                 replacesBlockedSlotId: optimisticArgs.replacesBlockedSlotId,
               }),
@@ -1062,11 +1184,11 @@ export function useCalendarPlanningWorkbench(args: {
 
             return toCalendarBlockedSlotResult({
               locationId: optimisticArgs.locationId ?? slot.locationId,
-              ...(optimisticArgs.practitionerId === undefined
-                ? slot.practitionerId === undefined
-                  ? {}
-                  : { practitionerId: slot.practitionerId }
-                : { practitionerId: optimisticArgs.practitionerId }),
+              ...(nextDisplayOccupancyScope.kind === "practitioner"
+                ? {
+                    practitionerId: nextDisplayOccupancyScope.practitionerId,
+                  }
+                : {}),
               record: nextRecord,
             });
           });
@@ -1116,7 +1238,12 @@ export function useCalendarPlanningWorkbench(args: {
   );
 
   const runCreateAppointment = useCallback(
-    async (args: Parameters<typeof createAppointmentMutation>[0]) => {
+    async (args: CalendarAppointmentCreateCommandArgs) => {
+      const mutationArgs = createAppointmentMutationArgsFromCommand(args);
+      if (mutationArgs === null) {
+        toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
+        return;
+      }
       const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
         args.appointmentTypeId,
         "useCalendarPlanningWorkbench.runCreateAppointment",
@@ -1126,45 +1253,45 @@ export function useCalendarPlanningWorkbench(args: {
         return;
       }
       if (appointmentTypeInfo.hasFollowUpPlan) {
-        return await createAppointmentMutation(args);
+        return await createAppointmentMutation(mutationArgs);
       }
 
-      const createdId = await runCreateAppointmentInternal(args);
+      const createdId = await runCreateAppointmentInternal(mutationArgs);
       if (!createdId) {
         return createdId;
       }
 
       let currentAppointmentId: Id<"appointments"> = createdId;
-      const createArgs = { ...args, isSimulation: args.isSimulation ?? false };
+      const createArgs = {
+        ...mutationArgs,
+        isSimulation: mutationArgs.isSimulation ?? false,
+      };
+      const createCommandArgs = {
+        ...args,
+        isSimulation: args.isSimulation ?? false,
+      };
       const createEnd = getAppointmentCreationEnd({
         durationMinutes: appointmentTypeInfo.duration,
         start: createArgs.start,
       });
-      const appointmentReferences = resolveAppointmentReferenceLineageKeys({
-        appointmentTypeId: createArgs.appointmentTypeId,
-        locationId: createArgs.locationId,
-        ...(createArgs.practitionerId && {
-          practitionerId: createArgs.practitionerId,
-        }),
-      });
-      if (!appointmentReferences) {
+      const appointmentTypeLineageKey =
+        referenceMaps.appointmentTypeLineageKeyById.get(
+          createArgs.appointmentTypeId,
+        );
+      if (appointmentTypeLineageKey === undefined) {
         toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
         return createdId;
       }
       rememberCreatedAppointmentFromStrings({
-        appointmentTypeLineageKey:
-          appointmentReferences.appointmentTypeLineageKey,
+        appointmentTypeLineageKey,
         appointmentTypeTitle: appointmentTypeInfo.name,
         createdId,
         createEnd,
         createStart: createArgs.start,
         isSimulation: createArgs.isSimulation,
-        locationLineageKey: appointmentReferences.locationLineageKey,
+        placement: createCommandArgs.placement,
         ...(createArgs.patientId && { patientId: createArgs.patientId }),
         practiceId: createArgs.practiceId,
-        ...(appointmentReferences.practitionerLineageKey && {
-          practitionerLineageKey: appointmentReferences.practitionerLineageKey,
-        }),
         ...(createArgs.replacesAppointmentId && {
           replacesAppointmentId: createArgs.replacesAppointmentId,
         }),
@@ -1180,11 +1307,7 @@ export function useCalendarPlanningWorkbench(args: {
             hasAppointmentConflict({
               end: createEnd,
               isSimulation: createArgs.isSimulation,
-              locationLineageKey: appointmentReferences.locationLineageKey,
-              ...(appointmentReferences.practitionerLineageKey && {
-                practitionerLineageKey:
-                  appointmentReferences.practitionerLineageKey,
-              }),
+              placement: createCommandArgs.placement,
               ...(createArgs.replacesAppointmentId && {
                 replacesAppointmentId: createArgs.replacesAppointmentId,
               }),
@@ -1205,20 +1328,15 @@ export function useCalendarPlanningWorkbench(args: {
 
           currentAppointmentId = recreatedId;
           rememberCreatedAppointmentFromStrings({
-            appointmentTypeLineageKey:
-              appointmentReferences.appointmentTypeLineageKey,
+            appointmentTypeLineageKey,
             appointmentTypeTitle: appointmentTypeInfo.name,
             createdId: recreatedId,
             createEnd,
             createStart: createArgs.start,
             isSimulation: createArgs.isSimulation,
-            locationLineageKey: appointmentReferences.locationLineageKey,
+            placement: createCommandArgs.placement,
             ...(createArgs.patientId && { patientId: createArgs.patientId }),
             practiceId: createArgs.practiceId,
-            ...(appointmentReferences.practitionerLineageKey && {
-              practitionerLineageKey:
-                appointmentReferences.practitionerLineageKey,
-            }),
             ...(createArgs.replacesAppointmentId && {
               replacesAppointmentId: createArgs.replacesAppointmentId,
             }),
@@ -1246,6 +1364,7 @@ export function useCalendarPlanningWorkbench(args: {
     },
     [
       createAppointmentMutation,
+      createAppointmentMutationArgsFromCommand,
       ensureLatestConflictData,
       forgetAppointmentHistoryDoc,
       getAppointmentCreationEnd,
@@ -1253,44 +1372,26 @@ export function useCalendarPlanningWorkbench(args: {
       hasAppointmentConflict,
       pushHistoryAction,
       rememberCreatedAppointmentFromStrings,
-      resolveAppointmentReferenceLineageKeys,
+      referenceMaps.appointmentTypeLineageKeyById,
       runCreateAppointmentInternal,
       runDeleteAppointmentInternal,
     ],
   );
 
   const runUpdateAppointment = useCallback(
-    async (args: Parameters<typeof updateAppointmentMutation>[0]) => {
+    async (args: CalendarAppointmentUpdateCommandArgs) => {
+      const mutationArgs = updateAppointmentMutationArgsFromCommand(args);
+      if (mutationArgs === null) {
+        toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
+        return;
+      }
       const before = getAppointmentHistoryDoc(args.id);
       if (before?.seriesId) {
-        await getAppointmentUpdateMutation(before)(args);
+        await getAppointmentUpdateMutation(before)(mutationArgs);
         return;
       }
 
-      const nextLocationLineageKey =
-        args.locationId === undefined
-          ? before?.locationLineageKey
-          : getLocationLineageKeyForDisplayId(args.locationId);
-      if (
-        args.locationId !== undefined &&
-        nextLocationLineageKey === undefined
-      ) {
-        toast.error("Standort konnte nicht aufgelöst werden.");
-        return;
-      }
-      const nextPractitionerLineageKey =
-        args.practitionerId === undefined
-          ? before?.practitionerLineageKey
-          : getPractitionerLineageKeyForDisplayId(args.practitionerId);
-      if (
-        args.practitionerId !== undefined &&
-        nextPractitionerLineageKey === undefined
-      ) {
-        toast.error("Behandler konnte nicht aufgelöst werden.");
-        return;
-      }
-
-      await runUpdateAppointmentInternal(args);
+      await runUpdateAppointmentInternal(mutationArgs);
 
       if (!before) {
         return;
@@ -1298,8 +1399,7 @@ export function useCalendarPlanningWorkbench(args: {
 
       const beforeState = {
         end: before.end,
-        locationLineageKey: before.locationLineageKey,
-        practitionerLineageKey: before.practitionerLineageKey,
+        placement: before.placement,
         start: before.start,
       };
       const typedEnd =
@@ -1324,18 +1424,13 @@ export function useCalendarPlanningWorkbench(args: {
       }
       const afterState = {
         end: typedEnd ?? before.end,
-        locationLineageKey: nextLocationLineageKey ?? before.locationLineageKey,
-        practitionerLineageKey:
-          nextPractitionerLineageKey ?? before.practitionerLineageKey,
+        placement: args.placement ?? before.placement,
         start: typedStart ?? before.start,
       };
       const afterSnapshot: CalendarAppointmentRecord = {
         ...before,
         end: afterState.end,
-        locationLineageKey: afterState.locationLineageKey,
-        ...(afterState.practitionerLineageKey === undefined
-          ? {}
-          : { practitionerLineageKey: afterState.practitionerLineageKey }),
+        placement: afterState.placement,
         start: afterState.start,
       };
       rememberAppointmentHistoryDoc(afterSnapshot);
@@ -1346,24 +1441,19 @@ export function useCalendarPlanningWorkbench(args: {
       ) =>
         appointment.start === expected.start &&
         appointment.end === expected.end &&
-        appointment.locationLineageKey === expected.locationLineageKey &&
-        appointment.practitionerLineageKey === expected.practitionerLineageKey;
+        appointment.placement.locationLineageKey ===
+          expected.placement.locationLineageKey &&
+        sameCalendarOccupancyScope(
+          appointment.placement.occupancyScope,
+          expected.placement.occupancyScope,
+        );
 
       const candidatePayload = (
         state: typeof beforeState,
-      ): {
-        end: CalendarAppointmentRecord["end"];
-        isSimulation: boolean;
-        locationLineageKey: LocationLineageKey;
-        practitionerLineageKey?: PractitionerLineageKey;
-        start: CalendarAppointmentRecord["start"];
-      } => ({
+      ): AppointmentCandidate => ({
         end: state.end,
         isSimulation: before.isSimulation ?? false,
-        locationLineageKey: state.locationLineageKey,
-        ...(state.practitionerLineageKey && {
-          practitionerLineageKey: state.practitionerLineageKey,
-        }),
+        placement: state.placement,
         start: state.start,
       });
 
@@ -1388,11 +1478,9 @@ export function useCalendarPlanningWorkbench(args: {
             };
           }
 
-          const displayRefs = resolveBlockedSlotReferenceDisplayIds({
-            locationLineageKey: afterState.locationLineageKey,
-            ...(afterState.practitionerLineageKey && {
-              practitionerLineageKey: afterState.practitionerLineageKey,
-            }),
+          const displayRefs = resolveAppointmentReferenceDisplayIds({
+            appointmentTypeLineageKey: before.appointmentTypeLineageKey,
+            placement: afterState.placement,
           });
           if (!displayRefs) {
             return {
@@ -1406,9 +1494,14 @@ export function useCalendarPlanningWorkbench(args: {
             end: afterState.end,
             id: args.id,
             locationId: displayRefs.locationId,
-            ...(displayRefs.practitionerId && {
-              practitionerId: displayRefs.practitionerId,
-            }),
+            ...(displayRefs.occupancyScope.kind === "resource"
+              ? {
+                  calendarResourceColumn:
+                    displayRefs.occupancyScope.calendarResourceColumn,
+                }
+              : {
+                  practitionerId: displayRefs.occupancyScope.practitionerId,
+                }),
             start: afterState.start,
           });
           rememberAppointmentHistoryDoc(afterSnapshot);
@@ -1433,11 +1526,9 @@ export function useCalendarPlanningWorkbench(args: {
             };
           }
 
-          const displayRefs = resolveBlockedSlotReferenceDisplayIds({
-            locationLineageKey: beforeState.locationLineageKey,
-            ...(beforeState.practitionerLineageKey && {
-              practitionerLineageKey: beforeState.practitionerLineageKey,
-            }),
+          const displayRefs = resolveAppointmentReferenceDisplayIds({
+            appointmentTypeLineageKey: before.appointmentTypeLineageKey,
+            placement: beforeState.placement,
           });
           if (!displayRefs) {
             return {
@@ -1451,9 +1542,14 @@ export function useCalendarPlanningWorkbench(args: {
             end: beforeState.end,
             id: args.id,
             locationId: displayRefs.locationId,
-            ...(displayRefs.practitionerId && {
-              practitionerId: displayRefs.practitionerId,
-            }),
+            ...(displayRefs.occupancyScope.kind === "resource"
+              ? {
+                  calendarResourceColumn:
+                    displayRefs.occupancyScope.calendarResourceColumn,
+                }
+              : {
+                  practitionerId: displayRefs.occupancyScope.practitionerId,
+                }),
             start: beforeState.start,
           });
           rememberAppointmentHistoryDoc(before);
@@ -1466,14 +1562,13 @@ export function useCalendarPlanningWorkbench(args: {
       getAppointmentHistoryDoc,
       getCurrentAppointmentDoc,
       getAppointmentUpdateMutation,
-      getLocationLineageKeyForDisplayId,
-      getPractitionerLineageKeyForDisplayId,
       hasAppointmentConflict,
       parseZonedDateTime,
       pushHistoryAction,
       rememberAppointmentHistoryDoc,
-      resolveBlockedSlotReferenceDisplayIds,
+      resolveAppointmentReferenceDisplayIds,
       runUpdateAppointmentInternal,
+      updateAppointmentMutationArgsFromCommand,
     ],
   );
 
@@ -1495,10 +1590,7 @@ export function useCalendarPlanningWorkbench(args: {
       let currentAppointmentId: Id<"appointments"> = args.id;
       const recreatedDisplayRefs = resolveAppointmentReferenceDisplayIds({
         appointmentTypeLineageKey: deleted.appointmentTypeLineageKey,
-        locationLineageKey: deleted.locationLineageKey,
-        ...(deleted.practitionerLineageKey && {
-          practitionerLineageKey: deleted.practitionerLineageKey,
-        }),
+        placement: deleted.placement,
       });
       if (!recreatedDisplayRefs) {
         toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
@@ -1509,11 +1601,17 @@ export function useCalendarPlanningWorkbench(args: {
         appointmentTypeId: recreatedDisplayRefs.appointmentTypeId,
         isSimulation: deleted.isSimulation ?? false,
         locationId: recreatedDisplayRefs.locationId,
+        ...(recreatedDisplayRefs.occupancyScope.kind === "resource"
+          ? {
+              calendarResourceColumn:
+                recreatedDisplayRefs.occupancyScope.calendarResourceColumn,
+            }
+          : {
+              practitionerId:
+                recreatedDisplayRefs.occupancyScope.practitionerId,
+            }),
         ...(deleted.patientId && { patientId: deleted.patientId }),
         practiceId: deleted.practiceId,
-        ...(recreatedDisplayRefs.practitionerId && {
-          practitionerId: recreatedDisplayRefs.practitionerId,
-        }),
         ...(deleted.replacesAppointmentId && {
           replacesAppointmentId: deleted.replacesAppointmentId,
         }),
@@ -1551,10 +1649,7 @@ export function useCalendarPlanningWorkbench(args: {
             hasAppointmentConflict({
               end: createEnd,
               isSimulation: createArgs.isSimulation ?? false,
-              locationLineageKey: deleted.locationLineageKey,
-              ...(deleted.practitionerLineageKey && {
-                practitionerLineageKey: deleted.practitionerLineageKey,
-              }),
+              placement: deleted.placement,
               ...(createArgs.replacesAppointmentId && {
                 replacesAppointmentId: createArgs.replacesAppointmentId,
               }),
@@ -1610,9 +1705,7 @@ export function useCalendarPlanningWorkbench(args: {
       const now = Date.now();
       const blockedSlotReferences = resolveBlockedSlotReferenceLineageKeys({
         locationId: createArgs.locationId,
-        ...(createArgs.practitionerId && {
-          practitionerId: createArgs.practitionerId,
-        }),
+        occupancyScope: createArgs.occupancyScope,
       });
       if (!blockedSlotReferences) {
         toast.error("Sperrungs-Referenzen konnten nicht aufgelöst werden.");
@@ -1622,12 +1715,9 @@ export function useCalendarPlanningWorkbench(args: {
         blockedSlotId: createdId,
         end: createArgs.end,
         isSimulation: createArgs.isSimulation,
-        locationLineageKey: blockedSlotReferences.locationLineageKey,
         now,
+        placement: blockedSlotReferences,
         practiceId: createArgs.practiceId,
-        ...(blockedSlotReferences.practitionerLineageKey && {
-          practitionerLineageKey: blockedSlotReferences.practitionerLineageKey,
-        }),
         ...(createArgs.replacesBlockedSlotId && {
           replacesBlockedSlotId: createArgs.replacesBlockedSlotId,
         }),
@@ -1643,11 +1733,7 @@ export function useCalendarPlanningWorkbench(args: {
             hasBlockedSlotConflict({
               end: createArgs.end,
               isSimulation: createArgs.isSimulation,
-              locationLineageKey: blockedSlotReferences.locationLineageKey,
-              ...(blockedSlotReferences.practitionerLineageKey && {
-                practitionerLineageKey:
-                  blockedSlotReferences.practitionerLineageKey,
-              }),
+              placement: blockedSlotReferences,
               start: createArgs.start,
             })
           ) {
@@ -1668,13 +1754,9 @@ export function useCalendarPlanningWorkbench(args: {
             blockedSlotId: recreatedId,
             end: createArgs.end,
             isSimulation: createArgs.isSimulation,
-            locationLineageKey: blockedSlotReferences.locationLineageKey,
             now,
+            placement: blockedSlotReferences,
             practiceId: createArgs.practiceId,
-            ...(blockedSlotReferences.practitionerLineageKey && {
-              practitionerLineageKey:
-                blockedSlotReferences.practitionerLineageKey,
-            }),
             ...(createArgs.replacesBlockedSlotId && {
               replacesBlockedSlotId: createArgs.replacesBlockedSlotId,
             }),
@@ -1717,7 +1799,7 @@ export function useCalendarPlanningWorkbench(args: {
       const before = getBlockedSlotHistoryDoc(args.id);
       const nextLocationLineageKey =
         args.locationId === undefined
-          ? before?.locationLineageKey
+          ? before?.placement.locationLineageKey
           : getLocationLineageKeyForDisplayId(args.locationId);
       if (
         args.locationId !== undefined &&
@@ -1726,12 +1808,22 @@ export function useCalendarPlanningWorkbench(args: {
         toast.error("Standort konnte nicht aufgelöst werden.");
         return;
       }
+      const beforePractitionerLineageKey =
+        before === undefined
+          ? undefined
+          : getPractitionerLineageKeyFromOccupancy(
+              before.placement.occupancyScope,
+            );
       const nextPractitionerLineageKey =
-        args.practitionerId === undefined
-          ? before?.practitionerLineageKey
-          : getPractitionerLineageKeyForDisplayId(args.practitionerId);
+        args.occupancyScope?.kind === "location-wide"
+          ? undefined
+          : args.occupancyScope?.kind === "practitioner"
+            ? getPractitionerLineageKeyForDisplayId(
+                args.occupancyScope.practitionerId,
+              )
+            : beforePractitionerLineageKey;
       if (
-        args.practitionerId !== undefined &&
+        args.occupancyScope?.kind === "practitioner" &&
         nextPractitionerLineageKey === undefined
       ) {
         toast.error("Behandler konnte nicht aufgelöst werden.");
@@ -1745,27 +1837,36 @@ export function useCalendarPlanningWorkbench(args: {
 
       const beforeState = {
         end: before.end,
-        locationLineageKey: before.locationLineageKey,
-        practitionerLineageKey: before.practitionerLineageKey,
+        placement: before.placement,
         start: before.start,
         title: before.title,
       };
 
+      const afterPlacement = createBlockedSlotPlacement({
+        locationLineageKey:
+          nextLocationLineageKey ?? before.placement.locationLineageKey,
+        occupancyScope:
+          args.occupancyScope === undefined
+            ? before.placement.occupancyScope
+            : args.occupancyScope.kind === "location-wide"
+              ? { kind: "location-wide" }
+              : nextPractitionerLineageKey === undefined
+                ? before.placement.occupancyScope
+                : {
+                    kind: "practitioner",
+                    practitionerLineageKey: nextPractitionerLineageKey,
+                  },
+      });
       const afterState = {
         end: args.end ?? before.end,
-        locationLineageKey: nextLocationLineageKey ?? before.locationLineageKey,
-        practitionerLineageKey:
-          nextPractitionerLineageKey ?? before.practitionerLineageKey,
+        placement: afterPlacement,
         start: args.start ?? before.start,
         title: args.title ?? before.title,
       };
       const afterSnapshot: CalendarBlockedSlotRecord = {
         ...before,
         end: afterState.end,
-        locationLineageKey: afterState.locationLineageKey,
-        ...(afterState.practitionerLineageKey === undefined
-          ? {}
-          : { practitionerLineageKey: afterState.practitionerLineageKey }),
+        placement: afterState.placement,
         start: afterState.start,
         title: afterState.title,
       };
@@ -1777,26 +1878,35 @@ export function useCalendarPlanningWorkbench(args: {
       ) =>
         slot.start === expected.start &&
         slot.end === expected.end &&
-        slot.locationLineageKey === expected.locationLineageKey &&
-        slot.practitionerLineageKey === expected.practitionerLineageKey &&
+        slot.placement.locationLineageKey ===
+          expected.placement.locationLineageKey &&
+        sameCalendarOccupancyScope(
+          slot.placement.occupancyScope,
+          expected.placement.occupancyScope,
+        ) &&
         slot.title === expected.title;
 
       const candidatePayload = (
         state: typeof beforeState,
-      ): {
-        end: string;
-        isSimulation: boolean;
-        locationLineageKey: LocationLineageKey;
-        practitionerLineageKey?: PractitionerLineageKey;
-        start: string;
-      } => ({
+      ): BlockedSlotCandidate => ({
         end: state.end,
         isSimulation: before.isSimulation ?? false,
-        locationLineageKey: state.locationLineageKey,
-        ...(state.practitionerLineageKey && {
-          practitionerLineageKey: state.practitionerLineageKey,
-        }),
+        placement: state.placement,
         start: state.start,
+      });
+      const updatePayloadForState = (
+        state: typeof beforeState,
+        displayRefs: {
+          locationId: Id<"locations">;
+          occupancyScope: BlockedSlotDisplayOccupancyScope;
+        },
+      ): Parameters<typeof updateBlockedSlotMutation>[0] => ({
+        end: state.end,
+        id: args.id,
+        locationId: displayRefs.locationId,
+        occupancyScope: displayRefs.occupancyScope,
+        start: state.start,
+        title: state.title,
       });
 
       pushHistoryAction({
@@ -1819,12 +1929,10 @@ export function useCalendarPlanningWorkbench(args: {
             };
           }
 
-          const displayRefs = resolveBlockedSlotReferenceDisplayIds({
-            locationLineageKey: afterState.locationLineageKey,
-            ...(afterState.practitionerLineageKey && {
-              practitionerLineageKey: afterState.practitionerLineageKey,
-            }),
-          });
+          const displayRefs = resolveBlockedSlotPlacementDisplayRefs(
+            afterState.placement,
+            referenceMaps,
+          );
           if (!displayRefs) {
             return {
               message:
@@ -1833,16 +1941,9 @@ export function useCalendarPlanningWorkbench(args: {
             };
           }
 
-          await runUpdateBlockedSlotInternal({
-            end: afterState.end,
-            id: args.id,
-            locationId: displayRefs.locationId,
-            ...(displayRefs.practitionerId && {
-              practitionerId: displayRefs.practitionerId,
-            }),
-            start: afterState.start,
-            title: afterState.title,
-          });
+          await runUpdateBlockedSlotInternal(
+            updatePayloadForState(afterState, displayRefs),
+          );
           rememberBlockedSlotHistoryDoc(afterSnapshot);
           return { status: "applied" };
         },
@@ -1865,12 +1966,10 @@ export function useCalendarPlanningWorkbench(args: {
             };
           }
 
-          const displayRefs = resolveBlockedSlotReferenceDisplayIds({
-            locationLineageKey: beforeState.locationLineageKey,
-            ...(beforeState.practitionerLineageKey && {
-              practitionerLineageKey: beforeState.practitionerLineageKey,
-            }),
-          });
+          const displayRefs = resolveBlockedSlotPlacementDisplayRefs(
+            beforeState.placement,
+            referenceMaps,
+          );
           if (!displayRefs) {
             return {
               message:
@@ -1879,16 +1978,9 @@ export function useCalendarPlanningWorkbench(args: {
             };
           }
 
-          await runUpdateBlockedSlotInternal({
-            end: beforeState.end,
-            id: args.id,
-            locationId: displayRefs.locationId,
-            ...(displayRefs.practitionerId && {
-              practitionerId: displayRefs.practitionerId,
-            }),
-            start: beforeState.start,
-            title: beforeState.title,
-          });
+          await runUpdateBlockedSlotInternal(
+            updatePayloadForState(beforeState, displayRefs),
+          );
           rememberBlockedSlotHistoryDoc(before);
           return { status: "applied" };
         },
@@ -1904,8 +1996,8 @@ export function useCalendarPlanningWorkbench(args: {
       getPractitionerLineageKeyForDisplayId,
       hasBlockedSlotConflict,
       pushHistoryAction,
+      referenceMaps,
       rememberBlockedSlotHistoryDoc,
-      resolveBlockedSlotReferenceDisplayIds,
       runUpdateBlockedSlotInternal,
     ],
   );
@@ -1921,12 +2013,9 @@ export function useCalendarPlanningWorkbench(args: {
       }
 
       let currentBlockedSlotId: Id<"blockedSlots"> = args.id;
-      const recreatedDisplayRefs = resolveBlockedSlotReferenceDisplayIds({
-        locationLineageKey: deleted.locationLineageKey,
-        ...(deleted.practitionerLineageKey && {
-          practitionerLineageKey: deleted.practitionerLineageKey,
-        }),
-      });
+      const recreatedDisplayRefs = resolveBlockedSlotReferenceDisplayIds(
+        deleted.placement,
+      );
       if (!recreatedDisplayRefs) {
         toast.error("Sperrungs-Referenzen konnten nicht aufgelöst werden.");
         return mutationResult;
@@ -1935,10 +2024,14 @@ export function useCalendarPlanningWorkbench(args: {
         end: deleted.end,
         isSimulation: deleted.isSimulation ?? false,
         locationId: recreatedDisplayRefs.locationId,
+        occupancyScope:
+          recreatedDisplayRefs.practitionerId === undefined
+            ? { kind: "location-wide" }
+            : {
+                kind: "practitioner",
+                practitionerId: recreatedDisplayRefs.practitionerId,
+              },
         practiceId: deleted.practiceId,
-        ...(recreatedDisplayRefs.practitionerId && {
-          practitionerId: recreatedDisplayRefs.practitionerId,
-        }),
         ...(deleted.replacesBlockedSlotId && {
           replacesBlockedSlotId: deleted.replacesBlockedSlotId,
         }),
@@ -1964,10 +2057,7 @@ export function useCalendarPlanningWorkbench(args: {
             hasBlockedSlotConflict({
               end: createArgs.end,
               isSimulation: createArgs.isSimulation ?? false,
-              locationLineageKey: deleted.locationLineageKey,
-              ...(deleted.practitionerLineageKey && {
-                practitionerLineageKey: deleted.practitionerLineageKey,
-              }),
+              placement: deleted.placement,
               start: createArgs.start,
             })
           ) {
@@ -2020,4 +2110,16 @@ export function useCalendarPlanningWorkbench(args: {
     commands,
     getBlockedSlotEditorData,
   };
+}
+
+function createBlockedSlotPlacement(args: {
+  locationLineageKey: LocationLineageKey;
+  occupancyScope:
+    | { kind: "location-wide" }
+    | { kind: "practitioner"; practitionerLineageKey: PractitionerLineageKey };
+}): CalendarBlockedSlotPlacement {
+  return createCalendarPlacement({
+    locationLineageKey: args.locationLineageKey,
+    occupancyScope: args.occupancyScope,
+  });
 }

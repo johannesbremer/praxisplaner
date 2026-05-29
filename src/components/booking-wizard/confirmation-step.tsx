@@ -1,5 +1,3 @@
-// Confirmation step component (Final step for both paths)
-
 import { useMutation } from "convex/react";
 import ical, { ICalAlarmType } from "ical-generator";
 import { CalendarCheck, Download, Printer } from "lucide-react";
@@ -9,7 +7,7 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
-import type { AppointmentResult } from "@/convex/appointments";
+import type { BookedAppointmentSummaryItem } from "@/convex/appointments";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,8 +18,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
-
-import type { StepComponentProps } from "./types";
 
 import {
   captureFrontendError,
@@ -41,13 +37,13 @@ interface AppointmentConfirmationCardProps {
 }
 
 interface BookedAppointmentsSummaryProps {
-  appointments: AppointmentResult[];
+  appointments: BookedAppointmentSummaryItem[];
   onCancelled?: () => Promise<void> | void;
   practitionerNamesById?: ReadonlyMap<Id<"practitioners">, string>;
 }
 
 interface BookedAppointmentSummaryProps {
-  appointment: AppointmentResult;
+  appointment: Extract<BookedAppointmentSummaryItem, { kind: "appointment" }>;
   onCancelled?: () => Promise<void> | void;
   practitionerName?: string;
 }
@@ -70,6 +66,15 @@ export function BookedAppointmentsSummary({
       </CardHeader>
       <CardContent className="space-y-4">
         {appointments.map((appointment) => {
+          if (appointment.kind === "legacy-unmatched-future-hold") {
+            return (
+              <LegacyUnmatchedFutureBookingHoldSummaryItem
+                hold={appointment}
+                key={`${appointment.kind}:${appointment._id}`}
+              />
+            );
+          }
+
           const practitionerName = appointment.practitionerId
             ? practitionerNamesById?.get(appointment.practitionerId)
             : undefined;
@@ -77,7 +82,7 @@ export function BookedAppointmentsSummary({
           return (
             <BookedAppointmentsSummaryItem
               appointment={appointment}
-              key={appointment._id}
+              key={`${appointment.kind}:${appointment._id}`}
               {...(onCancelled ? { onCancelled } : {})}
               {...(practitionerName ? { practitionerName } : {})}
             />
@@ -112,52 +117,6 @@ export function BookedAppointmentSummary({
       practitionerName={resolvedPractitionerName}
       startTime={appointment.start}
       title="Sie haben bereits einen gebuchten Termin"
-    />
-  );
-}
-
-export function ConfirmationStep({ sessionId, state }: StepComponentProps) {
-  const returnToCalendarSelection = useMutation(
-    api.bookingSessions.returnToCalendarSelectionAfterCancellation,
-  );
-  const { cancelAppointment, isCancelled, isCancelling } =
-    useAppointmentCancellation(async () => {
-      await returnToCalendarSelection({ sessionId });
-    });
-
-  if (
-    state.step !== "existing-confirmation" &&
-    state.step !== "new-confirmation"
-  ) {
-    return (
-      <Card className="max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle>Fehler</CardTitle>
-          <CardDescription>
-            Die Terminbestätigung konnte nicht geladen werden.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
-
-  const selectedSlot = state.selectedSlot;
-  const personalData = state.personalData;
-  const appointmentId = state.appointmentId;
-
-  return (
-    <AppointmentConfirmationCard
-      appointmentId={appointmentId}
-      description={`Vielen Dank, ${personalData.firstName}. Wir freuen uns auf Ihren Besuch.`}
-      duration={state.bookedDurationMinutes}
-      isCancelled={isCancelled}
-      isCancelling={isCancelling}
-      onCancel={() => {
-        void cancelAppointment(appointmentId);
-      }}
-      practitionerName={selectedSlot.practitionerName}
-      startTime={selectedSlot.startTime}
-      title="Termin erfolgreich gebucht!"
     />
   );
 }
@@ -413,6 +372,46 @@ function getDurationMinutes(endTime: string, startTime: string): number {
   return Math.max(1, duration);
 }
 
+function LegacyUnmatchedFutureBookingHoldSummaryItem({
+  hold,
+}: {
+  hold: Extract<
+    BookedAppointmentSummaryItem,
+    { kind: "legacy-unmatched-future-hold" }
+  >;
+}) {
+  const resolvedTitle = hold.legacyType ?? "Importierter zukünftiger Termin";
+
+  return (
+    <div className="rounded-lg border p-4 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <p className="font-medium">{resolvedTitle}</p>
+          <p className="text-sm text-muted-foreground">
+            {formatDate(hold.start)} um {formatTime(hold.start)} Uhr
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Standort: {hold.locationName ?? "Praxis"}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Behandler/in: {hold.practitionerName ?? "Behandlungsteam"}
+          </p>
+        </div>
+        <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+          Importierter Altfall
+        </span>
+      </div>
+
+      <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+        Dieser zukünftige Termin wurde aus dem alten Online-System importiert,
+        konnte aber nicht sicher mit dem Quellsystem verknüpft werden. Bitte
+        kontaktieren Sie die Praxis, wenn Sie diesen Termin ändern oder absagen
+        möchten.
+      </div>
+    </div>
+  );
+}
+
 function useAppointmentCancellation(onCancelled?: () => Promise<void> | void) {
   const cancelOwnAppointment = useMutation(
     api.appointments.cancelOwnAppointment,
@@ -432,7 +431,7 @@ function useAppointmentCancellation(onCancelled?: () => Promise<void> | void) {
         frontendErrorFromUnknown(error, {
           kind: "unknown",
           message: "Termin konnte nicht storniert werden.",
-          source: "ConfirmationStep.cancelAppointment",
+          source: "BookedAppointmentsSummary.cancelAppointment",
         }),
     )
       .andThen(() =>
@@ -441,7 +440,7 @@ function useAppointmentCancellation(onCancelled?: () => Promise<void> | void) {
             kind: "unknown",
             message:
               "Termin wurde storniert, aber die Ansicht konnte nicht aktualisiert werden.",
-            source: "ConfirmationStep.onCancelled",
+            source: "BookedAppointmentsSummary.onCancelled",
           }),
         ),
       )
@@ -453,7 +452,7 @@ function useAppointmentCancellation(onCancelled?: () => Promise<void> | void) {
         (error) => {
           captureFrontendError(error, {
             appointmentId,
-            context: "ConfirmationStep.cancelAppointment",
+            context: "BookedAppointmentsSummary.cancelAppointment",
           });
           toast.error("Termin konnte nicht storniert werden", {
             description: error.message || "Bitte versuchen Sie es erneut.",

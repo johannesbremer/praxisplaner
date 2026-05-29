@@ -1,11 +1,9 @@
-import type { FunctionArgs } from "convex/server";
-
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { PatientInfo } from "../../types";
+import type { CalendarAppointmentPlacement } from "./types";
 
-import { api } from "../../../convex/_generated/api";
 import { TIMEZONE } from "./use-calendar-logic-helpers";
 
 export type CalendarAppointmentCreateResult =
@@ -18,9 +16,8 @@ export type CalendarAppointmentCreateResult =
       requestContext: {
         appointmentTypeLineageKey: Id<"appointmentTypes">;
         isSimulation: boolean;
-        locationLineageKey: Id<"locations">;
+        placement: CalendarAppointmentPlacement;
         practiceId: Id<"practices">;
-        practitionerLineageKey?: Id<"practitioners">;
         start: string;
         title: string;
       };
@@ -30,9 +27,20 @@ export type CalendarAppointmentCreateResult =
       request: CreateAppointmentArgs;
     };
 
-type CreateAppointmentArgs = FunctionArgs<
-  typeof api.appointments.createAppointment
->;
+interface CreateAppointmentArgs {
+  appointmentTypeId: Id<"appointmentTypes">;
+  isNewPatient: boolean;
+  isSimulation: boolean;
+  patientDateOfBirth?: string;
+  patientId?: Id<"patients">;
+  placement: CalendarAppointmentPlacement;
+  practiceId: Id<"practices">;
+  start: string;
+  temporaryPatientName?: string;
+  temporaryPatientPhoneNumber?: string;
+  title: string;
+  userId?: Id<"users">;
+}
 
 export function buildCalendarAppointmentRequest(args: {
   appointmentTypeId: Id<"appointmentTypes"> | undefined;
@@ -41,13 +49,11 @@ export function buildCalendarAppointmentRequest(args: {
   businessStartHour: number;
   isNewPatient: boolean;
   locationId: Id<"locations"> | undefined;
-  locationLineageKey: Id<"locations"> | undefined;
   mode: "real" | "simulation";
   patient: PatientInfo | undefined;
   pendingAppointmentTitle: string | undefined;
+  placement: CalendarAppointmentPlacement | undefined;
   practiceId: Id<"practices"> | undefined;
-  practitionerId: Id<"practitioners"> | undefined;
-  practitionerLineageKey: Id<"practitioners"> | undefined;
   selectedDate: Temporal.PlainDate;
   slot: number;
   slotDurationMinutes: number;
@@ -63,7 +69,7 @@ export function buildCalendarAppointmentRequest(args: {
     };
   }
 
-  if (!args.locationId || !args.locationLineageKey) {
+  if (!args.locationId || !args.placement) {
     return {
       kind: "error",
       message: "Bitte wählen Sie zuerst einen Standort aus.",
@@ -117,11 +123,8 @@ export function buildCalendarAppointmentRequest(args: {
       requestContext: {
         appointmentTypeLineageKey: args.appointmentTypeLineageKey,
         isSimulation: args.mode === "simulation",
-        locationLineageKey: args.locationLineageKey,
+        placement: args.placement,
         practiceId: args.practiceId,
-        ...(args.practitionerLineageKey && {
-          practitionerLineageKey: args.practitionerLineageKey,
-        }),
         start: startISO,
         title,
       },
@@ -134,15 +137,14 @@ export function buildCalendarAppointmentRequest(args: {
       appointmentTypeId: args.appointmentTypeId,
       isNewPatient: args.isNewPatient,
       isSimulation: args.mode === "simulation",
-      locationId: args.locationId,
       ...(args.patient?.dateOfBirth && {
         patientDateOfBirth: args.patient.dateOfBirth,
       }),
       ...(args.patient?.convexPatientId && {
         patientId: args.patient.convexPatientId,
       }),
+      placement: args.placement,
       practiceId: args.practiceId,
-      ...(args.practitionerId && { practitionerId: args.practitionerId }),
       start: startISO,
       ...(hasTemporaryPatientDraft
         ? {

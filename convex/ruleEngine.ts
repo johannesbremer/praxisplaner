@@ -43,6 +43,7 @@ import {
   isZonedDateTimeString,
 } from "../lib/typed-regex.js";
 import { internalQuery } from "./_generated/server";
+import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
 import { requireLineageKey } from "./lineage";
 import { createDepthBoundedRecursiveUnionValidator } from "./recursiveValidator";
 
@@ -107,7 +108,7 @@ export interface PreloadedDayData {
   appointmentsByStartTime: Map<string, Doc<"appointments">[]>;
 
   /**
-   * Practitioners by ID for PRACTITIONER_TAG lookups.
+   * Practitioners by ID for exact practitioner lookups.
    * Reuses practitioners already loaded by the caller.
    */
   practitioners: Map<Id<"practitioners">, Doc<"practitioners">>;
@@ -282,8 +283,11 @@ export async function buildPreloadedDayData(
     const locationIdForRuleSet = locationIdByLineage.get(
       apt.locationLineageKey,
     );
-    const practitionerIdForRuleSet = apt.practitionerLineageKey
-      ? practitionerIdByLineage.get(apt.practitionerLineageKey)
+    const practitionerLineageKey = getAppointmentPractitionerLineageKey(
+      apt.occupancyScope,
+    );
+    const practitionerIdForRuleSet = practitionerLineageKey
+      ? practitionerIdByLineage.get(practitionerLineageKey)
       : undefined;
 
     // Parse times once per appointment (expensive operation)
@@ -356,8 +360,11 @@ export async function buildPreloadedDayData(
       );
     }
 
-    const practitionerIdForRuleSet = apt.practitionerLineageKey
-      ? practitionerIdByLineage.get(apt.practitionerLineageKey)
+    const practitionerLineageKey = getAppointmentPractitionerLineageKey(
+      apt.occupancyScope,
+    );
+    const practitionerIdForRuleSet = practitionerLineageKey
+      ? practitionerIdByLineage.get(practitionerLineageKey)
       : undefined;
     if (practitionerIdForRuleSet) {
       const practitionerAllKey = `practitioner:${practitionerIdForRuleSet}:__all__`;
@@ -518,7 +525,6 @@ function asRuleEngineZonedDateTimeString(
  * - PRACTITIONER: Varies per slot (different practitioner columns in staff view)
  * - HOURS_AHEAD: Depends on exact slot timestamp, so it can vary within a day
  * - DAILY_CAPACITY: Queries appointments table to count existing appointments
- * - PRACTITIONER_TAG: Queries practitioner document to check tags
  * - CONCURRENT_COUNT: Queries appointments table (also time-variant)
  */
 const DAY_INVARIANT_CONDITION_TYPES = new Set([
@@ -572,7 +578,7 @@ function getAgeYearsAtDate(
  * Returns true if the condition matches (which may mean the appointment should be blocked).
  * @param condition The condition to evaluate
  * @param context Appointment context
- * @param preloadedData Pre-loaded data for O(1) lookups (required for DAILY_CAPACITY, CONCURRENT_COUNT, PRACTITIONER_TAG)
+ * @param preloadedData Pre-loaded data for O(1) lookups (required for DAILY_CAPACITY, CONCURRENT_COUNT)
  */
 function evaluateCondition(
   condition: Doc<"ruleConditions">,
@@ -852,18 +858,6 @@ function evaluateCondition(
 
     case "PRACTITIONER": {
       return checkIdMembership(practitionerLineageKey, valueIds);
-    }
-
-    case "PRACTITIONER_TAG": {
-      // Check if practitioner has a specific tag - O(1) lookup
-      const practitioner = preloadedData.practitioners.get(
-        context.practitionerId,
-      );
-      if (!practitioner?.tags || !valueIds) {
-        return false;
-      }
-      const hasTag = valueIds.some((tag) => practitioner.tags?.includes(tag));
-      return operator === "IS" ? hasTag : !hasTag;
     }
 
     case "TIME_RANGE": {
@@ -1251,7 +1245,6 @@ const [
   CONDITION_TYPE_LOCATION,
   CONDITION_TYPE_PATIENT_AGE,
   CONDITION_TYPE_PRACTITIONER,
-  CONDITION_TYPE_PRACTITIONER_TAG,
   CONDITION_TYPE_TIME_RANGE,
 ] = CONDITION_TYPES;
 const [LOGICAL_NODE_AND, LOGICAL_NODE_NOT] = LOGICAL_NODE_TYPES;
@@ -1275,7 +1268,6 @@ const conditionTypeValidator = v.union(
   v.literal(CONDITION_TYPE_LOCATION),
   v.literal(CONDITION_TYPE_PATIENT_AGE),
   v.literal(CONDITION_TYPE_PRACTITIONER),
-  v.literal(CONDITION_TYPE_PRACTITIONER_TAG),
   v.literal(CONDITION_TYPE_TIME_RANGE),
 );
 const conditionOperatorValidator = v.union(

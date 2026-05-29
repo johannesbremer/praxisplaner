@@ -6,6 +6,7 @@ node_modules
 .output
 .nitro
 .tanstack
+.convex
 skills-lock.json
 bundle-analysis.json
 stats.html

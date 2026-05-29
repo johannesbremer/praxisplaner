@@ -13,6 +13,7 @@ import {
   findConflictingAppointment,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
+import { appointmentOccupancyScopeFromRefs } from "./appointmentOccupancy";
 import {
   resolveLocationIdForRuleSetByLineage,
   resolveLocationLineageKey,
@@ -90,6 +91,7 @@ export const appointmentSeriesCreateResultValidator = v.object({
 });
 
 export const appointmentSeriesArgsValidator = {
+  bookingIdentityId: v.optional(v.id("bookingIdentities")),
   isNewPatient: v.optional(v.boolean()),
   locationId: v.id("locations"),
   patientDateOfBirth: v.optional(v.string()),
@@ -167,6 +169,7 @@ interface SeriesSpecification {
 export async function createAppointmentSeries(
   ctx: MutationCtx,
   args: {
+    bookingIdentityId?: Id<"bookingIdentities">;
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
@@ -241,7 +244,10 @@ export async function createAppointmentSeries(
     const conflictingAppointment = await findConflictingAppointment(ctx.db, {
       candidate: {
         end: step.end,
-        ...occupancyReferences,
+        locationLineageKey: occupancyReferences.locationLineageKey,
+        occupancyScope: appointmentOccupancyScopeFromRefs({
+          practitionerLineageKey: occupancyReferences.practitionerLineageKey,
+        }),
         start: step.start,
       },
       ...(simulationRuleSetId && { draftRuleSetId: simulationRuleSetId }),
@@ -262,8 +268,10 @@ export async function createAppointmentSeries(
 
     const appointmentId = await ctx.db.insert("appointments", {
       appointmentTypeLineageKey: step.appointmentTypeLineageKey,
-      ...occupancyReferences,
       appointmentTypeTitle: step.appointmentTypeTitle,
+      ...(args.bookingIdentityId && {
+        bookingIdentityId: args.bookingIdentityId,
+      }),
       createdAt: now,
       end: step.end,
       ...(scope === "simulation" && {
@@ -273,6 +281,10 @@ export async function createAppointmentSeries(
         simulationValidatedAt: now,
       }),
       lastModified: now,
+      locationLineageKey: occupancyReferences.locationLineageKey,
+      occupancyScope: appointmentOccupancyScopeFromRefs({
+        practitionerLineageKey: occupancyReferences.practitionerLineageKey,
+      }),
       ...(args.patientId && { patientId: args.patientId }),
       practiceId: args.practiceId,
       ...(index === 0 &&
@@ -306,6 +318,9 @@ export async function createAppointmentSeries(
   }
 
   await ctx.db.insert("appointmentSeries", {
+    ...(args.bookingIdentityId && {
+      bookingIdentityId: args.bookingIdentityId,
+    }),
     createdAt: now,
     followUpPlanSnapshot: normalizeFollowUpPlanSnapshot(
       rootAppointmentType.followUpPlan ?? [],
@@ -1315,13 +1330,20 @@ async function validateRootCandidate(
     };
   }
 
+  const rootOccupancyReferences = await resolveOccupancyReferenceLineageKeys(
+    ctx.db,
+    {
+      locationId: asLocationId(args.locationId),
+      practitionerId: asPractitionerId(args.practitionerId),
+    },
+  );
   const conflictingAppointment = await findConflictingAppointment(ctx.db, {
     candidate: {
       end: calculateEndTime(args.start, args.rootDurationMinutes),
-      ...(await resolveOccupancyReferenceLineageKeys(ctx.db, {
-        locationId: asLocationId(args.locationId),
-        practitionerId: asPractitionerId(args.practitionerId),
-      })),
+      locationLineageKey: rootOccupancyReferences.locationLineageKey,
+      occupancyScope: appointmentOccupancyScopeFromRefs({
+        practitionerLineageKey: rootOccupancyReferences.practitionerLineageKey,
+      }),
       start: args.start,
     },
     ...(args.simulationRuleSetId && {

@@ -55,8 +55,10 @@ interface BlockedSlotCreationModalProps {
     end: string;
     isSimulation?: boolean;
     locationId: Id<"locations">;
+    occupancyScope:
+      | { kind: "location-wide" }
+      | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
     practiceId: Id<"practices">;
-    practitionerId?: Id<"practitioners">;
     replacesBlockedSlotId?: Id<"blockedSlots">;
     start: string;
     title: string;
@@ -101,10 +103,13 @@ export function BlockedSlotCreationModal({
         await runCreateBlockedSlot({
           end: endZoned.toString(),
           locationId,
+          occupancyScope:
+            practitionerId === undefined
+              ? { kind: "location-wide" }
+              : { kind: "practitioner", practitionerId },
           practiceId,
           start: startZoned.toString(),
           title: value.title,
-          ...(practitionerId && { practitionerId }),
           ...(isSimulation && { isSimulation: true }),
         });
 

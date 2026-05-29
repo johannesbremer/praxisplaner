@@ -16,12 +16,12 @@ import { api } from "@/convex/_generated/api";
 
 import type { StepComponentProps } from "./types";
 
-export function PrivacyStep({ sessionId }: StepComponentProps) {
+export function PrivacyStep({ practiceId, ruleSetId }: StepComponentProps) {
   const acceptPrivacy = useMutation(api.bookingSessions.acceptPrivacy);
 
   const handleAccept = async () => {
     try {
-      await acceptPrivacy({ sessionId });
+      await acceptPrivacy({ practiceId, ruleSetId });
     } catch (error) {
       console.error("Failed to accept privacy:", error);
       toast.error("Datenschutzzustimmung fehlgeschlagen", {

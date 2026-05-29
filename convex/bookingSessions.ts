@@ -4,7 +4,7 @@ import { Temporal } from "temporal-polyfill";
 import type { Doc, Id } from "./_generated/dataModel";
 
 import { internal } from "./_generated/api";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
@@ -13,44 +13,23 @@ import {
 import { createAppointmentFromTrustedSource } from "./appointments";
 import {
   APPOINTMENT_TIMEZONE,
+  type BookingFlowKey,
+  type BookingMedicalHistory,
+  type BookingPersonalData,
   type BookingSessionState,
-  type DataSharingContact,
   type DataSharingContactInput,
-  type InternalBookingSessionState,
-  type InternalStateAtStep,
   ISO_DATE_REGEX,
   type MutationCtx,
   type QueryCtx,
-  SESSION_TTL_MS,
-  type SessionDoc,
-  type SessionWithState,
-  type StepInsertMap,
-  type StepPatchMap,
-  type StepQueryMap,
-  type StepReadCtx,
-  type StepSnapshotMetaKeys,
-  type StepTableDocMap,
-  type StepTableInput,
-  type StepTableInsertData,
-  type StepTableName,
-  type StepTablePatch,
 } from "./bookingSessions.shared";
 import {
-  applyBookingSessionTransition,
-  type BookingSessionTransition,
-  computePreviousInternalState,
-  getBookingSessionSnapshotTables,
-  hydrateBookingSessionInternalState,
-  materializeBookingSessionUiState,
-} from "./bookingSessions.stateMachine";
-import {
-  type AppointmentTypeLineageKey,
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
   asPractitionerLineageKey,
   type LocationLineageKey,
   type PractitionerLineageKey,
 } from "./identity";
+import { getFutureLegacyUnmatchedBookingHoldsForUser } from "./legacyUnmatchedFutureBookingHolds";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
   beihilfeStatusValidator,
@@ -68,7 +47,6 @@ import {
   asDataSharingContactInput,
   asPersonalDataInput,
   asSelectedSlotInput,
-  type PersonalDataInput,
   type ZonedDateTimeString,
 } from "./typedDtos";
 import {
@@ -76,116 +54,1316 @@ import {
   getAuthenticatedUserIdForQuery,
 } from "./userIdentity";
 
-export { assertValidSanitizedBookingSessionState } from "./bookingSessions.stateMachine";
+const FLOW_KEY_VALIDATOR = {
+  practiceId: v.id("practices"),
+  ruleSetId: v.id("ruleSets"),
+} as const;
 
-type SessionWithInternalState = SessionDoc & {
-  state: InternalBookingSessionState;
-};
+const BOOKING_SESSION_RETURN_VALIDATOR = v.union(
+  v.object({
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+    state: bookingSessionStepValidator,
+    userId: v.id("users"),
+  }),
+  v.null(),
+);
 
-const STALE_PUBLIC_SESSION_STATE_ERROR_PREFIX =
-  "[BOOKING_SESSION:STALE_PUBLIC_STATE]";
+const BACK_TARGET_STEP_VALIDATOR = v.union(
+  v.literal("existing-data-input"),
+  v.literal("existing-doctor-selection"),
+  v.literal("location"),
+  v.literal("new-data-input"),
+  v.literal("new-data-sharing"),
+  v.literal("new-gkv-details"),
+  v.literal("new-insurance-type"),
+  v.literal("new-pkv-details"),
+  v.literal("new-pvs-consent"),
+  v.literal("patient-status"),
+  v.literal("privacy"),
+);
 
-function getCalendarStepForConfirmationState(
-  state: Extract<
-    BookingSessionState,
-    { step: "existing-confirmation" | "new-confirmation" }
-  >,
-): "existing-calendar-selection" | "new-calendar-selection" {
-  return state.step === "new-confirmation"
-    ? "new-calendar-selection"
-    : "existing-calendar-selection";
-}
+type BackTargetStep = Exclude<
+  BookingSessionState["step"],
+  | "existing-calendar-selection"
+  | "new-calendar-selection"
+  | "new-data-input-complete"
+  | "new-gkv-details-complete"
+  | "new-pkv-details-complete"
+>;
+type BookingFlowRows = Awaited<ReturnType<typeof loadFlowRows>>;
+type DeletableFlowRow<T extends DeletableFlowTable> = Doc<T>;
 
-async function hasUpcomingVisibleAppointmentForConfirmationState(
-  ctx: MutationCtx | QueryCtx,
-  state: Extract<
-    InternalBookingSessionState,
-    { step: "existing-confirmation" | "new-confirmation" }
-  >,
-): Promise<boolean> {
-  const appointment = await ctx.db.get("appointments", state.appointmentId);
-  if (!appointment) {
-    return false;
-  }
+type DeletableFlowTable =
+  | "bookingCalendarReachedSteps"
+  | "bookingExistingDoctorSelectionSteps"
+  | "bookingLocationSteps"
+  | "bookingNewDataSharingSteps"
+  | "bookingNewGkvDetailSteps"
+  | "bookingNewInsuranceTypeSteps"
+  | "bookingNewPkvConsentSteps"
+  | "bookingNewPkvDetailSteps"
+  | "bookingPatientStatusSteps"
+  | "bookingPersonalDataSteps"
+  | "bookingPrivacySteps";
 
-  if (
-    appointment.cancelledAt !== undefined ||
-    appointment.isSimulation === true
-  ) {
-    return false;
-  }
-
-  try {
-    return (
-      Temporal.ZonedDateTime.from(appointment.start).epochMilliseconds >
-      Temporal.Now.instant().epochMilliseconds
+async function assertCalendarNotReached(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const calendarReached = await getFlowRow(
+    ctx,
+    "bookingCalendarReachedSteps",
+    flowKey,
+  );
+  if (calendarReached) {
+    throw new Error(
+      "This booking decision can no longer be changed after appointment selection was reached.",
     );
-  } catch {
-    return false;
   }
 }
 
-async function hydrateInternalSessionState(
+async function assertSlotAllowedByRules(
+  ctx: MutationCtx,
+  args: {
+    appointmentTypeId: Id<"appointmentTypes">;
+    locationLineageKey: LocationLineageKey;
+    patientDateOfBirth: string;
+    practiceId: Id<"practices">;
+    practitionerLineageKey: PractitionerLineageKey;
+    ruleSetId: Id<"ruleSets">;
+    startTime: ZonedDateTimeString;
+  },
+): Promise<void> {
+  const [locationId, practitionerId] = await Promise.all([
+    resolveLocationIdForRuleSetByLineage(ctx.db, {
+      lineageKey: args.locationLineageKey,
+      ruleSetId: args.ruleSetId,
+    }),
+    resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+      lineageKey: args.practitionerLineageKey,
+      ruleSetId: args.ruleSetId,
+    }),
+  ]);
+
+  const ruleCheckResult = await ctx.runQuery(
+    internal.ruleEngine.checkRulesForAppointment,
+    {
+      context: {
+        appointmentTypeId: args.appointmentTypeId,
+        dateTime: args.startTime,
+        locationId,
+        patientDateOfBirth: args.patientDateOfBirth,
+        practiceId: args.practiceId,
+        practitionerId,
+        requestedAt: Temporal.Now.instant()
+          .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
+          .toString(),
+      },
+      ruleSetId: args.ruleSetId,
+    },
+  );
+
+  if (ruleCheckResult.isBlocked) {
+    throw new Error("Selected slot is no longer available");
+  }
+}
+
+function assertSlotStartIsInFuture(startTime: string): void {
+  let slotStartInstant: Temporal.Instant;
+  try {
+    slotStartInstant = Temporal.ZonedDateTime.from(startTime).toInstant();
+  } catch {
+    throw new Error("Invalid slot start time");
+  }
+
+  if (Temporal.Instant.compare(slotStartInstant, Temporal.Now.instant()) <= 0) {
+    throw new Error("Appointments must be booked in the future");
+  }
+}
+
+function assertValidDataSharingContacts(
+  contacts: Parameters<typeof asDataSharingContactInput>[0][],
+): asserts contacts is DataSharingContactInput[] {
+  for (const [index, contact] of contacts.entries()) {
+    const requiredTextFields: [keyof DataSharingContactInput, string][] = [
+      ["city", "Ort"],
+      ["firstName", "Vorname"],
+      ["lastName", "Nachname"],
+      ["phoneNumber", "Telefonnummer"],
+      ["postalCode", "PLZ"],
+      ["street", "Straße"],
+    ];
+
+    for (const [field, label] of requiredTextFields) {
+      const value = contact[field];
+      if (typeof value !== "string" || value.trim().length === 0) {
+        throw new Error(`Invalid data-sharing contact #${index + 1}: ${label}`);
+      }
+    }
+
+    if (!ISO_DATE_REGEX.test(contact.dateOfBirth)) {
+      throw new Error(
+        `Invalid data-sharing contact #${index + 1}: Geburtsdatum format`,
+      );
+    }
+
+    try {
+      Temporal.PlainDate.from(contact.dateOfBirth);
+    } catch {
+      throw new Error(
+        `Invalid data-sharing contact #${index + 1}: Geburtsdatum`,
+      );
+    }
+  }
+}
+
+async function deleteDataSharingContacts(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const rows = await ctx.db
+    .query("bookingNewDataSharingContactRows")
+    .withIndex("by_userId_practiceId_ruleSetId_index", (q) =>
+      q
+        .eq("userId", flowKey.userId)
+        .eq("practiceId", flowKey.practiceId)
+        .eq("ruleSetId", flowKey.ruleSetId),
+    )
+    .collect();
+
+  for (const row of rows) {
+    await ctx.db.delete("bookingNewDataSharingContactRows", row._id);
+  }
+}
+
+async function deleteFlowRow<T extends DeletableFlowTable>(
+  ctx: MutationCtx,
+  tableName: T,
+  row: DeletableFlowRow<T> | null,
+): Promise<void> {
+  if (!row) {
+    return;
+  }
+
+  await ctx.db.delete(tableName, row._id);
+}
+
+async function deleteFlowRows(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const rows = await loadFlowRows(ctx, flowKey);
+
+  await deleteDataSharingContacts(ctx, flowKey);
+  if (rows.medicalHistoryEntry) {
+    await ctx.db.delete(
+      "bookingMedicalHistoryEntries",
+      rows.medicalHistoryEntry._id,
+    );
+  }
+  if (rows.newDataSharing) {
+    await ctx.db.delete("bookingNewDataSharingSteps", rows.newDataSharing._id);
+  }
+  if (rows.personalData) {
+    await ctx.db.delete("bookingPersonalDataSteps", rows.personalData._id);
+  }
+  if (rows.newPkvDetail) {
+    await ctx.db.delete("bookingNewPkvDetailSteps", rows.newPkvDetail._id);
+  }
+  if (rows.newPkvConsent) {
+    await ctx.db.delete("bookingNewPkvConsentSteps", rows.newPkvConsent._id);
+  }
+  if (rows.newGkvDetail) {
+    await ctx.db.delete("bookingNewGkvDetailSteps", rows.newGkvDetail._id);
+  }
+  if (rows.newInsuranceType) {
+    await ctx.db.delete(
+      "bookingNewInsuranceTypeSteps",
+      rows.newInsuranceType._id,
+    );
+  }
+  if (rows.existingDoctor) {
+    await ctx.db.delete(
+      "bookingExistingDoctorSelectionSteps",
+      rows.existingDoctor._id,
+    );
+  }
+  if (rows.patientStatus) {
+    await ctx.db.delete("bookingPatientStatusSteps", rows.patientStatus._id);
+  }
+  if (rows.location) {
+    await ctx.db.delete("bookingLocationSteps", rows.location._id);
+  }
+  if (rows.privacy) {
+    await ctx.db.delete("bookingPrivacySteps", rows.privacy._id);
+  }
+  if (rows.calendarReached) {
+    await ctx.db.delete(
+      "bookingCalendarReachedSteps",
+      rows.calendarReached._id,
+    );
+  }
+}
+
+function flowScope<T extends object>(
+  flowKey: BookingFlowKey,
+  data: T,
+): BookingFlowKey & T {
+  return {
+    ...data,
+    practiceId: flowKey.practiceId,
+    ruleSetId: flowKey.ruleSetId,
+    userId: flowKey.userId,
+  };
+}
+
+function getAllowedBackTargetStep(
+  state: BookingSessionState,
+  calendarReached: boolean,
+): BackTargetStep | null {
+  switch (state.step) {
+    case "existing-calendar-selection": {
+      return null;
+    }
+    case "existing-data-input": {
+      if (calendarReached) {
+        return null;
+      }
+      return "existing-doctor-selection";
+    }
+    case "existing-doctor-selection": {
+      return "patient-status";
+    }
+    case "location": {
+      return "privacy";
+    }
+    case "new-calendar-selection": {
+      return null;
+    }
+    case "new-data-input": {
+      return state.insuranceType === "pkv"
+        ? "new-pkv-details"
+        : "new-gkv-details";
+    }
+    case "new-data-input-complete": {
+      return "new-data-input";
+    }
+    case "new-data-sharing": {
+      if (calendarReached) {
+        return null;
+      }
+      return "new-data-input";
+    }
+    case "new-gkv-details": {
+      return "new-insurance-type";
+    }
+    case "new-gkv-details-complete": {
+      return "new-gkv-details";
+    }
+    case "new-insurance-type": {
+      return "patient-status";
+    }
+    case "new-pkv-details": {
+      return "new-pvs-consent";
+    }
+    case "new-pkv-details-complete": {
+      return "new-pkv-details";
+    }
+    case "new-pvs-consent": {
+      return "new-insurance-type";
+    }
+    case "patient-status": {
+      return "location";
+    }
+    case "privacy": {
+      return null;
+    }
+  }
+}
+async function getFlowKeyForMutation(
+  ctx: MutationCtx,
+  args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
+): Promise<BookingFlowKey> {
+  return {
+    ...args,
+    userId: await ensureAuthenticatedUserId(ctx),
+  };
+}
+async function getFlowKeyForQuery(
+  ctx: QueryCtx,
+  args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
+): Promise<BookingFlowKey | null> {
+  const userId = await getAuthenticatedUserIdForQuery(ctx);
+  if (!userId) {
+    return null;
+  }
+
+  return {
+    ...args,
+    userId,
+  };
+}
+function getFlowRow(
   ctx: MutationCtx | QueryCtx,
-  session: SessionDoc,
-): Promise<InternalBookingSessionState> {
-  const step = session.state.step;
-  const snapshot = await loadInternalStepSnapshot(ctx, session, step);
-  return hydrateBookingSessionInternalState(step, snapshot);
+  tableName: "bookingCalendarReachedSteps",
+  flowKey: BookingFlowKey,
+): Promise<Doc<"bookingCalendarReachedSteps"> | null>;
+function getFlowRow(
+  ctx: MutationCtx | QueryCtx,
+  tableName: "bookingExistingDoctorSelectionSteps",
+  flowKey: BookingFlowKey,
+): Promise<Doc<"bookingExistingDoctorSelectionSteps"> | null>;
+function getFlowRow(
+  ctx: MutationCtx | QueryCtx,
+  tableName: "bookingLocationSteps",
+  flowKey: BookingFlowKey,
+): Promise<Doc<"bookingLocationSteps"> | null>;
+function getFlowRow(
+  ctx: MutationCtx | QueryCtx,
+  tableName: "bookingNewDataSharingSteps",
+  flowKey: BookingFlowKey,
+): Promise<Doc<"bookingNewDataSharingSteps"> | null>;
+function getFlowRow(
+  ctx: MutationCtx | QueryCtx,
+  tableName: "bookingNewGkvDetailSteps",
+  flowKey: BookingFlowKey,
+): Promise<Doc<"bookingNewGkvDetailSteps"> | null>;
+function getFlowRow(
+  ctx: MutationCtx | QueryCtx,
+  tableName: "bookingNewInsuranceTypeSteps",
+  flowKey: BookingFlowKey,
+): Promise<Doc<"bookingNewInsuranceTypeSteps"> | null>;
+function getFlowRow(
+  ctx: MutationCtx | QueryCtx,
+  tableName: "bookingNewPkvConsentSteps",
+  flowKey: BookingFlowKey,
+): Promise<Doc<"bookingNewPkvConsentSteps"> | null>;
+function getFlowRow(
+  ctx: MutationCtx | QueryCtx,
+  tableName: "bookingNewPkvDetailSteps",
+  flowKey: BookingFlowKey,
+): Promise<Doc<"bookingNewPkvDetailSteps"> | null>;
+function getFlowRow(
+  ctx: MutationCtx | QueryCtx,
+  tableName: "bookingPatientStatusSteps",
+  flowKey: BookingFlowKey,
+): Promise<Doc<"bookingPatientStatusSteps"> | null>;
+function getFlowRow(
+  ctx: MutationCtx | QueryCtx,
+  tableName: "bookingPersonalDataSteps",
+  flowKey: BookingFlowKey,
+): Promise<Doc<"bookingPersonalDataSteps"> | null>;
+function getFlowRow(
+  ctx: MutationCtx | QueryCtx,
+  tableName: "bookingPrivacySteps",
+  flowKey: BookingFlowKey,
+): Promise<Doc<"bookingPrivacySteps"> | null>;
+async function getFlowRow(
+  ctx: MutationCtx | QueryCtx,
+  tableName:
+    | "bookingCalendarReachedSteps"
+    | "bookingExistingDoctorSelectionSteps"
+    | "bookingLocationSteps"
+    | "bookingNewDataSharingSteps"
+    | "bookingNewGkvDetailSteps"
+    | "bookingNewInsuranceTypeSteps"
+    | "bookingNewPkvConsentSteps"
+    | "bookingNewPkvDetailSteps"
+    | "bookingPatientStatusSteps"
+    | "bookingPersonalDataSteps"
+    | "bookingPrivacySteps",
+  flowKey: BookingFlowKey,
+) {
+  switch (tableName) {
+    case "bookingCalendarReachedSteps": {
+      return (
+        (await ctx.db
+          .query("bookingCalendarReachedSteps")
+          .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+            q
+              .eq("userId", flowKey.userId)
+              .eq("practiceId", flowKey.practiceId)
+              .eq("ruleSetId", flowKey.ruleSetId),
+          )
+          .first()) ?? null
+      );
+    }
+    case "bookingExistingDoctorSelectionSteps": {
+      return (
+        (await ctx.db
+          .query("bookingExistingDoctorSelectionSteps")
+          .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+            q
+              .eq("userId", flowKey.userId)
+              .eq("practiceId", flowKey.practiceId)
+              .eq("ruleSetId", flowKey.ruleSetId),
+          )
+          .first()) ?? null
+      );
+    }
+    case "bookingLocationSteps": {
+      return (
+        (await ctx.db
+          .query("bookingLocationSteps")
+          .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+            q
+              .eq("userId", flowKey.userId)
+              .eq("practiceId", flowKey.practiceId)
+              .eq("ruleSetId", flowKey.ruleSetId),
+          )
+          .first()) ?? null
+      );
+    }
+    case "bookingNewDataSharingSteps": {
+      return (
+        (await ctx.db
+          .query("bookingNewDataSharingSteps")
+          .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+            q
+              .eq("userId", flowKey.userId)
+              .eq("practiceId", flowKey.practiceId)
+              .eq("ruleSetId", flowKey.ruleSetId),
+          )
+          .first()) ?? null
+      );
+    }
+    case "bookingNewGkvDetailSteps": {
+      return (
+        (await ctx.db
+          .query("bookingNewGkvDetailSteps")
+          .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+            q
+              .eq("userId", flowKey.userId)
+              .eq("practiceId", flowKey.practiceId)
+              .eq("ruleSetId", flowKey.ruleSetId),
+          )
+          .first()) ?? null
+      );
+    }
+    case "bookingNewInsuranceTypeSteps": {
+      return (
+        (await ctx.db
+          .query("bookingNewInsuranceTypeSteps")
+          .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+            q
+              .eq("userId", flowKey.userId)
+              .eq("practiceId", flowKey.practiceId)
+              .eq("ruleSetId", flowKey.ruleSetId),
+          )
+          .first()) ?? null
+      );
+    }
+    case "bookingNewPkvConsentSteps": {
+      return (
+        (await ctx.db
+          .query("bookingNewPkvConsentSteps")
+          .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+            q
+              .eq("userId", flowKey.userId)
+              .eq("practiceId", flowKey.practiceId)
+              .eq("ruleSetId", flowKey.ruleSetId),
+          )
+          .first()) ?? null
+      );
+    }
+    case "bookingNewPkvDetailSteps": {
+      return (
+        (await ctx.db
+          .query("bookingNewPkvDetailSteps")
+          .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+            q
+              .eq("userId", flowKey.userId)
+              .eq("practiceId", flowKey.practiceId)
+              .eq("ruleSetId", flowKey.ruleSetId),
+          )
+          .first()) ?? null
+      );
+    }
+    case "bookingPatientStatusSteps": {
+      return (
+        (await ctx.db
+          .query("bookingPatientStatusSteps")
+          .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+            q
+              .eq("userId", flowKey.userId)
+              .eq("practiceId", flowKey.practiceId)
+              .eq("ruleSetId", flowKey.ruleSetId),
+          )
+          .first()) ?? null
+      );
+    }
+    case "bookingPersonalDataSteps": {
+      return (
+        (await ctx.db
+          .query("bookingPersonalDataSteps")
+          .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+            q
+              .eq("userId", flowKey.userId)
+              .eq("practiceId", flowKey.practiceId)
+              .eq("ruleSetId", flowKey.ruleSetId),
+          )
+          .first()) ?? null
+      );
+    }
+    case "bookingPrivacySteps": {
+      return (
+        (await ctx.db
+          .query("bookingPrivacySteps")
+          .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+            q
+              .eq("userId", flowKey.userId)
+              .eq("practiceId", flowKey.practiceId)
+              .eq("ruleSetId", flowKey.ruleSetId),
+          )
+          .first()) ?? null
+      );
+    }
+  }
 }
 
-function isConfirmationState(
-  state: BookingSessionState | InternalBookingSessionState,
-): state is Extract<
-  InternalBookingSessionState,
-  { step: "existing-confirmation" | "new-confirmation" }
-> {
+function hasFlowStepRows(rows: BookingFlowRows): boolean {
   return (
-    state.step === "existing-confirmation" || state.step === "new-confirmation"
+    rows.privacy !== null ||
+    rows.location !== null ||
+    rows.patientStatus !== null ||
+    rows.existingDoctor !== null ||
+    rows.newInsuranceType !== null ||
+    rows.newGkvDetail !== null ||
+    rows.newPkvConsent !== null ||
+    rows.newPkvDetail !== null ||
+    rows.personalData !== null ||
+    rows.newDataSharing !== null
   );
 }
 
-function isRecoverableSessionHydrationError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.message.startsWith("Missing snapshot for booking session step") ||
-      error.message.startsWith(STALE_PUBLIC_SESSION_STATE_ERROR_PREFIX))
+function hasRequiredMedicalHistoryEntries(
+  row: BookingFlowRows["medicalHistoryEntry"],
+): boolean {
+  return row?.isComplete === true;
+}
+
+async function loadFlowRows(
+  ctx: MutationCtx | QueryCtx,
+  flowKey: BookingFlowKey,
+) {
+  const [
+    calendarReached,
+    existingDoctor,
+    location,
+    newDataSharing,
+    newGkvDetail,
+    newInsuranceType,
+    newPkvConsent,
+    newPkvDetail,
+    patientStatus,
+    personalData,
+    privacy,
+    dataSharingContacts,
+    medicalHistoryEntry,
+  ] = await Promise.all([
+    getFlowRow(ctx, "bookingCalendarReachedSteps", flowKey),
+    getFlowRow(ctx, "bookingExistingDoctorSelectionSteps", flowKey),
+    getFlowRow(ctx, "bookingLocationSteps", flowKey),
+    getFlowRow(ctx, "bookingNewDataSharingSteps", flowKey),
+    getFlowRow(ctx, "bookingNewGkvDetailSteps", flowKey),
+    getFlowRow(ctx, "bookingNewInsuranceTypeSteps", flowKey),
+    getFlowRow(ctx, "bookingNewPkvConsentSteps", flowKey),
+    getFlowRow(ctx, "bookingNewPkvDetailSteps", flowKey),
+    getFlowRow(ctx, "bookingPatientStatusSteps", flowKey),
+    getFlowRow(ctx, "bookingPersonalDataSteps", flowKey),
+    getFlowRow(ctx, "bookingPrivacySteps", flowKey),
+    ctx.db
+      .query("bookingNewDataSharingContactRows")
+      .withIndex("by_userId_practiceId_ruleSetId_index", (q) =>
+        q
+          .eq("userId", flowKey.userId)
+          .eq("practiceId", flowKey.practiceId)
+          .eq("ruleSetId", flowKey.ruleSetId),
+      )
+      .collect(),
+    ctx.db
+      .query("bookingMedicalHistoryEntries")
+      .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+        q
+          .eq("userId", flowKey.userId)
+          .eq("practiceId", flowKey.practiceId)
+          .eq("ruleSetId", flowKey.ruleSetId),
+      )
+      .first(),
+  ]);
+
+  return {
+    calendarReached,
+    dataSharingContacts,
+    existingDoctor,
+    location,
+    medicalHistoryEntry,
+    newDataSharing,
+    newGkvDetail,
+    newInsuranceType,
+    newPkvConsent,
+    newPkvDetail,
+    patientStatus,
+    personalData,
+    privacy,
+  };
+}
+
+async function markCalendarReached(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const existing = await getFlowRow(
+    ctx,
+    "bookingCalendarReachedSteps",
+    flowKey,
+  );
+  const now = BigInt(Date.now());
+  if (existing) {
+    await ctx.db.patch("bookingCalendarReachedSteps", existing._id, {
+      lastModified: now,
+    });
+    return;
+  }
+  await ctx.db.insert(
+    "bookingCalendarReachedSteps",
+    flowScope(flowKey, {
+      createdAt: now,
+      lastModified: now,
+    }),
   );
 }
 
-async function materializeInternalState(
-  ctx: StepReadCtx,
-  session: SessionDoc,
-  state: InternalBookingSessionState,
-): Promise<BookingSessionState> {
-  return await materializeBookingSessionUiState(state, {
-    resolveAppointmentTypeName: async (appointmentTypeLineageKey) =>
-      await resolveAppointmentTypeNameForPublicState(
-        ctx.db,
-        session.ruleSetId,
-        asAppointmentTypeLineageKey(appointmentTypeLineageKey),
-      ),
-    resolveLocationName: async (locationLineageKey) =>
-      await resolveLocationNameForPublicState(
-        ctx.db,
-        session.ruleSetId,
-        asLocationLineageKey(locationLineageKey),
-      ),
-    resolvePractitionerName: async (practitionerLineageKey) =>
-      await resolvePractitionerNameForPublicState(
-        ctx.db,
-        session.ruleSetId,
-        asPractitionerLineageKey(practitionerLineageKey),
-      ),
+function materializeDataSharingContacts(
+  rows: BookingFlowRows["dataSharingContacts"],
+): DataSharingContactInput[] {
+  return rows
+    .toSorted((left, right) => left.index - right.index)
+    .map((row) =>
+      asDataSharingContactInput({
+        city: row.city,
+        dateOfBirth: row.dateOfBirth,
+        firstName: row.firstName,
+        gender: row.gender,
+        lastName: row.lastName,
+        phoneNumber: row.phoneNumber,
+        postalCode: row.postalCode,
+        street: row.street,
+        ...(row.title === undefined ? {} : { title: row.title }),
+      }),
+    );
+}
+
+function materializeMedicalHistory(
+  row: BookingFlowRows["medicalHistoryEntry"],
+): BookingMedicalHistory | undefined {
+  if (!row) {
+    return undefined;
+  }
+
+  const allergiesDescription = [row.allergyNotes, row.intoleranceNotes]
+    .filter((value) => value !== undefined && value.trim() !== "")
+    .join("; ");
+  const otherConditionParts = [
+    row.hasThyroidCondition ? "Schilddrüsenerkrankung" : undefined,
+    row.hasLiverCondition ? "Lebererkrankung" : undefined,
+    row.hasKidneyCondition ? "Nierenerkrankung" : undefined,
+    row.hasLipidDisorder ? "Fettstoffwechselstörung" : undefined,
+    row.hasGout ? "Gicht" : undefined,
+    row.hasHypertension ? "Bluthochdruck" : undefined,
+    row.hasCirculationDisorder ? "Durchblutungsstörung" : undefined,
+    row.hasVaricoseVeins ? "Krampfadern" : undefined,
+    row.hasCancer ? "Krebserkrankung" : undefined,
+    row.hasDepression ? "Depression" : undefined,
+    row.smokes ? "Rauchen" : undefined,
+    row.operationNotes,
+    row.symptomNotes,
+    row.otherConditionNotes,
+  ].filter((value) => value !== undefined && value.trim() !== "");
+
+  return {
+    ...(allergiesDescription.length === 0 ? {} : { allergiesDescription }),
+    ...(row.medicationNotes === undefined
+      ? {}
+      : { currentMedications: row.medicationNotes }),
+    hasAllergies: row.hasAllergies || row.hasIntolerance,
+    hasDiabetes: row.hasDiabetes,
+    hasHeartCondition:
+      row.hasHeartCondition ||
+      row.hasHypertension ||
+      row.hasCirculationDisorder,
+    hasLungCondition: row.hasLungCondition,
+    ...(otherConditionParts.length === 0
+      ? {}
+      : { otherConditions: otherConditionParts.join("; ") }),
+  };
+}
+
+function materializePersonalData(
+  row: BookingFlowRows["personalData"],
+): BookingPersonalData | undefined {
+  if (!row) {
+    return undefined;
+  }
+
+  return asPersonalDataInput({
+    ...(row.city === undefined ? {} : { city: row.city }),
+    dateOfBirth: row.dateOfBirth,
+    ...(row.email === undefined ? {} : { email: row.email }),
+    firstName: row.firstName,
+    ...(row.gender === undefined ? {} : { gender: row.gender }),
+    lastName: row.lastName,
+    phoneNumber: row.phoneNumber,
+    ...(row.postalCode === undefined ? {} : { postalCode: row.postalCode }),
+    ...(row.street === undefined ? {} : { street: row.street }),
+    ...(row.title === undefined ? {} : { title: row.title }),
   });
 }
 
-async function materializePublicSessionState(
-  ctx: StepReadCtx,
-  session: SessionDoc,
-  internalState: InternalBookingSessionState,
-): Promise<BookingSessionState> {
-  return await materializeInternalState(ctx, session, internalState);
+async function materializeState(
+  ctx: MutationCtx | QueryCtx,
+  flowKey: BookingFlowKey,
+  rows: BookingFlowRows,
+): Promise<BookingSessionState | null> {
+  if (!hasFlowStepRows(rows)) {
+    return null;
+  }
+
+  if (!rows.privacy?.consent) {
+    return { step: "privacy" };
+  }
+
+  if (!rows.location) {
+    return { step: "location" };
+  }
+
+  const locationName = await resolveLocationNameForPublicState(
+    ctx.db,
+    flowKey.ruleSetId,
+    asLocationLineageKey(rows.location.locationLineageKey),
+  );
+  const locationLineageKey = rows.location.locationLineageKey;
+
+  if (!rows.patientStatus) {
+    return {
+      locationLineageKey,
+      locationName,
+      step: "patient-status",
+    };
+  }
+
+  if (rows.patientStatus.isNewPatient) {
+    if (!rows.newInsuranceType) {
+      return {
+        isNewPatient: true,
+        locationLineageKey,
+        locationName,
+        step: "new-insurance-type",
+      };
+    }
+
+    if (rows.newInsuranceType.insuranceType === "gkv") {
+      if (!rows.newGkvDetail) {
+        return {
+          insuranceType: "gkv",
+          isNewPatient: true,
+          locationLineageKey,
+          locationName,
+          step: "new-gkv-details",
+        };
+      }
+
+      const personalData = materializePersonalData(rows.personalData);
+      const medicalHistory = materializeMedicalHistory(
+        rows.medicalHistoryEntry,
+      );
+      if (
+        !personalData ||
+        !hasRequiredMedicalHistoryEntries(rows.medicalHistoryEntry)
+      ) {
+        return {
+          hzvStatus: rows.newGkvDetail.hzvStatus,
+          insuranceType: "gkv",
+          isNewPatient: true,
+          locationLineageKey,
+          locationName,
+          ...(medicalHistory === undefined ? {} : { medicalHistory }),
+          ...(personalData === undefined ? {} : { personalData }),
+          step: "new-data-input",
+        };
+      }
+
+      if (!rows.newDataSharing) {
+        return {
+          hzvStatus: rows.newGkvDetail.hzvStatus,
+          insuranceType: "gkv",
+          isNewPatient: true,
+          locationLineageKey,
+          locationName,
+          ...(medicalHistory === undefined ? {} : { medicalHistory }),
+          personalData,
+          step: "new-data-sharing",
+        };
+      }
+
+      return {
+        dataSharingContacts: materializeDataSharingContacts(
+          rows.dataSharingContacts,
+        ),
+        hzvStatus: rows.newGkvDetail.hzvStatus,
+        insuranceType: "gkv",
+        isNewPatient: true,
+        locationLineageKey,
+        locationName,
+        ...(medicalHistory === undefined ? {} : { medicalHistory }),
+        personalData,
+        step: "new-calendar-selection",
+      };
+    }
+
+    if (!rows.newPkvConsent) {
+      return {
+        insuranceType: "pkv",
+        isNewPatient: true,
+        locationLineageKey,
+        locationName,
+        step: "new-pvs-consent",
+      };
+    }
+
+    if (!rows.newPkvDetail) {
+      return {
+        insuranceType: "pkv",
+        isNewPatient: true,
+        locationLineageKey,
+        locationName,
+        pvsConsent: true,
+        step: "new-pkv-details",
+      };
+    }
+
+    const personalData = materializePersonalData(rows.personalData);
+    const medicalHistory = materializeMedicalHistory(rows.medicalHistoryEntry);
+    if (
+      !personalData ||
+      !hasRequiredMedicalHistoryEntries(rows.medicalHistoryEntry)
+    ) {
+      return {
+        ...(rows.newPkvDetail.beihilfeStatus === undefined
+          ? {}
+          : { beihilfeStatus: rows.newPkvDetail.beihilfeStatus }),
+        insuranceType: "pkv",
+        isNewPatient: true,
+        locationLineageKey,
+        locationName,
+        ...(medicalHistory === undefined ? {} : { medicalHistory }),
+        ...(personalData === undefined ? {} : { personalData }),
+        ...(rows.newPkvDetail.pkvInsuranceType === undefined
+          ? {}
+          : { pkvInsuranceType: rows.newPkvDetail.pkvInsuranceType }),
+        ...(rows.newPkvDetail.pkvTariff === undefined
+          ? {}
+          : { pkvTariff: rows.newPkvDetail.pkvTariff }),
+        pvsConsent: true,
+        step: "new-data-input",
+      };
+    }
+
+    if (!rows.newDataSharing) {
+      return {
+        ...(rows.newPkvDetail.beihilfeStatus === undefined
+          ? {}
+          : { beihilfeStatus: rows.newPkvDetail.beihilfeStatus }),
+        insuranceType: "pkv",
+        isNewPatient: true,
+        locationLineageKey,
+        locationName,
+        ...(medicalHistory === undefined ? {} : { medicalHistory }),
+        personalData,
+        ...(rows.newPkvDetail.pkvInsuranceType === undefined
+          ? {}
+          : { pkvInsuranceType: rows.newPkvDetail.pkvInsuranceType }),
+        ...(rows.newPkvDetail.pkvTariff === undefined
+          ? {}
+          : { pkvTariff: rows.newPkvDetail.pkvTariff }),
+        pvsConsent: true,
+        step: "new-data-sharing",
+      };
+    }
+
+    return {
+      ...(rows.newPkvDetail.beihilfeStatus === undefined
+        ? {}
+        : { beihilfeStatus: rows.newPkvDetail.beihilfeStatus }),
+      dataSharingContacts: materializeDataSharingContacts(
+        rows.dataSharingContacts,
+      ),
+      insuranceType: "pkv",
+      isNewPatient: true,
+      locationLineageKey,
+      locationName,
+      ...(medicalHistory === undefined ? {} : { medicalHistory }),
+      personalData,
+      ...(rows.newPkvDetail.pkvInsuranceType === undefined
+        ? {}
+        : { pkvInsuranceType: rows.newPkvDetail.pkvInsuranceType }),
+      ...(rows.newPkvDetail.pkvTariff === undefined
+        ? {}
+        : { pkvTariff: rows.newPkvDetail.pkvTariff }),
+      pvsConsent: true,
+      step: "new-calendar-selection",
+    };
+  }
+
+  if (!rows.existingDoctor) {
+    return {
+      isNewPatient: false,
+      locationLineageKey,
+      locationName,
+      step: "existing-doctor-selection",
+    };
+  }
+
+  const practitionerLineageKey = rows.existingDoctor.practitionerLineageKey;
+  const practitionerName = await resolvePractitionerNameForPublicState(
+    ctx.db,
+    flowKey.ruleSetId,
+    asPractitionerLineageKey(practitionerLineageKey),
+  );
+  const personalData = materializePersonalData(rows.personalData);
+
+  if (!personalData) {
+    return {
+      isNewPatient: false,
+      locationLineageKey,
+      locationName,
+      practitionerLineageKey,
+      practitionerName,
+      step: "existing-data-input",
+    };
+  }
+
+  return {
+    isNewPatient: false,
+    locationLineageKey,
+    locationName,
+    personalData,
+    practitionerLineageKey,
+    practitionerName,
+    step: "existing-calendar-selection",
+  };
+}
+
+function medicalHistoryRowFromInput(
+  flowKey: BookingFlowKey,
+  medicalHistory: BookingMedicalHistory,
+  now: bigint,
+): Omit<Doc<"bookingMedicalHistoryEntries">, "_creationTime" | "_id"> {
+  const medicationNotes = medicalHistory.currentMedications?.trim();
+  const allergyNotes = medicalHistory.allergiesDescription?.trim();
+  const otherConditionNotes = medicalHistory.otherConditions?.trim();
+  return {
+    ...(allergyNotes === undefined || allergyNotes === ""
+      ? {}
+      : { allergyNotes }),
+    createdAt: now,
+    hasAllergies: medicalHistory.hasAllergies,
+    hasCancer: false,
+    hasCirculationDisorder: false,
+    hasDepression: false,
+    hasDiabetes: medicalHistory.hasDiabetes,
+    hasGout: false,
+    hasHeartCondition: medicalHistory.hasHeartCondition,
+    hasHypertension: false,
+    hasIntolerance: false,
+    hasKidneyCondition: false,
+    hasLipidDisorder: false,
+    hasLiverCondition: false,
+    hasLungCondition: medicalHistory.hasLungCondition,
+    hasOperations: false,
+    hasSymptoms: false,
+    hasThyroidCondition: false,
+    hasVaricoseVeins: false,
+    isComplete: true,
+    lastModified: now,
+    ...(medicationNotes === undefined || medicationNotes === ""
+      ? {}
+      : { medicationNotes }),
+    noAdditionalDetails:
+      !medicalHistory.hasAllergies && (medicationNotes?.length ?? 0) === 0,
+    noKnownConditions:
+      !medicalHistory.hasDiabetes &&
+      !medicalHistory.hasHeartCondition &&
+      !medicalHistory.hasLungCondition &&
+      (otherConditionNotes?.length ?? 0) === 0,
+    ...(otherConditionNotes === undefined || otherConditionNotes === ""
+      ? {}
+      : { otherConditionNotes }),
+    practiceId: flowKey.practiceId,
+    ruleSetId: flowKey.ruleSetId,
+    smokes: false,
+    takesMedication: (medicationNotes?.length ?? 0) > 0,
+    userId: flowKey.userId,
+  };
+}
+
+async function persistDataSharingContacts(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+  contacts: DataSharingContactInput[],
+): Promise<void> {
+  await deleteDataSharingContacts(ctx, flowKey);
+  const now = BigInt(Date.now());
+  for (const [index, contact] of contacts.entries()) {
+    await ctx.db.insert("bookingNewDataSharingContactRows", {
+      ...contact,
+      createdAt: now,
+      index,
+      lastModified: now,
+      practiceId: flowKey.practiceId,
+      ruleSetId: flowKey.ruleSetId,
+      userId: flowKey.userId,
+    });
+  }
+}
+
+async function persistMedicalHistory(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+  medicalHistory: BookingMedicalHistory,
+): Promise<void> {
+  const existingRows = await ctx.db
+    .query("bookingMedicalHistoryEntries")
+    .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+      q
+        .eq("userId", flowKey.userId)
+        .eq("practiceId", flowKey.practiceId)
+        .eq("ruleSetId", flowKey.ruleSetId),
+    )
+    .first();
+
+  const row = medicalHistoryRowFromInput(
+    flowKey,
+    medicalHistory,
+    BigInt(Date.now()),
+  );
+  if (existingRows) {
+    await ctx.db.patch("bookingMedicalHistoryEntries", existingRows._id, row);
+  } else {
+    await ctx.db.insert("bookingMedicalHistoryEntries", row);
+  }
+}
+
+async function removeRowsAfterInsuranceType(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const rows = await loadFlowRows(ctx, flowKey);
+  await deleteDataSharingContacts(ctx, flowKey);
+  if (rows.medicalHistoryEntry) {
+    await ctx.db.delete(
+      "bookingMedicalHistoryEntries",
+      rows.medicalHistoryEntry._id,
+    );
+  }
+  await deleteFlowRow(ctx, "bookingNewDataSharingSteps", rows.newDataSharing);
+  await deleteFlowRow(ctx, "bookingPersonalDataSteps", rows.personalData);
+  await deleteFlowRow(ctx, "bookingNewPkvDetailSteps", rows.newPkvDetail);
+  await deleteFlowRow(ctx, "bookingNewPkvConsentSteps", rows.newPkvConsent);
+  await deleteFlowRow(ctx, "bookingNewGkvDetailSteps", rows.newGkvDetail);
+}
+
+async function removeRowsAfterLocationSelection(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const rows = await loadFlowRows(ctx, flowKey);
+  await deleteDataSharingContacts(ctx, flowKey);
+  if (rows.medicalHistoryEntry) {
+    await ctx.db.delete(
+      "bookingMedicalHistoryEntries",
+      rows.medicalHistoryEntry._id,
+    );
+  }
+  await deleteFlowRow(ctx, "bookingNewDataSharingSteps", rows.newDataSharing);
+  await deleteFlowRow(ctx, "bookingPersonalDataSteps", rows.personalData);
+  await deleteFlowRow(ctx, "bookingNewPkvDetailSteps", rows.newPkvDetail);
+  await deleteFlowRow(ctx, "bookingNewPkvConsentSteps", rows.newPkvConsent);
+  await deleteFlowRow(ctx, "bookingNewGkvDetailSteps", rows.newGkvDetail);
+  await deleteFlowRow(
+    ctx,
+    "bookingNewInsuranceTypeSteps",
+    rows.newInsuranceType,
+  );
+  await deleteFlowRow(
+    ctx,
+    "bookingExistingDoctorSelectionSteps",
+    rows.existingDoctor,
+  );
+  await deleteFlowRow(ctx, "bookingPatientStatusSteps", rows.patientStatus);
+}
+
+async function removeRowsAfterNewPatientData(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const rows = await loadFlowRows(ctx, flowKey);
+  if (rows.newDataSharing) {
+    await ctx.db.delete("bookingNewDataSharingSteps", rows.newDataSharing._id);
+  }
+  await deleteDataSharingContacts(ctx, flowKey);
+}
+
+async function removeRowsAfterPatientStatus(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const rows = await loadFlowRows(ctx, flowKey);
+  await deleteDataSharingContacts(ctx, flowKey);
+  if (rows.medicalHistoryEntry) {
+    await ctx.db.delete(
+      "bookingMedicalHistoryEntries",
+      rows.medicalHistoryEntry._id,
+    );
+  }
+  await deleteFlowRow(ctx, "bookingNewDataSharingSteps", rows.newDataSharing);
+  await deleteFlowRow(ctx, "bookingPersonalDataSteps", rows.personalData);
+  await deleteFlowRow(ctx, "bookingNewPkvDetailSteps", rows.newPkvDetail);
+  await deleteFlowRow(ctx, "bookingNewPkvConsentSteps", rows.newPkvConsent);
+  await deleteFlowRow(ctx, "bookingNewGkvDetailSteps", rows.newGkvDetail);
+  await deleteFlowRow(
+    ctx,
+    "bookingNewInsuranceTypeSteps",
+    rows.newInsuranceType,
+  );
+  await deleteFlowRow(
+    ctx,
+    "bookingExistingDoctorSelectionSteps",
+    rows.existingDoctor,
+  );
+}
+
+async function removeRowsFromExistingDataInput(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const rows = await loadFlowRows(ctx, flowKey);
+  await deleteDataSharingContacts(ctx, flowKey);
+  if (rows.medicalHistoryEntry) {
+    await ctx.db.delete(
+      "bookingMedicalHistoryEntries",
+      rows.medicalHistoryEntry._id,
+    );
+  }
+  await deleteFlowRow(ctx, "bookingNewDataSharingSteps", rows.newDataSharing);
+  await deleteFlowRow(ctx, "bookingPersonalDataSteps", rows.personalData);
+}
+
+async function removeRowsFromNewDataInput(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  await removeRowsFromExistingDataInput(ctx, flowKey);
+}
+
+async function removeRowsFromNewDataSharing(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const rows = await loadFlowRows(ctx, flowKey);
+  await deleteDataSharingContacts(ctx, flowKey);
+  if (rows.newDataSharing) {
+    await ctx.db.delete("bookingNewDataSharingSteps", rows.newDataSharing._id);
+  }
+}
+
+async function removeRowsFromNewPkvDetails(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const rows = await loadFlowRows(ctx, flowKey);
+  await deleteDataSharingContacts(ctx, flowKey);
+  if (rows.medicalHistoryEntry) {
+    await ctx.db.delete(
+      "bookingMedicalHistoryEntries",
+      rows.medicalHistoryEntry._id,
+    );
+  }
+  await deleteFlowRow(ctx, "bookingNewDataSharingSteps", rows.newDataSharing);
+  await deleteFlowRow(ctx, "bookingPersonalDataSteps", rows.personalData);
+  await deleteFlowRow(ctx, "bookingNewPkvDetailSteps", rows.newPkvDetail);
+}
+
+async function requireActiveFlow(
+  ctx: MutationCtx | QueryCtx,
+  flowKey: BookingFlowKey,
+): Promise<{
+  rows: BookingFlowRows;
+  state: BookingSessionState;
+}> {
+  const rows = await loadFlowRows(ctx, flowKey);
+  const state = await materializeState(ctx, flowKey, rows);
+  if (!state) {
+    throw new Error("Booking flow not found");
+  }
+  return { rows, state };
+}
+
+async function requireCurrentUserCanStartBooking(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+): Promise<void> {
+  const bookingBlock = await ctx.db
+    .query("onlineAccountBlocks")
+    .withIndex("by_userId_practiceId", (q) =>
+      q.eq("userId", flowKey.userId).eq("practiceId", flowKey.practiceId),
+    )
+    .first();
+
+  if (bookingBlock) {
+    throw new Error("This account is blocked from online booking.");
+  }
+
+  const unresolvedFutureHolds =
+    await getFutureLegacyUnmatchedBookingHoldsForUser(ctx, {
+      scope: { practiceId: flowKey.practiceId },
+      userId: flowKey.userId,
+    });
+  if (unresolvedFutureHolds.length > 0) {
+    throw new Error(
+      "This account has an unresolved imported future booking and cannot start another online booking.",
+    );
+  }
+
+  const userAppointments = await ctx.db
+    .query("appointments")
+    .withIndex("by_userId", (q) => q.eq("userId", flowKey.userId))
+    .collect();
+  const now = Temporal.Now.instant().epochMilliseconds;
+  const hasFutureAppointment = userAppointments.some((appointment) => {
+    if (
+      appointment.practiceId !== flowKey.practiceId ||
+      appointment.cancelledAt !== undefined ||
+      appointment.isSimulation === true
+    ) {
+      return false;
+    }
+
+    try {
+      return (
+        Temporal.ZonedDateTime.from(appointment.start).epochMilliseconds > now
+      );
+    } catch {
+      return false;
+    }
+  });
+
+  if (hasFutureAppointment) {
+    throw new Error(
+      "This account already has a future appointment and cannot start another online booking.",
+    );
+  }
 }
 
 function requireSelectableRuleSetEntity<
@@ -224,89 +1402,20 @@ function requireSelectableRuleSetEntity<
   return entity;
 }
 
-async function resolveAppointmentTypeNameForPublicState(
-  db: MutationCtx["db"] | QueryCtx["db"],
-  ruleSetId: Id<"ruleSets">,
-  appointmentTypeLineageKey: AppointmentTypeLineageKey,
-): Promise<string> {
-  try {
-    const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
-      db,
-      {
-        lineageKey: asAppointmentTypeLineageKey(appointmentTypeLineageKey),
-        ruleSetId,
-      },
-    );
-    const appointmentType = await db.get("appointmentTypes", appointmentTypeId);
-    if (!appointmentType) {
-      throw new Error(
-        `Terminart ${appointmentTypeLineageKey} konnte nicht geladen werden.`,
-      );
-    }
-    if (isRuleSetEntityDeleted(appointmentType)) {
-      throw new Error(
-        `Terminart ${appointmentTypeLineageKey} ist im Regelset nicht mehr verfügbar.`,
-      );
-    }
-    return appointmentType.name;
-  } catch (error) {
-    if (error instanceof Error) {
-      throw stalePublicSessionStateError(error);
-    }
-    throw error;
-  }
-}
-
-async function resolveLocationIdForInternalState(
-  db: MutationCtx["db"] | QueryCtx["db"],
-  ruleSetId: Id<"ruleSets">,
-  locationLineageKey: LocationLineageKey,
-) {
-  return await resolveLocationIdForRuleSetByLineage(db, {
-    lineageKey: locationLineageKey,
-    ruleSetId,
-  });
-}
-
 async function resolveLocationNameForPublicState(
   db: MutationCtx["db"] | QueryCtx["db"],
   ruleSetId: Id<"ruleSets">,
   locationLineageKey: LocationLineageKey,
 ): Promise<string> {
-  try {
-    const locationId = await resolveLocationIdForRuleSetByLineage(db, {
-      lineageKey: locationLineageKey,
-      ruleSetId,
-    });
-    const location = await db.get("locations", locationId);
-    if (!location) {
-      throw new Error(
-        `Standort ${locationLineageKey} konnte nicht geladen werden.`,
-      );
-    }
-    if (isRuleSetEntityDeleted(location)) {
-      throw new Error(
-        `Standort ${locationLineageKey} ist im Regelset nicht mehr verfügbar.`,
-      );
-    }
-    return location.name;
-  } catch (error) {
-    if (error instanceof Error) {
-      throw stalePublicSessionStateError(error);
-    }
-    throw error;
-  }
-}
-
-async function resolvePractitionerIdForInternalState(
-  db: MutationCtx["db"] | QueryCtx["db"],
-  ruleSetId: Id<"ruleSets">,
-  practitionerLineageKey: PractitionerLineageKey,
-) {
-  return await resolvePractitionerIdForRuleSetByLineage(db, {
-    lineageKey: practitionerLineageKey,
+  const locationId = await resolveLocationIdForRuleSetByLineage(db, {
+    lineageKey: locationLineageKey,
     ruleSetId,
   });
+  const location = await db.get("locations", locationId);
+  if (!location || isRuleSetEntityDeleted(location)) {
+    throw new Error(`Standort ${locationLineageKey} ist nicht verfügbar.`);
+  }
+  return location.name;
 }
 
 async function resolvePractitionerNameForPublicState(
@@ -314,1402 +1423,735 @@ async function resolvePractitionerNameForPublicState(
   ruleSetId: Id<"ruleSets">,
   practitionerLineageKey: PractitionerLineageKey,
 ): Promise<string> {
-  try {
-    const practitionerId = await resolvePractitionerIdForRuleSetByLineage(db, {
-      lineageKey: practitionerLineageKey,
-      ruleSetId,
-    });
-    const practitioner = await db.get("practitioners", practitionerId);
-    if (!practitioner) {
-      throw new Error(
-        `Behandler ${practitionerLineageKey} konnte nicht geladen werden.`,
-      );
+  const practitionerId = await resolvePractitionerIdForRuleSetByLineage(db, {
+    lineageKey: practitionerLineageKey,
+    ruleSetId,
+  });
+  const practitioner = await db.get("practitioners", practitionerId);
+  if (!practitioner || isRuleSetEntityDeleted(practitioner)) {
+    throw new Error(`Behandler ${practitionerLineageKey} ist nicht verfügbar.`);
+  }
+  return practitioner.name;
+}
+
+async function rewindFlowToStep(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+  targetStep: BackTargetStep,
+): Promise<void> {
+  switch (targetStep) {
+    case "existing-data-input": {
+      await removeRowsFromExistingDataInput(ctx, flowKey);
+      return;
     }
-    if (isRuleSetEntityDeleted(practitioner)) {
-      throw new Error(
-        `Behandler ${practitionerLineageKey} ist im Regelset nicht mehr verfügbar.`,
-      );
+    case "existing-doctor-selection": {
+      await removeRowsAfterPatientStatus(ctx, flowKey);
+      return;
     }
-    return practitioner.name;
-  } catch (error) {
-    if (error instanceof Error) {
-      throw stalePublicSessionStateError(error);
+    case "location": {
+      await removeRowsAfterLocationSelection(ctx, flowKey);
+      const rows = await loadFlowRows(ctx, flowKey);
+      await deleteFlowRow(ctx, "bookingLocationSteps", rows.location);
+      return;
     }
-    throw error;
+    case "new-data-input": {
+      await removeRowsFromNewDataInput(ctx, flowKey);
+      return;
+    }
+    case "new-data-sharing": {
+      await removeRowsFromNewDataSharing(ctx, flowKey);
+      return;
+    }
+    case "new-gkv-details":
+    case "new-pvs-consent": {
+      await removeRowsAfterInsuranceType(ctx, flowKey);
+      return;
+    }
+    case "new-insurance-type": {
+      await removeRowsAfterPatientStatus(ctx, flowKey);
+      return;
+    }
+    case "new-pkv-details": {
+      await removeRowsFromNewPkvDetails(ctx, flowKey);
+      return;
+    }
+    case "patient-status": {
+      await removeRowsAfterPatientStatus(ctx, flowKey);
+      const rows = await loadFlowRows(ctx, flowKey);
+      await deleteFlowRow(ctx, "bookingPatientStatusSteps", rows.patientStatus);
+      return;
+    }
+    case "privacy": {
+      await deleteFlowRows(ctx, flowKey);
+      await upsertPrivacyStep(ctx, flowKey, false);
+      return;
+    }
   }
 }
 
-function resolveStoredAppointmentTypeLineageKey(
-  _db: MutationCtx["db"] | QueryCtx["db"],
-  appointmentTypeLineageKey: AppointmentTypeLineageKey,
+async function upsertExistingDoctorStep(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+  practitionerLineageKey: Id<"practitioners">,
 ) {
-  return appointmentTypeLineageKey;
+  const existing = await getFlowRow(
+    ctx,
+    "bookingExistingDoctorSelectionSteps",
+    flowKey,
+  );
+  const now = BigInt(Date.now());
+  const data = flowScope(flowKey, {
+    createdAt: now,
+    lastModified: now,
+    practitionerLineageKey,
+  });
+  if (existing) {
+    await ctx.db.patch("bookingExistingDoctorSelectionSteps", existing._id, {
+      lastModified: now,
+      practitionerLineageKey,
+    });
+    return;
+  }
+  await ctx.db.insert("bookingExistingDoctorSelectionSteps", data);
 }
 
-function resolveStoredLocationLineageKey(
-  _db: MutationCtx["db"] | QueryCtx["db"],
-  locationLineageKey: LocationLineageKey,
+async function upsertLocationStep(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+  locationLineageKey: Id<"locations">,
 ) {
-  return locationLineageKey;
-}
-
-function resolveStoredPractitionerLineageKey(
-  _db: MutationCtx["db"] | QueryCtx["db"],
-  practitionerLineageKey: PractitionerLineageKey,
-) {
-  return practitionerLineageKey;
-}
-
-function stalePublicSessionStateError(error: Error): Error {
-  return new Error(
-    `${STALE_PUBLIC_SESSION_STATE_ERROR_PREFIX} ${error.message}`,
+  const existing = await getFlowRow(ctx, "bookingLocationSteps", flowKey);
+  const now = BigInt(Date.now());
+  if (existing) {
+    await ctx.db.patch("bookingLocationSteps", existing._id, {
+      lastModified: now,
+      locationLineageKey,
+    });
+    return;
+  }
+  await ctx.db.insert(
+    "bookingLocationSteps",
+    flowScope(flowKey, {
+      createdAt: now,
+      lastModified: now,
+      locationLineageKey,
+    }),
   );
 }
 
-function toStoredSelectedSlot(
-  db: MutationCtx["db"] | QueryCtx["db"],
-  selectedSlot: ReturnType<typeof asSelectedSlotInput>,
-): StepTableDocMap["bookingExistingCalendarSelectionSteps"]["selectedSlot"] {
-  return {
-    practitionerLineageKey: resolveStoredPractitionerLineageKey(
-      db,
-      asPractitionerLineageKey(selectedSlot.practitionerLineageKey),
-    ),
-    practitionerName: selectedSlot.practitionerName,
-    startTime: selectedSlot.startTime,
-  };
-}
-
-async function tryHydrateInternalSessionState(
-  ctx: MutationCtx | QueryCtx,
-  session: SessionDoc,
-): Promise<InternalBookingSessionState | null> {
-  try {
-    return await hydrateInternalSessionState(ctx, session);
-  } catch (error) {
-    if (isRecoverableSessionHydrationError(error)) {
-      return null;
-    }
-    throw error;
+async function upsertNewDataSharingStep(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+) {
+  const existing = await getFlowRow(ctx, "bookingNewDataSharingSteps", flowKey);
+  const now = BigInt(Date.now());
+  if (existing) {
+    await ctx.db.patch("bookingNewDataSharingSteps", existing._id, {
+      lastModified: now,
+    });
+    return;
   }
+  await ctx.db.insert(
+    "bookingNewDataSharingSteps",
+    flowScope(flowKey, {
+      createdAt: now,
+      lastModified: now,
+    }),
+  );
 }
 
-async function tryHydrateSessionState(
-  ctx: MutationCtx | QueryCtx,
-  session: SessionDoc,
-): Promise<BookingSessionState | null> {
-  try {
-    const internalState = await hydrateInternalSessionState(ctx, session);
-    return await materializePublicSessionState(ctx, session, internalState);
-  } catch (error) {
-    if (isRecoverableSessionHydrationError(error)) {
-      return null;
-    }
-    throw error;
+async function upsertNewGkvDetailStep(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+  hzvStatus: Doc<"bookingNewGkvDetailSteps">["hzvStatus"],
+) {
+  const existing = await getFlowRow(ctx, "bookingNewGkvDetailSteps", flowKey);
+  const now = BigInt(Date.now());
+  if (existing) {
+    await ctx.db.patch("bookingNewGkvDetailSteps", existing._id, {
+      hzvStatus,
+      lastModified: now,
+    });
+    return;
   }
+  await ctx.db.insert(
+    "bookingNewGkvDetailSteps",
+    flowScope(flowKey, {
+      createdAt: now,
+      hzvStatus,
+      lastModified: now,
+    }),
+  );
 }
 
-function withHydratedState(
-  session: SessionDoc,
-  state: BookingSessionState,
-): SessionWithState {
-  return {
-    ...session,
-    state,
+async function upsertNewInsuranceTypeStep(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+  insuranceType: Doc<"bookingNewInsuranceTypeSteps">["insuranceType"],
+) {
+  const existing = await getFlowRow(
+    ctx,
+    "bookingNewInsuranceTypeSteps",
+    flowKey,
+  );
+  const now = BigInt(Date.now());
+  if (existing) {
+    await ctx.db.patch("bookingNewInsuranceTypeSteps", existing._id, {
+      insuranceType,
+      lastModified: now,
+    });
+    return;
+  }
+  await ctx.db.insert(
+    "bookingNewInsuranceTypeSteps",
+    flowScope(flowKey, {
+      createdAt: now,
+      insuranceType,
+      lastModified: now,
+    }),
+  );
+}
+
+async function upsertNewPkvConsentStep(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+) {
+  const existing = await getFlowRow(ctx, "bookingNewPkvConsentSteps", flowKey);
+  const now = BigInt(Date.now());
+  if (existing) {
+    await ctx.db.patch("bookingNewPkvConsentSteps", existing._id, {
+      lastModified: now,
+    });
+    return;
+  }
+  await ctx.db.insert(
+    "bookingNewPkvConsentSteps",
+    flowScope(flowKey, {
+      createdAt: now,
+      lastModified: now,
+    }),
+  );
+}
+
+async function upsertNewPkvDetailStep(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+  details: Pick<
+    Doc<"bookingNewPkvDetailSteps">,
+    "beihilfeStatus" | "pkvInsuranceType" | "pkvTariff"
+  >,
+) {
+  const existing = await getFlowRow(ctx, "bookingNewPkvDetailSteps", flowKey);
+  const now = BigInt(Date.now());
+  if (existing) {
+    await ctx.db.patch("bookingNewPkvDetailSteps", existing._id, {
+      ...(details.beihilfeStatus === undefined
+        ? { beihilfeStatus: undefined }
+        : { beihilfeStatus: details.beihilfeStatus }),
+      lastModified: now,
+      ...(details.pkvInsuranceType === undefined
+        ? { pkvInsuranceType: undefined }
+        : { pkvInsuranceType: details.pkvInsuranceType }),
+      ...(details.pkvTariff === undefined
+        ? { pkvTariff: undefined }
+        : { pkvTariff: details.pkvTariff }),
+    });
+    return;
+  }
+  await ctx.db.insert(
+    "bookingNewPkvDetailSteps",
+    flowScope(flowKey, {
+      ...(details.beihilfeStatus === undefined
+        ? {}
+        : { beihilfeStatus: details.beihilfeStatus }),
+      createdAt: now,
+      lastModified: now,
+      ...(details.pkvInsuranceType === undefined
+        ? {}
+        : { pkvInsuranceType: details.pkvInsuranceType }),
+      ...(details.pkvTariff === undefined
+        ? {}
+        : { pkvTariff: details.pkvTariff }),
+    }),
+  );
+}
+
+async function upsertPatientStatusStep(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+  isNewPatient: boolean,
+) {
+  const existing = await getFlowRow(ctx, "bookingPatientStatusSteps", flowKey);
+  const now = BigInt(Date.now());
+  if (existing) {
+    await ctx.db.patch("bookingPatientStatusSteps", existing._id, {
+      isNewPatient,
+      lastModified: now,
+    });
+    return;
+  }
+  await ctx.db.insert(
+    "bookingPatientStatusSteps",
+    flowScope(flowKey, {
+      createdAt: now,
+      isNewPatient,
+      lastModified: now,
+    }),
+  );
+}
+
+async function upsertPersonalDataStep(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+  personalData: BookingPersonalData,
+) {
+  const existing = await getFlowRow(ctx, "bookingPersonalDataSteps", flowKey);
+  const now = BigInt(Date.now());
+  const patch = {
+    ...(personalData.city === undefined
+      ? { city: undefined }
+      : { city: personalData.city }),
+    dateOfBirth: personalData.dateOfBirth,
+    ...(personalData.email === undefined
+      ? { email: undefined }
+      : { email: personalData.email }),
+    firstName: personalData.firstName,
+    ...(personalData.gender === undefined
+      ? { gender: undefined }
+      : { gender: personalData.gender }),
+    lastModified: now,
+    lastName: personalData.lastName,
+    phoneNumber: personalData.phoneNumber,
+    ...(personalData.postalCode === undefined
+      ? { postalCode: undefined }
+      : { postalCode: personalData.postalCode }),
+    ...(personalData.street === undefined
+      ? { street: undefined }
+      : { street: personalData.street }),
+    ...(personalData.title === undefined
+      ? { title: undefined }
+      : { title: personalData.title }),
   };
-}
-
-function withInternalHydratedState(
-  session: SessionDoc,
-  state: InternalBookingSessionState,
-): SessionWithInternalState {
-  return {
-    ...session,
-    state,
+  const insertData = {
+    ...(personalData.city === undefined ? {} : { city: personalData.city }),
+    createdAt: now,
+    dateOfBirth: personalData.dateOfBirth,
+    ...(personalData.email === undefined ? {} : { email: personalData.email }),
+    firstName: personalData.firstName,
+    ...(personalData.gender === undefined
+      ? {}
+      : { gender: personalData.gender }),
+    lastModified: now,
+    lastName: personalData.lastName,
+    phoneNumber: personalData.phoneNumber,
+    ...(personalData.postalCode === undefined
+      ? {}
+      : { postalCode: personalData.postalCode }),
+    ...(personalData.street === undefined
+      ? {}
+      : { street: personalData.street }),
+    ...(personalData.title === undefined ? {} : { title: personalData.title }),
   };
+  if (existing) {
+    await ctx.db.patch("bookingPersonalDataSteps", existing._id, patch);
+    return;
+  }
+  await ctx.db.insert(
+    "bookingPersonalDataSteps",
+    flowScope(flowKey, insertData),
+  );
 }
 
-const STEP_QUERY_MAP: StepQueryMap = {
-  bookingExistingCalendarSelectionSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingExistingCalendarSelectionSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingExistingConfirmationSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingExistingConfirmationSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingExistingDataSharingSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingExistingDataSharingSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingExistingDoctorSelectionSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingExistingDoctorSelectionSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingExistingPersonalDataSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingExistingPersonalDataSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingLocationSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingLocationSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingNewCalendarSelectionSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingNewCalendarSelectionSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingNewConfirmationSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingNewConfirmationSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingNewDataSharingSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingNewDataSharingSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingNewGkvDetailSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingNewGkvDetailSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingNewInsuranceTypeSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingNewInsuranceTypeSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingNewPersonalDataSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingNewPersonalDataSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingNewPkvConsentSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingNewPkvConsentSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingNewPkvDetailSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingNewPkvDetailSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingPatientStatusSteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingPatientStatusSteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-  bookingPrivacySteps: (ctx, sessionId) =>
-    ctx.db
-      .query("bookingPrivacySteps")
-      .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
-      .take(1),
-};
+async function upsertPrivacyStep(
+  ctx: MutationCtx,
+  flowKey: BookingFlowKey,
+  consent: boolean,
+) {
+  const existing = await getFlowRow(ctx, "bookingPrivacySteps", flowKey);
+  const now = BigInt(Date.now());
+  if (existing) {
+    await ctx.db.patch("bookingPrivacySteps", existing._id, {
+      consent,
+      lastModified: now,
+    });
+    return;
+  }
+  await ctx.db.insert(
+    "bookingPrivacySteps",
+    flowScope(flowKey, {
+      consent,
+      createdAt: now,
+      lastModified: now,
+    }),
+  );
+}
 
-const STEP_INSERT_MAP: StepInsertMap = {
-  bookingExistingCalendarSelectionSteps: (ctx, data) =>
-    ctx.db.insert("bookingExistingCalendarSelectionSteps", data),
-  bookingExistingConfirmationSteps: (ctx, data) =>
-    ctx.db.insert("bookingExistingConfirmationSteps", data),
-  bookingExistingDataSharingSteps: (ctx, data) =>
-    ctx.db.insert("bookingExistingDataSharingSteps", data),
-  bookingExistingDoctorSelectionSteps: (ctx, data) =>
-    ctx.db.insert("bookingExistingDoctorSelectionSteps", data),
-  bookingExistingPersonalDataSteps: (ctx, data) =>
-    ctx.db.insert("bookingExistingPersonalDataSteps", data),
-  bookingLocationSteps: (ctx, data) =>
-    ctx.db.insert("bookingLocationSteps", data),
-  bookingNewCalendarSelectionSteps: (ctx, data) =>
-    ctx.db.insert("bookingNewCalendarSelectionSteps", data),
-  bookingNewConfirmationSteps: (ctx, data) =>
-    ctx.db.insert("bookingNewConfirmationSteps", data),
-  bookingNewDataSharingSteps: (ctx, data) =>
-    ctx.db.insert("bookingNewDataSharingSteps", data),
-  bookingNewGkvDetailSteps: (ctx, data) =>
-    ctx.db.insert("bookingNewGkvDetailSteps", data),
-  bookingNewInsuranceTypeSteps: (ctx, data) =>
-    ctx.db.insert("bookingNewInsuranceTypeSteps", data),
-  bookingNewPersonalDataSteps: (ctx, data) =>
-    ctx.db.insert("bookingNewPersonalDataSteps", data),
-  bookingNewPkvConsentSteps: (ctx, data) =>
-    ctx.db.insert("bookingNewPkvConsentSteps", data),
-  bookingNewPkvDetailSteps: (ctx, data) =>
-    ctx.db.insert("bookingNewPkvDetailSteps", data),
-  bookingPatientStatusSteps: (ctx, data) =>
-    ctx.db.insert("bookingPatientStatusSteps", data),
-  bookingPrivacySteps: (ctx, data) =>
-    ctx.db.insert("bookingPrivacySteps", data),
-};
-
-const STEP_PATCH_MAP: StepPatchMap = {
-  bookingExistingCalendarSelectionSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingExistingCalendarSelectionSteps", id, data),
-  bookingExistingConfirmationSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingExistingConfirmationSteps", id, data),
-  bookingExistingDataSharingSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingExistingDataSharingSteps", id, data),
-  bookingExistingDoctorSelectionSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingExistingDoctorSelectionSteps", id, data),
-  bookingExistingPersonalDataSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingExistingPersonalDataSteps", id, data),
-  bookingLocationSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingLocationSteps", id, data),
-  bookingNewCalendarSelectionSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingNewCalendarSelectionSteps", id, data),
-  bookingNewConfirmationSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingNewConfirmationSteps", id, data),
-  bookingNewDataSharingSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingNewDataSharingSteps", id, data),
-  bookingNewGkvDetailSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingNewGkvDetailSteps", id, data),
-  bookingNewInsuranceTypeSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingNewInsuranceTypeSteps", id, data),
-  bookingNewPersonalDataSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingNewPersonalDataSteps", id, data),
-  bookingNewPkvConsentSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingNewPkvConsentSteps", id, data),
-  bookingNewPkvDetailSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingNewPkvDetailSteps", id, data),
-  bookingPatientStatusSteps: (ctx, id, data) =>
-    ctx.db.patch("bookingPatientStatusSteps", id, data),
-  bookingPrivacySteps: (ctx, id, data) =>
-    ctx.db.patch("bookingPrivacySteps", id, data),
-};
-
-// ============================================================================
-// QUERIES
-// ============================================================================
-
-/**
- * Get a booking session by ID.
- * Returns null if the session doesn't exist, has expired, or belongs to another user.
- * Requires authentication.
- */
-export const get = query({
-  args: { sessionId: v.id("bookingSessions") },
+export const getActiveForUser = query({
+  args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
-    const userId = await getAuthenticatedUserIdForQuery(ctx);
-    if (!userId) {
+    const flowKey = await getFlowKeyForQuery(ctx, args);
+    if (!flowKey) {
       return null;
     }
 
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      return null;
-    }
-
-    // Check session ownership
-    if (session.userId !== userId) {
-      return null;
-    }
-
-    const sessionUser = await ctx.db.get("users", session.userId);
-    if (!sessionUser) {
-      return null;
-    }
-
-    const hasValidStepAssociation = await hasValidStepEntryUserAssociation(
-      ctx,
-      session,
-    );
-    if (!hasValidStepAssociation) {
-      return null;
-    }
-
-    // Check if session has expired
-    const now = BigInt(Date.now());
-    if (session.expiresAt < now) {
-      return null;
-    }
-
-    const state = await tryHydrateSessionState(ctx, session);
+    const rows = await loadFlowRows(ctx, flowKey);
+    const state = await materializeState(ctx, flowKey, rows);
     if (!state) {
       return null;
     }
-    return withHydratedState(session, state);
+
+    return {
+      practiceId: flowKey.practiceId,
+      ruleSetId: flowKey.ruleSetId,
+      state,
+      userId: flowKey.userId,
+    };
   },
-  returns: v.union(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("bookingSessions"),
-      createdAt: v.int64(),
-      expiresAt: v.int64(),
-      lastModified: v.int64(),
-      practiceId: v.id("practices"),
-      ruleSetId: v.id("ruleSets"),
-      state: bookingSessionStepValidator,
-      userId: v.id("users"),
-    }),
-    v.null(),
-  ),
+  returns: BOOKING_SESSION_RETURN_VALIDATOR,
 });
 
-/**
- * Get the latest active booking session for the authenticated user
- * within the given practice + rule set.
- * Returns null if none exists or it has expired.
- */
-export const getActiveForUser = query({
-  args: {
-    practiceId: v.id("practices"),
-    ruleSetId: v.id("ruleSets"),
-  },
-  handler: async (ctx, args) => {
-    const userId = await getAuthenticatedUserIdForQuery(ctx);
-    if (!userId) {
-      return null;
-    }
-
-    const sessions = await ctx.db
-      .query("bookingSessions")
-      .withIndex("by_userId_practiceId_ruleSetId", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("practiceId", args.practiceId)
-          .eq("ruleSetId", args.ruleSetId),
-      )
-      .order("desc")
-      .collect();
-
-    const now = BigInt(Date.now());
-    for (const session of sessions) {
-      if (session.expiresAt < now) {
-        continue;
-      }
-      const sessionUser = await ctx.db.get("users", session.userId);
-      if (!sessionUser) {
-        continue;
-      }
-      const hasValidStepAssociation = await hasValidStepEntryUserAssociation(
-        ctx,
-        session,
-      );
-      if (!hasValidStepAssociation) {
-        continue;
-      }
-
-      const hydratedState = await tryHydrateSessionState(ctx, session);
-      if (!hydratedState) {
-        continue;
-      }
-      if (
-        isConfirmationState(hydratedState) &&
-        !(await hasUpcomingVisibleAppointmentForConfirmationState(
-          ctx,
-          hydratedState,
-        ))
-      ) {
-        return null;
-      }
-
-      return withHydratedState(session, hydratedState);
-    }
-
-    return null;
-  },
-  returns: v.union(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("bookingSessions"),
-      createdAt: v.int64(),
-      expiresAt: v.int64(),
-      lastModified: v.int64(),
-      practiceId: v.id("practices"),
-      ruleSetId: v.id("ruleSets"),
-      state: bookingSessionStepValidator,
-      userId: v.id("users"),
-    }),
-    v.null(),
-  ),
-});
-
-// ============================================================================
-// SESSION LIFECYCLE
-// ============================================================================
-
-/**
- * Create a new booking session starting at the privacy step.
- * Requires authentication - the session is tied to the authenticated user.
- */
 export const create = mutation({
-  args: {
-    practiceId: v.id("practices"),
-    ruleSetId: v.id("ruleSets"),
-  },
+  args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
-    const userId = await ensureAuthenticatedUserId(ctx);
-
-    const now = BigInt(Date.now());
-
-    const sessions = await ctx.db
-      .query("bookingSessions")
-      .withIndex("by_userId_practiceId_ruleSetId", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("practiceId", args.practiceId)
-          .eq("ruleSetId", args.ruleSetId),
-      )
-      .order("desc")
-      .collect();
-
-    for (const session of sessions) {
-      if (session.expiresAt >= now) {
-        const hydratedState = await tryHydrateSessionState(ctx, session);
-        if (!hydratedState) {
-          await ctx.db.delete("bookingSessions", session._id);
-          continue;
-        }
-        let nextStep = hydratedState.step;
-        if (
-          isConfirmationState(hydratedState) &&
-          !(await hasUpcomingVisibleAppointmentForConfirmationState(
-            ctx,
-            hydratedState,
-          ))
-        ) {
-          nextStep = getCalendarStepForConfirmationState(hydratedState);
-        }
-
-        await ctx.db.patch("bookingSessions", session._id, {
-          expiresAt: now + BigInt(SESSION_TTL_MS),
-          lastModified: now,
-          state: { step: nextStep },
-        });
-        return session._id;
-      }
-      await ctx.db.delete("bookingSessions", session._id);
-    }
-
-    const sessionId = await ctx.db.insert("bookingSessions", {
-      createdAt: now,
-      expiresAt: now + BigInt(SESSION_TTL_MS),
-      lastModified: now,
-      practiceId: args.practiceId,
-      ruleSetId: args.ruleSetId,
-      state: {
-        step: "privacy" as const,
-      },
-      userId,
-    });
-
-    return sessionId;
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await requireCurrentUserCanStartBooking(ctx, flowKey);
+    await upsertPrivacyStep(ctx, flowKey, false);
+    return null;
   },
-  returns: v.id("bookingSessions"),
+  returns: v.null(),
 });
 
-/**
- * Delete a booking session (e.g., after completion or abandonment).
- * Requires authentication and ownership of the session.
- */
 export const remove = mutation({
-  args: { sessionId: v.id("bookingSessions") },
+  args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
-    const userId = await ensureAuthenticatedUserId(ctx);
-
-    // Check session ownership
-    const session = await ctx.db.get("bookingSessions", args.sessionId);
-    if (!session) {
-      return null; // Already deleted
-    }
-    if (session.userId !== userId) {
-      throw new Error("Access denied");
-    }
-
-    await ctx.db.delete("bookingSessions", args.sessionId);
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await deleteFlowRows(ctx, flowKey);
     return null;
   },
   returns: v.null(),
 });
 
-/**
- * Internal mutation to clean up expired sessions.
- */
-export const cleanupExpired = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const now = BigInt(Date.now());
-    const expiredSessions = await ctx.db
-      .query("bookingSessions")
-      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now))
-      .collect();
-
-    for (const session of expiredSessions) {
-      await ctx.db.delete("bookingSessions", session._id);
-    }
-
-    return expiredSessions.length;
-  },
-  returns: v.number(),
-});
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-/**
- * Get the authenticated user's ID from WorkOS and our users table.
- * If the user record is missing (e.g. after preview re-seeding), create it.
- */
-async function getAuthenticatedUserId(ctx: MutationCtx): Promise<Id<"users">> {
-  return await ensureAuthenticatedUserId(ctx);
-}
-
-/**
- * Verify that the session exists and belongs to the authenticated user.
- * Returns the session if valid.
- */
-type StepRowIdParams = {
-  [K in StepTableName]: [tableName: K, row: StepTableDocMap[K]];
-}[StepTableName];
-
-function getStepBase(session: Doc<"bookingSessions">) {
-  return {
-    practiceId: session.practiceId,
-    ruleSetId: session.ruleSetId,
-    sessionId: session._id,
-    userId: session.userId,
-  };
-}
-
-async function getStepRow<T extends StepTableName>(
-  ctx: StepReadCtx,
-  tableName: T,
-  sessionId: Id<"bookingSessions">,
-): Promise<null | StepTableDocMap[T]> {
-  const rows = await STEP_QUERY_MAP[tableName](ctx, sessionId);
-  return rows[0] ?? null;
-}
-
-function getStepRowId<T extends StepTableName>(
-  tableName: T,
-  row: StepTableDocMap[T],
-): Id<T>;
-function getStepRowId(...params: StepRowIdParams) {
-  const [tableName, row] = params;
-  switch (tableName) {
-    case "bookingExistingCalendarSelectionSteps":
-    case "bookingExistingConfirmationSteps":
-    case "bookingExistingDataSharingSteps":
-    case "bookingExistingDoctorSelectionSteps":
-    case "bookingExistingPersonalDataSteps":
-    case "bookingLocationSteps":
-    case "bookingNewCalendarSelectionSteps":
-    case "bookingNewConfirmationSteps":
-    case "bookingNewDataSharingSteps":
-    case "bookingNewGkvDetailSteps":
-    case "bookingNewInsuranceTypeSteps":
-    case "bookingNewPersonalDataSteps":
-    case "bookingNewPkvConsentSteps":
-    case "bookingNewPkvDetailSteps":
-    case "bookingPatientStatusSteps":
-    case "bookingPrivacySteps": {
-      return row._id;
-    }
-  }
-}
-
-async function getVerifiedSession(
-  ctx: MutationCtx,
-  sessionId: Id<"bookingSessions">,
-): Promise<SessionWithInternalState> {
-  const userId = await getAuthenticatedUserId(ctx);
-
-  const session = await ctx.db.get("bookingSessions", sessionId);
-  if (!session) {
-    throw new Error("Session not found");
-  }
-
-  if (session.userId !== userId) {
-    throw new Error("Access denied");
-  }
-
-  // Check if session has expired
-  const now = BigInt(Date.now());
-  if (session.expiresAt < now) {
-    throw new Error("Session has expired");
-  }
-
-  const state = await tryHydrateInternalSessionState(ctx, session);
-  if (!state) {
-    throw new Error(
-      "Session data is incomplete. Please start the booking again.",
-    );
-  }
-  return withInternalHydratedState(session, state);
-}
-
-async function hasValidStepEntryUserAssociation(
-  ctx: QueryCtx,
-  session: Doc<"bookingSessions">,
-): Promise<boolean> {
-  // The persisted step row owner (`booking*Steps.userId`) must match the
-  // booking session owner. For data-sharing steps, each contact also carries
-  // an owner `userId` which must match the authenticated session user.
-  const tableNames = getBookingSessionSnapshotTables(session.state.step);
-  if (tableNames.length === 0) {
-    return true;
-  }
-
-  for (const tableName of tableNames) {
-    const row = await getStepRow(ctx, tableName, session._id);
-    if (!row) {
-      continue;
-    }
-
-    if (row.userId !== session.userId) {
-      return false;
-    }
-
-    if ("dataSharingContacts" in row) {
-      return row.dataSharingContacts.every(
-        (contact) => contact.userId === session.userId,
-      );
-    }
-
-    return true;
-  }
-
-  return true;
-}
-
-async function persistBookingSessionTransition(
-  ctx: MutationCtx,
-  session: SessionDoc,
-  transition: BookingSessionTransition,
-) {
-  await setSessionStep(ctx, session._id, transition.nextStep);
-
-  for (const write of transition.writes) {
-    await persistTransitionWrite(ctx, session, write);
-  }
-}
-
-async function persistTransitionWrite(
-  ctx: MutationCtx,
-  session: SessionDoc,
-  write: BookingSessionTransition["writes"][number],
-) {
-  switch (write.tableName) {
-    case "bookingExistingCalendarSelectionSteps":
-    case "bookingExistingConfirmationSteps":
-    case "bookingExistingDoctorSelectionSteps":
-    case "bookingLocationSteps":
-    case "bookingNewCalendarSelectionSteps":
-    case "bookingNewConfirmationSteps": {
-      await upsertStep(ctx, write.tableName, session, write.data);
-      return;
-    }
-    case "bookingExistingDataSharingSteps":
-    case "bookingExistingPersonalDataSteps":
-    case "bookingNewDataSharingSteps":
-    case "bookingNewGkvDetailSteps":
-    case "bookingNewInsuranceTypeSteps":
-    case "bookingNewPersonalDataSteps":
-    case "bookingNewPkvConsentSteps":
-    case "bookingNewPkvDetailSteps":
-    case "bookingPatientStatusSteps":
-    case "bookingPrivacySteps": {
-      await upsertStep(ctx, write.tableName, session, write.data);
-      return;
-    }
-  }
-}
-
-async function refreshSession(
-  ctx: MutationCtx,
-  sessionId: Id<"bookingSessions">,
-) {
-  const now = BigInt(Date.now());
-  await ctx.db.patch("bookingSessions", sessionId, {
-    expiresAt: now + BigInt(SESSION_TTL_MS),
-    lastModified: now,
-  });
-}
-
-async function setSessionStep(
-  ctx: MutationCtx,
-  sessionId: Id<"bookingSessions">,
-  step: BookingSessionState["step"],
-) {
-  await ctx.db.patch("bookingSessions", sessionId, {
-    state: { step },
-  });
-}
-
-function toStepInsertData<T extends StepTableName>(
-  data: StepTableInput<T>,
-  now: bigint,
-): StepTableInsertData<T> {
-  return withCreatedAndLastModified(data, now);
-}
-
-function toStepPatchData<T extends StepTableName>(
-  data: StepTableInput<T>,
-  now: bigint,
-): StepTablePatch<T> {
-  return withLastModified(data, now);
-}
-
-async function upsertStep<T extends StepTableName>(
-  ctx: MutationCtx,
-  tableName: T,
-  session: Doc<"bookingSessions">,
-  data: StepTableInput<T>,
-) {
-  const now = BigInt(Date.now());
-  const expectedSessionId = session._id;
-  const expectedUserId = session.userId;
-
-  if ("sessionId" in data && data.sessionId !== expectedSessionId) {
-    throw new Error("Invalid sessionId for step data");
-  }
-
-  if ("userId" in data && data.userId !== expectedUserId) {
-    throw new Error("Invalid userId for step data");
-  }
-
-  const user = await ctx.db.get("users", expectedUserId);
-  if (!user) {
-    throw new Error("Invalid user for step data");
-  }
-
-  const existingRow = await getStepRow(ctx, tableName, expectedSessionId);
-  if (existingRow) {
-    await STEP_PATCH_MAP[tableName](
-      ctx,
-      getStepRowId(tableName, existingRow),
-      toStepPatchData(data, now),
-    );
-    return;
-  }
-
-  await STEP_INSERT_MAP[tableName](ctx, toStepInsertData(data, now));
-}
-
-function withCreatedAndLastModified<T extends object>(data: T, now: bigint) {
-  return {
-    ...data,
-    createdAt: now,
-    lastModified: now,
-  };
-}
-
-function withLastModified<T extends object>(data: T, now: bigint) {
-  return {
-    ...data,
-    lastModified: now,
-  };
-}
-
-/**
- * Validates data-sharing contact payload semantics.
- */
-function assertValidDataSharingContacts(
-  contacts: Parameters<typeof asDataSharingContactInput>[0][],
-): asserts contacts is DataSharingContactInput[] {
-  for (const [index, contact] of contacts.entries()) {
-    const requiredTextFields: [keyof DataSharingContactInput, string][] = [
-      ["city", "Ort"],
-      ["firstName", "Vorname"],
-      ["lastName", "Nachname"],
-      ["phoneNumber", "Telefonnummer"],
-      ["postalCode", "PLZ"],
-      ["street", "Straße"],
-    ];
-
-    for (const [field, label] of requiredTextFields) {
-      const value = contact[field];
-      if (typeof value !== "string" || value.trim().length === 0) {
-        throw new Error(`Invalid data-sharing contact #${index + 1}: ${label}`);
-      }
-    }
-
-    if (!ISO_DATE_REGEX.test(contact.dateOfBirth)) {
-      throw new Error(
-        `Invalid data-sharing contact #${index + 1}: Geburtsdatum format`,
-      );
-    }
-
-    try {
-      Temporal.PlainDate.from(contact.dateOfBirth);
-    } catch {
-      throw new Error(
-        `Invalid data-sharing contact #${index + 1}: Geburtsdatum`,
-      );
-    }
-  }
-}
-
-function attachOwnerToDataSharingContacts(
-  contacts: DataSharingContactInput[],
-  userId: Id<"users">,
-): DataSharingContact[] {
-  return contacts.map((contact) => ({
-    ...asDataSharingContactInput(contact),
-    userId,
-  }));
-}
-
-/**
- * Enforce booking rules for a selected slot at mutation time.
- */
-function assertInternalStep<S extends InternalBookingSessionState["step"]>(
-  state: InternalBookingSessionState,
-  expected: S,
-): InternalStateAtStep<S> {
-  if (!hasInternalStep(state, expected)) {
-    throw new Error(
-      `Invalid step: expected '${expected}', got '${state.step}'`,
-    );
-  }
-  return state;
-}
-
-async function assertSlotAllowedByRules(
-  ctx: MutationCtx,
+export const goBackToStep = mutation({
   args: {
-    appointmentTypeId: Id<"appointmentTypes">;
-    locationLineageKey: LocationLineageKey;
-    patientDateOfBirth: PersonalDataInput["dateOfBirth"];
-    practiceId: Id<"practices">;
-    practitionerLineageKey: PractitionerLineageKey;
-    ruleSetId: Id<"ruleSets">;
-    startTime: ZonedDateTimeString;
+    ...FLOW_KEY_VALIDATOR,
+    targetStep: BACK_TARGET_STEP_VALIDATOR,
   },
-): Promise<void> {
-  const [locationId, practitionerId] = await Promise.all([
-    resolveLocationIdForInternalState(
-      ctx.db,
-      args.ruleSetId,
-      args.locationLineageKey,
-    ),
-    resolvePractitionerIdForInternalState(
-      ctx.db,
-      args.ruleSetId,
-      args.practitionerLineageKey,
-    ),
-  ]);
-  const ruleCheckResult = await ctx.runQuery(
-    internal.ruleEngine.checkRulesForAppointment,
-    {
-      context: {
-        appointmentTypeId: args.appointmentTypeId,
-        dateTime: args.startTime,
-        locationId,
-        patientDateOfBirth: args.patientDateOfBirth,
-        practiceId: args.practiceId,
-        practitionerId,
-        requestedAt: Temporal.Now.instant()
-          .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
-          .toString(),
-      },
-      ruleSetId: args.ruleSetId,
-    },
-  );
-
-  if (ruleCheckResult.isBlocked) {
-    throw new Error("Selected slot is no longer available");
-  }
-}
-
-function assertSlotStartIsInFuture(startTime: string): void {
-  const slotStartInstant = parseSlotStartInstant(startTime);
-  const now = Temporal.Now.instant();
-  if (Temporal.Instant.compare(slotStartInstant, now) <= 0) {
-    throw new Error("Appointments must be booked in the future");
-  }
-}
-
-function hasInternalStep<S extends InternalBookingSessionState["step"]>(
-  state: InternalBookingSessionState,
-  expected: S,
-): state is InternalStateAtStep<S> {
-  return state.step === expected;
-}
-
-async function loadInternalStepSnapshot(
-  ctx: StepReadCtx,
-  session: SessionDoc,
-  step: InternalBookingSessionState["step"],
-): Promise<null | Record<string, unknown>> {
-  const tableNames = getBookingSessionSnapshotTables(step);
-  if (tableNames.length === 0) {
-    return null;
-  }
-
-  for (const tableName of tableNames) {
-    const row = await getStepRow(ctx, tableName, session._id);
-    if (!row) {
-      continue;
-    }
-
-    const snapshot = Object.fromEntries(
-      Object.entries(stripStepSnapshotFields(row)),
+  handler: async (ctx, args) => {
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await requireCurrentUserCanStartBooking(ctx, flowKey);
+    const { rows, state } = await requireActiveFlow(ctx, flowKey);
+    const allowedTargetStep = getAllowedBackTargetStep(
+      state,
+      rows.calendarReached !== null,
     );
-    return snapshot;
-  }
-
-  return null;
-}
-
-function parseSlotStartInstant(startTime: string): Temporal.Instant {
-  try {
-    return Temporal.ZonedDateTime.from(startTime).toInstant();
-  } catch {
-    throw new Error("Invalid slot start time");
-  }
-}
-
-function stripStepSnapshotFields<T extends StepTableName>(
-  row: StepTableDocMap[T],
-): Omit<StepTableDocMap[T], StepSnapshotMetaKeys> {
-  const {
-    _creationTime,
-    _id,
-    createdAt,
-    lastModified,
-    practiceId,
-    ruleSetId,
-    sessionId,
-    userId,
-    ...rest
-  } = row;
-  void [
-    _creationTime,
-    _id,
-    createdAt,
-    lastModified,
-    practiceId,
-    ruleSetId,
-    sessionId,
-    userId,
-  ];
-  return rest;
-}
-
-// ============================================================================
-// UNIFIED BACK NAVIGATION
-// ============================================================================
-
-/**
- * Unified back navigation mutation.
- *
- * Uses the step navigation graph to determine the previous step and
- * compute the correct state to transition to.
- *
- * Benefits:
- * - Single source of truth for back navigation logic
- * - Easier to maintain and extend
- * - Fewer mutations to import and manage on the frontend
- *
- * Requires authentication.
- */
-export const goBack = mutation({
-  args: { sessionId: v.id("bookingSessions") },
-  handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-
-    const previousState = computePreviousInternalState(session.state);
-    if (!previousState) {
+    if (allowedTargetStep !== args.targetStep) {
       throw new Error(
-        `Cannot go back from step '${session.state.step}': back navigation not allowed`,
+        "This booking step cannot go back to the requested step.",
       );
     }
-
-    await setSessionStep(ctx, args.sessionId, previousState.step);
-
-    await refreshSession(ctx, args.sessionId);
-    return previousState.step;
-  },
-  returns: v.string(),
-});
-
-/**
- * Move a confirmation session back to calendar selection after appointment cancellation.
- * Keeps the previously entered data and clears confirmation-only fields.
- */
-export const returnToCalendarSelectionAfterCancellation = mutation({
-  args: { sessionId: v.id("bookingSessions") },
-  handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    const state = session.state;
-
-    let targetStep: BookingSessionState["step"] | null = null;
-    if (state.step === "new-confirmation") {
-      targetStep = "new-calendar-selection";
-    } else if (state.step === "existing-confirmation") {
-      targetStep = "existing-calendar-selection";
-    }
-
-    if (!targetStep) {
-      if (
-        state.step === "new-calendar-selection" ||
-        state.step === "existing-calendar-selection"
-      ) {
-        return null;
-      }
-
-      throw new Error(
-        `Cannot return to calendar selection from step '${state.step}'`,
-      );
-    }
-
-    await setSessionStep(ctx, args.sessionId, targetStep);
-
-    await refreshSession(ctx, args.sessionId);
+    await rewindFlowToStep(ctx, flowKey, args.targetStep);
     return null;
   },
   returns: v.null(),
 });
 
-// ============================================================================
-// STEP TRANSITIONS - MAIN FLOW
-// ============================================================================
-
-/**
- * Step 1 → 2: Accept privacy and proceed to location selection.
- * Requires authentication.
- */
 export const acceptPrivacy = mutation({
-  args: { sessionId: v.id("bookingSessions") },
+  args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        kind: "acceptPrivacy",
-        state: session.state,
-      }),
-    );
-
-    await refreshSession(ctx, args.sessionId);
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await upsertPrivacyStep(ctx, flowKey, true);
     return null;
   },
   returns: v.null(),
 });
 
-/**
- * Step 2 → 3: Select a location and proceed to patient status.
- * Requires authentication.
- */
 export const selectLocation = mutation({
   args: {
+    ...FLOW_KEY_VALIDATOR,
     locationLineageKey: v.id("locations"),
-    sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-
-    // Verify location exists and belongs to this practice
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
     const locationId = await resolveLocationIdForRuleSetByLineage(ctx.db, {
       lineageKey: asLocationLineageKey(args.locationLineageKey),
-      ruleSetId: session.ruleSetId,
+      ruleSetId: flowKey.ruleSetId,
     });
-    const location = await ctx.db.get("locations", locationId);
     requireSelectableRuleSetEntity({
-      entity: location,
+      entity: await ctx.db.get("locations", locationId),
       entityLabel: "Standort",
-      expectedPracticeId: session.practiceId,
-      expectedRuleSetId: session.ruleSetId,
+      expectedPracticeId: flowKey.practiceId,
+      expectedRuleSetId: flowKey.ruleSetId,
     });
 
-    const locationLineageKey = resolveStoredLocationLineageKey(
-      ctx.db,
-      asLocationLineageKey(args.locationLineageKey),
-    );
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        kind: "selectLocation",
-        locationLineageKey,
-        state: session.state,
-      }),
-    );
-
-    await refreshSession(ctx, args.sessionId);
+    await upsertPrivacyStep(ctx, flowKey, true);
+    await upsertLocationStep(ctx, flowKey, args.locationLineageKey);
+    await removeRowsAfterLocationSelection(ctx, flowKey);
     return null;
   },
   returns: v.null(),
 });
 
-/**
- * Step 3 → A2: Select "new patient" path - proceed directly to insurance type.
- */
 export const selectNewPatient = mutation({
-  args: { sessionId: v.id("bookingSessions") },
+  args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        kind: "selectNewPatient",
-        state: session.state,
-      }),
-    );
-
-    await refreshSession(ctx, args.sessionId);
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
+    await upsertPatientStatusStep(ctx, flowKey, true);
+    await removeRowsAfterPatientStatus(ctx, flowKey);
     return null;
   },
   returns: v.null(),
 });
 
-/**
- * Step 3 → B1: Select "existing patient" path - proceed to doctor selection.
- * NOTE: After selecting a doctor, going back to this step is NOT allowed!
- * Requires authentication.
- */
 export const selectExistingPatient = mutation({
-  args: { sessionId: v.id("bookingSessions") },
+  args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        kind: "selectExistingPatient",
-        state: session.state,
-      }),
-    );
-
-    await refreshSession(ctx, args.sessionId);
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
+    await upsertPatientStatusStep(ctx, flowKey, false);
+    await removeRowsAfterPatientStatus(ctx, flowKey);
     return null;
   },
   returns: v.null(),
 });
 
-// ============================================================================
-// PATH A: NEW PATIENT
-// ============================================================================
-
-/**
- * A2 → A3a/A3b: Select insurance type and proceed to GKV or PKV details.
- * Requires authentication.
- */
 export const selectInsuranceType = mutation({
   args: {
+    ...FLOW_KEY_VALIDATOR,
     insuranceType: insuranceTypeValidator,
-    sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        insuranceType: args.insuranceType,
-        kind: "selectInsuranceType",
-        state: session.state,
-      }),
-    );
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
+    const { state } = await requireActiveFlow(ctx, flowKey);
+    if (
+      state.step !== "new-insurance-type" &&
+      state.step !== "new-gkv-details" &&
+      state.step !== "new-pvs-consent" &&
+      state.step !== "new-pkv-details" &&
+      state.step !== "new-data-input" &&
+      state.step !== "new-data-sharing" &&
+      state.step !== "new-calendar-selection"
+    ) {
+      throw new Error("Insurance type is not available in the current flow.");
+    }
 
-    await refreshSession(ctx, args.sessionId);
+    await upsertNewInsuranceTypeStep(ctx, flowKey, args.insuranceType);
+    await removeRowsAfterInsuranceType(ctx, flowKey);
     return null;
   },
   returns: v.null(),
 });
 
-/**
- * A3a → A4: Confirm HZV status (GKV) and proceed to data input.
- */
 export const confirmGkvDetails = mutation({
   args: {
+    ...FLOW_KEY_VALIDATOR,
     hzvStatus: hzvStatusValidator,
-    sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        hzvStatus: args.hzvStatus,
-        kind: "confirmGkvDetails",
-        state: session.state,
-      }),
-    );
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
+    const rows = await loadFlowRows(ctx, flowKey);
+    if (rows.newInsuranceType?.insuranceType !== "gkv") {
+      throw new Error("GKV details are not available in the current flow.");
+    }
 
-    await refreshSession(ctx, args.sessionId);
+    await upsertNewGkvDetailStep(ctx, flowKey, args.hzvStatus);
     return null;
   },
   returns: v.null(),
 });
 
-/**
- * A3b-1 → A3b-2: Accept PVS consent and proceed to PKV details input.
- * Requires authentication.
- */
 export const acceptPvsConsent = mutation({
-  args: {
-    sessionId: v.id("bookingSessions"),
-  },
+  args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        kind: "acceptPvsConsent",
-        state: session.state,
-      }),
-    );
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
+    const rows = await loadFlowRows(ctx, flowKey);
+    if (rows.newInsuranceType?.insuranceType !== "pkv") {
+      throw new Error("PVS consent is not available in the current flow.");
+    }
 
-    await refreshSession(ctx, args.sessionId);
+    await upsertNewPkvConsentStep(ctx, flowKey);
     return null;
   },
   returns: v.null(),
 });
 
-/**
- * A3b → A4: Confirm PKV details and proceed to data input.
- * Requires authentication.
- */
 export const confirmPkvDetails = mutation({
   args: {
+    ...FLOW_KEY_VALIDATOR,
     beihilfeStatus: v.optional(beihilfeStatusValidator),
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
     pkvTariff: v.optional(pkvTariffValidator),
     pvsConsent: v.literal(true),
-    sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        details: {
-          ...(args.beihilfeStatus === undefined
-            ? {}
-            : { beihilfeStatus: args.beihilfeStatus }),
-          ...(args.pkvInsuranceType === undefined
-            ? {}
-            : { pkvInsuranceType: args.pkvInsuranceType }),
-          ...(args.pkvTariff === undefined
-            ? {}
-            : { pkvTariff: args.pkvTariff }),
-        },
-        kind: "confirmPkvDetails",
-        state: session.state,
-      }),
-    );
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
+    const rows = await loadFlowRows(ctx, flowKey);
+    if (rows.newInsuranceType?.insuranceType !== "pkv" || !rows.newPkvConsent) {
+      throw new Error("PKV details are not available in the current flow.");
+    }
 
-    await refreshSession(ctx, args.sessionId);
+    await upsertNewPkvDetailStep(ctx, flowKey, {
+      ...(args.beihilfeStatus === undefined
+        ? {}
+        : { beihilfeStatus: args.beihilfeStatus }),
+      ...(args.pkvInsuranceType === undefined
+        ? {}
+        : { pkvInsuranceType: args.pkvInsuranceType }),
+      ...(args.pkvTariff === undefined ? {} : { pkvTariff: args.pkvTariff }),
+    });
     return null;
   },
   returns: v.null(),
 });
 
-/**
- * A5 → A6: Submit personal data and proceed to Datenweitergabe.
- */
 export const submitNewPatientData = mutation({
   args: {
+    ...FLOW_KEY_VALIDATOR,
     medicalHistory: v.optional(medicalHistoryValidator),
     personalData: personalDataValidator,
-    sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
+    const rows = await loadFlowRows(ctx, flowKey);
+    const isGkv =
+      rows.newInsuranceType?.insuranceType === "gkv" && !!rows.newGkvDetail;
+    const isPkv =
+      rows.newInsuranceType?.insuranceType === "pkv" &&
+      !!rows.newPkvConsent &&
+      !!rows.newPkvDetail;
+    if (!isGkv && !isPkv) {
+      throw new Error("Personal data is not available in the current flow.");
+    }
+
     const personalData = asPersonalDataInput(args.personalData);
-
-    await persistBookingSessionTransition(
+    await upsertPersonalDataStep(ctx, flowKey, personalData);
+    await persistMedicalHistory(
       ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        kind: "submitNewPatientData",
-        ...(args.medicalHistory === undefined
-          ? {}
-          : { medicalHistory: args.medicalHistory }),
-        personalData,
-        state: session.state,
-      }),
+      flowKey,
+      args.medicalHistory ?? {
+        hasAllergies: false,
+        hasDiabetes: false,
+        hasHeartCondition: false,
+        hasLungCondition: false,
+      },
     );
-
-    await refreshSession(ctx, args.sessionId);
+    await removeRowsAfterNewPatientData(ctx, flowKey);
     return null;
   },
   returns: v.null(),
 });
 
-/**
- * A6 → A7: Submit Datenweitergabe and proceed to calendar selection.
- */
 export const submitNewDataSharing = mutation({
   args: {
+    ...FLOW_KEY_VALIDATOR,
     dataSharingContacts: v.array(dataSharingContactInputValidator),
-    sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    const state = assertInternalStep(session.state, "new-data-sharing");
-    const personalData = asPersonalDataInput(state.personalData);
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    const { state } = await requireActiveFlow(ctx, flowKey);
+    if (
+      state.step !== "new-data-sharing" &&
+      state.step !== "new-calendar-selection"
+    ) {
+      throw new Error("Data sharing is not available in the current flow.");
+    }
+
     assertValidDataSharingContacts(args.dataSharingContacts);
-    const ownedContacts = attachOwnerToDataSharingContacts(
-      args.dataSharingContacts,
-      session.userId,
-    );
-
-    await persistBookingSessionTransition(
+    await upsertNewDataSharingStep(ctx, flowKey);
+    await persistDataSharingContacts(
       ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        dataSharingContacts: ownedContacts,
-        kind: "submitNewDataSharing",
-        personalData,
-        state,
-      }),
+      flowKey,
+      args.dataSharingContacts.map((contact) =>
+        asDataSharingContactInput(contact),
+      ),
     );
-
-    await refreshSession(ctx, args.sessionId);
+    await markCalendarReached(ctx, flowKey);
     return null;
   },
   returns: v.null(),
 });
 
-/**
- * A7 → A8: Select slot and create appointment (new patient).
- * Requires authentication.
- */
+export const selectDoctor = mutation({
+  args: {
+    ...FLOW_KEY_VALIDATOR,
+    practitionerLineageKey: v.id("practitioners"),
+  },
+  handler: async (ctx, args) => {
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
+    const practitionerId = await resolvePractitionerIdForRuleSetByLineage(
+      ctx.db,
+      {
+        lineageKey: asPractitionerLineageKey(args.practitionerLineageKey),
+        ruleSetId: flowKey.ruleSetId,
+      },
+    );
+    requireSelectableRuleSetEntity({
+      entity: await ctx.db.get("practitioners", practitionerId),
+      entityLabel: "Behandler",
+      expectedPracticeId: flowKey.practiceId,
+      expectedRuleSetId: flowKey.ruleSetId,
+    });
+
+    await upsertExistingDoctorStep(ctx, flowKey, args.practitionerLineageKey);
+    return null;
+  },
+  returns: v.null(),
+});
+
+export const submitExistingPatientData = mutation({
+  args: {
+    ...FLOW_KEY_VALIDATOR,
+    personalData: personalDataValidator,
+  },
+  handler: async (ctx, args) => {
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    const rows = await loadFlowRows(ctx, flowKey);
+    if (!rows.existingDoctor) {
+      throw new Error("Personal data is not available in the current flow.");
+    }
+
+    await upsertPersonalDataStep(
+      ctx,
+      flowKey,
+      asPersonalDataInput(args.personalData),
+    );
+    await markCalendarReached(ctx, flowKey);
+    return null;
+  },
+  returns: v.null(),
+});
+
 export const selectNewPatientSlot = mutation({
   args: {
+    ...FLOW_KEY_VALIDATOR,
     appointmentTypeLineageKey: v.id("appointmentTypes"),
     reasonDescription: v.string(),
     selectedSlot: selectedSlotValidator,
-    sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-
-    if (session.state.step !== "new-calendar-selection") {
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await requireCurrentUserCanStartBooking(ctx, flowKey);
+    const { rows, state } = await requireActiveFlow(ctx, flowKey);
+    if (state.step !== "new-calendar-selection" || !rows.location) {
       throw new Error(
-        `Invalid step: expected 'new-calendar-selection', got '${session.state.step}'`,
+        "Calendar selection is not available in the current flow.",
       );
     }
 
-    const state = session.state;
-    const personalData = asPersonalDataInput(state.personalData);
+    const personalData = materializePersonalData(rows.personalData);
+    if (!personalData) {
+      throw new Error("Missing personal data");
+    }
+
     const selectedSlot = asSelectedSlotInput(args.selectedSlot);
     const reasonDescription = args.reasonDescription.trim();
-
     if (reasonDescription.length === 0) {
       throw new Error("Reason description is required");
     }
@@ -1719,76 +2161,52 @@ export const selectNewPatientSlot = mutation({
       ctx.db,
       {
         lineageKey: asAppointmentTypeLineageKey(args.appointmentTypeLineageKey),
-        ruleSetId: session.ruleSetId,
+        ruleSetId: flowKey.ruleSetId,
       },
     );
-    const selectedAppointmentType = requireSelectableRuleSetEntity({
+    const appointmentType = requireSelectableRuleSetEntity({
       entity: await ctx.db.get("appointmentTypes", appointmentTypeId),
       entityLabel: "Terminart",
-      expectedRuleSetId: session.ruleSetId,
+      expectedRuleSetId: flowKey.ruleSetId,
     });
     await assertSlotAllowedByRules(ctx, {
       appointmentTypeId,
-      locationLineageKey: asLocationLineageKey(state.locationLineageKey),
-      patientDateOfBirth: personalData.dateOfBirth,
-      practiceId: session.practiceId,
-      practitionerLineageKey: resolveStoredPractitionerLineageKey(
-        ctx.db,
-        asPractitionerLineageKey(selectedSlot.practitionerLineageKey),
+      locationLineageKey: asLocationLineageKey(
+        rows.location.locationLineageKey,
       ),
-      ruleSetId: session.ruleSetId,
+      patientDateOfBirth: personalData.dateOfBirth,
+      practiceId: flowKey.practiceId,
+      practitionerLineageKey: asPractitionerLineageKey(
+        selectedSlot.practitionerLineageKey,
+      ),
+      ruleSetId: flowKey.ruleSetId,
       startTime: selectedSlot.startTime,
     });
 
-    const base = getStepBase(session);
-    const appointmentTypeLineageKey = resolveStoredAppointmentTypeLineageKey(
-      ctx.db,
-      asAppointmentTypeLineageKey(args.appointmentTypeLineageKey),
-    );
-    const storedSelectedSlot = toStoredSelectedSlot(ctx.db, selectedSlot);
-
-    const locationId = await resolveLocationIdForInternalState(
-      ctx.db,
-      session.ruleSetId,
-      asLocationLineageKey(state.locationLineageKey),
-    );
+    const [locationId, practitionerId] = await Promise.all([
+      resolveLocationIdForRuleSetByLineage(ctx.db, {
+        lineageKey: asLocationLineageKey(rows.location.locationLineageKey),
+        ruleSetId: flowKey.ruleSetId,
+      }),
+      resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+        lineageKey: asPractitionerLineageKey(
+          selectedSlot.practitionerLineageKey,
+        ),
+        ruleSetId: flowKey.ruleSetId,
+      }),
+    ]);
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
       appointmentTypeId,
       isNewPatient: true,
       locationId,
       patientDateOfBirth: personalData.dateOfBirth,
-      practiceId: session.practiceId,
-      practitionerId: await resolvePractitionerIdForInternalState(
-        ctx.db,
-        session.ruleSetId,
-        asPractitionerLineageKey(selectedSlot.practitionerLineageKey),
-      ),
+      practiceId: flowKey.practiceId,
+      practitionerId,
       start: selectedSlot.startTime,
-      title: `Online-Termin: ${selectedAppointmentType.name}`,
-      userId: session.userId,
+      title: `Online-Termin: ${appointmentType.name}`,
+      userId: flowKey.userId,
     });
-    const bookedDurationMinutes = selectedAppointmentType.duration;
-
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base,
-        kind: "selectNewPatientSlot",
-        slotAttempt: {
-          appointmentId,
-          appointmentTypeLineageKey,
-          bookedDurationMinutes,
-          personalData,
-          reasonDescription,
-          selectedSlot: storedSelectedSlot,
-        },
-        state,
-      }),
-    );
-    await refreshSession(ctx, args.sessionId);
-
     return { appointmentId };
   },
   returns: v.object({
@@ -1796,146 +2214,34 @@ export const selectNewPatientSlot = mutation({
   }),
 });
 
-// ============================================================================
-// PATH B: EXISTING PATIENT
-// ============================================================================
-
-/**
- * B1 → B2: Select doctor and proceed to data input.
- * ⚠️ WARNING: After this step, going back to doctor selection is NOT allowed!
- * Requires authentication.
- */
-export const selectDoctor = mutation({
-  args: {
-    practitionerLineageKey: v.id("practitioners"),
-    sessionId: v.id("bookingSessions"),
-  },
-  handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-
-    // Verify practitioner exists
-    const practitionerId = await resolvePractitionerIdForRuleSetByLineage(
-      ctx.db,
-      {
-        lineageKey: asPractitionerLineageKey(args.practitionerLineageKey),
-        ruleSetId: session.ruleSetId,
-      },
-    );
-    const practitioner = await ctx.db.get("practitioners", practitionerId);
-    requireSelectableRuleSetEntity({
-      entity: practitioner,
-      entityLabel: "Behandler",
-      expectedPracticeId: session.practiceId,
-      expectedRuleSetId: session.ruleSetId,
-    });
-
-    const practitionerLineageKey = resolveStoredPractitionerLineageKey(
-      ctx.db,
-      asPractitionerLineageKey(args.practitionerLineageKey),
-    );
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        kind: "selectDoctor",
-        practitionerLineageKey,
-        state: session.state,
-      }),
-    );
-
-    await refreshSession(ctx, args.sessionId);
-    return null;
-  },
-  returns: v.null(),
-});
-
-/**
- * B3 → B5: Submit personal data and proceed directly to calendar selection.
- * Existing-patient flow skips the data-sharing step.
- * Requires authentication.
- */
-export const submitExistingPatientData = mutation({
-  args: {
-    personalData: personalDataValidator,
-    sessionId: v.id("bookingSessions"),
-  },
-  handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    const personalData = asPersonalDataInput(args.personalData);
-
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        kind: "submitExistingPatientData",
-        personalData,
-        state: session.state,
-      }),
-    );
-
-    await refreshSession(ctx, args.sessionId);
-    return null;
-  },
-  returns: v.null(),
-});
-
-/**
- * Persist existing-patient data-sharing contacts from calendar selection.
- * Requires authentication.
- */
-export const submitExistingDataSharing = mutation({
-  args: {
-    dataSharingContacts: v.array(dataSharingContactInputValidator),
-    sessionId: v.id("bookingSessions"),
-  },
-  handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    assertValidDataSharingContacts(args.dataSharingContacts);
-    const ownedContacts = attachOwnerToDataSharingContacts(
-      args.dataSharingContacts,
-      session.userId,
-    );
-
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base: getStepBase(session),
-        dataSharingContacts: ownedContacts,
-        kind: "submitExistingDataSharing",
-        state: session.state,
-      }),
-    );
-
-    await refreshSession(ctx, args.sessionId);
-    return null;
-  },
-  returns: v.null(),
-});
-
-/**
- * B5 → B6: Select slot and create appointment (existing patient).
- * Requires authentication.
- */
 export const selectExistingPatientSlot = mutation({
   args: {
+    ...FLOW_KEY_VALIDATOR,
     appointmentTypeLineageKey: v.id("appointmentTypes"),
     reasonDescription: v.string(),
     selectedSlot: selectedSlotValidator,
-    sessionId: v.id("bookingSessions"),
   },
   handler: async (ctx, args) => {
-    const session = await getVerifiedSession(ctx, args.sessionId);
-    const state = assertInternalStep(
-      session.state,
-      "existing-calendar-selection",
-    );
-    const personalData = asPersonalDataInput(state.personalData);
+    const flowKey = await getFlowKeyForMutation(ctx, args);
+    await requireCurrentUserCanStartBooking(ctx, flowKey);
+    const { rows, state } = await requireActiveFlow(ctx, flowKey);
+    if (
+      state.step !== "existing-calendar-selection" ||
+      !rows.location ||
+      !rows.existingDoctor
+    ) {
+      throw new Error(
+        "Calendar selection is not available in the current flow.",
+      );
+    }
+
+    const personalData = materializePersonalData(rows.personalData);
+    if (!personalData) {
+      throw new Error("Missing personal data");
+    }
+
     const selectedSlot = asSelectedSlotInput(args.selectedSlot);
     const reasonDescription = args.reasonDescription.trim();
-
     if (reasonDescription.length === 0) {
       throw new Error("Reason description is required");
     }
@@ -1945,37 +2251,39 @@ export const selectExistingPatientSlot = mutation({
       ctx.db,
       {
         lineageKey: asAppointmentTypeLineageKey(args.appointmentTypeLineageKey),
-        ruleSetId: session.ruleSetId,
+        ruleSetId: flowKey.ruleSetId,
       },
     );
     const appointmentType = requireSelectableRuleSetEntity({
       entity: await ctx.db.get("appointmentTypes", appointmentTypeId),
       entityLabel: "Terminart",
-      expectedRuleSetId: session.ruleSetId,
+      expectedRuleSetId: flowKey.ruleSetId,
     });
     await assertSlotAllowedByRules(ctx, {
       appointmentTypeId,
-      locationLineageKey: asLocationLineageKey(state.locationLineageKey),
-      patientDateOfBirth: personalData.dateOfBirth,
-      practiceId: session.practiceId,
-      practitionerLineageKey: asPractitionerLineageKey(
-        state.practitionerLineageKey,
+      locationLineageKey: asLocationLineageKey(
+        rows.location.locationLineageKey,
       ),
-      ruleSetId: session.ruleSetId,
+      patientDateOfBirth: personalData.dateOfBirth,
+      practiceId: flowKey.practiceId,
+      practitionerLineageKey: asPractitionerLineageKey(
+        rows.existingDoctor.practitionerLineageKey,
+      ),
+      ruleSetId: flowKey.ruleSetId,
       startTime: selectedSlot.startTime,
     });
 
     const [locationId, practitionerId] = await Promise.all([
-      resolveLocationIdForInternalState(
-        ctx.db,
-        session.ruleSetId,
-        asLocationLineageKey(state.locationLineageKey),
-      ),
-      resolvePractitionerIdForInternalState(
-        ctx.db,
-        session.ruleSetId,
-        asPractitionerLineageKey(state.practitionerLineageKey),
-      ),
+      resolveLocationIdForRuleSetByLineage(ctx.db, {
+        lineageKey: asLocationLineageKey(rows.location.locationLineageKey),
+        ruleSetId: flowKey.ruleSetId,
+      }),
+      resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+        lineageKey: asPractitionerLineageKey(
+          rows.existingDoctor.practitionerLineageKey,
+        ),
+        ruleSetId: flowKey.ruleSetId,
+      }),
     ]);
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
@@ -1983,40 +2291,12 @@ export const selectExistingPatientSlot = mutation({
       isNewPatient: false,
       locationId,
       patientDateOfBirth: personalData.dateOfBirth,
-      practiceId: session.practiceId,
+      practiceId: flowKey.practiceId,
       practitionerId,
       start: selectedSlot.startTime,
       title: `Online-Termin: ${appointmentType.name}`,
-      userId: session.userId,
+      userId: flowKey.userId,
     });
-    const bookedDurationMinutes = appointmentType.duration;
-
-    const base = getStepBase(session);
-    const appointmentTypeLineageKey = resolveStoredAppointmentTypeLineageKey(
-      ctx.db,
-      asAppointmentTypeLineageKey(args.appointmentTypeLineageKey),
-    );
-    const storedSelectedSlot = toStoredSelectedSlot(ctx.db, selectedSlot);
-    await persistBookingSessionTransition(
-      ctx,
-      session,
-      applyBookingSessionTransition({
-        base,
-        kind: "selectExistingPatientSlot",
-        slotAttempt: {
-          appointmentId,
-          appointmentTypeLineageKey,
-          bookedDurationMinutes,
-          personalData,
-          reasonDescription,
-          selectedSlot: storedSelectedSlot,
-        },
-        state,
-      }),
-    );
-
-    await refreshSession(ctx, args.sessionId);
-
     return { appointmentId };
   },
   returns: v.object({

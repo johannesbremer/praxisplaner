@@ -6,16 +6,19 @@ import type {
 import { Temporal } from "temporal-polyfill";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
-import type { LocationLineageKey, PractitionerLineageKey } from "./identity";
+import type { CalendarOccupancyScope } from "./appointmentOccupancy";
+import type { LocationLineageKey } from "./identity";
+
+import { calendarOccupancyScopesConflict } from "../lib/calendar-occupancy";
 
 export type AppointmentBookingScope = "real" | "simulation";
+
 export interface AppointmentConflictCandidate {
   end: string;
   locationLineageKey: LocationLineageKey;
-  practitionerLineageKey?: PractitionerLineageKey;
+  occupancyScope: CalendarOccupancyScope;
   start: string;
 }
-
 export type AppointmentOccupancyView = "draftEffective" | "live";
 
 type CalendarOccupancyConflict =
@@ -29,7 +32,7 @@ type DatabaseLike =
 export function appointmentOverlapsCandidate(
   appointment: Pick<
     Doc<"appointments">,
-    "end" | "locationLineageKey" | "practitionerLineageKey" | "start"
+    "end" | "locationLineageKey" | "occupancyScope" | "start"
   >,
   candidate: AppointmentConflictCandidate,
 ): boolean {
@@ -37,7 +40,7 @@ export function appointmentOverlapsCandidate(
     {
       end: appointment.end,
       locationKey: appointment.locationLineageKey,
-      practitionerKey: appointment.practitionerLineageKey,
+      occupancyScope: appointment.occupancyScope,
       start: appointment.start,
     },
     candidate,
@@ -180,7 +183,7 @@ function findFirstCalendarOccupancyConflict(args: {
         {
           end: blockedSlot.end,
           locationKey: blockedSlot.locationLineageKey,
-          practitionerKey: blockedSlot.practitionerLineageKey,
+          occupancyScope: blockedSlot.occupancyScope,
           start: blockedSlot.start,
         },
         args.candidate,
@@ -248,7 +251,7 @@ function overlapsCalendarOccupancyCandidate(
   existing: {
     end: string;
     locationKey: string;
-    practitionerKey: string | undefined;
+    occupancyScope: CalendarOccupancyScope;
     start: string;
   },
   candidate: AppointmentConflictCandidate,
@@ -258,9 +261,10 @@ function overlapsCalendarOccupancyCandidate(
   }
 
   if (
-    existing.practitionerKey !== undefined &&
-    candidate.practitionerLineageKey !== undefined &&
-    existing.practitionerKey !== candidate.practitionerLineageKey
+    !calendarOccupancyScopesConflict(
+      existing.occupancyScope,
+      candidate.occupancyScope,
+    )
   ) {
     return false;
   }

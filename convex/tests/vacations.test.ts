@@ -6,6 +6,7 @@ import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
 import { api } from "../_generated/api";
+import { getAppointmentPractitionerLineageKey } from "../appointmentOccupancy";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
@@ -15,6 +16,14 @@ type LineageTable = Extract<
   TableNames,
   "appointmentTypes" | "baseSchedules" | "locations" | "practitioners"
 >;
+
+function appointmentPractitionerLineageKey(
+  appointment: Doc<"appointments"> | null | undefined,
+) {
+  return appointment === null || appointment === undefined
+    ? undefined
+    : getAppointmentPractitionerLineageKey(appointment.occupancyScope);
+}
 
 function createAuthedTestContext() {
   return convexTest(schema, modules).withIdentity({
@@ -311,7 +320,7 @@ async function insertStoredAppointment(
     | "_id"
     | "appointmentTypeLineageKey"
     | "locationLineageKey"
-    | "practitionerLineageKey"
+    | "occupancyScope"
   > & {
     appointmentTypeId: Id<"appointmentTypes">;
     locationId: Id<"locations">;
@@ -323,7 +332,10 @@ async function insertStoredAppointment(
     ...rest,
     appointmentTypeLineageKey: appointmentTypeId,
     locationLineageKey: locationId,
-    practitionerLineageKey: practitionerId,
+    occupancyScope: {
+      kind: "practitioner",
+      practitionerLineageKey: practitionerId,
+    },
   });
 }
 
@@ -1168,7 +1180,12 @@ describe("vacations", () => {
     expect(
       simulatedAppointments.find(
         (candidate) => candidate.replacesAppointmentId === appointmentId,
-      )?.practitionerLineageKey,
+      ) &&
+        appointmentPractitionerLineageKey(
+          simulatedAppointments.find(
+            (candidate) => candidate.replacesAppointmentId === appointmentId,
+          ),
+        ),
     ).toBe(fixture.preferredPractitionerId);
   });
 
@@ -1234,7 +1251,12 @@ describe("vacations", () => {
     expect(
       simulatedAppointments.find(
         (candidate) => candidate.replacesAppointmentId === appointmentId,
-      )?.practitionerLineageKey,
+      ) &&
+        appointmentPractitionerLineageKey(
+          simulatedAppointments.find(
+            (candidate) => candidate.replacesAppointmentId === appointmentId,
+          ),
+        ),
     ).toBe(fixture.preferredPractitionerId);
   });
 
@@ -1337,7 +1359,12 @@ describe("vacations", () => {
     expect(
       simulatedAppointments.find(
         (candidate) => candidate.replacesAppointmentId === appointmentId,
-      )?.practitionerLineageKey,
+      ) &&
+        appointmentPractitionerLineageKey(
+          simulatedAppointments.find(
+            (candidate) => candidate.replacesAppointmentId === appointmentId,
+          ),
+        ),
     ).toBe(selectedTargetPractitioner.lineageKey);
   });
 
@@ -1490,13 +1517,18 @@ describe("vacations", () => {
       startDate: monday.toString(),
     });
 
-    expect(unchangedAppointment?.practitionerLineageKey).toBe(
+    expect(appointmentPractitionerLineageKey(unchangedAppointment)).toBe(
       fixture.absentPractitionerId,
     );
     expect(
       simulatedAppointments.find(
         (candidate) => candidate.replacesAppointmentId === appointmentId,
-      )?.practitionerLineageKey,
+      ) &&
+        appointmentPractitionerLineageKey(
+          simulatedAppointments.find(
+            (candidate) => candidate.replacesAppointmentId === appointmentId,
+          ),
+        ),
     ).toBe(fixture.preferredPractitionerId);
     expect(vacations).toHaveLength(1);
     expect(vacations[0]?.portion).toBe("morning");
@@ -1522,7 +1554,7 @@ describe("vacations", () => {
         .collect(),
     );
 
-    expect(activatedAppointment?.practitionerLineageKey).toBe(
+    expect(appointmentPractitionerLineageKey(activatedAppointment)).toBe(
       activatedTargetPractitioner?.lineageKey ?? draftPreferredPractitionerId,
     );
     expect(remainingSimulations).toHaveLength(0);
@@ -1600,9 +1632,12 @@ describe("vacations", () => {
         isSimulation: true,
         lastModified: now,
         locationLineageKey: fixture.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: fixture.preferredPractitionerId,
+        },
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
-        practitionerLineageKey: fixture.preferredPractitionerId,
         reassignmentSourceVacationLineageKey: draftResult.entityId,
         replacesAppointmentId: appointmentAId,
         simulationKind: "activation-reassignment",
@@ -1630,9 +1665,12 @@ describe("vacations", () => {
         isSimulation: true,
         lastModified: now,
         locationLineageKey: fixture.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: fixture.absentPractitionerId,
+        },
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
-        practitionerLineageKey: fixture.absentPractitionerId,
         reassignmentSourceVacationLineageKey: draftResult.entityId,
         replacesAppointmentId: appointmentBId,
         simulationKind: "activation-reassignment",
@@ -1660,10 +1698,10 @@ describe("vacations", () => {
       return [first, second];
     });
 
-    expect(appointmentA?.practitionerLineageKey).toBe(
+    expect(appointmentPractitionerLineageKey(appointmentA)).toBe(
       fixture.preferredPractitionerId,
     );
-    expect(appointmentB?.practitionerLineageKey).toBe(
+    expect(appointmentPractitionerLineageKey(appointmentB)).toBe(
       fixture.absentPractitionerId,
     );
   });
@@ -1847,7 +1885,7 @@ describe("vacations", () => {
     const activatedAppointment = await t.run(async (ctx) =>
       ctx.db.get("appointments", appointmentId),
     );
-    expect(activatedAppointment?.practitionerLineageKey).toBe(
+    expect(appointmentPractitionerLineageKey(activatedAppointment)).toBe(
       fixture.fallbackPractitionerId,
     );
   });
@@ -2056,8 +2094,8 @@ describe("vacations", () => {
 
       const secondAppointment = appointments.find(
         (appointment) =>
-          appointment.practitionerLineageKey === secondAbsentPractitionerId &&
-          appointment.isSimulation !== true,
+          appointmentPractitionerLineageKey(appointment) ===
+            secondAbsentPractitionerId && appointment.isSimulation !== true,
       );
       assertDefined(secondAppointment);
       return secondAppointment._id;
@@ -3029,7 +3067,7 @@ describe("vacations", () => {
     assertDefined(createdSimulation);
     expect(createdSimulation.isSimulation).toBe(true);
     expect(createdSimulation.simulationKind).toBe("activation-reassignment");
-    expect(createdSimulation.practitionerLineageKey).toBe(
+    expect(appointmentPractitionerLineageKey(createdSimulation)).toBe(
       fixture.preferredPractitionerId,
     );
 
@@ -3108,9 +3146,12 @@ describe("vacations", () => {
         isSimulation: true,
         lastModified: now,
         locationLineageKey: fixture.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: fixture.absentPractitionerId,
+        },
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
-        practitionerLineageKey: fixture.absentPractitionerId,
         replacesAppointmentId: sourceAppointmentId,
         simulationKind: "activation-reassignment",
         simulationRuleSetId: draftVacation.ruleSetId,
@@ -3158,7 +3199,8 @@ describe("vacations", () => {
         )
         .every(
           (appointment) =>
-            appointment.practitionerLineageKey !== fixture.absentPractitionerId,
+            appointmentPractitionerLineageKey(appointment) !==
+            fixture.absentPractitionerId,
         ),
     ).toBe(true);
   });

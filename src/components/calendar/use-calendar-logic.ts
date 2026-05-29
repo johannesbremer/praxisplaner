@@ -14,6 +14,13 @@ import {
   asLocationLineageKey,
   asPractitionerLineageKey,
 } from "../../../convex/identity";
+import {
+  calendarColumnScopeKey,
+  createCalendarPlacement,
+  getCalendarResourceColumnFromColumn,
+  getPractitionerLineageKeyFromColumn,
+  sameCalendarColumnScope,
+} from "../../../lib/calendar-occupancy";
 import { createSimulatedContext } from "../../../lib/utils";
 import { findIdInList } from "../../utils/convex-ids";
 import { captureErrorGlobal } from "../../utils/error-tracking";
@@ -29,6 +36,7 @@ import {
 } from "./calendar-view-models";
 import {
   type CalendarAppointmentLayout,
+  type CalendarAppointmentPlacement,
   type CalendarColumnId,
   type NewCalendarProps,
   SLOT_DURATION,
@@ -38,7 +46,11 @@ import { buildCalendarAppointmentRequest } from "./use-calendar-booking";
 import { useCalendarData } from "./use-calendar-data";
 import { useCalendarDevtools } from "./use-calendar-devtools";
 import { useCalendarInteractions } from "./use-calendar-interactions";
-import { handleEditBlockedSlot, TIMEZONE } from "./use-calendar-logic-helpers";
+import {
+  handleEditBlockedSlot,
+  resolveBlockedSlotDropOccupancyScope,
+  TIMEZONE,
+} from "./use-calendar-logic-helpers";
 import { useCalendarPlanningWorkbench } from "./use-calendar-planning-workbench";
 import { useCalendarReferenceResolver } from "./use-calendar-reference-resolver";
 import { useCalendarSimulationConversion } from "./use-calendar-simulation-conversion";
@@ -353,9 +365,13 @@ export function useCalendarLogic({
 
   const getPractitionerIdForColumn = useCallback(
     (column: CalendarColumnId): Id<"practitioners"> | undefined =>
-      typeof column === "string" && (column === "ekg" || column === "labor")
-        ? undefined
-        : getPractitionerIdForLineageKey(column),
+      (() => {
+        const practitionerLineageKey =
+          getPractitionerLineageKeyFromColumn(column);
+        return practitionerLineageKey === undefined
+          ? undefined
+          : getPractitionerIdForLineageKey(practitionerLineageKey);
+      })(),
     [getPractitionerIdForLineageKey],
   );
 
@@ -460,7 +476,10 @@ export function useCalendarLogic({
       const endSlot = startSlot + Math.ceil(duration / SLOT_DURATION);
 
       return baseAppointmentLayouts.some((apt) => {
-        if (apt.id === excludeId || apt.column !== column) {
+        if (
+          apt.id === excludeId ||
+          !sameCalendarColumnScope(apt.column, column)
+        ) {
           return false;
         }
 
@@ -528,7 +547,7 @@ export function useCalendarLogic({
   const getMaxAvailableDuration = useCallback(
     (column: CalendarColumnId, startSlot: number) => {
       const occupiedSlots = baseAppointmentLayouts
-        .filter((apt) => apt.column === column)
+        .filter((apt) => sameCalendarColumnScope(apt.column, column))
         .map((apt) => ({
           end:
             timeToSlot(apt.startTime) + Math.ceil(apt.duration / SLOT_DURATION),
@@ -654,7 +673,7 @@ export function useCalendarLogic({
 
     const uniqueSlots = new Map<string, (typeof combined)[0]>();
     for (const slot of combined) {
-      const key = `${slot.column}-${slot.slot}`;
+      const key = `${calendarColumnScopeKey(slot.column)}-${slot.slot}`;
       const existing = uniqueSlots.get(key);
       const existingIsManual =
         existing && "isManual" in existing ? existing.isManual : false;
@@ -719,7 +738,8 @@ export function useCalendarLogic({
       setDragPreview((prev) => {
         if (
           prev.visible &&
-          prev.column === column &&
+          prev.column !== null &&
+          sameCalendarColumnScope(prev.column, column) &&
           prev.slot === availableSlot
         ) {
           return prev;
@@ -751,7 +771,8 @@ export function useCalendarLogic({
         setDragPreview((prev) => {
           if (
             prev.visible &&
-            prev.column === column &&
+            prev.column !== null &&
+            sameCalendarColumnScope(prev.column, column) &&
             prev.slot === availableSlot
           ) {
             return prev;
@@ -872,7 +893,16 @@ export function useCalendarLogic({
           minutes: blockedSlot.duration ?? 30,
         });
 
-        const newPractitionerId = getPractitionerIdForColumn(column);
+        const dropOccupancyScope = resolveBlockedSlotDropOccupancyScope({
+          column,
+          getPractitionerIdForColumn,
+        });
+        if (dropOccupancyScope.kind === "reject-resource-column") {
+          toast.error(
+            "Gesperrte Zeitraeume koennen nicht auf EKG- oder Labor-Spalten verschoben werden.",
+          );
+          return;
+        }
 
         if (simulatedContext) {
           if (!blockedSlot.id || !blockedSlotDoc) {
@@ -883,17 +913,12 @@ export function useCalendarLogic({
             await planningCommands.updateBlockedSlot({
               end: endZoned.toString(),
               id: blockedSlotDoc._id,
-              ...(newPractitionerId && { practitionerId: newPractitionerId }),
+              occupancyScope: dropOccupancyScope,
               start: startZoned.toString(),
             });
           } else {
             const blockedSlotDisplayRefs =
-              resolveBlockedSlotReferenceDisplayIds({
-                locationLineageKey: blockedSlotDoc.locationLineageKey,
-                ...(blockedSlotDoc.practitionerLineageKey && {
-                  practitionerLineageKey: blockedSlotDoc.practitionerLineageKey,
-                }),
-              });
+              resolveBlockedSlotReferenceDisplayIds(blockedSlotDoc);
             if (!blockedSlotDisplayRefs) {
               toast.error(
                 "Gesperrter Zeitraum konnte in der Simulation nicht aktualisiert werden.",
@@ -911,11 +936,13 @@ export function useCalendarLogic({
                   blockedSlotDoc.title ||
                   blockedSlot.title ||
                   "Gesperrter Zeitraum",
-                ...(newPractitionerId || blockedSlotDisplayRefs.practitionerId
+                ...(dropOccupancyScope.kind === "practitioner" ||
+                blockedSlotDisplayRefs.practitionerId
                   ? {
                       practitionerId:
-                        newPractitionerId ||
-                        blockedSlotDisplayRefs.practitionerId,
+                        (dropOccupancyScope.kind === "practitioner"
+                          ? dropOccupancyScope.practitionerId
+                          : undefined) || blockedSlotDisplayRefs.practitionerId,
                     }
                   : {}),
               },
@@ -925,7 +952,7 @@ export function useCalendarLogic({
           await planningCommands.updateBlockedSlot({
             end: endZoned.toString(),
             id: blockedSlotDoc._id,
-            ...(newPractitionerId && { practitionerId: newPractitionerId }),
+            occupancyScope: dropOccupancyScope,
             start: startZoned.toString(),
           });
         }
@@ -965,13 +992,11 @@ export function useCalendarLogic({
 
       const endZoned = startZoned.add({ minutes: draggedAppointment.duration });
 
-      const newPractitionerId =
-        getPractitionerIdForColumn(column) ??
-        (draggedAppointment.record.practitionerLineageKey === undefined
-          ? undefined
-          : getPractitionerIdForLineageKey(
-              draggedAppointment.record.practitionerLineageKey,
-            ));
+      const targetResourceColumn = getCalendarResourceColumnFromColumn(column);
+      const targetPractitionerId =
+        targetResourceColumn === undefined
+          ? getPractitionerIdForColumn(column)
+          : undefined;
 
       if (simulatedContext && draggedAppointment.record.isSimulation !== true) {
         await planningCommands.convertRealAppointmentToSimulation(
@@ -980,17 +1005,48 @@ export function useCalendarLogic({
             columnOverride: column,
             durationMinutes: draggedAppointment.duration,
             endISO: endZoned.toString(),
-            ...(newPractitionerId && { practitionerId: newPractitionerId }),
+            ...(targetResourceColumn === undefined
+              ? { calendarResourceColumn: null }
+              : { calendarResourceColumn: targetResourceColumn }),
+            ...(targetPractitionerId && {
+              practitionerId: targetPractitionerId,
+            }),
             startISO: startZoned.toString(),
           },
         );
       } else {
         try {
+          const targetPractitionerLineageKey =
+            getPractitionerLineageKeyFromColumn(column);
+          const targetPlacement =
+            targetResourceColumn === undefined
+              ? targetPractitionerLineageKey === undefined
+                ? null
+                : createCalendarPlacement({
+                    locationLineageKey:
+                      draggedAppointment.record.placement.locationLineageKey,
+                    occupancyScope: {
+                      kind: "practitioner",
+                      practitionerLineageKey: targetPractitionerLineageKey,
+                    },
+                  })
+              : createCalendarPlacement({
+                  locationLineageKey:
+                    draggedAppointment.record.placement.locationLineageKey,
+                  occupancyScope: {
+                    calendarResourceColumn: targetResourceColumn,
+                    kind: "resource",
+                  },
+                });
+          if (targetPlacement === null) {
+            toast.error("Ungültige Ressource");
+            return;
+          }
           await planningCommands.updateAppointment({
             end: endZoned.toString(),
             id: draggedAppointment.record._id,
+            placement: targetPlacement,
             start: startZoned.toString(),
-            ...(newPractitionerId && { practitionerId: newPractitionerId }),
           });
         } catch (error) {
           captureErrorGlobal(error, {
@@ -1026,7 +1082,9 @@ export function useCalendarLogic({
   const addAppointment = (column: CalendarColumnId, slot: number) => {
     // Check if this slot is blocked (including breaks and rules)
     const blockedSlotData = allBlockedSlots.find(
-      (blocked) => blocked.column === column && blocked.slot === slot,
+      (blocked) =>
+        sameCalendarColumnScope(blocked.column, column) &&
+        blocked.slot === slot,
     );
 
     if (blockedSlotData) {
@@ -1088,15 +1146,54 @@ export function useCalendarLogic({
       return;
     }
 
-    const practitioner = workingPractitioners.find(
-      (workingPractitioner) => workingPractitioner.lineageKey === column,
-    );
-    if (!practitioner && column !== "ekg" && column !== "labor") {
+    const practitionerLineageKey = getPractitionerLineageKeyFromColumn(column);
+    const practitioner =
+      practitionerLineageKey === undefined
+        ? undefined
+        : workingPractitioners.find(
+            (workingPractitioner) =>
+              workingPractitioner.lineageKey === practitionerLineageKey,
+          );
+    if (
+      !practitioner &&
+      getCalendarResourceColumnFromColumn(column) === undefined
+    ) {
       toast.error("Ungültige Ressource");
       return;
     }
 
-    const requestResult = buildCalendarAppointmentRequest({
+    const locationLineageKey =
+      simulatedContext?.locationLineageKey ??
+      (selectedLocationId
+        ? getLocationLineageKeyForDisplayId(selectedLocationId)
+        : undefined);
+    const resourceColumn = getCalendarResourceColumnFromColumn(column);
+    const requestPlacement: CalendarAppointmentPlacement | undefined =
+      locationLineageKey === undefined
+        ? undefined
+        : practitioner === undefined
+          ? resourceColumn === undefined
+            ? undefined
+            : createCalendarPlacement({
+                locationLineageKey,
+                occupancyScope: {
+                  calendarResourceColumn: resourceColumn,
+                  kind: "resource",
+                },
+              })
+          : createCalendarPlacement({
+              locationLineageKey,
+              occupancyScope: {
+                kind: "practitioner",
+                practitionerLineageKey: practitioner.lineageKey,
+              },
+            });
+    if (requestPlacement === undefined && locationLineageKey !== undefined) {
+      toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
+      return;
+    }
+
+    const requestArgs: Parameters<typeof buildCalendarAppointmentRequest>[0] = {
       appointmentTypeId,
       appointmentTypeLineageKey: appointmentTypeInfo.lineageKey,
       appointmentTypeName: appointmentTypeInfo.name,
@@ -1108,24 +1205,17 @@ export function useCalendarLogic({
         simulatedContext?.locationLineageKey === undefined
           ? selectedLocationId
           : getLocationIdForLineageKey(simulatedContext.locationLineageKey),
-      locationLineageKey:
-        simulatedContext?.locationLineageKey ??
-        (selectedLocationId
-          ? getLocationLineageKeyForDisplayId(selectedLocationId)
-          : undefined),
       mode,
       patient,
       pendingAppointmentTitle,
+      placement: requestPlacement,
       practiceId,
-      practitionerId:
-        practitioner === undefined
-          ? undefined
-          : getPractitionerIdForLineageKey(practitioner.lineageKey),
-      practitionerLineageKey: practitioner?.lineageKey,
       selectedDate,
       slot,
       slotDurationMinutes: SLOT_DURATION,
-    });
+    };
+
+    const requestResult = buildCalendarAppointmentRequest(requestArgs);
 
     if (requestResult.kind === "error") {
       toast.error(requestResult.message);
@@ -1139,17 +1229,8 @@ export function useCalendarLogic({
             requestResult.requestContext.appointmentTypeLineageKey,
           ),
           isSimulation: requestResult.requestContext.isSimulation,
-          locationLineageKey: asLocationLineageKey(
-            requestResult.requestContext.locationLineageKey,
-          ),
+          placement: requestResult.requestContext.placement,
           practiceId: requestResult.requestContext.practiceId,
-          ...(requestResult.requestContext.practitionerLineageKey === undefined
-            ? {}
-            : {
-                practitionerLineageKey: asPractitionerLineageKey(
-                  requestResult.requestContext.practitionerLineageKey,
-                ),
-              }),
           start: requestResult.requestContext.start,
           title: requestResult.requestContext.title,
         });

@@ -9,6 +9,10 @@ import type {
   CalendarColumnId,
 } from "./types";
 
+import {
+  calendarColumnScopeKey,
+  sameCalendarColumnScope,
+} from "../../../lib/calendar-occupancy";
 import { BlockedSlotOverlay } from "./blocked-slot-overlay";
 import { CalendarAppointment } from "./calendar-appointment";
 import { CalendarBlockedSlot } from "./calendar-blocked-slot";
@@ -111,7 +115,7 @@ export function CalendarGrid({
 
   const renderAppointments = (column: CalendarColumnId) => {
     return appointments
-      .filter((apt) => apt.layout.column === column)
+      .filter((apt) => sameCalendarColumnScope(apt.layout.column, column))
       .map((appointment) => {
         const isDragging =
           draggedAppointment?.layout.id === appointment.layout.id;
@@ -150,7 +154,11 @@ export function CalendarGrid({
   };
 
   const renderDragPreview = (column: CalendarColumnId) => {
-    if (!dragPreview.visible || dragPreview.column !== column) {
+    if (
+      !dragPreview.visible ||
+      dragPreview.column === null ||
+      !sameCalendarColumnScope(dragPreview.column, column)
+    ) {
       return null;
     }
 
@@ -216,10 +224,10 @@ export function CalendarGrid({
   const renderBlockedSlots = (column: CalendarColumnId) => {
     // Separate manual blocked slots (from database) from rule-based blocked slots
     const manualBlocked = blockedSlots.filter(
-      (slot) => slot.column === column && slot.isManual,
+      (slot) => sameCalendarColumnScope(slot.column, column) && slot.isManual,
     );
     const ruleBasedBlocked = blockedSlots.filter(
-      (slot) => slot.column === column && !slot.isManual,
+      (slot) => sameCalendarColumnScope(slot.column, column) && !slot.isManual,
     );
 
     // Group consecutive rule-based blocked slots together for overlay rendering
@@ -240,7 +248,7 @@ export function CalendarGrid({
     // Render rule-based blocked slots as overlays
     const ruleBasedOverlays = groupedSlots.map((group) => (
       <BlockedSlotOverlay
-        key={`blocked-${column}-${group.start}`}
+        key={`blocked-${calendarColumnScopeKey(column)}-${group.start}`}
         slot={group.start}
         slotCount={group.count}
       />
@@ -333,7 +341,7 @@ export function CalendarGrid({
       {columns.map((column) => (
         <div
           className={`border-r border-border last:border-r-0 ${column.isMuted ? "bg-muted/40" : ""}`}
-          key={column.id}
+          key={calendarColumnScopeKey(column.id)}
         >
           <div
             className={`h-12 border-b border-border bg-card flex items-center justify-center sticky top-0 z-30 ${column.isMuted ? "bg-muted/90 text-muted-foreground" : ""}`}
@@ -343,7 +351,10 @@ export function CalendarGrid({
           <div
             className={`relative min-h-full ${column.isMuted ? "opacity-60 grayscale-[0.35]" : ""}`}
             onDragLeave={() => {
-              if (dragPreview.column === column.id) {
+              if (
+                dragPreview.column !== null &&
+                sameCalendarColumnScope(dragPreview.column, column.id)
+              ) {
                 // User left this column while dragging
               }
             }}

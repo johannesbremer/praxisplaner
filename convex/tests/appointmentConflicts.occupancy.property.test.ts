@@ -8,9 +8,92 @@ import {
 } from "../../src/tests/convex-property-fixtures";
 import { assertAsyncProperty } from "../../src/tests/property-test-utils";
 import { findConflictingCalendarOccupancy } from "../appointmentConflicts";
-import { asLocationLineageKey, asPractitionerLineageKey } from "../identity";
+import { asLocationLineageKey } from "../identity";
 
 describe("appointment conflict occupancy properties", () => {
+  test("resource appointments do not block practitioner occupancy in the same location", async () => {
+    const context = createPropertyTestContext();
+    const fixture = await createPropertySchedulingFixture(context);
+    const window = zonedWindow("2026-06-15", {
+      durationMinutes: 10,
+      hour: 9,
+      minute: 0,
+    });
+
+    const conflict = await context.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Resource booking",
+        createdAt: now,
+        end: window.end,
+        lastModified: now,
+        locationLineageKey: fixture.locationId,
+        occupancyScope: { calendarResourceColumn: "labor", kind: "resource" },
+        practiceId: fixture.practiceId,
+        start: window.start,
+        title: "Labor booking",
+        userId: fixture.userId,
+      });
+
+      return await findConflictingCalendarOccupancy(ctx.db, {
+        candidate: {
+          end: window.end,
+          locationLineageKey: asLocationLineageKey(fixture.locationId),
+          occupancyScope: {
+            kind: "practitioner",
+            practitionerLineageKey: fixture.practitionerId,
+          },
+          start: window.start,
+        },
+        occupancyView: "live",
+        practiceId: fixture.practiceId,
+      });
+    });
+
+    expect(conflict).toBeNull();
+  });
+
+  test("resource appointments still block the same resource column", async () => {
+    const context = createPropertyTestContext();
+    const fixture = await createPropertySchedulingFixture(context);
+    const window = zonedWindow("2026-06-15", {
+      durationMinutes: 10,
+      hour: 9,
+      minute: 0,
+    });
+
+    const conflict = await context.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: fixture.appointmentTypeId,
+        appointmentTypeTitle: "Resource booking",
+        createdAt: now,
+        end: window.end,
+        lastModified: now,
+        locationLineageKey: fixture.locationId,
+        occupancyScope: { calendarResourceColumn: "labor", kind: "resource" },
+        practiceId: fixture.practiceId,
+        start: window.start,
+        title: "Labor booking",
+        userId: fixture.userId,
+      });
+
+      return await findConflictingCalendarOccupancy(ctx.db, {
+        candidate: {
+          end: window.end,
+          locationLineageKey: asLocationLineageKey(fixture.locationId),
+          occupancyScope: { calendarResourceColumn: "labor", kind: "resource" },
+          start: window.start,
+        },
+        occupancyView: "live",
+        practiceId: fixture.practiceId,
+      });
+    });
+
+    expect(conflict?.kind).toBe("appointment");
+  });
+
   test("appointments and blocked slots block equivalent candidate intervals", async () => {
     await assertAsyncProperty(
       fc.asyncProperty(
@@ -35,8 +118,11 @@ describe("appointment conflict occupancy properties", () => {
                 end: window.end,
                 lastModified: now,
                 locationLineageKey: appointmentFixture.locationId,
+                occupancyScope: {
+                  kind: "practitioner",
+                  practitionerLineageKey: appointmentFixture.practitionerId,
+                },
                 practiceId: appointmentFixture.practiceId,
-                practitionerLineageKey: appointmentFixture.practitionerId,
                 start: window.start,
                 title: "Property appointment",
                 userId: appointmentFixture.userId,
@@ -48,9 +134,10 @@ describe("appointment conflict occupancy properties", () => {
                   locationLineageKey: asLocationLineageKey(
                     appointmentFixture.locationId,
                   ),
-                  practitionerLineageKey: asPractitionerLineageKey(
-                    appointmentFixture.practitionerId,
-                  ),
+                  occupancyScope: {
+                    kind: "practitioner",
+                    practitionerLineageKey: appointmentFixture.practitionerId,
+                  },
                   start: window.start,
                 },
                 occupancyView: "live",
@@ -70,8 +157,11 @@ describe("appointment conflict occupancy properties", () => {
                 end: window.end,
                 lastModified: now,
                 locationLineageKey: blockedSlotFixture.locationId,
+                occupancyScope: {
+                  kind: "practitioner",
+                  practitionerLineageKey: blockedSlotFixture.practitionerId,
+                },
                 practiceId: blockedSlotFixture.practiceId,
-                practitionerLineageKey: blockedSlotFixture.practitionerId,
                 start: window.start,
                 title: "Property block",
               });
@@ -82,9 +172,10 @@ describe("appointment conflict occupancy properties", () => {
                   locationLineageKey: asLocationLineageKey(
                     blockedSlotFixture.locationId,
                   ),
-                  practitionerLineageKey: asPractitionerLineageKey(
-                    blockedSlotFixture.practitionerId,
-                  ),
+                  occupancyScope: {
+                    kind: "practitioner",
+                    practitionerLineageKey: blockedSlotFixture.practitionerId,
+                  },
                   start: window.start,
                 },
                 occupancyView: "live",

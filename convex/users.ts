@@ -17,36 +17,38 @@ async function getLatestBookingPersonalData(
   db: DatabaseReader,
   userId: Id<"users">,
 ): Promise<BookingPersonalData | null> {
-  const [latestExistingConfirmationStep, latestNewConfirmationStep] =
-    await Promise.all([
-      db
-        .query("bookingExistingConfirmationSteps")
-        .withIndex("by_userId", (q) => q.eq("userId", userId))
-        .order("desc")
-        .first(),
-      db
-        .query("bookingNewConfirmationSteps")
-        .withIndex("by_userId", (q) => q.eq("userId", userId))
-        .order("desc")
-        .first(),
-    ]);
+  const latestPersonalDataStep = await db
+    .query("bookingPersonalDataSteps")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .order("desc")
+    .first();
 
-  if (latestExistingConfirmationStep && latestNewConfirmationStep) {
-    return latestExistingConfirmationStep.lastModified >
-      latestNewConfirmationStep.lastModified
-      ? asPersonalDataInput(latestExistingConfirmationStep.personalData)
-      : asPersonalDataInput(latestNewConfirmationStep.personalData);
-  }
-
-  if (latestExistingConfirmationStep) {
-    return asPersonalDataInput(latestExistingConfirmationStep.personalData);
-  }
-
-  if (latestNewConfirmationStep) {
-    return asPersonalDataInput(latestNewConfirmationStep.personalData);
-  }
-
-  return null;
+  return latestPersonalDataStep
+    ? asPersonalDataInput({
+        ...(latestPersonalDataStep.city === undefined
+          ? {}
+          : { city: latestPersonalDataStep.city }),
+        dateOfBirth: latestPersonalDataStep.dateOfBirth,
+        ...(latestPersonalDataStep.email === undefined
+          ? {}
+          : { email: latestPersonalDataStep.email }),
+        firstName: latestPersonalDataStep.firstName,
+        ...(latestPersonalDataStep.gender === undefined
+          ? {}
+          : { gender: latestPersonalDataStep.gender }),
+        lastName: latestPersonalDataStep.lastName,
+        phoneNumber: latestPersonalDataStep.phoneNumber,
+        ...(latestPersonalDataStep.postalCode === undefined
+          ? {}
+          : { postalCode: latestPersonalDataStep.postalCode }),
+        ...(latestPersonalDataStep.street === undefined
+          ? {}
+          : { street: latestPersonalDataStep.street }),
+        ...(latestPersonalDataStep.title === undefined
+          ? {}
+          : { title: latestPersonalDataStep.title }),
+      })
+    : null;
 }
 
 /**

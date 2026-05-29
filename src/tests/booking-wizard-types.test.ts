@@ -22,8 +22,8 @@ describe("STEP_LABELS", () => {
   it("contains expected labels for key steps", () => {
     expect(STEP_LABELS.privacy).toBe("Datenschutz");
     expect(STEP_LABELS["patient-status"]).toBe("Patientenstatus");
-    expect(STEP_LABELS["new-confirmation"]).toBe("Bestätigung");
-    expect(STEP_LABELS["existing-confirmation"]).toBe("Bestätigung");
+    expect(STEP_LABELS["new-calendar-selection"]).toBe("Terminauswahl");
+    expect(STEP_LABELS["existing-calendar-selection"]).toBe("Terminauswahl");
   });
 });
 
@@ -31,7 +31,6 @@ describe("getStepGroup", () => {
   describe("info group", () => {
     const infoSteps: BookingSessionState["step"][] = [
       "existing-data-input",
-      "existing-data-input-complete",
       "existing-doctor-selection",
       "new-data-input",
       "new-data-input-complete",
@@ -60,20 +59,6 @@ describe("getStepGroup", () => {
     });
   });
 
-  describe("confirmation group", () => {
-    const confirmationSteps: BookingSessionState["step"][] = [
-      "existing-confirmation",
-      "new-confirmation",
-    ];
-
-    it.each(confirmationSteps)(
-      'returns "confirmation" for step "%s"',
-      (step) => {
-        expect(getStepGroup(step)).toBe("confirmation");
-      },
-    );
-  });
-
   describe("consent group", () => {
     const consentSteps: BookingSessionState["step"][] = [
       "location",
@@ -87,7 +72,7 @@ describe("getStepGroup", () => {
   });
 
   it("returns a valid group for all known steps", () => {
-    const validGroups = ["booking", "confirmation", "consent", "info"];
+    const validGroups = ["booking", "consent", "info"];
 
     for (const step of ALL_STEPS) {
       const group = getStepGroup(step);
@@ -102,16 +87,8 @@ describe("canGoBack", () => {
       expect(canGoBack("existing-calendar-selection")).toBe(false);
     });
 
-    it("cannot go back from existing-confirmation", () => {
-      expect(canGoBack("existing-confirmation")).toBe(false);
-    });
-
-    it("cannot go back from existing-data-input", () => {
-      expect(canGoBack("existing-data-input")).toBe(false);
-    });
-
-    it("cannot go back from existing-data-input-complete", () => {
-      expect(canGoBack("existing-data-input-complete")).toBe(false);
+    it("can go back from existing-data-input", () => {
+      expect(canGoBack("existing-data-input")).toBe(true);
     });
 
     it("can go back from existing-doctor-selection", () => {
@@ -120,10 +97,6 @@ describe("canGoBack", () => {
   });
 
   describe("new patient flow", () => {
-    it("cannot go back from new-confirmation", () => {
-      expect(canGoBack("new-confirmation")).toBe(false);
-    });
-
     it("cannot go back from new-calendar-selection", () => {
       expect(canGoBack("new-calendar-selection")).toBe(false);
     });

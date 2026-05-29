@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 
 import type { Id } from "../../convex/_generated/dataModel";
 import type { AppointmentResult } from "../../convex/appointments";
+import type { BookingPersonalData } from "../../convex/bookingSessions.shared";
 import type { PatientInfo, PracticePatientSelection } from "../types";
 
 import { dispatchCustomEvent } from "../utils/browser-api";
@@ -43,8 +44,6 @@ import {
 
 // Appointment type for the sidebar list
 export type SidebarAppointment = AppointmentResult;
-type BookingPersonalData =
-  import("../../convex/_generated/dataModel").Doc<"bookingNewConfirmationSteps">["personalData"];
 
 interface CalendarRightSidebarProps {
   onPatientSelected?:
@@ -94,6 +93,12 @@ const BOOKING_FIELD_ORDER = [
   "postalCode",
   "city",
 ] as const satisfies readonly (keyof BookingPersonalData)[];
+
+function isBookingGender(
+  value: string,
+): value is NonNullable<BookingPersonalData["gender"]> {
+  return value in GENDER_LABELS;
+}
 
 // Context for controlling the right sidebar from anywhere
 interface RightSidebarContextProps {
@@ -535,13 +540,16 @@ function getBookingFieldEntries(patient: PatientInfo): {
         value = formatGermanDate(rawValue);
       }
       if (field === "gender") {
-        value =
-          GENDER_LABELS[rawValue as NonNullable<BookingPersonalData["gender"]>];
+        value = isBookingGender(rawValue) ? GENDER_LABELS[rawValue] : rawValue;
+      }
+      const label = BOOKING_FIELD_LABELS[field];
+      if (!label) {
+        continue;
       }
 
       entries.push({
         field,
-        label: BOOKING_FIELD_LABELS[field],
+        label,
         value,
       });
     }

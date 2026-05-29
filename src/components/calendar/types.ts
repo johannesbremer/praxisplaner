@@ -11,10 +11,22 @@ import type {
   PractitionerLineageKey,
 } from "../../../convex/identity";
 import type {
+  AppointmentOccupancyScope as SharedAppointmentOccupancyScope,
+  BlockedSlotOccupancyScope as SharedBlockedSlotOccupancyScope,
+  CalendarColumnScope as SharedCalendarColumnScope,
+  CalendarPlacement as SharedCalendarPlacement,
+} from "../../../lib/calendar-occupancy";
+import type {
   PatientInfo,
   SchedulingRuleSetId,
   SchedulingSimulatedContext,
 } from "../../types";
+
+export type AppointmentOccupancyScope =
+  SharedAppointmentOccupancyScope<PractitionerLineageKey>;
+
+export type BlockedSlotOccupancyScope =
+  SharedBlockedSlotOccupancyScope<PractitionerLineageKey>;
 
 export interface CalendarAppointmentLayout {
   column: CalendarColumnId;
@@ -24,18 +36,22 @@ export interface CalendarAppointmentLayout {
   startTime: string;
 }
 
+export type CalendarAppointmentPlacement = SharedCalendarPlacement<
+  LocationLineageKey,
+  SharedAppointmentOccupancyScope<PractitionerLineageKey>
+>;
+
 export type CalendarAppointmentRecord = Omit<
   AppointmentResult,
   | "appointmentTypeId"
   | "appointmentTypeLineageKey"
   | "locationId"
   | "locationLineageKey"
+  | "occupancyScope"
   | "practitionerId"
-  | "practitionerLineageKey"
 > & {
   appointmentTypeLineageKey: AppointmentTypeLineageKey;
-  locationLineageKey: LocationLineageKey;
-  practitionerLineageKey?: PractitionerLineageKey;
+  placement: CalendarAppointmentPlacement;
 };
 
 export interface CalendarAppointmentView {
@@ -53,15 +69,16 @@ export interface CalendarBlockedSlotEditorRecord {
   title: string;
 }
 
+export type CalendarBlockedSlotPlacement = SharedCalendarPlacement<
+  LocationLineageKey,
+  SharedBlockedSlotOccupancyScope<PractitionerLineageKey>
+>;
+
 export type CalendarBlockedSlotRecord = Omit<
   BlockedSlotResult,
-  | "locationId"
-  | "locationLineageKey"
-  | "practitionerId"
-  | "practitionerLineageKey"
+  "locationId" | "locationLineageKey" | "occupancyScope" | "practitionerId"
 > & {
-  locationLineageKey: LocationLineageKey;
-  practitionerLineageKey?: PractitionerLineageKey;
+  placement: CalendarBlockedSlotPlacement;
 };
 
 export interface CalendarColumn {
@@ -73,7 +90,11 @@ export interface CalendarColumn {
   title: string;
 }
 
-export type CalendarColumnId = "ekg" | "labor" | PractitionerLineageKey;
+export type CalendarColumnId =
+  SharedCalendarColumnScope<PractitionerLineageKey>;
+
+export type CalendarColumnScope =
+  SharedCalendarColumnScope<PractitionerLineageKey>;
 
 export interface WorkingPractitioner {
   endTime: string;
@@ -97,9 +118,8 @@ export interface NewCalendarProps {
     | ((params: {
         appointmentTypeLineageKey: AppointmentTypeLineageKey;
         isSimulation: boolean;
-        locationLineageKey: LocationLineageKey;
+        placement: CalendarAppointmentPlacement;
         practiceId: Id<"practices">;
-        practitionerLineageKey?: PractitionerLineageKey;
         start: string;
         title: string;
       }) => void)

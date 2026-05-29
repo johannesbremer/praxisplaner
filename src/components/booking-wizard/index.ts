@@ -5,7 +5,6 @@ export { CalendarSelectionStep } from "./calendar-selection-step";
 export {
   BookedAppointmentsSummary,
   BookedAppointmentSummary,
-  ConfirmationStep,
 } from "./confirmation-step";
 export { DataInputStep } from "./data-input-step";
 export { DataSharingStep } from "./data-sharing-step";

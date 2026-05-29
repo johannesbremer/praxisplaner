@@ -16,12 +16,12 @@ import { api } from "@/convex/_generated/api";
 
 import type { StepComponentProps } from "./types";
 
-export function PvsConsentStep({ sessionId }: StepComponentProps) {
+export function PvsConsentStep({ practiceId, ruleSetId }: StepComponentProps) {
   const acceptPvsConsent = useMutation(api.bookingSessions.acceptPvsConsent);
 
   async function handleAccept() {
     try {
-      await acceptPvsConsent({ sessionId });
+      await acceptPvsConsent({ practiceId, ruleSetId });
     } catch (error) {
       console.error("Failed to accept PVS consent:", error);
       toast.error("Zustimmung konnte nicht gespeichert werden", {

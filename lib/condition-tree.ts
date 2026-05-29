@@ -54,7 +54,6 @@ export type ConditionType =
   | "LOCATION"
   | "PATIENT_AGE"
   | "PRACTITIONER"
-  | "PRACTITIONER_TAG"
   | "TIME_RANGE";
 
 export interface LogicalNode {
@@ -85,7 +84,6 @@ export const CONDITION_TYPES = [
   "LOCATION",
   "PATIENT_AGE",
   "PRACTITIONER",
-  "PRACTITIONER_TAG",
   "TIME_RANGE",
 ] as const satisfies readonly ConditionType[];
 export const LOGICAL_NODE_TYPES = [
@@ -279,7 +277,6 @@ function isConditionType(value: unknown): value is ConditionType {
     case "LOCATION":
     case "PATIENT_AGE":
     case "PRACTITIONER":
-    case "PRACTITIONER_TAG":
     case "TIME_RANGE": {
       return true;
     }

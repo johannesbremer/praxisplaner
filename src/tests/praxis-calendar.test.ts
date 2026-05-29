@@ -1,7 +1,12 @@
 import { Temporal } from "temporal-polyfill";
 import { describe, expect, it } from "vitest";
 
-import { toTableId } from "../../convex/identity";
+import {
+  asLocationLineageKey,
+  asPractitionerLineageKey,
+  toTableId,
+} from "../../convex/identity";
+import { createCalendarPlacement } from "../../lib/calendar-occupancy";
 import { buildCalendarDayQueryArgs } from "../components/calendar/calendar-query-args";
 import { buildCalendarAppointmentRequest } from "../components/calendar/use-calendar-booking";
 
@@ -65,6 +70,26 @@ describe("calendar day query args", () => {
 
 describe("calendar appointment request builder", () => {
   const selectedDate = Temporal.PlainDate.from("2026-04-23");
+  const practitionerPlacement = createCalendarPlacement({
+    locationLineageKey: asLocationLineageKey(
+      toTableId<"locations">("location_lineage_main"),
+    ),
+    occupancyScope: {
+      kind: "practitioner",
+      practitionerLineageKey: asPractitionerLineageKey(
+        toTableId<"practitioners">("practitioner_lineage_1"),
+      ),
+    },
+  });
+  const resourcePlacement = createCalendarPlacement({
+    locationLineageKey: asLocationLineageKey(
+      toTableId<"locations">("location_lineage_main"),
+    ),
+    occupancyScope: {
+      calendarResourceColumn: "ekg",
+      kind: "resource",
+    },
+  });
   const sharedArgs = {
     appointmentTypeId: toTableId<"appointmentTypes">(
       "appointment_type_checkup",
@@ -76,12 +101,10 @@ describe("calendar appointment request builder", () => {
     businessStartHour: 8,
     isNewPatient: false,
     locationId: toTableId<"locations">("location_main"),
-    locationLineageKey: toTableId<"locations">("location_lineage_main"),
     patient: undefined,
     pendingAppointmentTitle: undefined,
+    placement: practitionerPlacement,
     practiceId: toTableId<"practices">("practice_main"),
-    practitionerId: undefined,
-    practitionerLineageKey: undefined,
     selectedDate,
     slot: 12,
     slotDurationMinutes: 5,
@@ -97,19 +120,11 @@ describe("calendar appointment request builder", () => {
       ...sharedArgs,
       mode: "real",
       patient,
-      practitionerId: toTableId<"practitioners">("practitioner_1"),
-      practitionerLineageKey: toTableId<"practitioners">(
-        "practitioner_lineage_1",
-      ),
     });
     const simulationResult = buildCalendarAppointmentRequest({
       ...sharedArgs,
       mode: "simulation",
       patient,
-      practitionerId: toTableId<"practitioners">("practitioner_1"),
-      practitionerLineageKey: toTableId<"practitioners">(
-        "practitioner_lineage_1",
-      ),
     });
 
     expect(realResult).toMatchObject({
@@ -118,10 +133,9 @@ describe("calendar appointment request builder", () => {
         appointmentTypeId: "appointment_type_checkup",
         isNewPatient: false,
         isSimulation: false,
-        locationId: "location_main",
         patientDateOfBirth: "1980-01-01",
+        placement: practitionerPlacement,
         practiceId: "practice_main",
-        practitionerId: "practitioner_1",
         start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
         title: "Checkup",
         userId: "user_1",
@@ -133,10 +147,9 @@ describe("calendar appointment request builder", () => {
         appointmentTypeId: "appointment_type_checkup",
         isNewPatient: false,
         isSimulation: true,
-        locationId: "location_main",
         patientDateOfBirth: "1980-01-01",
+        placement: practitionerPlacement,
         practiceId: "practice_main",
-        practitionerId: "practitioner_1",
         start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
         title: "Checkup",
         userId: "user_1",
@@ -157,10 +170,31 @@ describe("calendar appointment request builder", () => {
       requestContext: {
         appointmentTypeLineageKey: "appointment_type_lineage_checkup",
         isSimulation: false,
-        locationLineageKey: "location_lineage_main",
+        placement: practitionerPlacement,
         practiceId: "practice_main",
         start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
         title: "EKG Follow-up",
+      },
+    });
+  });
+
+  it("keeps resource placements in the missing-patient request context", () => {
+    expect(
+      buildCalendarAppointmentRequest({
+        ...sharedArgs,
+        mode: "real",
+        patient: undefined,
+        placement: resourcePlacement,
+      }),
+    ).toEqual({
+      kind: "missing-patient",
+      requestContext: {
+        appointmentTypeLineageKey: "appointment_type_lineage_checkup",
+        isSimulation: false,
+        placement: resourcePlacement,
+        practiceId: "practice_main",
+        start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+        title: "Checkup",
       },
     });
   });
@@ -184,12 +218,52 @@ describe("calendar appointment request builder", () => {
         appointmentTypeId: "appointment_type_checkup",
         isNewPatient: true,
         isSimulation: true,
-        locationId: "location_main",
+        placement: practitionerPlacement,
         practiceId: "practice_main",
         start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
         temporaryPatientName: "Grace Hopper",
         temporaryPatientPhoneNumber: "+491709999999",
         title: "Checkup",
+      },
+    });
+  });
+
+  it("keeps resource placements in the appointment request", () => {
+    expect(
+      buildCalendarAppointmentRequest({
+        ...sharedArgs,
+        mode: "real",
+        patient: {
+          dateOfBirth: "1980-01-01",
+          isNewPatient: false,
+          userId: toTableId<"users">("user_1"),
+        },
+        placement: {
+          ...resourcePlacement,
+          occupancyScope: {
+            calendarResourceColumn: "labor",
+            kind: "resource",
+          },
+        },
+      }),
+    ).toEqual({
+      kind: "ok",
+      request: {
+        appointmentTypeId: "appointment_type_checkup",
+        isNewPatient: false,
+        isSimulation: false,
+        patientDateOfBirth: "1980-01-01",
+        placement: {
+          ...resourcePlacement,
+          occupancyScope: {
+            calendarResourceColumn: "labor",
+            kind: "resource",
+          },
+        },
+        practiceId: "practice_main",
+        start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+        title: "Checkup",
+        userId: "user_1",
       },
     });
   });

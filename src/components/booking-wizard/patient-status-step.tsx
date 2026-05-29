@@ -16,7 +16,10 @@ import { api } from "@/convex/_generated/api";
 
 import type { StepComponentProps } from "./types";
 
-export function PatientStatusStep({ sessionId }: StepComponentProps) {
+export function PatientStatusStep({
+  practiceId,
+  ruleSetId,
+}: StepComponentProps) {
   const selectNewPatient = useMutation(api.bookingSessions.selectNewPatient);
   const selectExistingPatient = useMutation(
     api.bookingSessions.selectExistingPatient,
@@ -24,7 +27,7 @@ export function PatientStatusStep({ sessionId }: StepComponentProps) {
 
   const handleNewPatient = async () => {
     try {
-      await selectNewPatient({ sessionId });
+      await selectNewPatient({ practiceId, ruleSetId });
     } catch (error) {
       console.error("Failed to select new patient:", error);
       toast.error("Auswahl fehlgeschlagen", {
@@ -38,7 +41,7 @@ export function PatientStatusStep({ sessionId }: StepComponentProps) {
 
   const handleExistingPatient = async () => {
     try {
-      await selectExistingPatient({ sessionId });
+      await selectExistingPatient({ practiceId, ruleSetId });
     } catch (error) {
       console.error("Failed to select existing patient:", error);
       toast.error("Auswahl fehlgeschlagen", {

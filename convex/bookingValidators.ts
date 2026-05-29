@@ -77,19 +77,6 @@ export const dataSharingContactInputValidator = v.object({
   title: v.optional(v.string()),
 });
 
-export const dataSharingPersonValidator = v.object({
-  city: v.string(),
-  dateOfBirth: v.string(),
-  firstName: v.string(),
-  gender: genderValidator,
-  lastName: v.string(),
-  phoneNumber: v.string(),
-  postalCode: v.string(),
-  street: v.string(),
-  title: v.optional(v.string()),
-  userId: v.id("users"),
-});
-
 export const medicalHistoryValidator = v.object({
   allergiesDescription: v.optional(v.string()),
   currentMedications: v.optional(v.string()),
@@ -100,10 +87,35 @@ export const medicalHistoryValidator = v.object({
   otherConditions: v.optional(v.string()),
 });
 
-export const emergencyContactValidator = v.object({
-  name: v.string(),
-  phoneNumber: v.string(),
-  relationship: v.string(),
+export const legacyMedicalHistorySnapshotValidator = v.object({
+  allergyNotes: v.optional(v.string()),
+  currentMedications: v.optional(v.string()),
+  hasAllergies: v.boolean(),
+  hasCancer: v.boolean(),
+  hasCirculationDisorder: v.boolean(),
+  hasDepression: v.boolean(),
+  hasDiabetes: v.boolean(),
+  hasGout: v.boolean(),
+  hasHeartCondition: v.boolean(),
+  hasHypertension: v.boolean(),
+  hasIntolerance: v.boolean(),
+  hasKidneyCondition: v.boolean(),
+  hasLipidDisorder: v.boolean(),
+  hasLiverCondition: v.boolean(),
+  hasLungCondition: v.boolean(),
+  hasOperations: v.boolean(),
+  hasSymptoms: v.boolean(),
+  hasThyroidCondition: v.boolean(),
+  hasVaricoseVeins: v.boolean(),
+  intoleranceNotes: v.optional(v.string()),
+  medicationNotes: v.optional(v.string()),
+  noAdditionalDetails: v.boolean(),
+  noKnownConditions: v.boolean(),
+  operationNotes: v.optional(v.string()),
+  otherConditionNotes: v.optional(v.string()),
+  smokes: v.boolean(),
+  symptomNotes: v.optional(v.string()),
+  takesMedication: v.boolean(),
 });
 
 export const selectedSlotValidator = v.object({

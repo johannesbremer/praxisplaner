@@ -304,7 +304,6 @@ export async function copyPractitioners(
       parentId: source._id, // Track which entity this was copied from
       practiceId,
       ruleSetId: targetRuleSetId,
-      ...(source.tags && { tags: source.tags }),
     });
 
     idMap.set(source._id, newId);
@@ -487,7 +486,6 @@ async function copyConditionNode(
       | "LOCATION"
       | "PATIENT_AGE"
       | "PRACTITIONER"
-      | "PRACTITIONER_TAG"
       | "TIME_RANGE";
     copyFromId: Id<"ruleConditions">;
     createdAt: bigint;

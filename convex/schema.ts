@@ -4,30 +4,31 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 import {
+  appointmentOccupancyScopeValidator,
+  blockedSlotOccupancyScopeValidator,
+} from "./appointmentOccupancy";
+import {
   beihilfeStatusValidator,
-  dataSharingPersonValidator,
-  emergencyContactValidator,
+  dataSharingContactInputValidator,
+  genderValidator,
   hzvStatusValidator,
   insuranceTypeValidator,
   medicalHistoryValidator,
   personalDataValidator,
   pkvInsuranceTypeValidator,
   pkvTariffValidator,
-  selectedSlotStorageValidator,
-  selectedSlotValidator,
 } from "./bookingValidators";
 import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
 
 export {
   beihilfeStatusValidator,
   dataSharingContactInputValidator,
-  dataSharingPersonValidator,
-  emergencyContactValidator,
   genderValidator,
   gkvDetailsValidator,
   hzvStatusValidator,
   insuranceDetailsValidator,
   insuranceTypeValidator,
+  legacyMedicalHistorySnapshotValidator,
   medicalHistoryValidator,
   personalDataValidator,
   pkvDetailsValidator,
@@ -83,6 +84,7 @@ export const bookingSessionStepValidator = v.union(
 
   // A3a: GKV details (insurance type: GKV, pending)
   v.object({
+    hzvStatus: v.optional(hzvStatusValidator),
     insuranceType: v.literal("gkv"),
     isNewPatient: v.literal(true),
     locationLineageKey: v.id("locations"),
@@ -92,7 +94,7 @@ export const bookingSessionStepValidator = v.union(
 
   // A3a: GKV details completed
   v.object({
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
+    dataSharingContacts: v.optional(v.array(dataSharingContactInputValidator)),
     hzvStatus: hzvStatusValidator,
     insuranceType: v.literal("gkv"),
     isNewPatient: v.literal(true),
@@ -112,10 +114,13 @@ export const bookingSessionStepValidator = v.union(
 
   // A3c: PKV details (after PVS consent, pending)
   v.object({
+    beihilfeStatus: v.optional(beihilfeStatusValidator),
     insuranceType: v.literal("pkv"),
     isNewPatient: v.literal(true),
     locationLineageKey: v.id("locations"),
     locationName: v.string(),
+    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
+    pkvTariff: v.optional(pkvTariffValidator),
     pvsConsent: v.literal(true),
     step: v.literal("new-pkv-details"),
   }),
@@ -123,7 +128,7 @@ export const bookingSessionStepValidator = v.union(
   // A3c: PKV details completed
   v.object({
     beihilfeStatus: v.optional(beihilfeStatusValidator),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
+    dataSharingContacts: v.optional(v.array(dataSharingContactInputValidator)),
     insuranceType: v.literal("pkv"),
     isNewPatient: v.literal(true),
     locationLineageKey: v.id("locations"),
@@ -142,6 +147,8 @@ export const bookingSessionStepValidator = v.union(
     isNewPatient: v.literal(true),
     locationLineageKey: v.id("locations"),
     locationName: v.string(),
+    medicalHistory: v.optional(medicalHistoryValidator),
+    personalData: v.optional(personalDataValidator),
     step: v.literal("new-data-input"),
   }),
 
@@ -166,6 +173,8 @@ export const bookingSessionStepValidator = v.union(
     isNewPatient: v.literal(true),
     locationLineageKey: v.id("locations"),
     locationName: v.string(),
+    medicalHistory: v.optional(medicalHistoryValidator),
+    personalData: v.optional(personalDataValidator),
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
     pkvTariff: v.optional(pkvTariffValidator),
     pvsConsent: v.literal(true),
@@ -220,8 +229,7 @@ export const bookingSessionStepValidator = v.union(
   // A6: Calendar selection (Datenweitergabe submitted)
   // GKV path
   v.object({
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
+    dataSharingContacts: v.array(dataSharingContactInputValidator),
     hzvStatus: hzvStatusValidator,
     insuranceType: v.literal("gkv"),
     isNewPatient: v.literal(true),
@@ -236,8 +244,7 @@ export const bookingSessionStepValidator = v.union(
   // PKV path
   v.object({
     beihilfeStatus: v.optional(beihilfeStatusValidator),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
+    dataSharingContacts: v.array(dataSharingContactInputValidator),
     insuranceType: v.literal("pkv"),
     isNewPatient: v.literal(true),
     locationLineageKey: v.id("locations"),
@@ -248,53 +255,6 @@ export const bookingSessionStepValidator = v.union(
     pkvTariff: v.optional(pkvTariffValidator),
     pvsConsent: v.literal(true),
     step: v.literal("new-calendar-selection"),
-  }),
-
-  // A7: Confirmation (slot selected, appointment created)
-  // GKV path
-  v.object({
-    appointmentId: v.id("appointments"),
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
-    appointmentTypeName: v.string(),
-    bookedDurationMinutes: v.number(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
-    hzvStatus: hzvStatusValidator,
-    insuranceType: v.literal("gkv"),
-    isNewPatient: v.literal(true),
-    locationLineageKey: v.id("locations"),
-    locationName: v.string(),
-    medicalHistory: v.optional(medicalHistoryValidator),
-    patientId: v.optional(v.id("patients")),
-    personalData: personalDataValidator,
-    reasonDescription: v.string(),
-    selectedSlot: selectedSlotValidator,
-    step: v.literal("new-confirmation"),
-  }),
-
-  // A7: Confirmation (slot selected, appointment created)
-  // PKV path
-  v.object({
-    appointmentId: v.id("appointments"),
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
-    appointmentTypeName: v.string(),
-    beihilfeStatus: v.optional(beihilfeStatusValidator),
-    bookedDurationMinutes: v.number(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
-    insuranceType: v.literal("pkv"),
-    isNewPatient: v.literal(true),
-    locationLineageKey: v.id("locations"),
-    locationName: v.string(),
-    medicalHistory: v.optional(medicalHistoryValidator),
-    patientId: v.optional(v.id("patients")),
-    personalData: personalDataValidator,
-    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
-    pkvTariff: v.optional(pkvTariffValidator),
-    pvsConsent: v.literal(true),
-    reasonDescription: v.string(),
-    selectedSlot: selectedSlotValidator,
-    step: v.literal("new-confirmation"),
   }),
 
   // ================================
@@ -314,6 +274,7 @@ export const bookingSessionStepValidator = v.union(
     isNewPatient: v.literal(false),
     locationLineageKey: v.id("locations"),
     locationName: v.string(),
+    personalData: v.optional(personalDataValidator),
     practitionerLineageKey: v.id("practitioners"),
     practitionerName: v.string(),
     step: v.literal("existing-data-input"),
@@ -327,38 +288,7 @@ export const bookingSessionStepValidator = v.union(
     personalData: personalDataValidator,
     practitionerLineageKey: v.id("practitioners"),
     practitionerName: v.string(),
-    step: v.literal("existing-data-input-complete"),
-  }),
-
-  // B4: Calendar selection (personal data submitted)
-  v.object({
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    isNewPatient: v.literal(false),
-    locationLineageKey: v.id("locations"),
-    locationName: v.string(),
-    personalData: personalDataValidator,
-    practitionerLineageKey: v.id("practitioners"),
-    practitionerName: v.string(),
     step: v.literal("existing-calendar-selection"),
-  }),
-
-  // B6: Confirmation (slot selected, appointment created)
-  v.object({
-    appointmentId: v.id("appointments"),
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
-    appointmentTypeName: v.string(),
-    bookedDurationMinutes: v.number(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    isNewPatient: v.literal(false),
-    locationLineageKey: v.id("locations"),
-    locationName: v.string(),
-    patientId: v.optional(v.id("patients")),
-    personalData: personalDataValidator,
-    practitionerLineageKey: v.id("practitioners"),
-    practitionerName: v.string(),
-    reasonDescription: v.string(),
-    selectedSlot: selectedSlotValidator,
-    step: v.literal("existing-confirmation"),
   }),
 );
 
@@ -366,13 +296,10 @@ export type BookingSessionStep = Infer<typeof bookingSessionStepValidator>;
 
 export const bookingSessionStepNameValidator = v.union(
   v.literal("existing-calendar-selection"),
-  v.literal("existing-confirmation"),
   v.literal("existing-data-input"),
-  v.literal("existing-data-input-complete"),
   v.literal("existing-doctor-selection"),
   v.literal("location"),
   v.literal("new-calendar-selection"),
-  v.literal("new-confirmation"),
   v.literal("new-data-input"),
   v.literal("new-data-input-complete"),
   v.literal("new-data-sharing"),
@@ -400,6 +327,7 @@ export default defineSchema({
     // Additional fields
     appointmentTypeLineageKey: v.id("appointmentTypes"), // Stable reference across rule set versions
     appointmentTypeTitle: v.string(), // Snapshot of appointment type name at booking time
+    bookingIdentityId: v.optional(v.id("bookingIdentities")),
     cancelledAt: v.optional(v.int64()),
     cancelledByPhoneBookingIdentityId: v.optional(
       v.id("phoneBookingIdentities"),
@@ -407,10 +335,10 @@ export default defineSchema({
     cancelledByUserId: v.optional(v.id("users")),
     isSimulation: v.optional(v.boolean()),
     locationLineageKey: v.id("locations"), // Stable reference across rule set versions
+    occupancyScope: appointmentOccupancyScopeValidator,
     patientId: v.optional(v.id("patients")), // Real patient from PVS
     phoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
     practiceId: v.id("practices"), // Multi-tenancy support
-    practitionerLineageKey: v.optional(v.id("practitioners")), // Stable reference across rule set versions
     reassignmentSourceVacationLineageKey: v.optional(v.id("vacations")),
     replacesAppointmentId: v.optional(v.id("appointments")),
     seriesId: v.optional(v.string()),
@@ -428,8 +356,9 @@ export default defineSchema({
     lastModified: v.int64(),
   })
     .index("by_start", ["start"])
+    .index("by_bookingIdentityId", ["bookingIdentityId"])
+    .index("by_bookingIdentityId_start", ["bookingIdentityId", "start"])
     .index("by_patientId", ["patientId"])
-    .index("by_practitionerLineageKey", ["practitionerLineageKey"])
     .index("by_isSimulation", ["isSimulation"])
     .index("by_practiceId_isSimulation", ["practiceId", "isSimulation"])
     .index("by_replacesAppointmentId", ["replacesAppointmentId"])
@@ -450,6 +379,7 @@ export default defineSchema({
     ]),
 
   appointmentSeries: defineTable({
+    bookingIdentityId: v.optional(v.id("bookingIdentities")),
     createdAt: v.int64(),
     followUpPlanSnapshot: v.array(followUpStepValidator),
     lastModified: v.int64(),
@@ -468,6 +398,57 @@ export default defineSchema({
     .index("by_practiceId", ["practiceId"])
     .index("by_rootAppointmentId", ["rootAppointmentId"])
     .index("by_seriesId", ["seriesId"]),
+
+  bookingIdentities: defineTable({
+    createdAt: v.int64(),
+    kind: v.union(
+      v.literal("online"),
+      v.literal("telefonki"),
+      v.literal("temporary"),
+    ),
+    lastModified: v.int64(),
+    practiceId: v.id("practices"),
+    sourceIdentityId: v.optional(v.string()),
+    sourceSystem: v.optional(
+      v.union(
+        v.literal("legacy-online"),
+        v.literal("legacy-telefonki"),
+        v.literal("online"),
+        v.literal("telefonki"),
+      ),
+    ),
+    userId: v.optional(v.id("users")),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_userId", ["userId"])
+    .index("by_sourceIdentity", ["sourceSystem", "sourceIdentityId"]),
+
+  bookingIdentityPatientAssociations: defineTable({
+    bookingIdentityId: v.id("bookingIdentities"),
+    createdAt: v.int64(),
+    legacyAppointmentId: v.optional(v.string()),
+    legacyIdentityId: v.optional(v.string()),
+    method: v.union(
+      v.literal("automatic"),
+      v.literal("manual"),
+      v.literal("migration-exact-appointment-name"),
+      v.literal("staff-confirmed"),
+      v.literal("staff-corrected"),
+    ),
+    patientId: v.id("patients"),
+    practiceId: v.id("practices"),
+    pvsAppointmentSourceKey: v.optional(v.string()),
+    pvsPatientNumber: v.optional(v.number()),
+    status: v.union(
+      v.literal("active"),
+      v.literal("superseded"),
+      v.literal("rejected"),
+    ),
+    supersededAt: v.optional(v.int64()),
+  })
+    .index("by_bookingIdentityId_status", ["bookingIdentityId", "status"])
+    .index("by_patientId_status", ["patientId", "status"])
+    .index("by_practiceId_status", ["practiceId", "status"]),
 
   // ================================================================
   // BOOKING WIZARD PERSISTENCE (per-step tables)
@@ -536,8 +517,8 @@ export default defineSchema({
     // Additional fields
     isSimulation: v.optional(v.boolean()),
     locationLineageKey: v.id("locations"),
+    occupancyScope: blockedSlotOccupancyScopeValidator,
     practiceId: v.id("practices"), // Multi-tenancy support
-    practitionerLineageKey: v.optional(v.id("practitioners")),
     replacesBlockedSlotId: v.optional(v.id("blockedSlots")),
 
     // Metadata
@@ -551,90 +532,33 @@ export default defineSchema({
     .index("by_isSimulation", ["isSimulation"])
     .index("by_replacesBlockedSlotId", ["replacesBlockedSlotId"]),
 
-  bookingExistingCalendarSelectionSteps: defineTable({
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
+  bookingCalendarReachedSteps: defineTable({
     createdAt: v.int64(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    isNewPatient: v.literal(false),
     lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    personalData: personalDataValidator,
     practiceId: v.id("practices"),
-    practitionerLineageKey: v.id("practitioners"),
-    reasonDescription: v.string(),
     ruleSetId: v.id("ruleSets"),
-    selectedSlot: selectedSlotStorageValidator,
-    sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
   })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
-
-  bookingExistingConfirmationSteps: defineTable({
-    appointmentId: v.id("appointments"),
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
-    bookedDurationMinutes: v.number(),
-    createdAt: v.int64(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    isNewPatient: v.literal(false),
-    lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    patientId: v.optional(v.id("patients")),
-    personalData: personalDataValidator,
-    practiceId: v.id("practices"),
-    practitionerLineageKey: v.id("practitioners"),
-    reasonDescription: v.string(),
-    ruleSetId: v.id("ruleSets"),
-    selectedSlot: selectedSlotStorageValidator,
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
-
-  bookingExistingDataSharingSteps: defineTable({
-    createdAt: v.int64(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    isNewPatient: v.literal(false),
-    lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    personalData: personalDataValidator,
-    practiceId: v.id("practices"),
-    practitionerLineageKey: v.id("practitioners"),
-    ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
+    .index("by_userId_practiceId_ruleSetId", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+    ])
     .index("by_userId", ["userId"]),
 
   bookingExistingDoctorSelectionSteps: defineTable({
     createdAt: v.int64(),
-    isNewPatient: v.literal(false),
     lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
     practiceId: v.id("practices"),
     practitionerLineageKey: v.id("practitioners"),
     ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
   })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
-
-  bookingExistingPersonalDataSteps: defineTable({
-    createdAt: v.int64(),
-    isNewPatient: v.literal(false),
-    lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    personalData: personalDataValidator,
-    practiceId: v.id("practices"),
-    practitionerLineageKey: v.id("practitioners"),
-    ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
+    .index("by_userId_practiceId_ruleSetId", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+    ])
     .index("by_userId", ["userId"]),
 
   bookingLocationSteps: defineTable({
@@ -643,182 +567,192 @@ export default defineSchema({
     locationLineageKey: v.id("locations"),
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
   })
-    .index("by_sessionId", ["sessionId"])
+    .index("by_userId_practiceId_ruleSetId", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+    ])
     .index("by_userId", ["userId"]),
 
-  bookingNewCalendarSelectionSteps: defineTable({
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
+  bookingMedicalHistoryEntries: defineTable({
+    allergyNotes: v.optional(v.string()),
     createdAt: v.int64(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
-    hzvStatus: v.optional(hzvStatusValidator),
-    insuranceType: insuranceTypeValidator,
-    isNewPatient: v.literal(true),
+    hasAllergies: v.boolean(),
+    hasCancer: v.boolean(),
+    hasCirculationDisorder: v.boolean(),
+    hasDepression: v.boolean(),
+    hasDiabetes: v.boolean(),
+    hasGout: v.boolean(),
+    hasHeartCondition: v.boolean(),
+    hasHypertension: v.boolean(),
+    hasIntolerance: v.boolean(),
+    hasKidneyCondition: v.boolean(),
+    hasLipidDisorder: v.boolean(),
+    hasLiverCondition: v.boolean(),
+    hasLungCondition: v.boolean(),
+    hasOperations: v.boolean(),
+    hasSymptoms: v.boolean(),
+    hasThyroidCondition: v.boolean(),
+    hasVaricoseVeins: v.boolean(),
+    intoleranceNotes: v.optional(v.string()),
+    isComplete: v.boolean(),
     lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    medicalHistory: v.optional(medicalHistoryValidator),
-    personalData: personalDataValidator,
-    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
-    pkvTariff: v.optional(pkvTariffValidator),
+    medicationNotes: v.optional(v.string()),
+    noAdditionalDetails: v.boolean(),
+    noKnownConditions: v.boolean(),
+    operationNotes: v.optional(v.string()),
+    otherConditionNotes: v.optional(v.string()),
     practiceId: v.id("practices"),
-    pvsConsent: v.optional(v.literal(true)),
-    reasonDescription: v.string(),
     ruleSetId: v.id("ruleSets"),
-    selectedSlot: selectedSlotStorageValidator,
-    sessionId: v.id("bookingSessions"),
+    smokes: v.boolean(),
+    symptomNotes: v.optional(v.string()),
+    takesMedication: v.boolean(),
     userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
+  }).index("by_userId_practiceId_ruleSetId", [
+    "userId",
+    "practiceId",
+    "ruleSetId",
+  ]),
 
-  bookingNewConfirmationSteps: defineTable({
-    appointmentId: v.id("appointments"),
-    appointmentTypeLineageKey: v.id("appointmentTypes"),
-    bookedDurationMinutes: v.number(),
+  bookingNewDataSharingContactRows: defineTable({
+    city: v.string(),
     createdAt: v.int64(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
-    hzvStatus: v.optional(hzvStatusValidator),
-    insuranceType: insuranceTypeValidator,
-    isNewPatient: v.literal(true),
+    dateOfBirth: v.string(),
+    firstName: v.string(),
+    gender: genderValidator,
+    index: v.number(),
     lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    medicalHistory: v.optional(medicalHistoryValidator),
-    patientId: v.optional(v.id("patients")),
-    personalData: personalDataValidator,
-    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
-    pkvTariff: v.optional(pkvTariffValidator),
+    lastName: v.string(),
+    phoneNumber: v.string(),
+    postalCode: v.string(),
     practiceId: v.id("practices"),
-    pvsConsent: v.optional(v.literal(true)),
-    reasonDescription: v.string(),
     ruleSetId: v.id("ruleSets"),
-    selectedSlot: selectedSlotStorageValidator,
-    sessionId: v.id("bookingSessions"),
+    street: v.string(),
+    title: v.optional(v.string()),
     userId: v.id("users"),
   })
-    .index("by_sessionId", ["sessionId"])
+    .index("by_userId_practiceId_ruleSetId_index", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+      "index",
+    ])
     .index("by_userId", ["userId"]),
 
   bookingNewDataSharingSteps: defineTable({
-    beihilfeStatus: v.optional(beihilfeStatusValidator),
     createdAt: v.int64(),
-    dataSharingContacts: v.array(dataSharingPersonValidator),
-    hzvStatus: v.optional(hzvStatusValidator),
-    insuranceType: insuranceTypeValidator,
-    isNewPatient: v.literal(true),
     lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    medicalHistory: v.optional(medicalHistoryValidator),
-    personalData: personalDataValidator,
-    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
-    pkvTariff: v.optional(pkvTariffValidator),
     practiceId: v.id("practices"),
-    pvsConsent: v.optional(v.literal(true)),
     ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
   })
-    .index("by_sessionId", ["sessionId"])
+    .index("by_userId_practiceId_ruleSetId", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+    ])
     .index("by_userId", ["userId"]),
 
   bookingNewGkvDetailSteps: defineTable({
     createdAt: v.int64(),
     hzvStatus: hzvStatusValidator,
-    insuranceType: v.literal("gkv"),
-    isNewPatient: v.literal(true),
     lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
   })
-    .index("by_sessionId", ["sessionId"])
+    .index("by_userId_practiceId_ruleSetId", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+    ])
     .index("by_userId", ["userId"]),
 
   bookingNewInsuranceTypeSteps: defineTable({
     createdAt: v.int64(),
     insuranceType: insuranceTypeValidator,
-    isNewPatient: v.literal(true),
     lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
   })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_userId", ["userId"]),
-
-  bookingNewPersonalDataSteps: defineTable({
-    beihilfeStatus: v.optional(beihilfeStatusValidator),
-    createdAt: v.int64(),
-    emergencyContacts: v.optional(v.array(emergencyContactValidator)),
-    hzvStatus: v.optional(hzvStatusValidator),
-    insuranceType: insuranceTypeValidator,
-    isNewPatient: v.literal(true),
-    lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
-    medicalHistory: v.optional(medicalHistoryValidator),
-    personalData: personalDataValidator,
-    pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
-    pkvTariff: v.optional(pkvTariffValidator),
-    practiceId: v.id("practices"),
-    pvsConsent: v.optional(v.literal(true)),
-    ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
-    userId: v.id("users"),
-  })
-    .index("by_sessionId", ["sessionId"])
+    .index("by_userId_practiceId_ruleSetId", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+    ])
     .index("by_userId", ["userId"]),
 
   bookingNewPkvConsentSteps: defineTable({
     createdAt: v.int64(),
-    insuranceType: v.literal("pkv"),
-    isNewPatient: v.literal(true),
     lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
     practiceId: v.id("practices"),
-    pvsConsent: v.literal(true),
     ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
   })
-    .index("by_sessionId", ["sessionId"])
+    .index("by_userId_practiceId_ruleSetId", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+    ])
     .index("by_userId", ["userId"]),
 
   bookingNewPkvDetailSteps: defineTable({
     beihilfeStatus: v.optional(beihilfeStatusValidator),
     createdAt: v.int64(),
-    insuranceType: v.literal("pkv"),
-    isNewPatient: v.literal(true),
     lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
     pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
     pkvTariff: v.optional(pkvTariffValidator),
     practiceId: v.id("practices"),
-    pvsConsent: v.literal(true),
     ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
   })
-    .index("by_sessionId", ["sessionId"])
+    .index("by_userId_practiceId_ruleSetId", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+    ])
     .index("by_userId", ["userId"]),
 
   bookingPatientStatusSteps: defineTable({
     createdAt: v.int64(),
     isNewPatient: v.boolean(),
     lastModified: v.int64(),
-    locationLineageKey: v.id("locations"),
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
   })
-    .index("by_sessionId", ["sessionId"])
+    .index("by_userId_practiceId_ruleSetId", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+    ])
+    .index("by_userId", ["userId"]),
+
+  bookingPersonalDataSteps: defineTable({
+    city: v.optional(v.string()),
+    createdAt: v.int64(),
+    dateOfBirth: v.string(),
+    email: v.optional(v.string()),
+    firstName: v.string(),
+    gender: v.optional(genderValidator),
+    lastModified: v.int64(),
+    lastName: v.string(),
+    phoneNumber: v.string(),
+    postalCode: v.optional(v.string()),
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+    street: v.optional(v.string()),
+    title: v.optional(v.string()),
+    userId: v.id("users"),
+  })
+    .index("by_userId_practiceId_ruleSetId", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+    ])
     .index("by_userId", ["userId"]),
 
   bookingPrivacySteps: defineTable({
@@ -827,10 +761,13 @@ export default defineSchema({
     lastModified: v.int64(),
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
-    sessionId: v.id("bookingSessions"),
     userId: v.id("users"),
   })
-    .index("by_sessionId", ["sessionId"])
+    .index("by_userId_practiceId_ruleSetId", [
+      "userId",
+      "practiceId",
+      "ruleSetId",
+    ])
     .index("by_userId", ["userId"]),
 
   locations: defineTable({
@@ -927,6 +864,34 @@ export default defineSchema({
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
     name: v.string(),
   }),
+
+  practitionerAssociations: defineTable({
+    bookingIdentityId: v.optional(v.id("bookingIdentities")),
+    createdAt: v.int64(),
+    createdByUserId: v.optional(v.id("users")),
+    lastModified: v.int64(),
+    patientId: v.optional(v.id("patients")),
+    practiceId: v.id("practices"),
+    practitionerLineageKey: v.id("practitioners"),
+    source: v.union(
+      v.literal("legacy-baumdiagramm"),
+      v.literal("appointment-history"),
+      v.literal("manual"),
+    ),
+    status: v.union(
+      v.literal("active"),
+      v.literal("superseded"),
+      v.literal("rejected"),
+    ),
+    supersededAt: v.optional(v.int64()),
+    supersededByUserId: v.optional(v.id("users")),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_practiceId_status", ["practiceId", "status"])
+    .index("by_patientId", ["patientId"])
+    .index("by_patientId_status", ["patientId", "status"])
+    .index("by_bookingIdentityId", ["bookingIdentityId"])
+    .index("by_bookingIdentityId_status", ["bookingIdentityId", "status"]),
   vacations: defineTable({
     createdAt: v.int64(),
     date: v.string(), // YYYY-MM-DD
@@ -987,7 +952,6 @@ export default defineSchema({
     parentId: v.optional(v.id("practitioners")), // Reference to the entity this was copied from
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"), // Required: practitioners are versioned per rule set
-    tags: v.optional(v.array(v.string())),
   })
     .index("by_practiceId", ["practiceId"])
     .index("by_ruleSetId", ["ruleSetId"])
@@ -1060,6 +1024,17 @@ export default defineSchema({
    *      └─ Child (NOT)
    *          └─ Leaf: location IS 'Dissen'
    */
+  onlineAccountBlocks: defineTable({
+    createdAt: v.int64(),
+    legacyUserId: v.string(),
+    practiceId: v.id("practices"),
+    reason: v.string(),
+    sourceSystem: v.literal("legacy-online"),
+    userId: v.id("users"),
+  })
+    .index("by_userId_practiceId", ["userId", "practiceId"])
+    .index("by_legacyUserId", ["legacyUserId"]),
+
   ruleConditions: defineTable({
     // Metadata - required for ALL nodes (root and children) for security and querying
     copyFromId: v.optional(v.id("ruleConditions")), // Copy-on-write reference
@@ -1091,7 +1066,6 @@ export default defineSchema({
         v.literal("DAY_OF_WEEK"), // Test day of week (0-6)
         v.literal("LOCATION"), // Test location ID
         v.literal("PRACTITIONER"), // Test practitioner ID
-        v.literal("PRACTITIONER_TAG"), // Test if practitioner has tag
 
         // Time-based
         v.literal("DATE_RANGE"), // Test if date is in range
@@ -1152,41 +1126,24 @@ export default defineSchema({
     .index("by_copyFromId", ["copyFromId"])
     .index("by_copyFromId_ruleSetId", ["copyFromId", "ruleSetId"]),
 
-  /**
-   * Booking Sessions Table
-   *
-   * Stores the state of an in-progress online booking session.
-   * Uses a discriminated union based on `step` to represent
-   * the user's progress through the decision tree.
-   *
-   * The step field determines which other fields are present,
-   * enabling type-safe narrowing in the UI.
-   *
-   * Sessions expire after 30 minutes of inactivity.
-   * Sessions are tied to authenticated users.
-   */
-  bookingSessions: defineTable({
-    // Multi-tenancy
-    practiceId: v.id("practices"),
-    ruleSetId: v.id("ruleSets"),
-
-    // User who owns this session (required - no anonymous bookings)
-    userId: v.id("users"),
-
-    // Persist only the current step; step payload is stored in per-step tables
-    state: bookingSessionStorageStateValidator,
-
-    // Metadata
+  // Temporary migration-only patient-facing holds for unmatched future online
+  // bookings. These are deliberately kept out of the scheduling model.
+  legacyUnmatchedFutureBookingHolds: defineTable({
     createdAt: v.int64(),
-    expiresAt: v.int64(), // Auto-expire after 30 minutes
+    end: v.string(),
     lastModified: v.int64(),
+    legacyAppointmentId: v.string(),
+    legacyType: v.optional(v.string()),
+    locationName: v.optional(v.string()),
+    practiceId: v.id("practices"),
+    practitionerName: v.optional(v.string()),
+    start: v.string(),
+    userId: v.id("users"),
   })
-    .index("by_practiceId", ["practiceId"])
-    .index("by_expiresAt", ["expiresAt"])
-    .index("by_userId", ["userId"])
-    .index("by_userId_practiceId_ruleSetId", [
-      "userId",
+    .index("by_userId_start", ["userId", "start"])
+    .index("by_userId_practiceId_start", ["userId", "practiceId", "start"])
+    .index("by_practiceId_legacyAppointmentId", [
       "practiceId",
-      "ruleSetId",
+      "legacyAppointmentId",
     ]),
 });

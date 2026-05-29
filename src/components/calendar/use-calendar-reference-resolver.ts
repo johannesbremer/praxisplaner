@@ -7,7 +7,13 @@ import type {
   PractitionerLineageKey,
 } from "../../../convex/identity";
 import type {
+  AppointmentDisplayOccupancyScope,
+  BlockedSlotDisplayOccupancyScope,
+} from "./calendar-reference-adapters";
+import type {
+  CalendarAppointmentPlacement,
   CalendarBlockedSlotEditorRecord,
+  CalendarBlockedSlotPlacement,
   CalendarBlockedSlotRecord,
 } from "./types";
 
@@ -104,7 +110,7 @@ export function useCalendarReferenceResolver({
     (args: {
       appointmentTypeId: Id<"appointmentTypes">;
       locationId: Id<"locations">;
-      practitionerId?: Id<"practitioners">;
+      occupancyScope: AppointmentDisplayOccupancyScope;
     }) => resolveAppointmentLineageRefs(args, referenceMaps),
     [referenceMaps],
   );
@@ -112,8 +118,7 @@ export function useCalendarReferenceResolver({
   const resolveAppointmentReferenceDisplayIds = useCallback(
     (args: {
       appointmentTypeLineageKey: AppointmentTypeLineageKey;
-      locationLineageKey: LocationLineageKey;
-      practitionerLineageKey?: PractitionerLineageKey;
+      placement: CalendarAppointmentPlacement;
     }) => resolveAppointmentDisplayRefs(args, referenceMaps),
     [referenceMaps],
   );
@@ -121,16 +126,17 @@ export function useCalendarReferenceResolver({
   const resolveBlockedSlotReferenceLineageKeys = useCallback(
     (args: {
       locationId: Id<"locations">;
-      practitionerId?: Id<"practitioners">;
+      occupancyScope: BlockedSlotDisplayOccupancyScope;
     }) => resolveBlockedSlotLineageRefs(args, referenceMaps),
     [referenceMaps],
   );
 
   const resolveBlockedSlotReferenceDisplayIds = useCallback(
-    (args: {
-      locationLineageKey: LocationLineageKey;
-      practitionerLineageKey?: PractitionerLineageKey;
-    }) => resolveBlockedSlotDisplayRefs(args, referenceMaps),
+    (placement: CalendarBlockedSlotPlacement | CalendarBlockedSlotRecord) =>
+      resolveBlockedSlotDisplayRefs(
+        "placement" in placement ? placement.placement : placement,
+        referenceMaps,
+      ),
     [referenceMaps],
   );
 
