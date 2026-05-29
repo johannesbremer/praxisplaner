@@ -463,6 +463,53 @@ describe("appointments self-service cancellation", () => {
     expect(upcomingAppointments[1]?._id).toBe(futureAppointmentId);
   });
 
+  test("getBookedAppointmentsForCurrentUser scopes imported holds to the display rule set practice", async () => {
+    const t = createTestContext();
+    const displayPracticeData = await createAppointmentBaseData(t);
+    const otherPracticeData = await createAppointmentBaseData(t);
+    const authId = "workos_booked_user_cross_practice_legacy_hold";
+    const userId = await createUser(t, authId, "cross-hold@example.com");
+    const holdWindow = makeSlotWindow(3);
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("legacyUnmatchedFutureBookingHolds", {
+        createdAt: now,
+        end: holdWindow.end,
+        lastModified: now,
+        legacyAppointmentId: "legacy-unmatched-hold-other-practice",
+        legacyType: "Akuttermin",
+        locationName: "Other Practice",
+        practiceId: otherPracticeData.practiceId,
+        practitionerName: "Dr. Other",
+        start: holdWindow.start,
+        userId,
+      });
+    });
+
+    const authed = t.withIdentity({
+      email: "cross-hold@example.com",
+      subject: authId,
+    });
+
+    const displayPracticeAppointments = await authed.query(
+      api.appointments.getBookedAppointmentsForCurrentUser,
+      { activeRuleSetId: displayPracticeData.ruleSetId },
+    );
+
+    expect(displayPracticeAppointments).toHaveLength(0);
+
+    const allPracticeAppointments = await authed.query(
+      api.appointments.getBookedAppointmentsForCurrentUser,
+      {},
+    );
+
+    expect(allPracticeAppointments).toHaveLength(1);
+    expect(allPracticeAppointments[0]?.kind).toBe(
+      "legacy-unmatched-future-hold",
+    );
+  });
+
   test("getBookedAppointmentsForCurrentUser remaps appointment type titles for the active display rule set", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);

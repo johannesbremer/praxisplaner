@@ -718,6 +718,25 @@ function getDisplayRuleSetId(args: {
   return args.selectedRuleSetId ?? args.activeRuleSetId;
 }
 
+async function getDisplayRuleSetPracticeId(
+  db: DatabaseReader,
+  displayRuleSetId: Id<"ruleSets"> | undefined,
+): Promise<Id<"practices"> | undefined> {
+  if (displayRuleSetId === undefined) {
+    return undefined;
+  }
+
+  const displayRuleSet = await db.get("ruleSets", displayRuleSetId);
+  if (!displayRuleSet) {
+    throw new ConvexError({
+      code: "NOT_FOUND",
+      message: "Display rule set not found.",
+    });
+  }
+
+  return displayRuleSet.practiceId;
+}
+
 async function getOptionalLocationLineageKey(
   db: DatabaseReader,
   locationId: Id<"locations"> | undefined,
@@ -2537,6 +2556,10 @@ async function getBookedAppointmentsForUser(
   }
 
   const displayRuleSetId = getDisplayRuleSetId(args);
+  const displayPracticeId = await getDisplayRuleSetPracticeId(
+    ctx.db,
+    displayRuleSetId,
+  );
   if (displayRuleSetId) {
     const remappedAppointments = await remapAppointmentIds(
       ctx,
@@ -2544,7 +2567,12 @@ async function getBookedAppointmentsForUser(
       displayRuleSetId,
     );
     const unresolvedFutureHolds =
-      await getFutureLegacyUnmatchedBookingHoldsForUser(ctx, { userId });
+      await getFutureLegacyUnmatchedBookingHoldsForUser(ctx, {
+        ...(displayPracticeId === undefined
+          ? {}
+          : { practiceId: displayPracticeId }),
+        userId,
+      });
     return [
       ...remappedAppointments.map((appointment) =>
         toBookedAppointmentSummaryItem(appointment),
@@ -2556,7 +2584,12 @@ async function getBookedAppointmentsForUser(
   }
 
   const unresolvedFutureHolds =
-    await getFutureLegacyUnmatchedBookingHoldsForUser(ctx, { userId });
+    await getFutureLegacyUnmatchedBookingHoldsForUser(ctx, {
+      ...(displayPracticeId === undefined
+        ? {}
+        : { practiceId: displayPracticeId }),
+      userId,
+    });
   return [
     ...appointments.map((appointment) =>
       toBookedAppointmentSummaryItem(toAppointmentListItem(appointment)),
