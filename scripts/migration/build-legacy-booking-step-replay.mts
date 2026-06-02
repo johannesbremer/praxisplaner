@@ -263,44 +263,55 @@ function trimToUndefined(value) {
 }
 
 function personalDataFromFields(fields) {
+  const city = trimToUndefined(fields.city);
   const firstName = trimToUndefined(fields.firstName);
+  const email = trimToUndefined(fields.email);
+  const gender = trimToUndefined(fields.gender);
   const lastName = trimToUndefined(fields.lastName);
   const dateOfBirth = trimToUndefined(normalizeDate(fields.dateOfBirth));
+  const phoneNumber = trimToUndefined(fields.phoneNumber);
+  const postalCode = trimToUndefined(fields.postalCode);
+  const street = trimToUndefined(fields.street);
+  const title = trimToUndefined(fields.title);
 
-  if (!firstName || !lastName || !dateOfBirth) {
+  if (
+    !city ||
+    !dateOfBirth ||
+    !email ||
+    !firstName ||
+    !gender ||
+    !lastName ||
+    !phoneNumber ||
+    !postalCode ||
+    !street
+  ) {
     return undefined;
   }
 
   return {
-    ...(trimToUndefined(fields.city) ? { city: fields.city } : {}),
+    city,
     dateOfBirth,
-    ...(trimToUndefined(fields.email) ? { email: fields.email } : {}),
+    email,
     firstName,
-    ...(trimToUndefined(fields.gender) ? { gender: fields.gender } : {}),
+    gender,
     lastName,
-    phoneNumber: String(fields.phoneNumber ?? "").trim(),
-    ...(trimToUndefined(fields.postalCode)
-      ? { postalCode: fields.postalCode }
-      : {}),
-    ...(trimToUndefined(fields.street) ? { street: fields.street } : {}),
-    ...(trimToUndefined(fields.title) ? { title: fields.title } : {}),
+    phoneNumber,
+    postalCode,
+    street,
+    ...(title === undefined ? {} : { title }),
   };
 }
 
 function personalDataFromLegacyUser(userId, args) {
   const personal = args.personalByUser.get(userId);
-  const fallbackMatch = args.allowPvsFallback ? args.fallbackMatch : undefined;
-  const fallbackFirstName = fallbackMatch?.patientFirstName;
-  const fallbackLastName = fallbackMatch?.patientLastName;
-  const fallbackBirthDate = fallbackMatch?.birthDate;
 
   return personalDataFromFields({
     city: personal?.ort ?? "",
-    dateOfBirth: personal?.geburtstag ?? fallbackBirthDate ?? "",
+    dateOfBirth: personal?.geburtstag ?? "",
     email: normalizeEmail(args.userEmail, userId, "legacy-users.invalid"),
-    firstName: personal?.vorname ?? fallbackFirstName ?? "",
+    firstName: personal?.vorname ?? "",
     gender: normalizeGender(personal?.geschlecht),
-    lastName: personal?.name ?? fallbackLastName ?? "",
+    lastName: personal?.name ?? "",
     phoneNumber: personal?.tel ?? "",
     postalCode: personal?.plz ?? "",
     street: personal?.strasse ?? "",
@@ -774,8 +785,6 @@ function buildSnapshotReplayRow(
       })
     : undefined;
   const personalData = personalDataFromLegacyUser(userId, {
-    allowPvsFallback: true,
-    fallbackMatch: currentMatch,
     personalByUser: maps.personalByUser,
     userEmail,
   });

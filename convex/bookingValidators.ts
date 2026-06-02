@@ -53,15 +53,15 @@ export const genderValidator = v.union(
 );
 
 export const personalDataValidator = v.object({
-  city: v.optional(v.string()),
+  city: v.string(),
   dateOfBirth: v.string(),
-  email: v.optional(v.string()),
+  email: v.string(),
   firstName: v.string(),
-  gender: v.optional(genderValidator),
+  gender: genderValidator,
   lastName: v.string(),
   phoneNumber: v.string(),
-  postalCode: v.optional(v.string()),
-  street: v.optional(v.string()),
+  postalCode: v.string(),
+  street: v.string(),
   title: v.optional(v.string()),
 });
 

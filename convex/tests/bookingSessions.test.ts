@@ -6,6 +6,35 @@ import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
 
+function completePersonalData(
+  overrides: Partial<{
+    city: string;
+    dateOfBirth: string;
+    email: string;
+    firstName: string;
+    gender: "diverse" | "female" | "male";
+    lastName: string;
+    phoneNumber: string;
+    postalCode: string;
+    street: string;
+    title: string;
+  }> = {},
+) {
+  return {
+    city: "Berlin",
+    dateOfBirth: "1990-01-01",
+    email: "ada@example.com",
+    firstName: "Ada",
+    gender: "female" as const,
+    lastName: "Lovelace",
+    phoneNumber: "+491701234567",
+    postalCode: "10115",
+    street: "Unter den Linden 1",
+    title: "Dr.",
+    ...overrides,
+  };
+}
+
 function createAuthedTestContext(identitySuffix = "default") {
   return convexTest(schema, modules).withIdentity({
     email: `${identitySuffix}@example.com`,
@@ -183,15 +212,13 @@ describe("booking flow without bookingSessions table", () => {
         hasLungCondition: true,
         otherConditions: "Asthma",
       },
-      personalData: {
+      personalData: completePersonalData({
         city: "Osnabrück",
-        dateOfBirth: "1990-01-01",
-        firstName: "Ada",
-        lastName: "Lovelace",
-        phoneNumber: "0123456789",
+        email: "ada@example.com",
+        phoneNumber: "+491701234567",
         postalCode: "49074",
         street: "Teststr. 1",
-      },
+      }),
       practiceId: fixture.practiceId,
       ruleSetId: fixture.ruleSetId,
     });
@@ -264,12 +291,13 @@ describe("booking flow without bookingSessions table", () => {
     expect(beforePersonalData?.state.step).toBe("existing-data-input");
 
     await t.mutation(api.bookingSessions.submitExistingPatientData, {
-      personalData: {
+      personalData: completePersonalData({
         dateOfBirth: "1975-05-20",
+        email: "grace@example.com",
         firstName: "Grace",
         lastName: "Hopper",
         phoneNumber: "+491709999999",
-      },
+      }),
       practiceId: fixture.practiceId,
       ruleSetId: fixture.ruleSetId,
     });
@@ -301,12 +329,7 @@ describe("booking flow without bookingSessions table", () => {
       ruleSetId: fixture.ruleSetId,
     });
     await t.mutation(api.bookingSessions.submitNewPatientData, {
-      personalData: {
-        dateOfBirth: "1990-01-01",
-        firstName: "Ada",
-        lastName: "Lovelace",
-        phoneNumber: "+491701234567",
-      },
+      personalData: completePersonalData(),
       practiceId: fixture.practiceId,
       ruleSetId: fixture.ruleSetId,
     });
@@ -414,12 +437,7 @@ describe("booking flow without bookingSessions table", () => {
       ruleSetId: fixture.ruleSetId,
     });
     await t.mutation(api.bookingSessions.submitNewPatientData, {
-      personalData: {
-        dateOfBirth: "1990-01-01",
-        firstName: "Ada",
-        lastName: "Lovelace",
-        phoneNumber: "+491701234567",
-      },
+      personalData: completePersonalData(),
       practiceId: fixture.practiceId,
       ruleSetId: fixture.ruleSetId,
     });
@@ -469,12 +487,13 @@ describe("booking flow without bookingSessions table", () => {
       ruleSetId: fixture.ruleSetId,
     });
     await t.mutation(api.bookingSessions.submitExistingPatientData, {
-      personalData: {
+      personalData: completePersonalData({
         dateOfBirth: "1975-05-20",
+        email: "grace@example.com",
         firstName: "Grace",
         lastName: "Hopper",
         phoneNumber: "+491709999999",
-      },
+      }),
       practiceId: fixture.practiceId,
       ruleSetId: fixture.ruleSetId,
     });
@@ -526,12 +545,13 @@ describe("booking flow without bookingSessions table", () => {
       ruleSetId: fixture.ruleSetId,
     });
     await t.mutation(api.bookingSessions.submitExistingPatientData, {
-      personalData: {
+      personalData: completePersonalData({
         dateOfBirth: "1975-05-20",
+        email: "grace@example.com",
         firstName: "Grace",
         lastName: "Hopper",
         phoneNumber: "+491709999999",
-      },
+      }),
       practiceId: fixture.practiceId,
       ruleSetId: fixture.ruleSetId,
     });
@@ -669,12 +689,13 @@ describe("booking flow without bookingSessions table", () => {
       ruleSetId: fixture.ruleSetId,
     });
     await t.mutation(api.bookingSessions.submitExistingPatientData, {
-      personalData: {
+      personalData: completePersonalData({
         dateOfBirth: "1975-05-20",
+        email: "grace@example.com",
         firstName: "Grace",
         lastName: "Hopper",
         phoneNumber: "+491709999999",
-      },
+      }),
       practiceId: fixture.practiceId,
       ruleSetId: fixture.ruleSetId,
     });

@@ -808,15 +808,15 @@ function materializePersonalData(
   }
 
   return asPersonalDataInput({
-    ...(row.city === undefined ? {} : { city: row.city }),
+    city: row.city,
     dateOfBirth: row.dateOfBirth,
-    ...(row.email === undefined ? {} : { email: row.email }),
+    email: row.email,
     firstName: row.firstName,
-    ...(row.gender === undefined ? {} : { gender: row.gender }),
+    gender: row.gender,
     lastName: row.lastName,
     phoneNumber: row.phoneNumber,
-    ...(row.postalCode === undefined ? {} : { postalCode: row.postalCode }),
-    ...(row.street === undefined ? {} : { street: row.street }),
+    postalCode: row.postalCode,
+    street: row.street,
     ...(row.title === undefined ? {} : { title: row.title }),
   });
 }
@@ -1708,48 +1708,32 @@ async function upsertPersonalDataStep(
   const existing = await getFlowRow(ctx, "bookingPersonalDataSteps", flowKey);
   const now = BigInt(Date.now());
   const patch = {
-    ...(personalData.city === undefined
-      ? { city: undefined }
-      : { city: personalData.city }),
+    city: personalData.city,
     dateOfBirth: personalData.dateOfBirth,
-    ...(personalData.email === undefined
-      ? { email: undefined }
-      : { email: personalData.email }),
+    email: personalData.email,
     firstName: personalData.firstName,
-    ...(personalData.gender === undefined
-      ? { gender: undefined }
-      : { gender: personalData.gender }),
+    gender: personalData.gender,
     lastModified: now,
     lastName: personalData.lastName,
     phoneNumber: personalData.phoneNumber,
-    ...(personalData.postalCode === undefined
-      ? { postalCode: undefined }
-      : { postalCode: personalData.postalCode }),
-    ...(personalData.street === undefined
-      ? { street: undefined }
-      : { street: personalData.street }),
+    postalCode: personalData.postalCode,
+    street: personalData.street,
     ...(personalData.title === undefined
       ? { title: undefined }
       : { title: personalData.title }),
   };
   const insertData = {
-    ...(personalData.city === undefined ? {} : { city: personalData.city }),
+    city: personalData.city,
     createdAt: now,
     dateOfBirth: personalData.dateOfBirth,
-    ...(personalData.email === undefined ? {} : { email: personalData.email }),
+    email: personalData.email,
     firstName: personalData.firstName,
-    ...(personalData.gender === undefined
-      ? {}
-      : { gender: personalData.gender }),
+    gender: personalData.gender,
     lastModified: now,
     lastName: personalData.lastName,
     phoneNumber: personalData.phoneNumber,
-    ...(personalData.postalCode === undefined
-      ? {}
-      : { postalCode: personalData.postalCode }),
-    ...(personalData.street === undefined
-      ? {}
-      : { street: personalData.street }),
+    postalCode: personalData.postalCode,
+    street: personalData.street,
     ...(personalData.title === undefined ? {} : { title: personalData.title }),
   };
   if (existing) {

@@ -19,11 +19,11 @@ import {
   type IsoDateString,
 } from "./typed-regex";
 
-const optionalTextSchema = z.string().optional();
 const optionalTrimmedTextInputSchema = z
   .string()
   .trim()
   .transform((value) => (value === "" ? undefined : value));
+const optionalTextSchema = z.string().optional();
 
 const isoDateSchema = z
   .string()
@@ -92,16 +92,16 @@ const optionalEnumInputSchema = <
     });
 
 export const personalDataInputSchema = z.object({
-  city: optionalTextSchema,
+  city: z.string(),
   dateOfBirth: isoDateSchema,
-  email: optionalTextSchema,
+  email: z.email("Bitte gültige E-Mail-Adresse eingeben"),
   firstName: z.string(),
-  gender: z.enum(GENDER_VALUES).optional(),
+  gender: z.enum(GENDER_VALUES),
   lastName: z.string(),
   phoneNumber: z.e164(),
-  postalCode: optionalTextSchema,
-  street: optionalTextSchema,
-  title: optionalTextSchema,
+  postalCode: z.string(),
+  street: z.string(),
+  title: z.string().optional(),
 });
 
 export const medicalHistoryInputSchema = z.object({
@@ -134,17 +134,22 @@ export const pkvDetailsInputSchema = z.object({
 
 export const personalDataFormSchema = z
   .object({
-    city: optionalTrimmedTextInputSchema,
+    city: requiredTextInputSchema("Ort ist erforderlich"),
     dateOfBirth: isoDateInputSchema,
-    email: optionalTrimmedTextInputSchema,
+    email: requiredTextInputSchema("E-Mail ist erforderlich").pipe(
+      z.email("Bitte gültige E-Mail-Adresse eingeben"),
+    ),
     firstName: requiredTextInputSchema("Vorname ist erforderlich"),
-    gender: optionalEnumInputSchema(GENDER_VALUES),
+    gender: requiredEnumInputSchema(
+      GENDER_VALUES,
+      "Geschlecht ist erforderlich",
+    ),
     lastName: requiredTextInputSchema("Nachname ist erforderlich"),
     phoneNumber: z.e164(
       "Bitte gültige Telefonnummer im Format +49... eingeben",
     ),
-    postalCode: optionalTrimmedTextInputSchema,
-    street: optionalTrimmedTextInputSchema,
+    postalCode: requiredTextInputSchema("PLZ ist erforderlich"),
+    street: requiredTextInputSchema("Straße ist erforderlich"),
     title: optionalTrimmedTextInputSchema,
   })
   .transform((value) => toPersonalDataInput(value));
@@ -280,43 +285,31 @@ export function toOptionalMedicalHistory(
 }
 
 export function toPersonalDataInput(value: {
-  city?: string | undefined;
+  city: string;
   dateOfBirth: string;
-  email?: string | undefined;
+  email: string;
   firstName: string;
-  gender?: (typeof GENDER_VALUES)[number] | undefined;
+  gender: (typeof GENDER_VALUES)[number];
   lastName: string;
   phoneNumber: string;
-  postalCode?: string | undefined;
-  street?: string | undefined;
+  postalCode: string;
+  street: string;
   title?: string | undefined;
 }): PersonalDataInput {
   const personalData: PersonalDataInput = {
+    city: value.city,
     dateOfBirth: toIsoDateString(value.dateOfBirth),
+    email: value.email,
     firstName: value.firstName,
+    gender: value.gender,
     lastName: value.lastName,
     phoneNumber: value.phoneNumber,
+    postalCode: value.postalCode,
+    street: value.street,
   };
-
-  if (value.city !== undefined) {
-    personalData.city = value.city;
-  }
-  if (value.email !== undefined) {
-    personalData.email = value.email;
-  }
-  if (value.gender !== undefined) {
-    personalData.gender = value.gender;
-  }
-  if (value.postalCode !== undefined) {
-    personalData.postalCode = value.postalCode;
-  }
-  if (value.street !== undefined) {
-    personalData.street = value.street;
-  }
   if (value.title !== undefined) {
     personalData.title = value.title;
   }
-
   return personalData;
 }
 

@@ -17,6 +17,21 @@ import { modules } from "./test.setup";
 
 type TestContext = ReturnType<typeof createTestContext>;
 
+function completePersonalData() {
+  return {
+    city: "Berlin",
+    dateOfBirth: "1990-01-01",
+    email: "ada@example.com",
+    firstName: "Ada",
+    gender: "female" as const,
+    lastName: "Lovelace",
+    phoneNumber: "+491701234567",
+    postalCode: "10115",
+    street: "Unter den Linden 1",
+    title: "Dr.",
+  };
+}
+
 async function createAssociationFixture(t: TestContext) {
   return await t.run(async (ctx) => {
     const now = BigInt(Date.now());
@@ -484,12 +499,7 @@ describe("practitioner associations", () => {
               createdAt: Date.now(),
               dataSharingContacts: [],
               locationName: "Dissen a.T.W.",
-              personalData: {
-                dateOfBirth: "1990-01-01",
-                firstName: "Ada",
-                lastName: "Lovelace",
-                phoneNumber: "0123456789",
-              },
+              personalData: completePersonalData(),
               practitionerName: "Missing Practitioner",
               sessionStep: "existing-data-input",
               source: "legacy-online",
@@ -566,6 +576,83 @@ describe("practitioner associations", () => {
       );
       expect(privacySteps).toHaveLength(1);
       expect(privacySteps[0]?.consent).toBe(false);
+    } finally {
+      if (previousFlag === undefined) {
+        delete process.env["MIGRATION_REHEARSAL_ENABLED"];
+      } else {
+        process.env["MIGRATION_REHEARSAL_ENABLED"] = previousFlag;
+      }
+    }
+  });
+
+  test("replay import stores existing personal data without advancing data-input rows", async () => {
+    const previousFlag = process.env["MIGRATION_REHEARSAL_ENABLED"];
+    process.env["MIGRATION_REHEARSAL_ENABLED"] = "true";
+
+    try {
+      const t = createTestContext();
+      const { practiceId, ruleSetId, userAuthId } = await t.run(async (ctx) => {
+        const practiceId = await ctx.db.insert("practices", {
+          name: "Data Input Practice",
+        });
+        const ruleSetId = await ctx.db.insert("ruleSets", {
+          createdAt: Date.now(),
+          description: "Data Input Rule Set",
+          draftRevision: 0,
+          practiceId,
+          saved: true,
+          version: 1,
+        });
+        await insertSelfLineageEntity(ctx.db, "locations", {
+          name: "Dissen a.T.W.",
+          practiceId,
+          ruleSetId,
+        });
+        await insertSelfLineageEntity(ctx.db, "practitioners", {
+          name: "Dr. J. Wedegärtner",
+          practiceId,
+          ruleSetId,
+        });
+
+        return {
+          practiceId,
+          ruleSetId,
+          userAuthId: "legacy-pocketbase:user-data-input",
+        };
+      });
+
+      const result = await t.mutation(
+        api.migrationRehearsal.importLegacyBookingStepReplay,
+        {
+          practiceId,
+          replayRows: [
+            {
+              createdAt: Date.now(),
+              dataSharingContacts: [],
+              locationName: "Dissen a.T.W.",
+              personalData: completePersonalData(),
+              practitionerName: "Dr. J. Wedegärtner",
+              sessionStep: "existing-data-input",
+              source: "legacy-online",
+              sourceSessionKey: "legacy-pocketbase:snapshot:data-input-user",
+              userAuthId,
+              userEmail: "data-input@example.com",
+            },
+          ],
+          ruleSetId,
+        },
+      );
+
+      expect(result.insertedSessions).toBe(1);
+
+      const persisted = await t.run(async (ctx) => ({
+        doctorSelections: await ctx.db
+          .query("bookingExistingDoctorSelectionSteps")
+          .collect(),
+        personalData: await ctx.db.query("bookingPersonalDataSteps").collect(),
+      }));
+      expect(persisted.doctorSelections).toHaveLength(1);
+      expect(persisted.personalData).toHaveLength(1);
     } finally {
       if (previousFlag === undefined) {
         delete process.env["MIGRATION_REHEARSAL_ENABLED"];
@@ -670,12 +757,7 @@ describe("practitioner associations", () => {
               createdAt: Date.now(),
               dataSharingContacts: [],
               locationName: "Dissen a.T.W.",
-              personalData: {
-                dateOfBirth: "1990-01-01",
-                firstName: "Ada",
-                lastName: "Lovelace",
-                phoneNumber: "0123456789",
-              },
+              personalData: completePersonalData(),
               practitionerName: "Dr. J. Wedegärtner",
               pvsAppointmentStart: "2026-01-02T08:00:00.000Z",
               pvsAppointmentTypeTitle: "Akuttermin",

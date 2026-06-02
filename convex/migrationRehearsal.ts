@@ -1547,15 +1547,15 @@ interface LegacyBookingReplayRowInput {
   };
   medicalHistoryComplete?: boolean;
   personalData?: {
-    city?: string;
+    city: string;
     dateOfBirth: string;
-    email?: string;
+    email: string;
     firstName: string;
-    gender?: "diverse" | "female" | "male";
+    gender: "diverse" | "female" | "male";
     lastName: string;
     phoneNumber: string;
-    postalCode?: string;
-    street?: string;
+    postalCode: string;
+    street: string;
     title?: string;
   };
   pkvInsuranceType?: "kvb" | "other" | "postb";
@@ -1709,6 +1709,25 @@ async function insertImportedExistingReplaySteps(
     ...base,
     isNewPatient: false,
   });
+
+  if (personalData !== undefined) {
+    await ctx.db.insert("bookingPersonalDataSteps", {
+      ...base,
+      city: personalData.city,
+      dateOfBirth: personalData.dateOfBirth,
+      email: personalData.email,
+      firstName: personalData.firstName,
+      gender: personalData.gender,
+      lastName: personalData.lastName,
+      phoneNumber: personalData.phoneNumber,
+      postalCode: personalData.postalCode,
+      street: personalData.street,
+      ...(personalData.title === undefined
+        ? {}
+        : { title: personalData.title }),
+    });
+  }
+
   if (practitionerLineageKey === undefined) {
     return;
   }
@@ -1721,34 +1740,11 @@ async function insertImportedExistingReplaySteps(
   if (args.replayRow.sessionStep === "existing-doctor-selection") {
     return;
   }
-  if (personalData === undefined) {
+  if (args.replayRow.sessionStep === "existing-data-input") {
     return;
   }
 
-  await ctx.db.insert("bookingPersonalDataSteps", {
-    ...base,
-    ...(personalData.city === undefined ? {} : { city: personalData.city }),
-    dateOfBirth: personalData.dateOfBirth,
-    ...(personalData.email === undefined ? {} : { email: personalData.email }),
-    firstName: personalData.firstName,
-    ...(personalData.gender === undefined
-      ? {}
-      : { gender: personalData.gender }),
-    lastName: personalData.lastName,
-    phoneNumber: personalData.phoneNumber,
-    ...(personalData.postalCode === undefined
-      ? {}
-      : { postalCode: personalData.postalCode }),
-    ...(personalData.street === undefined
-      ? {}
-      : { street: personalData.street }),
-    ...(personalData.title === undefined ? {} : { title: personalData.title }),
-  });
-
-  if (
-    args.replayRow.sessionStep === "existing-data-input" ||
-    args.replayRow.sessionStep === "existing-calendar-selection"
-  ) {
+  if (args.replayRow.sessionStep === "existing-calendar-selection") {
     return;
   }
 }
@@ -1862,21 +1858,15 @@ async function insertImportedNewReplaySteps(
 
   await ctx.db.insert("bookingPersonalDataSteps", {
     ...base,
-    ...(personalData.city === undefined ? {} : { city: personalData.city }),
+    city: personalData.city,
     dateOfBirth: personalData.dateOfBirth,
-    ...(personalData.email === undefined ? {} : { email: personalData.email }),
+    email: personalData.email,
     firstName: personalData.firstName,
-    ...(personalData.gender === undefined
-      ? {}
-      : { gender: personalData.gender }),
+    gender: personalData.gender,
     lastName: personalData.lastName,
     phoneNumber: personalData.phoneNumber,
-    ...(personalData.postalCode === undefined
-      ? {}
-      : { postalCode: personalData.postalCode }),
-    ...(personalData.street === undefined
-      ? {}
-      : { street: personalData.street }),
+    postalCode: personalData.postalCode,
+    street: personalData.street,
     ...(personalData.title === undefined ? {} : { title: personalData.title }),
   });
 

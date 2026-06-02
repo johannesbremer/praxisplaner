@@ -165,7 +165,7 @@ export function DataInputStep({
                       onChange={(e) => {
                         field.handleChange(e.target.value);
                       }}
-                      placeholder="Dr., Prof., etc."
+                      placeholder="Dr."
                       value={field.state.value}
                     />
                   </Field>
@@ -259,28 +259,38 @@ export function DataInputStep({
                 </form.Field>
 
                 <form.Field name="personalData.gender">
-                  {(field) => (
-                    <Field>
-                      <FieldLabel htmlFor={field.name}>
-                        Geschlecht (optional)
-                      </FieldLabel>
-                      <Select
-                        onValueChange={(value) => {
-                          field.handleChange(value);
-                        }}
-                        value={field.state.value}
-                      >
-                        <SelectTrigger id={field.name}>
-                          <SelectValue placeholder="Bitte wählen" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="male">Männlich</SelectItem>
-                          <SelectItem value="female">Weiblich</SelectItem>
-                          <SelectItem value="diverse">Divers</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  )}
+                  {(field) => {
+                    const isInvalid =
+                      field.state.meta.isTouched && !field.state.meta.isValid;
+                    return (
+                      <Field data-invalid={isInvalid}>
+                        <FieldLabel htmlFor={field.name}>
+                          Geschlecht *
+                        </FieldLabel>
+                        <Select
+                          onValueChange={(value) => {
+                            field.handleChange(value);
+                          }}
+                          value={field.state.value}
+                        >
+                          <SelectTrigger
+                            aria-invalid={isInvalid}
+                            id={field.name}
+                          >
+                            <SelectValue placeholder="Bitte wählen" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="male">Männlich</SelectItem>
+                            <SelectItem value="female">Weiblich</SelectItem>
+                            <SelectItem value="diverse">Divers</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {isInvalid && (
+                          <FieldError errors={field.state.meta.errors} />
+                        )}
+                      </Field>
+                    );
+                  }}
                 </form.Field>
               </div>
 
@@ -315,93 +325,117 @@ export function DataInputStep({
               </form.Field>
 
               <form.Field name="personalData.email">
-                {(field) => (
-                  <Field>
-                    <FieldLabel htmlFor={field.name}>
-                      E-Mail (optional)
-                    </FieldLabel>
-                    <Input
-                      autoComplete="email"
-                      id={field.name}
-                      name={field.name}
-                      onBlur={field.handleBlur}
-                      onChange={(e) => {
-                        field.handleChange(e.target.value);
-                      }}
-                      placeholder="max@beispiel.de"
-                      type="email"
-                      value={field.state.value}
-                    />
-                    <FieldDescription>
-                      Für Terminbestätigungen per E-Mail
-                    </FieldDescription>
-                  </Field>
-                )}
+                {(field) => {
+                  const isInvalid =
+                    field.state.meta.isTouched && !field.state.meta.isValid;
+                  return (
+                    <Field data-invalid={isInvalid}>
+                      <FieldLabel htmlFor={field.name}>E-Mail *</FieldLabel>
+                      <Input
+                        aria-invalid={isInvalid}
+                        autoComplete="email"
+                        id={field.name}
+                        name={field.name}
+                        onBlur={field.handleBlur}
+                        onChange={(e) => {
+                          field.handleChange(e.target.value);
+                        }}
+                        placeholder="max@beispiel.de"
+                        type="email"
+                        value={field.state.value}
+                      />
+                      <FieldDescription>
+                        Für Terminbestätigungen per E-Mail
+                      </FieldDescription>
+                      {isInvalid && (
+                        <FieldError errors={field.state.meta.errors} />
+                      )}
+                    </Field>
+                  );
+                }}
               </form.Field>
 
               {/* Address fields */}
               <form.Field name="personalData.street">
-                {(field) => (
-                  <Field>
-                    <FieldLabel htmlFor={field.name}>
-                      Straße (optional)
-                    </FieldLabel>
-                    <Input
-                      autoComplete="street-address"
-                      id={field.name}
-                      name={field.name}
-                      onBlur={field.handleBlur}
-                      onChange={(e) => {
-                        field.handleChange(e.target.value);
-                      }}
-                      placeholder="Musterstraße 1"
-                      value={field.state.value}
-                    />
-                  </Field>
-                )}
+                {(field) => {
+                  const isInvalid =
+                    field.state.meta.isTouched && !field.state.meta.isValid;
+                  return (
+                    <Field data-invalid={isInvalid}>
+                      <FieldLabel htmlFor={field.name}>Straße *</FieldLabel>
+                      <Input
+                        aria-invalid={isInvalid}
+                        autoComplete="street-address"
+                        id={field.name}
+                        name={field.name}
+                        onBlur={field.handleBlur}
+                        onChange={(e) => {
+                          field.handleChange(e.target.value);
+                        }}
+                        placeholder="Musterstraße 1"
+                        value={field.state.value}
+                      />
+                      {isInvalid && (
+                        <FieldError errors={field.state.meta.errors} />
+                      )}
+                    </Field>
+                  );
+                }}
               </form.Field>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <form.Field name="personalData.postalCode">
-                  {(field) => (
-                    <Field>
-                      <FieldLabel htmlFor={field.name}>
-                        PLZ (optional)
-                      </FieldLabel>
-                      <Input
-                        autoComplete="postal-code"
-                        id={field.name}
-                        name={field.name}
-                        onBlur={field.handleBlur}
-                        onChange={(e) => {
-                          field.handleChange(e.target.value);
-                        }}
-                        placeholder="12345"
-                        value={field.state.value}
-                      />
-                    </Field>
-                  )}
+                  {(field) => {
+                    const isInvalid =
+                      field.state.meta.isTouched && !field.state.meta.isValid;
+                    return (
+                      <Field data-invalid={isInvalid}>
+                        <FieldLabel htmlFor={field.name}>PLZ *</FieldLabel>
+                        <Input
+                          aria-invalid={isInvalid}
+                          autoComplete="postal-code"
+                          id={field.name}
+                          name={field.name}
+                          onBlur={field.handleBlur}
+                          onChange={(e) => {
+                            field.handleChange(e.target.value);
+                          }}
+                          placeholder="12345"
+                          value={field.state.value}
+                        />
+                        {isInvalid && (
+                          <FieldError errors={field.state.meta.errors} />
+                        )}
+                      </Field>
+                    );
+                  }}
                 </form.Field>
 
                 <form.Field name="personalData.city">
-                  {(field) => (
-                    <Field>
-                      <FieldLabel htmlFor={field.name}>
-                        Ort (optional)
-                      </FieldLabel>
-                      <Input
-                        autoComplete="address-level2"
-                        id={field.name}
-                        name={field.name}
-                        onBlur={field.handleBlur}
-                        onChange={(e) => {
-                          field.handleChange(e.target.value);
-                        }}
-                        placeholder="Musterstadt"
-                        value={field.state.value}
-                      />
-                    </Field>
-                  )}
+                  {(field) => {
+                    const isInvalid =
+                      field.state.meta.isTouched && !field.state.meta.isValid;
+                    return (
+                      <Field data-invalid={isInvalid}>
+                        <FieldLabel htmlFor={field.name}>Ort *</FieldLabel>
+                        <Input
+                          aria-invalid={isInvalid}
+                          autoComplete="address-level2"
+                          id={field.name}
+                          name={field.name}
+                          onBlur={field.handleBlur}
+                          onChange={(e) => {
+                            field.handleChange(e.target.value);
+                          }}
+                          placeholder="Musterstadt"
+                          value={field.state.value}
+                        />
+                        {isInvalid && (
+                          <FieldError errors={field.state.meta.errors} />
+                        )}
+                      </Field>
+                    );
+                  }}
                 </form.Field>
               </div>
             </div>
