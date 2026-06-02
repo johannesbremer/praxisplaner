@@ -49,12 +49,12 @@ export type ActiveResizeDraft =
 
 export interface CalendarManualBlockedSlot {
   column: CalendarColumnId;
-  duration?: number;
-  id?: string;
-  isManual?: boolean;
+  duration: number;
+  id: string;
+  isManual: true;
   reason?: string;
   slot: number;
-  startSlot?: number;
+  startSlot: number;
   title?: string;
 }
 

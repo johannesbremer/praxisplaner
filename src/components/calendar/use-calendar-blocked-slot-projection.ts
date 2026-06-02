@@ -31,17 +31,9 @@ import {
 import { SLOT_DURATION } from "./types";
 import { filterBlockedSlotsForDateAndLocation } from "./use-calendar-logic-helpers";
 
-interface BlockedSlotProjection {
-  blockedByRuleId?: Id<"ruleConditions">;
-  column: CalendarColumnId;
-  duration?: number;
-  id?: string;
-  isManual?: boolean;
-  reason?: string;
-  slot: number;
-  startSlot?: number;
-  title?: string;
-}
+type BlockedSlotProjection =
+  | CalendarManualBlockedSlot
+  | RuleBlockedSlotProjection;
 
 interface BlockedSlotSchedule {
   breakTimes?: { end: string; start: string }[];
@@ -53,6 +45,15 @@ interface BlockedSlotVacation {
   portion: "afternoon" | "full" | "morning";
   practitionerLineageKey?: string;
   staffType: "mfa" | "practitioner";
+}
+
+interface RuleBlockedSlotProjection {
+  blockedByRuleId?: Id<"ruleConditions">;
+  column: CalendarColumnId;
+  isManual?: false;
+  reason?: string;
+  slot: number;
+  title?: string;
 }
 
 interface SchedulingSlot {
@@ -257,6 +258,21 @@ export function useCalendarBlockedSlotProjection({
           Temporal.PlainTime.compare(endTime, startTime) >= 0
             ? endTime.since(startTime).total("minutes")
             : 0;
+        if (durationMinutes <= 0) {
+          captureFrontendError(
+            invalidStateError(
+              "Manual blocked slot has invalid duration.",
+              "useCalendarBlockedSlotProjection.manualBlockedSlots",
+            ),
+            {
+              blockedSlotId: blockedSlot._id,
+              end: blockedSlot.end,
+              start: blockedSlot.start,
+            },
+            `manualBlockedSlotInvalidDuration:${blockedSlot._id}`,
+          );
+          continue;
+        }
 
         for (let slot = startSlot; slot < endSlot; slot++) {
           manual.push({
@@ -461,12 +477,6 @@ function appendSchedulingSlots(args: {
       ...(slotData.blockedByRuleId === undefined
         ? {}
         : { blockedByRuleId: slotData.blockedByRuleId }),
-      ...(slotData.blockedByBlockedSlotId === undefined
-        ? {}
-        : {
-            id: slotData.blockedByBlockedSlotId,
-            isManual: true,
-          }),
     });
   }
 }

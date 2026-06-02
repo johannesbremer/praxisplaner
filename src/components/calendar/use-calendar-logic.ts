@@ -764,7 +764,7 @@ export function useCalendarLogic({
         const availableSlot = findNearestAvailableSlot(
           column,
           targetSlot,
-          blockedSlot.duration ?? 30,
+          blockedSlot.duration,
           draggedBlockedSlotId,
         );
 
@@ -867,13 +867,10 @@ export function useCalendarLogic({
         return;
       }
 
-      const resolvedBlockedSlotId =
-        blockedSlot.id === undefined
-          ? undefined
-          : findIdInList(
-              [...blockedSlotDocMapRef.current.keys()],
-              blockedSlot.id,
-            );
+      const resolvedBlockedSlotId = findIdInList(
+        [...blockedSlotDocMapRef.current.keys()],
+        blockedSlot.id,
+      );
       const blockedSlotDoc =
         resolvedBlockedSlotId === undefined
           ? undefined
@@ -890,7 +887,7 @@ export function useCalendarLogic({
         });
 
         const endZoned = startZoned.add({
-          minutes: blockedSlot.duration ?? 30,
+          minutes: blockedSlot.duration,
         });
 
         const dropOccupancyScope = resolveBlockedSlotDropOccupancyScope({

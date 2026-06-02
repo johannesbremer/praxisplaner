@@ -890,18 +890,24 @@ export function useCalendarPlanningWorkbench(args: {
         }
 
         const nextDisplayOccupancyScope:
+          | null
           | { calendarResourceColumn: "ekg" | "labor"; kind: "resource" }
           | { kind: "practitioner"; practitionerId: Id<"practitioners"> } =
           optimisticArgs.calendarResourceColumn === undefined
             ? optimisticArgs.practitionerId === undefined
               ? appointment.practitionerId === undefined
-                ? {
-                    calendarResourceColumn:
+                ? (() => {
+                    const calendarResourceColumn =
                       getCalendarResourceColumnFromOccupancy(
                         currentRecord.placement.occupancyScope,
-                      ) ?? "ekg",
-                    kind: "resource",
-                  }
+                      );
+                    return calendarResourceColumn === undefined
+                      ? null
+                      : {
+                          calendarResourceColumn,
+                          kind: "resource" as const,
+                        };
+                  })()
                 : {
                     kind: "practitioner",
                     practitionerId: appointment.practitionerId,
@@ -912,13 +918,18 @@ export function useCalendarPlanningWorkbench(args: {
                 }
             : optimisticArgs.calendarResourceColumn === null
               ? appointment.practitionerId === undefined
-                ? {
-                    calendarResourceColumn:
+                ? (() => {
+                    const calendarResourceColumn =
                       getCalendarResourceColumnFromOccupancy(
                         currentRecord.placement.occupancyScope,
-                      ) ?? "ekg",
-                    kind: "resource",
-                  }
+                      );
+                    return calendarResourceColumn === undefined
+                      ? null
+                      : {
+                          calendarResourceColumn,
+                          kind: "resource" as const,
+                        };
+                  })()
                 : {
                     kind: "practitioner",
                     practitionerId: appointment.practitionerId,
@@ -927,6 +938,9 @@ export function useCalendarPlanningWorkbench(args: {
                   calendarResourceColumn: optimisticArgs.calendarResourceColumn,
                   kind: "resource" as const,
                 };
+        if (nextDisplayOccupancyScope === null) {
+          return appointment;
+        }
         const lineageRefs =
           optimisticArgs.locationId === undefined &&
           optimisticArgs.practitionerId === undefined &&

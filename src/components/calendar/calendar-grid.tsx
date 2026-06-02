@@ -18,17 +18,25 @@ import { CalendarAppointment } from "./calendar-appointment";
 import { CalendarBlockedSlot } from "./calendar-blocked-slot";
 import { CalendarTimeSlots } from "./calendar-time-slots";
 
-interface BlockedSlot {
-  column: CalendarColumnId;
-  duration?: number;
-  id?: string;
-  isManual?: boolean;
-  reason?: string;
-  slot: number;
-  startSlot?: number;
-  title?: string;
-}
-
+type BlockedSlot =
+  | {
+      column: CalendarColumnId;
+      duration: number;
+      id: string;
+      isManual: true;
+      reason?: string;
+      slot: number;
+      startSlot: number;
+      title?: string;
+    }
+  | {
+      column: CalendarColumnId;
+      id?: undefined;
+      isManual?: false | undefined;
+      reason?: string;
+      slot: number;
+      title?: string;
+    };
 interface CalendarGridProps {
   appointments: CalendarAppointmentView[];
   blockedSlots?: BlockedSlot[];
@@ -74,6 +82,8 @@ interface CalendarGridProps {
   timeToSlot: (time: string) => number;
   totalSlots: number;
 }
+
+type ManualBlockedSlot = Extract<BlockedSlot, { isManual: true }>;
 
 export function CalendarGrid({
   appointments,
@@ -188,15 +198,14 @@ export function CalendarGrid({
 
     // Handle blocked slot drag preview
     if (draggedBlockedSlotId) {
-      const draggedBlockedSlot = blockedSlots.find(
-        (slot) => slot.id === draggedBlockedSlotId && slot.isManual,
-      );
+      const draggedBlockedSlot = blockedSlots
+        .filter(isManualBlockedSlot)
+        .find((slot) => slot.id === draggedBlockedSlotId);
       if (!draggedBlockedSlot) {
         return null;
       }
 
-      const duration = draggedBlockedSlot.duration ?? 30;
-      const height = (duration / slotDuration) * 16;
+      const height = (draggedBlockedSlot.duration / slotDuration) * 16;
       const top = dragPreview.slot * 16;
 
       return (
@@ -224,7 +233,9 @@ export function CalendarGrid({
   const renderBlockedSlots = (column: CalendarColumnId) => {
     // Separate manual blocked slots (from database) from rule-based blocked slots
     const manualBlocked = blockedSlots.filter(
-      (slot) => sameCalendarColumnScope(slot.column, column) && slot.isManual,
+      (slot): slot is ManualBlockedSlot =>
+        sameCalendarColumnScope(slot.column, column) &&
+        isManualBlockedSlot(slot),
     );
     const ruleBasedBlocked = blockedSlots.filter(
       (slot) => sameCalendarColumnScope(slot.column, column) && !slot.isManual,
@@ -255,7 +266,7 @@ export function CalendarGrid({
     ));
 
     // Group manual blocked slots by id to render as single appointment-like blocks
-    const manualBlocksById = new Map<string, BlockedSlot[]>();
+    const manualBlocksById = new Map<string, ManualBlockedSlot[]>();
     for (const slot of manualBlocked) {
       if (slot.id) {
         if (!manualBlocksById.has(slot.id)) {
@@ -420,4 +431,8 @@ export function CalendarGrid({
       ))}
     </div>
   );
+}
+
+function isManualBlockedSlot(slot: BlockedSlot): slot is ManualBlockedSlot {
+  return slot.isManual === true;
 }
