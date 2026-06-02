@@ -49,12 +49,27 @@ import { useCalendarInteractions } from "./use-calendar-interactions";
 import {
   handleEditBlockedSlot,
   resolveBlockedSlotDropOccupancyScope,
+  resolveDragPreviewSlot,
+  resolvePointerSlot,
   TIMEZONE,
 } from "./use-calendar-logic-helpers";
 import { useCalendarPlanningWorkbench } from "./use-calendar-planning-workbench";
 import { useCalendarReferenceResolver } from "./use-calendar-reference-resolver";
 import { useCalendarSimulationConversion } from "./use-calendar-simulation-conversion";
 import { useCalendarVisibleDay } from "./use-calendar-visible-day";
+
+let transparentDragElement: HTMLCanvasElement | null = null;
+
+function setTransparentDragImage(dataTransfer: DataTransfer): void {
+  if (transparentDragElement === null) {
+    const canvas = document.createElement("canvas");
+    canvas.height = 1;
+    canvas.width = 1;
+    transparentDragElement = canvas;
+  }
+
+  dataTransfer.setDragImage(transparentDragElement, 0, 0);
+}
 
 /**
  * Deep comparison of appointment arrays.
@@ -493,57 +508,6 @@ export function useCalendarLogic({
     [baseAppointmentLayouts, timeToSlot],
   );
 
-  const findNearestAvailableSlot = useCallback(
-    (
-      column: CalendarColumnId,
-      targetSlot: number,
-      duration: number,
-      excludeId?: string,
-    ) => {
-      const durationSlots = Math.ceil(duration / SLOT_DURATION);
-
-      if (!checkCollision(column, targetSlot, duration, excludeId)) {
-        return Math.max(0, Math.min(totalSlots - durationSlots, targetSlot));
-      }
-
-      let bestSlot = targetSlot;
-      let minDistance = Number.POSITIVE_INFINITY;
-
-      for (let distance = 0; distance <= totalSlots; distance++) {
-        const slotAbove = targetSlot - distance;
-        if (
-          slotAbove >= 0 &&
-          slotAbove + durationSlots <= totalSlots &&
-          !checkCollision(column, slotAbove, duration, excludeId) &&
-          distance < minDistance
-        ) {
-          minDistance = distance;
-          bestSlot = slotAbove;
-        }
-
-        if (distance > 0) {
-          const slotBelow = targetSlot + distance;
-          if (
-            slotBelow >= 0 &&
-            slotBelow + durationSlots <= totalSlots &&
-            !checkCollision(column, slotBelow, duration, excludeId) &&
-            distance < minDistance
-          ) {
-            minDistance = distance;
-            bestSlot = slotBelow;
-          }
-        }
-
-        if (minDistance < Number.POSITIVE_INFINITY) {
-          break;
-        }
-      }
-
-      return Math.max(0, Math.min(totalSlots - durationSlots, bestSlot));
-    },
-    [checkCollision, totalSlots],
-  );
-
   const getMaxAvailableDuration = useCallback(
     (column: CalendarColumnId, startSlot: number) => {
       const occupiedSlots = baseAppointmentLayouts
@@ -703,6 +667,18 @@ export function useCalendarLogic({
   });
 
   // Drag and drop handlers
+  const getPointerSlot = useCallback(
+    (e: React.DragEvent) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      return resolvePointerSlot({
+        pointerOffsetPx: e.clientY - rect.top,
+        renderedGridHeightPx: rect.height,
+        totalSlots,
+      });
+    },
+    [totalSlots],
+  );
+
   const handleDragStart = (e: React.DragEvent, appointmentId: string) => {
     const appointment = appointmentLayouts.find(
       (entry) => entry.id === appointmentId,
@@ -713,7 +689,7 @@ export function useCalendarLogic({
 
     setDraggedAppointment(appointment);
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setDragImage(new Image(), 0, 0);
+    setTransparentDragImage(e.dataTransfer);
   };
 
   const handleDragOver = (e: React.DragEvent, column: CalendarColumnId) => {
@@ -721,30 +697,23 @@ export function useCalendarLogic({
     e.dataTransfer.dropEffect = "move";
 
     if (draggedAppointment) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const y = e.clientY - rect.top;
-      const targetSlot = Math.max(
-        0,
-        Math.min(totalSlots - 1, Math.floor(y / 16)),
-      );
-
-      const availableSlot = findNearestAvailableSlot(
-        column,
-        targetSlot,
-        draggedAppointment.duration,
-        draggedAppointment.id,
-      );
+      const targetSlot = resolveDragPreviewSlot({
+        durationMinutes: draggedAppointment.duration,
+        pointerSlot: getPointerSlot(e),
+        slotDurationMinutes: SLOT_DURATION,
+        totalSlots,
+      });
 
       setDragPreview((prev) => {
         if (
           prev.visible &&
           prev.column !== null &&
           sameCalendarColumnScope(prev.column, column) &&
-          prev.slot === availableSlot
+          prev.slot === targetSlot
         ) {
           return prev;
         }
-        return { column, slot: availableSlot, visible: true };
+        return { column, slot: targetSlot, visible: true };
       });
 
       handleAutoScroll(e);
@@ -754,30 +723,23 @@ export function useCalendarLogic({
         (bs) => bs.id === draggedBlockedSlotId,
       );
       if (blockedSlot) {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const y = e.clientY - rect.top;
-        const targetSlot = Math.max(
-          0,
-          Math.min(totalSlots - 1, Math.floor(y / 16)),
-        );
-
-        const availableSlot = findNearestAvailableSlot(
-          column,
-          targetSlot,
-          blockedSlot.duration,
-          draggedBlockedSlotId,
-        );
+        const targetSlot = resolveDragPreviewSlot({
+          durationMinutes: blockedSlot.duration,
+          pointerSlot: getPointerSlot(e),
+          slotDurationMinutes: SLOT_DURATION,
+          totalSlots,
+        });
 
         setDragPreview((prev) => {
           if (
             prev.visible &&
             prev.column !== null &&
             sameCalendarColumnScope(prev.column, column) &&
-            prev.slot === availableSlot
+            prev.slot === targetSlot
           ) {
             return prev;
           }
-          return { column, slot: availableSlot, visible: true };
+          return { column, slot: targetSlot, visible: true };
         });
 
         handleAutoScroll(e);
@@ -880,6 +842,13 @@ export function useCalendarLogic({
       const newTime = slotToTime(finalSlot);
 
       try {
+        if (checkCollision(column, finalSlot, blockedSlot.duration)) {
+          toast.error(
+            "Gesperrter Zeitraum kann nicht auf einen belegten Zeitraum verschoben werden.",
+          );
+          return;
+        }
+
         const plainTime = Temporal.PlainTime.from(newTime);
         const startZoned = selectedDate.toZonedDateTime({
           plainTime,
@@ -981,6 +950,20 @@ export function useCalendarLogic({
     const newTime = slotToTime(finalSlot);
 
     try {
+      if (
+        checkCollision(
+          column,
+          finalSlot,
+          draggedAppointment.duration,
+          draggedAppointment.id,
+        )
+      ) {
+        toast.error(
+          "Termin kann nicht auf einen belegten Zeitraum verschoben werden.",
+        );
+        return;
+      }
+
       const plainTime = Temporal.PlainTime.from(newTime);
       const startZoned = selectedDate.toZonedDateTime({
         plainTime,
@@ -1290,7 +1273,7 @@ export function useCalendarLogic({
   ) => {
     setDraggedBlockedSlotId(blockedSlotId);
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setDragImage(new Image(), 0, 0);
+    setTransparentDragImage(e.dataTransfer);
   };
 
   const handleBlockedSlotDragEnd = () => {

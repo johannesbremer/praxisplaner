@@ -132,12 +132,13 @@ describe("CalendarAppointment", () => {
     expect(mockHandlers.onDragEnd).toHaveBeenCalled();
   });
 
-  test("applies opacity when dragging", () => {
+  test("visually hides the source appointment while dragging", () => {
     const { container } = render(
       <CalendarAppointment {...defaultProps} isDragging={true} />,
     );
-    const appointmentElement = container.querySelector(".opacity-50");
+    const appointmentElement = container.querySelector(".opacity-0");
     expect(appointmentElement).toBeInTheDocument();
+    expect(appointmentElement).not.toHaveClass("pointer-events-none");
   });
 
   test("applies full opacity when not dragging", () => {

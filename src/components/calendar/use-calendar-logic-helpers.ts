@@ -238,3 +238,32 @@ export function resolveBlockedSlotDropOccupancyScope(args: {
 
   return { kind: "location-wide" };
 }
+
+export function resolveDragPreviewSlot(args: {
+  durationMinutes: number;
+  pointerSlot: number;
+  slotDurationMinutes: number;
+  totalSlots: number;
+}): number {
+  const durationSlots = Math.ceil(
+    args.durationMinutes / args.slotDurationMinutes,
+  );
+  const latestStartSlot = Math.max(0, args.totalSlots - durationSlots);
+
+  return Math.max(0, Math.min(latestStartSlot, args.pointerSlot));
+}
+
+export function resolvePointerSlot(args: {
+  pointerOffsetPx: number;
+  renderedGridHeightPx: number;
+  totalSlots: number;
+}): number {
+  if (args.totalSlots <= 0 || args.renderedGridHeightPx <= 0) {
+    return 0;
+  }
+
+  const renderedSlotHeightPx = args.renderedGridHeightPx / args.totalSlots;
+  const pointerSlot = Math.floor(args.pointerOffsetPx / renderedSlotHeightPx);
+
+  return Math.max(0, Math.min(args.totalSlots - 1, pointerSlot));
+}

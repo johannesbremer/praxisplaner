@@ -38,8 +38,8 @@ describe("CalendarTimeSlots", () => {
   test("displays hour labels at correct intervals", () => {
     render(<CalendarTimeSlots {...defaultProps} />);
 
-    // Hours are displayed one row before the hour marker (at i where i+1 % 12 === 0)
-    // So 01:00 appears at slot 11, 02:00 at slot 23, 03:00 at slot 35, etc.
+    // Hours are displayed at their actual hour marker rows.
+    expect(screen.getByText("00:00")).toBeInTheDocument();
     expect(screen.getByText("01:00")).toBeInTheDocument();
     expect(screen.getByText("02:00")).toBeInTheDocument();
     expect(screen.getByText("03:00")).toBeInTheDocument();
@@ -127,9 +127,8 @@ describe("CalendarTimeSlots", () => {
     mockSlotToTime.mockClear();
     render(<CalendarTimeSlots {...defaultProps} />);
 
-    // slotToTime is now only called for slots where (i + 1) % 12 === 0
-    // This happens 12 times for 144 slots (every 12th slot, offset by 1)
-    // Slots 11, 23, 35, 47, 59, 71, 83, 95, 107, 119, 131, 143
+    // slotToTime is only called for hour marker slots.
+    // Slots 0, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 132.
     expect(mockSlotToTime).toHaveBeenCalledTimes(12);
   });
 

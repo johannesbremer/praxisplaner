@@ -48,7 +48,7 @@ export function CalendarBlockedSlot({
   return (
     <div
       className={`absolute left-1 right-1 bg-gray-400 text-white text-xs rounded shadow-sm hover:shadow-md transition-all z-10 cursor-move ${
-        isDragging ? "opacity-50" : "opacity-100"
+        isDragging ? "opacity-0" : "opacity-100"
       } h-(--blocked-height) min-h-4 top-(--blocked-top)`}
       draggable
       onClick={() => {

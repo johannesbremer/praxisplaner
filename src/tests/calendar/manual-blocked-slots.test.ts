@@ -10,6 +10,8 @@ import {
   collectDeletedPractitionerCalendarRanges,
   filterBlockedSlotsForDateAndLocation,
   resolveBlockedSlotDropOccupancyScope,
+  resolveDragPreviewSlot,
+  resolvePointerSlot,
 } from "../../components/calendar/use-calendar-logic-helpers";
 import { buildCalendarBlockedSlotRecord } from "./test-records";
 
@@ -145,6 +147,59 @@ describe("Manual Blocked Slots Integration", () => {
     }
     return (hours - 8) * 12 + Math.floor(minutes / 5); // Assuming business starts at 8:00
   };
+
+  describe("Drag preview slot resolution", () => {
+    it("resolves pointer slots from the rendered grid height", () => {
+      expect(
+        resolvePointerSlot({
+          pointerOffsetPx: 36 * 16,
+          renderedGridHeightPx: 96 * 16,
+          totalSlots: 96,
+        }),
+      ).toBe(36);
+    });
+
+    it("keeps pointer slots correct when the calendar is visually scaled", () => {
+      expect(
+        resolvePointerSlot({
+          pointerOffsetPx: 36 * 12,
+          renderedGridHeightPx: 96 * 12,
+          totalSlots: 96,
+        }),
+      ).toBe(36);
+    });
+
+    it("uses the pointer slot as the dragged item's preview start", () => {
+      expect(
+        resolveDragPreviewSlot({
+          durationMinutes: 60,
+          pointerSlot: 36,
+          slotDurationMinutes: 5,
+          totalSlots: 96,
+        }),
+      ).toBe(36);
+    });
+
+    it("clamps the preview start to the calendar bounds", () => {
+      expect(
+        resolveDragPreviewSlot({
+          durationMinutes: 60,
+          pointerSlot: -4,
+          slotDurationMinutes: 5,
+          totalSlots: 96,
+        }),
+      ).toBe(0);
+
+      expect(
+        resolveDragPreviewSlot({
+          durationMinutes: 60,
+          pointerSlot: 95,
+          slotDurationMinutes: 5,
+          totalSlots: 96,
+        }),
+      ).toBe(84);
+    });
+  });
 
   describe("Database to Frontend Mapping", () => {
     it("rejects dropping manual blocked slots onto resource columns", () => {
