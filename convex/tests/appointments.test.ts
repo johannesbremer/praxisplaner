@@ -803,6 +803,63 @@ describe("appointments self-service cancellation", () => {
     expect(patient?.lastName).toBeUndefined();
   });
 
+  test("createAppointment preserves explicit end for simulated replacement", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_simulated_replacement_duration";
+    const userId = await createUser(t, authId, "replacement@example.com");
+    const authed = t.withIdentity({
+      email: "replacement@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const originalAppointmentId = await insertAppointment(t, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      userId,
+      window: makeSlotWindow(10),
+    });
+    const start = makeSlotWindow(20).start;
+    const end = Temporal.ZonedDateTime.from(start)
+      .add({ minutes: 45 })
+      .toString();
+
+    const replacementId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        end,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        replacesAppointmentId: originalAppointmentId,
+        start,
+        title: "Simulierter Ersatztermin",
+        userId,
+      },
+    );
+
+    const replacement = await t.run(async (ctx) =>
+      ctx.db.get("appointments", replacementId),
+    );
+
+    expect(replacement?.end).toBe(end);
+    expect(replacement?.replacesAppointmentId).toBe(originalAppointmentId);
+    expect(replacement?.isSimulation).toBe(true);
+  });
+
   test("cancelOwnAppointment cancels the whole future chain from a non-root step", async () => {
     const t = createTestContext();
     const authed = t.withIdentity({

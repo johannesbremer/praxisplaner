@@ -136,6 +136,7 @@ interface TrustedAppointmentInput {
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
   calendarResourceColumn?: "ekg" | "labor";
+  end?: ZonedDateTimeString;
   isNewPatient?: boolean;
   isSimulation?: boolean;
   locationId: Id<"locations">;
@@ -252,6 +253,7 @@ function asTrustedAppointmentInput(args: {
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
   calendarResourceColumn?: "ekg" | "labor";
+  end?: string;
   isNewPatient?: boolean;
   isSimulation?: boolean;
   locationId: Id<"locations">;
@@ -269,10 +271,16 @@ function asTrustedAppointmentInput(args: {
   title: string;
   userId?: Id<"users">;
 }): TrustedAppointmentInput {
-  const { patientDateOfBirth: rawPatientDateOfBirth, start, ...rest } = args;
+  const {
+    end: rawEnd,
+    patientDateOfBirth: rawPatientDateOfBirth,
+    start,
+    ...rest
+  } = args;
   const patientDateOfBirth = asOptionalIsoDateString(rawPatientDateOfBirth);
   return {
     ...rest,
+    ...(rawEnd !== undefined && { end: asZonedDateTimeString(rawEnd) }),
     ...(patientDateOfBirth !== undefined && { patientDateOfBirth }),
     start: asZonedDateTimeString(start),
   };
@@ -1453,6 +1461,7 @@ export async function createAppointmentFromTrustedSource(
     appointmentTypeId: Id<"appointmentTypes">;
     bookingIdentityId?: Id<"bookingIdentities">;
     calendarResourceColumn?: "ekg" | "labor";
+    end?: string;
     isNewPatient?: boolean;
     isSimulation?: boolean;
     locationId: Id<"locations">;
@@ -1476,6 +1485,7 @@ export async function createAppointmentFromTrustedSource(
   const {
     appointmentTypeId,
     calendarResourceColumn,
+    end: requestedEnd,
     isNewPatient,
     isSimulation,
     locationId,
@@ -1491,6 +1501,11 @@ export async function createAppointmentFromTrustedSource(
   if (replacesAppointmentId && isSimulation !== true) {
     throw new Error(
       "Only simulated appointments can replace existing appointments.",
+    );
+  }
+  if (requestedEnd !== undefined && replacesAppointmentId === undefined) {
+    throw new Error(
+      "Eine explizite Endzeit kann nur für simulierte Ersatztermine gesetzt werden.",
     );
   }
 
@@ -1600,10 +1615,17 @@ export async function createAppointmentFromTrustedSource(
     return result.rootAppointmentId;
   }
 
-  const end = calculateEndFromDuration(
-    args.start,
-    activeAppointmentType.duration,
-  );
+  const end =
+    requestedEnd ??
+    calculateEndFromDuration(args.start, activeAppointmentType.duration);
+  if (
+    Temporal.ZonedDateTime.compare(
+      Temporal.ZonedDateTime.from(end),
+      Temporal.ZonedDateTime.from(args.start),
+    ) <= 0
+  ) {
+    throw new Error("Die Endzeit muss nach der Startzeit liegen.");
+  }
 
   const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
     candidate: {
@@ -1748,6 +1770,7 @@ export const createAppointment = mutation({
     appointmentTypeId: v.id("appointmentTypes"),
     bookingIdentityId: v.optional(v.id("bookingIdentities")),
     calendarResourceColumn: v.optional(calendarResourceColumnValidator),
+    end: v.optional(v.string()),
     isNewPatient: v.optional(v.boolean()),
     isSimulation: v.optional(v.boolean()),
     locationId: v.id("locations"),

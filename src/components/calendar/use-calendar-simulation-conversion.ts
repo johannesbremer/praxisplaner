@@ -86,6 +86,7 @@ interface UseCalendarSimulationConversionArgs {
   runCreateAppointment: (
     args: AppointmentOwnerRefs & {
       appointmentTypeId: Id<"appointmentTypes">;
+      end?: string;
       isNewPatient?: boolean;
       isSimulation?: boolean;
       patientDateOfBirth?: string;
@@ -316,6 +317,7 @@ export function useCalendarSimulationConversion({
       const appointmentData: Parameters<typeof runCreateAppointment>[0] = {
         appointmentTypeId,
         ...getAppointmentOwnerRefs(appointmentRecord),
+        end: endZoned.toString(),
         isNewPatient: patientIsNewPatient ?? simulatedContext.patient.isNew,
         isSimulation: true,
         ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),

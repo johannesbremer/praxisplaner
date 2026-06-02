@@ -64,6 +64,7 @@ describe("useCalendarSimulationConversion", () => {
     const runCreateAppointment = vi.fn<
       (args: {
         appointmentTypeId: typeof appointmentTypeId;
+        end?: string;
         isNewPatient?: boolean;
         isSimulation?: boolean;
         patientDateOfBirth?: string;
@@ -114,6 +115,7 @@ describe("useCalendarSimulationConversion", () => {
 
     expect(runCreateAppointment).toHaveBeenCalledWith(
       expect.objectContaining({
+        end: "2026-04-23T10:30:00+02:00[Europe/Berlin]",
         placement: {
           locationLineageKey,
           occupancyScope: {

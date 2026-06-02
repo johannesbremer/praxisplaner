@@ -724,10 +724,12 @@ export function useCalendarPlanningWorkbench(args: {
           if (!lineageRefs) {
             return;
           }
-          const optimisticEnd = getAppointmentCreationEnd({
-            durationMinutes: appointmentTypeInfo.duration,
-            start: optimisticArgs.start,
-          });
+          const optimisticEnd =
+            optimisticArgs.end ??
+            getAppointmentCreationEnd({
+              durationMinutes: appointmentTypeInfo.duration,
+              start: optimisticArgs.start,
+            });
           const typedStart = parseZonedDateTime(
             optimisticArgs.start,
             "useCalendarPlanningWorkbench.optimisticCreate.start",
