@@ -418,6 +418,59 @@ describe("appointments self-service cancellation", () => {
     ]);
   });
 
+  test('getAppointmentsForPatient with scope "simulation" overlays simulation replacements', async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_patient_simulation_scope";
+    const userId = await createUser(
+      t,
+      authId,
+      "patient-simulation-scope@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "patient-simulation-scope@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const realWindow = makeSlotWindow(7);
+    const realAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: realWindow,
+    });
+    const replacementStart = Temporal.ZonedDateTime.from(realWindow.start).add({
+      hours: 1,
+    });
+    const replacementAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      isSimulation: true,
+      replacesAppointmentId: realAppointmentId,
+      simulationRuleSetId: baseData.ruleSetId,
+      userId,
+      window: {
+        end: replacementStart.add({ minutes: 30 }).toString(),
+        start: replacementStart.toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getAppointmentsForPatient, {
+        scope: "simulation",
+        selectedRuleSetId: baseData.ruleSetId,
+        userId,
+      }),
+    ).resolves.toMatchObject([{ _id: replacementAppointmentId }]);
+  });
+
   test("getBookedAppointmentsForCurrentUser includes unresolved imported future booking holds", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);

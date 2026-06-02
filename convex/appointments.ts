@@ -2643,7 +2643,12 @@ async function getBookedAppointmentsForUser(
 // Query to get all appointments for a patient (past, present, and future)
 export const getAppointmentsForPatient = query({
   args: {
+    activeRuleSetId: v.optional(v.id("ruleSets")),
     patientId: v.optional(v.id("patients")),
+    scope: v.optional(
+      v.union(v.literal("real"), v.literal("simulation"), v.literal("all")),
+    ),
+    selectedRuleSetId: v.optional(v.id("ruleSets")),
     userId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
@@ -2690,9 +2695,20 @@ export const getAppointmentsForPatient = query({
       accessiblePracticeIds.has(appointment.practiceId),
     );
 
-    return uniqueAppointments
-      .filter((appointment) => isVisibleAppointment(appointment))
-      .toSorted((a, b) => a.start.localeCompare(b.start));
+    const scope: AppointmentScope = args.scope ?? "real";
+    const scopedAppointments = filterAppointmentsForVisibleScope(
+      uniqueAppointments,
+      args,
+      scope,
+    );
+
+    if (scope === "simulation") {
+      return combineForSimulationScope(scopedAppointments);
+    }
+
+    return scopedAppointments.toSorted((a, b) =>
+      a.start.localeCompare(b.start),
+    );
   },
   returns: v.array(appointmentResultValidator),
 });

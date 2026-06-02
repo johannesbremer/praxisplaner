@@ -1256,7 +1256,12 @@ export function useCalendarPlanningWorkbench(args: {
         return await createAppointmentMutation(mutationArgs);
       }
 
-      const createdId = await runCreateAppointmentInternal(mutationArgs);
+      const isSimulationReplacement =
+        mutationArgs.isSimulation === true &&
+        mutationArgs.replacesAppointmentId !== undefined;
+      const createdId = isSimulationReplacement
+        ? await createAppointmentMutation(mutationArgs)
+        : await runCreateAppointmentInternal(mutationArgs);
       if (!createdId) {
         return createdId;
       }

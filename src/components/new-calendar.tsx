@@ -130,6 +130,12 @@ export function NewCalendar({
   const [pendingAppointmentTitle, setPendingAppointmentTitle] = useState<
     string | undefined
   >();
+  const patientAppointmentScopeArgs = simulatedContext
+    ? {
+        scope: "simulation" as const,
+        ...(ruleSetId === undefined ? {} : { selectedRuleSetId: ruleSetId }),
+      }
+    : { scope: "real" as const };
 
   // State for selected appointment (shown with blue border)
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<
@@ -311,14 +317,26 @@ export function NewCalendar({
     api.appointments.getAppointmentsForPatient,
     selectedPatient
       ? selectedPatient.type === "patient"
-        ? { patientId: selectedPatient.id }
+        ? {
+            patientId: selectedPatient.id,
+            ...patientAppointmentScopeArgs,
+          }
         : selectedPatient.type === "user"
-          ? { userId: selectedPatient.id }
+          ? {
+              userId: selectedPatient.id,
+              ...patientAppointmentScopeArgs,
+            }
           : "skip"
       : activePatient?.convexPatientId
-        ? { patientId: activePatient.convexPatientId }
+        ? {
+            patientId: activePatient.convexPatientId,
+            ...patientAppointmentScopeArgs,
+          }
         : activePatient?.userId
-          ? { userId: activePatient.userId }
+          ? {
+              userId: activePatient.userId,
+              ...patientAppointmentScopeArgs,
+            }
           : "skip",
   );
 
