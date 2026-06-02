@@ -100,6 +100,38 @@ type BlockedSlotDoc = Doc<"blockedSlots">;
 type BlockedSlotListItem = Infer<typeof blockedSlotListItemValidator>;
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 
+type AppointmentOwner = LinkedAppointmentOwner | TemporaryAppointmentOwner;
+
+interface AppointmentOwnerInput {
+  bookingIdentityId?: Id<"bookingIdentities">;
+  patientId?: Id<"patients">;
+  phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
+  temporaryPatientName?: string;
+  temporaryPatientPhoneNumber?: string;
+  userId?: Id<"users">;
+}
+
+interface LinkedAppointmentOwner {
+  bookingIdentityId?: Id<"bookingIdentities">;
+  kind: "linked";
+  patientId?: Id<"patients">;
+  phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
+  userId?: Id<"users">;
+}
+
+interface ResolvedAppointmentOwnerRefs {
+  bookingIdentityId?: Id<"bookingIdentities">;
+  patientId?: Id<"patients">;
+  phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
+  userId?: Id<"users">;
+}
+
+interface TemporaryAppointmentOwner {
+  kind: "temporary";
+  name: string;
+  phoneNumber: string;
+}
+
 interface TrustedAppointmentInput {
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
@@ -507,6 +539,54 @@ async function mapBlockedSlotsForDisplay(
   return mappedSlots.filter(
     (slot): slot is BlockedSlotListItem => slot !== null,
   );
+}
+
+function parseAppointmentOwner(args: AppointmentOwnerInput): AppointmentOwner {
+  const hasLinkedOwner =
+    args.bookingIdentityId !== undefined ||
+    args.patientId !== undefined ||
+    args.phoneBookingIdentityId !== undefined ||
+    args.userId !== undefined;
+  const temporaryPatientName = args.temporaryPatientName;
+  const temporaryPatientPhoneNumber = args.temporaryPatientPhoneNumber;
+  const hasTemporaryOwner =
+    temporaryPatientName !== undefined ||
+    temporaryPatientPhoneNumber !== undefined;
+
+  if (hasLinkedOwner && hasTemporaryOwner) {
+    throw new Error(
+      "Temporäre Patientendaten können nicht zusammen mit patientId, userId, bookingIdentityId oder phoneBookingIdentityId übergeben werden.",
+    );
+  }
+
+  if (hasLinkedOwner) {
+    return {
+      ...(args.bookingIdentityId !== undefined && {
+        bookingIdentityId: args.bookingIdentityId,
+      }),
+      kind: "linked",
+      ...(args.patientId !== undefined && { patientId: args.patientId }),
+      ...(args.phoneBookingIdentityId !== undefined && {
+        phoneBookingIdentityId: args.phoneBookingIdentityId,
+      }),
+      ...(args.userId !== undefined && { userId: args.userId }),
+    };
+  }
+
+  if (
+    temporaryPatientName === undefined ||
+    temporaryPatientPhoneNumber === undefined
+  ) {
+    throw new Error(
+      "Either patientId, userId, or temporary patient data must be provided.",
+    );
+  }
+
+  return {
+    kind: "temporary",
+    name: temporaryPatientName,
+    phoneNumber: temporaryPatientPhoneNumber,
+  };
 }
 
 function requireEntityUsableForNewAppointment<
@@ -1395,23 +1475,17 @@ export async function createAppointmentFromTrustedSource(
   const now = BigInt(Date.now());
   const {
     appointmentTypeId,
-    bookingIdentityId,
     calendarResourceColumn,
     isNewPatient,
     isSimulation,
     locationId,
     patientDateOfBirth,
-    patientId,
-    phoneBookingIdentityId,
     practiceId,
     practitionerId,
     replacesAppointmentId,
     simulationKind,
     simulationRuleSetId,
-    temporaryPatientName,
-    temporaryPatientPhoneNumber,
-    userId,
-    ...rest
+    title,
   } = args;
 
   if (replacesAppointmentId && isSimulation !== true) {
@@ -1420,106 +1494,19 @@ export async function createAppointmentFromTrustedSource(
     );
   }
 
-  const hasTemporaryPatientData =
-    temporaryPatientName !== undefined ||
-    temporaryPatientPhoneNumber !== undefined;
-
-  if (
-    (patientId || userId || bookingIdentityId || phoneBookingIdentityId) &&
-    hasTemporaryPatientData
-  ) {
-    throw new Error(
-      "Temporäre Patientendaten können nicht zusammen mit patientId, userId, bookingIdentityId oder phoneBookingIdentityId übergeben werden.",
-    );
-  }
-
-  let resolvedPatientId = patientId;
-  let resolvedUserId = userId;
+  const owner = parseAppointmentOwner(args);
   const allowsMissingLinkedRecords =
     isSimulation === true && replacesAppointmentId !== undefined;
-
-  if (
-    !resolvedPatientId &&
-    !resolvedUserId &&
-    !bookingIdentityId &&
-    !phoneBookingIdentityId
-  ) {
-    if (
-      temporaryPatientName === undefined ||
-      temporaryPatientPhoneNumber === undefined
-    ) {
-      throw new Error(
-        "Either patientId, userId, or temporary patient data must be provided.",
-      );
-    }
-
-    resolvedPatientId = await createTemporaryPatientRecord(ctx, {
-      name: temporaryPatientName,
-      phoneNumber: temporaryPatientPhoneNumber,
-      practiceId,
-    });
-  }
+  const ownerRefs = await resolveAppointmentOwnerRefs(ctx, {
+    allowsMissingLinkedRecords,
+    owner,
+    practiceId,
+  });
 
   if (simulationKind && isSimulation !== true) {
     throw new Error(
       "simulationKind can only be used with simulated appointments.",
     );
-  }
-
-  // If a patientId is provided, verify it exists
-  if (resolvedPatientId) {
-    const patient = await ctx.db.get("patients", resolvedPatientId);
-    if (!patient) {
-      if (allowsMissingLinkedRecords) {
-        resolvedPatientId = undefined;
-      } else {
-        throw new Error(`Patient with ID ${resolvedPatientId} not found`);
-      }
-    }
-  }
-
-  if (resolvedUserId) {
-    const user = await ctx.db.get("users", resolvedUserId);
-    if (!user) {
-      if (allowsMissingLinkedRecords) {
-        resolvedUserId = undefined;
-      } else {
-        throw new Error(`User with ID ${resolvedUserId} not found`);
-      }
-    }
-  }
-
-  if (bookingIdentityId) {
-    const bookingIdentity = await ctx.db.get(
-      "bookingIdentities",
-      bookingIdentityId,
-    );
-    if (!bookingIdentity && !allowsMissingLinkedRecords) {
-      throw new Error(
-        `Booking Identity with ID ${bookingIdentityId} not found`,
-      );
-    }
-    if (bookingIdentity && bookingIdentity.practiceId !== practiceId) {
-      throw new Error(
-        "Booking identity does not belong to the appointment practice.",
-      );
-    }
-  }
-  if (phoneBookingIdentityId) {
-    const phoneBookingIdentity = await ctx.db.get(
-      "phoneBookingIdentities",
-      phoneBookingIdentityId,
-    );
-    if (!phoneBookingIdentity) {
-      throw new Error(
-        `Phone booking identity with ID ${phoneBookingIdentityId} not found`,
-      );
-    }
-    if (phoneBookingIdentity.practiceId !== practiceId) {
-      throw new Error(
-        "Phone booking identity does not belong to the appointment practice.",
-      );
-    }
   }
 
   // Look up the appointment type to get its name at booking time
@@ -1575,7 +1562,7 @@ export async function createAppointmentFromTrustedSource(
     activeAppointmentType.followUpPlan &&
     activeAppointmentType.followUpPlan.length > 0
   ) {
-    if (phoneBookingIdentityId) {
+    if (ownerRefs.phoneBookingIdentityId !== undefined) {
       throw new Error("TelefonKI can only book a single appointment.");
     }
     if (!practitionerId) {
@@ -1585,25 +1572,29 @@ export async function createAppointmentFromTrustedSource(
     }
 
     const result = await createAppointmentSeriesHelper(ctx, {
-      ...(bookingIdentityId && { bookingIdentityId }),
+      ...(ownerRefs.bookingIdentityId !== undefined && {
+        bookingIdentityId: ownerRefs.bookingIdentityId,
+      }),
       locationId,
       ...(isNewPatient !== undefined && { isNewPatient }),
-      ...(patientDateOfBirth && { patientDateOfBirth }),
-      ...(resolvedPatientId && { patientId: resolvedPatientId }),
+      ...(patientDateOfBirth !== undefined && { patientDateOfBirth }),
+      ...(ownerRefs.patientId !== undefined && {
+        patientId: ownerRefs.patientId,
+      }),
       practiceId,
       practitionerId,
       rootAppointmentTypeId: appointmentTypeId,
       ...(replacesAppointmentId && {
         rootReplacesAppointmentId: replacesAppointmentId,
       }),
-      rootTitle: args.title.trim(),
+      rootTitle: title.trim(),
       ruleSetId: activeAppointmentType.ruleSetId,
       scope: getAppointmentBookingScope(isSimulation),
       ...(resolvedSimulationRuleSetId && {
         simulationRuleSetId: resolvedSimulationRuleSetId,
       }),
       start: args.start,
-      ...(resolvedUserId && { userId: resolvedUserId }),
+      ...(ownerRefs.userId !== undefined && { userId: ownerRefs.userId }),
     });
 
     return result.rootAppointmentId;
@@ -1638,10 +1629,11 @@ export async function createAppointmentFromTrustedSource(
   }
 
   const insertData = {
-    ...rest,
     appointmentTypeLineageKey: storedReferences.appointmentTypeLineageKey,
     appointmentTypeTitle: activeAppointmentType.name,
-    ...(bookingIdentityId && { bookingIdentityId }),
+    ...(ownerRefs.bookingIdentityId !== undefined && {
+      bookingIdentityId: ownerRefs.bookingIdentityId,
+    }),
     createdAt: now,
     end,
     isSimulation: isSimulation ?? false,
@@ -1649,9 +1641,14 @@ export async function createAppointmentFromTrustedSource(
     locationLineageKey: storedReferences.locationLineageKey,
     occupancyScope,
     practiceId,
-    ...(resolvedPatientId && { patientId: resolvedPatientId }),
-    ...(phoneBookingIdentityId && { phoneBookingIdentityId }),
-    ...(resolvedUserId && { userId: resolvedUserId }),
+    ...(ownerRefs.patientId !== undefined && {
+      patientId: ownerRefs.patientId,
+    }),
+    ...(ownerRefs.phoneBookingIdentityId !== undefined && {
+      phoneBookingIdentityId: ownerRefs.phoneBookingIdentityId,
+    }),
+    start: args.start,
+    ...(ownerRefs.userId !== undefined && { userId: ownerRefs.userId }),
     ...(replacesAppointmentId !== undefined && {
       replacesAppointmentId,
     }),
@@ -1662,8 +1659,87 @@ export async function createAppointmentFromTrustedSource(
       }),
       simulationValidatedAt: now,
     }),
+    title,
   };
   return await ctx.db.insert("appointments", insertData);
+}
+
+async function resolveAppointmentOwnerRefs(
+  ctx: MutationCtx,
+  args: {
+    allowsMissingLinkedRecords: boolean;
+    owner: AppointmentOwner;
+    practiceId: Id<"practices">;
+  },
+): Promise<ResolvedAppointmentOwnerRefs> {
+  if (args.owner.kind === "temporary") {
+    return {
+      patientId: await createTemporaryPatientRecord(ctx, {
+        name: args.owner.name,
+        phoneNumber: args.owner.phoneNumber,
+        practiceId: args.practiceId,
+      }),
+    };
+  }
+
+  const resolvedRefs: ResolvedAppointmentOwnerRefs = {};
+
+  if (args.owner.patientId !== undefined) {
+    const patient = await ctx.db.get("patients", args.owner.patientId);
+    if (patient) {
+      resolvedRefs.patientId = args.owner.patientId;
+    } else if (!args.allowsMissingLinkedRecords) {
+      throw new Error(`Patient with ID ${args.owner.patientId} not found`);
+    }
+  }
+
+  if (args.owner.userId !== undefined) {
+    const user = await ctx.db.get("users", args.owner.userId);
+    if (user) {
+      resolvedRefs.userId = args.owner.userId;
+    } else if (!args.allowsMissingLinkedRecords) {
+      throw new Error(`User with ID ${args.owner.userId} not found`);
+    }
+  }
+
+  if (args.owner.bookingIdentityId !== undefined) {
+    const bookingIdentity = await ctx.db.get(
+      "bookingIdentities",
+      args.owner.bookingIdentityId,
+    );
+    if (bookingIdentity) {
+      if (bookingIdentity.practiceId !== args.practiceId) {
+        throw new Error(
+          "Booking identity does not belong to the appointment practice.",
+        );
+      }
+      resolvedRefs.bookingIdentityId = args.owner.bookingIdentityId;
+    } else if (!args.allowsMissingLinkedRecords) {
+      throw new Error(
+        `Booking Identity with ID ${args.owner.bookingIdentityId} not found`,
+      );
+    }
+  }
+
+  if (args.owner.phoneBookingIdentityId !== undefined) {
+    const phoneBookingIdentity = await ctx.db.get(
+      "phoneBookingIdentities",
+      args.owner.phoneBookingIdentityId,
+    );
+    if (!phoneBookingIdentity) {
+      throw new Error(
+        `Phone booking identity with ID ${args.owner.phoneBookingIdentityId} not found`,
+      );
+    }
+    if (phoneBookingIdentity.practiceId !== args.practiceId) {
+      throw new Error(
+        "Phone booking identity does not belong to the appointment practice.",
+      );
+    }
+    resolvedRefs.phoneBookingIdentityId = args.owner.phoneBookingIdentityId;
+  }
+
+  return resolvedRefs;
 }
 
 // Mutation to create a new appointment
