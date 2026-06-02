@@ -600,6 +600,32 @@ function readSourceMaps() {
       order by updated desc, created desc, id desc
     `).map((row) => [row.user, row]),
   );
+  const baumPractitionerPriorityEligibleUsers = new Set(
+    readSqliteJson(`
+      select distinct user
+      from (
+        select t.user as user
+        from termine t
+        join terminarten ta on ta.id = t.terminart
+        where t.user != ''
+          and t.deleted = 0
+          and (
+            lower(ta.title) like '%akut%'
+            or lower(ta.title) = 'gesprächstermin'
+          )
+        union
+        select ot.user as user
+        from oldTermine ot
+        join terminarten ta on ta.id = ot.art
+        where ot.user != ''
+          and (
+            lower(ta.title) like '%akut%'
+            or lower(ta.title) = 'gesprächstermin'
+          )
+      )
+      order by user
+    `).map((row) => row.user),
+  );
   const blockedUsers = readSqliteJson(`
     select distinct user as legacyUserId
     from baumdiagramm
@@ -611,6 +637,7 @@ function readSourceMaps() {
     anamneseByUser,
     anamneseTextByUser,
     baumByUser,
+    baumPractitionerPriorityEligibleUsers,
     blockedUsers,
     currentAppointmentsByUser,
     dataSharingByUser,
@@ -738,10 +765,14 @@ function buildSnapshotReplayRow(
     normalizeLocationName(currentMatch?.pvsLocationRoom);
   const legacyPractitionerDocId =
     trimToUndefined(currentAppointment?.doc) ?? trimToUndefined(baum.doc);
-  const practitionerName = importedPractitionerNameFromLegacyDoc({
-    docId: legacyPractitionerDocId,
-    locationName,
-  });
+  const practitionerName = maps.baumPractitionerPriorityEligibleUsers.has(
+    userId,
+  )
+    ? importedPractitionerNameFromLegacyDoc({
+        docId: legacyPractitionerDocId,
+        locationName,
+      })
+    : undefined;
   const personalData = personalDataFromLegacyUser(userId, {
     allowPvsFallback: true,
     fallbackMatch: currentMatch,
@@ -993,6 +1024,12 @@ function main() {
         appointmentLinkedReplayRows: appointmentLinkedReplayRows.length,
         blockedUsers: blockRows.length,
         replayRows: replayRows.length,
+        replayRowsWithBaumPractitionerPriority: replayRows.filter(
+          (row) => row.practitionerName !== undefined,
+        ).length,
+        replayRowsWithoutBaumPractitionerPriority:
+          replayRows.length -
+          replayRows.filter((row) => row.practitionerName !== undefined).length,
         replayRowsBySource: Object.fromEntries(
           [...Map.groupBy(replayRows, (row) => row.source).entries()].map(
             ([source, rows]) => [source, rows.length],
