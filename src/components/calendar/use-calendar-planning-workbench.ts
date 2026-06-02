@@ -38,6 +38,10 @@ import {
   isOptimisticId,
 } from "../../utils/convex-ids";
 import {
+  type AppointmentOwnerRefs,
+  getAppointmentOwnerRefs,
+} from "./appointment-owner-refs";
+import {
   matchesCalendarDayQueryEntity,
   shouldCollapseOptimisticReplacementInDayQuery,
 } from "./calendar-day-query-membership";
@@ -66,14 +70,13 @@ import { useCalendarPlanningHistory } from "./use-calendar-planning-history";
 const appointmentQueryRef = api.appointments.getCalendarDayAppointments;
 const blockedSlotQueryRef = api.appointments.getCalendarDayBlockedSlots;
 
-export type CalendarAppointmentCreateCommandArgs = Omit<
-  CreateAppointmentMutationArgs,
-  "calendarResourceColumn" | "locationId" | "practitionerId"
-> & {
-  bookingIdentityId?: Id<"bookingIdentities">;
-  phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
-  placement: CalendarAppointmentPlacement;
-};
+export type CalendarAppointmentCreateCommandArgs = AppointmentOwnerRefs &
+  Omit<
+    CreateAppointmentMutationArgs,
+    "calendarResourceColumn" | "locationId" | "practitionerId"
+  > & {
+    placement: CalendarAppointmentPlacement;
+  };
 
 export type CalendarAppointmentUpdateCommandArgs = Omit<
   UpdateAppointmentMutationArgs,
@@ -111,22 +114,18 @@ type CreateAppointmentMutationArgs = FunctionArgs<
   typeof api.appointments.createAppointment
 >;
 
-interface CreatedAppointmentHistoryArgs {
+interface CreatedAppointmentHistoryArgs extends AppointmentOwnerRefs {
   appointmentId: Id<"appointments">;
   appointmentTypeLineageKey: AppointmentTypeLineageKey;
   appointmentTypeTitle: string;
-  bookingIdentityId?: Id<"bookingIdentities">;
   end: CalendarAppointmentRecord["end"];
   isSimulation: boolean;
   now: number;
-  patientId?: Id<"patients">;
-  phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
   placement: CalendarAppointmentPlacement;
   practiceId: Id<"practices">;
   replacesAppointmentId?: Id<"appointments">;
   start: CalendarAppointmentRecord["start"];
   title: string;
-  userId?: Id<"users">;
 }
 
 interface CreatedBlockedSlotHistoryArgs {
@@ -316,25 +315,18 @@ export function useCalendarPlanningWorkbench(args: {
         _id: args.appointmentId,
         appointmentTypeLineageKey: args.appointmentTypeLineageKey,
         appointmentTypeTitle: args.appointmentTypeTitle,
-        ...(args.bookingIdentityId === undefined
-          ? {}
-          : { bookingIdentityId: args.bookingIdentityId }),
+        ...getAppointmentOwnerRefs(args),
         createdAt: BigInt(args.now),
         end: args.end,
         isSimulation: args.isSimulation,
         lastModified: BigInt(args.now),
         placement: args.placement,
-        ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
-        ...(args.phoneBookingIdentityId === undefined
-          ? {}
-          : { phoneBookingIdentityId: args.phoneBookingIdentityId }),
         practiceId: args.practiceId,
         ...(args.replacesAppointmentId === undefined
           ? {}
           : { replacesAppointmentId: args.replacesAppointmentId }),
         start: args.start,
         title: args.title,
-        ...(args.userId === undefined ? {} : { userId: args.userId }),
       });
     },
     [rememberAppointmentHistoryDoc],
@@ -447,22 +439,20 @@ export function useCalendarPlanningWorkbench(args: {
   );
 
   const rememberCreatedAppointmentFromStrings = useCallback(
-    (createdArgs: {
-      appointmentTypeLineageKey: AppointmentTypeLineageKey;
-      appointmentTypeTitle: string;
-      bookingIdentityId?: Id<"bookingIdentities">;
-      createdId: Id<"appointments">;
-      createEnd: string;
-      createStart: string;
-      isSimulation: boolean;
-      patientId?: Id<"patients">;
-      phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
-      placement: CalendarAppointmentPlacement;
-      practiceId: Id<"practices">;
-      replacesAppointmentId?: Id<"appointments">;
-      title: string;
-      userId?: Id<"users">;
-    }): boolean => {
+    (
+      createdArgs: AppointmentOwnerRefs & {
+        appointmentTypeLineageKey: AppointmentTypeLineageKey;
+        appointmentTypeTitle: string;
+        createdId: Id<"appointments">;
+        createEnd: string;
+        createStart: string;
+        isSimulation: boolean;
+        placement: CalendarAppointmentPlacement;
+        practiceId: Id<"practices">;
+        replacesAppointmentId?: Id<"appointments">;
+        title: string;
+      },
+    ): boolean => {
       const start = parseZonedDateTime(
         createdArgs.createStart,
         "useCalendarPlanningWorkbench.rememberCreatedAppointmentFromStrings.start",
@@ -479,28 +469,17 @@ export function useCalendarPlanningWorkbench(args: {
         appointmentId: createdArgs.createdId,
         appointmentTypeLineageKey: createdArgs.appointmentTypeLineageKey,
         appointmentTypeTitle: createdArgs.appointmentTypeTitle,
-        ...(createdArgs.bookingIdentityId === undefined
-          ? {}
-          : { bookingIdentityId: createdArgs.bookingIdentityId }),
+        ...getAppointmentOwnerRefs(createdArgs),
         end,
         isSimulation: createdArgs.isSimulation,
         now: Date.now(),
         placement: createdArgs.placement,
-        ...(createdArgs.patientId === undefined
-          ? {}
-          : { patientId: createdArgs.patientId }),
-        ...(createdArgs.phoneBookingIdentityId === undefined
-          ? {}
-          : { phoneBookingIdentityId: createdArgs.phoneBookingIdentityId }),
         practiceId: createdArgs.practiceId,
         ...(createdArgs.replacesAppointmentId === undefined
           ? {}
           : { replacesAppointmentId: createdArgs.replacesAppointmentId }),
         start,
         title: createdArgs.title,
-        ...(createdArgs.userId === undefined
-          ? {}
-          : { userId: createdArgs.userId }),
       });
       return true;
     },
@@ -766,9 +745,7 @@ export function useCalendarPlanningWorkbench(args: {
             _id: tempId,
             appointmentTypeLineageKey: lineageRefs.appointmentTypeLineageKey,
             appointmentTypeTitle: appointmentTypeInfo.name,
-            ...(optimisticArgs.bookingIdentityId === undefined
-              ? {}
-              : { bookingIdentityId: optimisticArgs.bookingIdentityId }),
+            ...getAppointmentOwnerRefs(optimisticArgs),
             createdAt: BigInt(now),
             end: typedEnd,
             isSimulation: optimisticArgs.isSimulation ?? false,
@@ -778,19 +755,6 @@ export function useCalendarPlanningWorkbench(args: {
             start: typedStart,
             title: optimisticArgs.title,
           };
-
-          if (optimisticArgs.patientId !== undefined) {
-            newAppointmentRecord.patientId = optimisticArgs.patientId;
-          }
-
-          if (optimisticArgs.userId !== undefined) {
-            newAppointmentRecord.userId = optimisticArgs.userId;
-          }
-
-          if (optimisticArgs.phoneBookingIdentityId !== undefined) {
-            newAppointmentRecord.phoneBookingIdentityId =
-              optimisticArgs.phoneBookingIdentityId;
-          }
 
           if (optimisticArgs.replacesAppointmentId !== undefined) {
             newAppointmentRecord.replacesAppointmentId =
@@ -1316,24 +1280,17 @@ export function useCalendarPlanningWorkbench(args: {
       rememberCreatedAppointmentFromStrings({
         appointmentTypeLineageKey,
         appointmentTypeTitle: appointmentTypeInfo.name,
-        ...(createArgs.bookingIdentityId && {
-          bookingIdentityId: createArgs.bookingIdentityId,
-        }),
+        ...getAppointmentOwnerRefs(createArgs),
         createdId,
         createEnd,
         createStart: createArgs.start,
         isSimulation: createArgs.isSimulation,
         placement: createCommandArgs.placement,
-        ...(createArgs.patientId && { patientId: createArgs.patientId }),
-        ...(createArgs.phoneBookingIdentityId && {
-          phoneBookingIdentityId: createArgs.phoneBookingIdentityId,
-        }),
         practiceId: createArgs.practiceId,
         ...(createArgs.replacesAppointmentId && {
           replacesAppointmentId: createArgs.replacesAppointmentId,
         }),
         title: createArgs.title,
-        ...(createArgs.userId && { userId: createArgs.userId }),
       });
 
       pushHistoryAction({
@@ -1367,24 +1324,17 @@ export function useCalendarPlanningWorkbench(args: {
           rememberCreatedAppointmentFromStrings({
             appointmentTypeLineageKey,
             appointmentTypeTitle: appointmentTypeInfo.name,
-            ...(createArgs.bookingIdentityId && {
-              bookingIdentityId: createArgs.bookingIdentityId,
-            }),
+            ...getAppointmentOwnerRefs(createArgs),
             createdId: recreatedId,
             createEnd,
             createStart: createArgs.start,
             isSimulation: createArgs.isSimulation,
             placement: createCommandArgs.placement,
-            ...(createArgs.patientId && { patientId: createArgs.patientId }),
-            ...(createArgs.phoneBookingIdentityId && {
-              phoneBookingIdentityId: createArgs.phoneBookingIdentityId,
-            }),
             practiceId: createArgs.practiceId,
             ...(createArgs.replacesAppointmentId && {
               replacesAppointmentId: createArgs.replacesAppointmentId,
             }),
             title: createArgs.title,
-            ...(createArgs.userId && { userId: createArgs.userId }),
           });
           return { status: "applied" };
         },
@@ -1653,14 +1603,13 @@ export function useCalendarPlanningWorkbench(args: {
               practitionerId:
                 recreatedDisplayRefs.occupancyScope.practitionerId,
             }),
-        ...(deleted.patientId && { patientId: deleted.patientId }),
+        ...getAppointmentOwnerRefs(deleted),
         practiceId: deleted.practiceId,
         ...(deleted.replacesAppointmentId && {
           replacesAppointmentId: deleted.replacesAppointmentId,
         }),
         start: deleted.start,
         title: deleted.title,
-        ...(deleted.userId && { userId: deleted.userId }),
       };
       const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
         createArgs.appointmentTypeId,

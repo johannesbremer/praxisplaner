@@ -37,6 +37,10 @@ import {
   resultFromNullable,
 } from "../../utils/frontend-errors";
 import { formatTime, safeParseISOToZoned } from "../../utils/time-calculations";
+import {
+  type AppointmentOwnerRefs,
+  getAppointmentOwnerRefs,
+} from "./appointment-owner-refs";
 import { SLOT_DURATION } from "./types";
 import { parsePlainTimeResult, TIMEZONE } from "./use-calendar-logic-helpers";
 
@@ -79,21 +83,19 @@ interface UseCalendarSimulationConversionArgs {
   patientDateOfBirth: string | undefined;
   patientIsNewPatient: boolean | undefined;
   practiceId: Id<"practices">;
-  runCreateAppointment: (args: {
-    appointmentTypeId: Id<"appointmentTypes">;
-    bookingIdentityId?: Id<"bookingIdentities">;
-    isNewPatient?: boolean;
-    isSimulation?: boolean;
-    patientDateOfBirth?: string;
-    patientId?: Id<"patients">;
-    phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
-    placement: CalendarAppointmentPlacement;
-    practiceId: Id<"practices">;
-    replacesAppointmentId?: Id<"appointments">;
-    start: string;
-    title: string;
-    userId?: Id<"users">;
-  }) => Promise<Id<"appointments"> | undefined>;
+  runCreateAppointment: (
+    args: AppointmentOwnerRefs & {
+      appointmentTypeId: Id<"appointmentTypes">;
+      isNewPatient?: boolean;
+      isSimulation?: boolean;
+      patientDateOfBirth?: string;
+      placement: CalendarAppointmentPlacement;
+      practiceId: Id<"practices">;
+      replacesAppointmentId?: Id<"appointments">;
+      start: string;
+      title: string;
+    },
+  ) => Promise<Id<"appointments"> | undefined>;
   runCreateBlockedSlot: (args: {
     end: string;
     isSimulation?: boolean;
@@ -313,6 +315,7 @@ export function useCalendarSimulationConversion({
 
       const appointmentData: Parameters<typeof runCreateAppointment>[0] = {
         appointmentTypeId,
+        ...getAppointmentOwnerRefs(appointmentRecord),
         isNewPatient: patientIsNewPatient ?? simulatedContext.patient.isNew,
         isSimulation: true,
         ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
@@ -325,23 +328,6 @@ export function useCalendarSimulationConversion({
         start: startISO,
         title: appointmentRecord.title,
       };
-
-      if (appointmentRecord.patientId !== undefined) {
-        appointmentData.patientId = appointmentRecord.patientId;
-      }
-
-      if (appointmentRecord.userId !== undefined) {
-        appointmentData.userId = appointmentRecord.userId;
-      }
-
-      if (appointmentRecord.bookingIdentityId !== undefined) {
-        appointmentData.bookingIdentityId = appointmentRecord.bookingIdentityId;
-      }
-
-      if (appointmentRecord.phoneBookingIdentityId !== undefined) {
-        appointmentData.phoneBookingIdentityId =
-          appointmentRecord.phoneBookingIdentityId;
-      }
 
       return await ResultAsync.fromPromise(
         runCreateAppointment(appointmentData),
