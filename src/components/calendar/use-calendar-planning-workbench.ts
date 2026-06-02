@@ -70,6 +70,8 @@ export type CalendarAppointmentCreateCommandArgs = Omit<
   CreateAppointmentMutationArgs,
   "calendarResourceColumn" | "locationId" | "practitionerId"
 > & {
+  bookingIdentityId?: Id<"bookingIdentities">;
+  phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
   placement: CalendarAppointmentPlacement;
 };
 
@@ -113,10 +115,12 @@ interface CreatedAppointmentHistoryArgs {
   appointmentId: Id<"appointments">;
   appointmentTypeLineageKey: AppointmentTypeLineageKey;
   appointmentTypeTitle: string;
+  bookingIdentityId?: Id<"bookingIdentities">;
   end: CalendarAppointmentRecord["end"];
   isSimulation: boolean;
   now: number;
   patientId?: Id<"patients">;
+  phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
   placement: CalendarAppointmentPlacement;
   practiceId: Id<"practices">;
   replacesAppointmentId?: Id<"appointments">;
@@ -312,12 +316,18 @@ export function useCalendarPlanningWorkbench(args: {
         _id: args.appointmentId,
         appointmentTypeLineageKey: args.appointmentTypeLineageKey,
         appointmentTypeTitle: args.appointmentTypeTitle,
+        ...(args.bookingIdentityId === undefined
+          ? {}
+          : { bookingIdentityId: args.bookingIdentityId }),
         createdAt: BigInt(args.now),
         end: args.end,
         isSimulation: args.isSimulation,
         lastModified: BigInt(args.now),
         placement: args.placement,
         ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+        ...(args.phoneBookingIdentityId === undefined
+          ? {}
+          : { phoneBookingIdentityId: args.phoneBookingIdentityId }),
         practiceId: args.practiceId,
         ...(args.replacesAppointmentId === undefined
           ? {}
@@ -440,11 +450,13 @@ export function useCalendarPlanningWorkbench(args: {
     (createdArgs: {
       appointmentTypeLineageKey: AppointmentTypeLineageKey;
       appointmentTypeTitle: string;
+      bookingIdentityId?: Id<"bookingIdentities">;
       createdId: Id<"appointments">;
       createEnd: string;
       createStart: string;
       isSimulation: boolean;
       patientId?: Id<"patients">;
+      phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
       placement: CalendarAppointmentPlacement;
       practiceId: Id<"practices">;
       replacesAppointmentId?: Id<"appointments">;
@@ -467,6 +479,9 @@ export function useCalendarPlanningWorkbench(args: {
         appointmentId: createdArgs.createdId,
         appointmentTypeLineageKey: createdArgs.appointmentTypeLineageKey,
         appointmentTypeTitle: createdArgs.appointmentTypeTitle,
+        ...(createdArgs.bookingIdentityId === undefined
+          ? {}
+          : { bookingIdentityId: createdArgs.bookingIdentityId }),
         end,
         isSimulation: createdArgs.isSimulation,
         now: Date.now(),
@@ -474,6 +489,9 @@ export function useCalendarPlanningWorkbench(args: {
         ...(createdArgs.patientId === undefined
           ? {}
           : { patientId: createdArgs.patientId }),
+        ...(createdArgs.phoneBookingIdentityId === undefined
+          ? {}
+          : { phoneBookingIdentityId: createdArgs.phoneBookingIdentityId }),
         practiceId: createdArgs.practiceId,
         ...(createdArgs.replacesAppointmentId === undefined
           ? {}
@@ -748,6 +766,9 @@ export function useCalendarPlanningWorkbench(args: {
             _id: tempId,
             appointmentTypeLineageKey: lineageRefs.appointmentTypeLineageKey,
             appointmentTypeTitle: appointmentTypeInfo.name,
+            ...(optimisticArgs.bookingIdentityId === undefined
+              ? {}
+              : { bookingIdentityId: optimisticArgs.bookingIdentityId }),
             createdAt: BigInt(now),
             end: typedEnd,
             isSimulation: optimisticArgs.isSimulation ?? false,
@@ -764,6 +785,11 @@ export function useCalendarPlanningWorkbench(args: {
 
           if (optimisticArgs.userId !== undefined) {
             newAppointmentRecord.userId = optimisticArgs.userId;
+          }
+
+          if (optimisticArgs.phoneBookingIdentityId !== undefined) {
+            newAppointmentRecord.phoneBookingIdentityId =
+              optimisticArgs.phoneBookingIdentityId;
           }
 
           if (optimisticArgs.replacesAppointmentId !== undefined) {
@@ -1290,12 +1316,18 @@ export function useCalendarPlanningWorkbench(args: {
       rememberCreatedAppointmentFromStrings({
         appointmentTypeLineageKey,
         appointmentTypeTitle: appointmentTypeInfo.name,
+        ...(createArgs.bookingIdentityId && {
+          bookingIdentityId: createArgs.bookingIdentityId,
+        }),
         createdId,
         createEnd,
         createStart: createArgs.start,
         isSimulation: createArgs.isSimulation,
         placement: createCommandArgs.placement,
         ...(createArgs.patientId && { patientId: createArgs.patientId }),
+        ...(createArgs.phoneBookingIdentityId && {
+          phoneBookingIdentityId: createArgs.phoneBookingIdentityId,
+        }),
         practiceId: createArgs.practiceId,
         ...(createArgs.replacesAppointmentId && {
           replacesAppointmentId: createArgs.replacesAppointmentId,
@@ -1335,12 +1367,18 @@ export function useCalendarPlanningWorkbench(args: {
           rememberCreatedAppointmentFromStrings({
             appointmentTypeLineageKey,
             appointmentTypeTitle: appointmentTypeInfo.name,
+            ...(createArgs.bookingIdentityId && {
+              bookingIdentityId: createArgs.bookingIdentityId,
+            }),
             createdId: recreatedId,
             createEnd,
             createStart: createArgs.start,
             isSimulation: createArgs.isSimulation,
             placement: createCommandArgs.placement,
             ...(createArgs.patientId && { patientId: createArgs.patientId }),
+            ...(createArgs.phoneBookingIdentityId && {
+              phoneBookingIdentityId: createArgs.phoneBookingIdentityId,
+            }),
             practiceId: createArgs.practiceId,
             ...(createArgs.replacesAppointmentId && {
               replacesAppointmentId: createArgs.replacesAppointmentId,

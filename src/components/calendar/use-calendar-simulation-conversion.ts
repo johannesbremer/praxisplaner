@@ -81,10 +81,12 @@ interface UseCalendarSimulationConversionArgs {
   practiceId: Id<"practices">;
   runCreateAppointment: (args: {
     appointmentTypeId: Id<"appointmentTypes">;
+    bookingIdentityId?: Id<"bookingIdentities">;
     isNewPatient?: boolean;
     isSimulation?: boolean;
     patientDateOfBirth?: string;
     patientId?: Id<"patients">;
+    phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
     placement: CalendarAppointmentPlacement;
     practiceId: Id<"practices">;
     replacesAppointmentId?: Id<"appointments">;
@@ -330,6 +332,15 @@ export function useCalendarSimulationConversion({
 
       if (appointmentRecord.userId !== undefined) {
         appointmentData.userId = appointmentRecord.userId;
+      }
+
+      if (appointmentRecord.bookingIdentityId !== undefined) {
+        appointmentData.bookingIdentityId = appointmentRecord.bookingIdentityId;
+      }
+
+      if (appointmentRecord.phoneBookingIdentityId !== undefined) {
+        appointmentData.phoneBookingIdentityId =
+          appointmentRecord.phoneBookingIdentityId;
       }
 
       return await ResultAsync.fromPromise(
