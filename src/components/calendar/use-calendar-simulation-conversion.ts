@@ -22,6 +22,7 @@ import type {
   SimulatedBlockedSlotConversionResult,
   SimulationConversionOptions,
 } from "./use-calendar-logic-helpers";
+import type { CalendarAppointmentCreateCommandArgs } from "./use-calendar-planning-workbench";
 
 import {
   createCalendarPlacement,
@@ -37,11 +38,7 @@ import {
   resultFromNullable,
 } from "../../utils/frontend-errors";
 import { formatTime, safeParseISOToZoned } from "../../utils/time-calculations";
-import {
-  type AppointmentOwnerRefs,
-  getAppointmentOwnerRefs,
-} from "./appointment-owner-refs";
-import { SLOT_DURATION } from "./types";
+import { getAppointmentOwnerRefs } from "./appointment-owner-refs";
 import { parsePlainTimeResult, TIMEZONE } from "./use-calendar-logic-helpers";
 
 interface CalendarRecordRef<T> {
@@ -84,18 +81,7 @@ interface UseCalendarSimulationConversionArgs {
   patientIsNewPatient: boolean | undefined;
   practiceId: Id<"practices">;
   runCreateAppointment: (
-    args: AppointmentOwnerRefs & {
-      appointmentTypeId: Id<"appointmentTypes">;
-      end?: string;
-      isNewPatient?: boolean;
-      isSimulation?: boolean;
-      patientDateOfBirth?: string;
-      placement: CalendarAppointmentPlacement;
-      practiceId: Id<"practices">;
-      replacesAppointmentId?: Id<"appointments">;
-      start: string;
-      title: string;
-    },
+    args: CalendarAppointmentCreateCommandArgs,
   ) => Promise<Id<"appointments"> | undefined>;
   runCreateBlockedSlot: (args: {
     end: string;
@@ -351,15 +337,14 @@ export function useCalendarSimulationConversion({
         )
         .match(
           (newId) => {
-            const durationMinutes =
-              options.durationMinutes ??
-              Math.max(
-                SLOT_DURATION,
-                Math.round(
-                  startZoned.until(endZoned, { largestUnit: "minutes" })
-                    .minutes,
-                ),
-              );
+            const durationMinutes = getDurationMinutesFromRange({
+              end: endZoned,
+              start: startZoned,
+            });
+            if (durationMinutes === null) {
+              toast.error("Termindauer konnte nicht ermittelt werden.");
+              return null;
+            }
             const resolvedLocationLineageKey =
               getLocationLineageKeyForDisplayId(locationId) ??
               appointmentRecord.placement.locationLineageKey;
@@ -595,4 +580,19 @@ export function useCalendarSimulationConversion({
     convertRealAppointmentToSimulation,
     convertRealBlockedSlotToSimulation,
   };
+}
+
+function getDurationMinutesFromRange(args: {
+  end: Temporal.ZonedDateTime;
+  start: Temporal.ZonedDateTime;
+}): null | number {
+  const durationMinutes = Math.round(
+    args.start.until(args.end, { largestUnit: "minutes" }).minutes,
+  );
+
+  if (!Number.isInteger(durationMinutes) || durationMinutes <= 0) {
+    return null;
+  }
+
+  return durationMinutes;
 }

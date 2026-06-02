@@ -10,8 +10,6 @@ import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "@/convex/_generated/dataModel";
-import type { ZonedDateTimeString } from "@/convex/typedDtos";
-import type { IsoDateString } from "@/lib/typed-regex";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -28,7 +26,7 @@ import { api } from "@/convex/_generated/api";
 import { createCalendarPlacement } from "@/lib/calendar-occupancy";
 
 import type { PatientInfo, PracticePatientSelection } from "../types";
-import type { CalendarAppointmentPlacement } from "./calendar/types";
+import type { CalendarAppointmentCreateCommandArgs } from "./calendar/use-calendar-planning-workbench";
 
 import { captureErrorGlobal } from "../utils/error-tracking";
 import {
@@ -79,26 +77,10 @@ interface StaffAppointmentCreationModalProps {
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
   runCreateAppointment?: (
-    args: StaffCreateAppointmentArgs,
+    args: CalendarAppointmentCreateCommandArgs,
   ) => Promise<Id<"appointments"> | undefined>;
   selectedDate: string;
   selectedPatientId: Id<"patients"> | undefined;
-}
-
-interface StaffCreateAppointmentArgs {
-  appointmentTypeId: Id<"appointmentTypes">;
-  isNewPatient?: boolean;
-  isSimulation?: boolean;
-  patientDateOfBirth?: IsoDateString;
-  patientId?: Id<"patients">;
-  placement: CalendarAppointmentPlacement;
-  practiceId: Id<"practices">;
-  replacesAppointmentId?: Id<"appointments">;
-  start: ZonedDateTimeString;
-  temporaryPatientName?: string;
-  temporaryPatientPhoneNumber?: string;
-  title: string;
-  userId?: Id<"users">;
 }
 
 export function StaffAppointmentCreationModal({
@@ -145,8 +127,15 @@ export function StaffAppointmentCreationModal({
   const runCreateAppointment = useMemo(
     () =>
       runCreateAppointmentProp ??
-      (async (args: StaffCreateAppointmentArgs) => {
-        const { placement, ...mutationBaseArgs } = args;
+      (async (args: CalendarAppointmentCreateCommandArgs) => {
+        const { end, placement, replacesAppointmentId, ...rest } = args;
+        const mutationBaseArgs = {
+          ...rest,
+          ...(end === undefined ? {} : { end }),
+          ...(replacesAppointmentId === undefined
+            ? {}
+            : { replacesAppointmentId }),
+        };
         const fallbackLocation = locations?.find(
           (entry) => entry.lineageKey === placement.locationLineageKey,
         );

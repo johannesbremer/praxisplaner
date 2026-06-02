@@ -1003,7 +1003,6 @@ export function useCalendarLogic({
           draggedAppointment,
           {
             columnOverride: column,
-            durationMinutes: draggedAppointment.duration,
             endISO: endZoned.toString(),
             ...(targetResourceColumn === undefined
               ? { calendarResourceColumn: null }

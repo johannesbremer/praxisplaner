@@ -70,13 +70,20 @@ import { useCalendarPlanningHistory } from "./use-calendar-planning-history";
 const appointmentQueryRef = api.appointments.getCalendarDayAppointments;
 const blockedSlotQueryRef = api.appointments.getCalendarDayBlockedSlots;
 
-export type CalendarAppointmentCreateCommandArgs = AppointmentOwnerRefs &
-  Omit<
-    CreateAppointmentMutationArgs,
-    "calendarResourceColumn" | "locationId" | "practitionerId"
-  > & {
-    placement: CalendarAppointmentPlacement;
-  };
+export type CalendarAppointmentCreateCommandArgs =
+  CalendarAppointmentCreateCommandBase &
+    (
+      | {
+          end: string;
+          isSimulation: true;
+          replacesAppointmentId: Id<"appointments">;
+        }
+      | {
+          end?: undefined;
+          isSimulation?: boolean;
+          replacesAppointmentId?: undefined;
+        }
+    );
 
 export type CalendarAppointmentUpdateCommandArgs = Omit<
   UpdateAppointmentMutationArgs,
@@ -105,6 +112,19 @@ interface BlockedSlotCandidate {
   placement: CalendarBlockedSlotPlacement;
   start: string;
 }
+
+type CalendarAppointmentCreateCommandBase = AppointmentOwnerRefs &
+  Omit<
+    CreateAppointmentMutationArgs,
+    | "calendarResourceColumn"
+    | "end"
+    | "isSimulation"
+    | "locationId"
+    | "practitionerId"
+    | "replacesAppointmentId"
+  > & {
+    placement: CalendarAppointmentPlacement;
+  };
 
 interface CalendarRecordRef<T> {
   current: T;
@@ -609,7 +629,7 @@ export function useCalendarPlanningWorkbench(args: {
     (
       commandArgs: CalendarAppointmentCreateCommandArgs,
     ): CreateAppointmentMutationArgs | null => {
-      const { placement, ...rest } = commandArgs;
+      const { end, placement, replacesAppointmentId, ...rest } = commandArgs;
       const displayRefs = resolveAppointmentPlacementDisplayRefs(
         placement,
         referenceMaps,
@@ -620,7 +640,11 @@ export function useCalendarPlanningWorkbench(args: {
 
       return {
         ...rest,
+        ...(end === undefined ? {} : { end }),
         locationId: displayRefs.locationId,
+        ...(replacesAppointmentId === undefined
+          ? {}
+          : { replacesAppointmentId }),
         ...(displayRefs.occupancyScope.kind === "resource"
           ? {
               calendarResourceColumn:

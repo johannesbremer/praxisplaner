@@ -3,6 +3,7 @@ import { Temporal } from "temporal-polyfill";
 import { describe, expect, test, vi } from "vitest";
 
 import type { CalendarAppointmentLayout } from "../../components/calendar/types";
+import type { CalendarAppointmentCreateCommandArgs } from "../../components/calendar/use-calendar-planning-workbench";
 
 import {
   asAppointmentTypeLineageKey,
@@ -62,18 +63,9 @@ describe("useCalendarSimulationConversion", () => {
     };
 
     const runCreateAppointment = vi.fn<
-      (args: {
-        appointmentTypeId: typeof appointmentTypeId;
-        end?: string;
-        isNewPatient?: boolean;
-        isSimulation?: boolean;
-        patientDateOfBirth?: string;
-        placement: CalendarAppointmentLayout["record"]["placement"];
-        practiceId: typeof practiceId;
-        replacesAppointmentId?: CalendarAppointmentLayout["record"]["_id"];
-        start: string;
-        title: string;
-      }) => Promise<typeof simulatedAppointmentId>
+      (
+        args: CalendarAppointmentCreateCommandArgs,
+      ) => Promise<typeof simulatedAppointmentId>
     >(() => Promise.resolve(simulatedAppointmentId));
 
     const { result } = renderHook(() =>

@@ -11,7 +11,10 @@ import type {
   CalendarBlockedSlotRecord,
   CalendarColumnId,
 } from "./types";
-import type { SimulatedBlockedSlotConversionResult } from "./use-calendar-logic-helpers";
+import type {
+  SimulatedBlockedSlotConversionResult,
+  SimulationConversionOptions,
+} from "./use-calendar-logic-helpers";
 
 import {
   calendarColumnScopeFromPractitioner,
@@ -91,11 +94,7 @@ export function useCalendarInteractions({
   ) => boolean;
   convertRealAppointmentToSimulation: (
     appointment: CalendarAppointmentLayout,
-    options: {
-      durationMinutes?: number;
-      endISO?: string;
-      startISO?: string;
-    },
+    options: SimulationConversionOptions,
   ) => Promise<CalendarAppointmentLayout | null>;
   convertRealBlockedSlotToSimulation: (
     blockedSlotId: string,
@@ -419,7 +418,6 @@ export function useCalendarInteractions({
               await convertRealAppointmentToSimulationRef.current(
                 targetAppointment,
                 {
-                  durationMinutes: targetAppointment.duration,
                   endISO: endZoned.toString(),
                   startISO: startZoned.toString(),
                 },

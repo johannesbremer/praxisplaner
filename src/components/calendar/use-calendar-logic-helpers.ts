@@ -49,15 +49,25 @@ export interface SimulatedBlockedSlotConversionResult {
   startISO: string;
 }
 
-export interface SimulationConversionOptions {
+export type SimulationConversionOptions = SimulationConversionPlacementOptions &
+  SimulationConversionTimingOptions;
+
+interface SimulationConversionPlacementOptions {
   calendarResourceColumn?: "ekg" | "labor" | null;
   columnOverride?: CalendarColumnId;
-  durationMinutes?: number;
-  endISO?: string;
   locationId?: Id<"locations">;
   practitionerId?: Id<"practitioners">;
-  startISO?: string;
 }
+
+type SimulationConversionTimingOptions =
+  | {
+      endISO: string;
+      startISO: string;
+    }
+  | {
+      endISO?: undefined;
+      startISO?: undefined;
+    };
 
 export function collectDeletedPractitionerCalendarRanges(args: {
   appointments: CalendarAppointmentRecord[];
