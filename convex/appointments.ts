@@ -10,8 +10,7 @@ import type {
 } from "./_generated/server";
 import type { TypedDateTimeRange, ZonedDateTimeString } from "./typedDtos";
 
-import { internal } from "./_generated/api";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import {
   type AppointmentBookingScope,
   findConflictingCalendarOccupancy,
@@ -2713,32 +2712,28 @@ export const getAppointmentsForPatient = query({
   returns: v.array(appointmentResultValidator),
 });
 
-// Internal mutation to delete all simulated appointments
-export const deleteAllSimulatedAppointments = internalMutation({
-  args: { practiceId: v.id("practices") },
-  handler: async (ctx, args) => {
-    const practiceAppointments = await ctx.db
-      .query("appointments")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
+async function deleteAllSimulatedAppointmentsForPractice(
+  db: MutationCtx["db"],
+  practiceId: Id<"practices">,
+): Promise<number> {
+  const simulatedAppointments = await db
+    .query("appointments")
+    .withIndex("by_practiceId_isSimulation", (q) =>
+      q.eq("practiceId", practiceId).eq("isSimulation", true),
+    )
+    .collect();
 
-    const simulatedAppointments = practiceAppointments.filter(
-      (appointment) => appointment.isSimulation === true,
-    );
-
-    for (const appointment of simulatedAppointments) {
-      if (isActivationBoundSimulation(appointment)) {
-        continue;
-      }
-      await ctx.db.delete("appointments", appointment._id);
+  let deleted = 0;
+  for (const appointment of simulatedAppointments) {
+    if (isActivationBoundSimulation(appointment)) {
+      continue;
     }
+    await db.delete("appointments", appointment._id);
+    deleted += 1;
+  }
 
-    return simulatedAppointments.filter(
-      (appointment) => !isActivationBoundSimulation(appointment),
-    ).length;
-  },
-  returns: v.number(),
-});
+  return deleted;
+}
 
 // Query to get all blocked slots
 export const getBlockedSlots = query({
@@ -3037,27 +3032,23 @@ export const deleteBlockedSlot = mutation({
   returns: v.null(),
 });
 
-// Internal mutation to delete all simulated blocked slots
-export const deleteAllSimulatedBlockedSlots = internalMutation({
-  args: { practiceId: v.id("practices") },
-  handler: async (ctx, args) => {
-    const practiceBlockedSlots = await ctx.db
-      .query("blockedSlots")
-      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
-      .collect();
+async function deleteAllSimulatedBlockedSlotsForPractice(
+  db: MutationCtx["db"],
+  practiceId: Id<"practices">,
+): Promise<number> {
+  const simulatedBlockedSlots = await db
+    .query("blockedSlots")
+    .withIndex("by_practiceId_isSimulation", (q) =>
+      q.eq("practiceId", practiceId).eq("isSimulation", true),
+    )
+    .collect();
 
-    const simulatedBlockedSlots = practiceBlockedSlots.filter(
-      (blockedSlot) => blockedSlot.isSimulation === true,
-    );
+  for (const blockedSlot of simulatedBlockedSlots) {
+    await db.delete("blockedSlots", blockedSlot._id);
+  }
 
-    for (const blockedSlot of simulatedBlockedSlots) {
-      await ctx.db.delete("blockedSlots", blockedSlot._id);
-    }
-
-    return simulatedBlockedSlots.length;
-  },
-  returns: v.number(),
-});
+  return simulatedBlockedSlots.length;
+}
 
 // Combined mutation to delete all simulated appointments and blocked slots
 export const deleteAllSimulatedData = mutation({
@@ -3074,13 +3065,13 @@ export const deleteAllSimulatedData = mutation({
   }> => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    const appointmentsDeleted: number = await ctx.runMutation(
-      internal.appointments.deleteAllSimulatedAppointments,
-      { practiceId: args.practiceId },
+    const appointmentsDeleted = await deleteAllSimulatedAppointmentsForPractice(
+      ctx.db,
+      args.practiceId,
     );
-    const blockedSlotsDeleted: number = await ctx.runMutation(
-      internal.appointments.deleteAllSimulatedBlockedSlots,
-      { practiceId: args.practiceId },
+    const blockedSlotsDeleted = await deleteAllSimulatedBlockedSlotsForPractice(
+      ctx.db,
+      args.practiceId,
     );
 
     return {
