@@ -1860,6 +1860,167 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     );
   });
 
+  test("restoring practitioner dependencies does not revive later-deleted appointment types", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Practitioner Appointment Type Delete Practice",
+    });
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
+
+    const seeded = await t.run(async (ctx) => {
+      const practitionerId = await insertWithLineage(ctx, "practitioners", {
+        name: "Dr. Deleted Dependency",
+        practiceId,
+        ruleSetId: initialRuleSetId,
+      });
+      const appointmentTypeId = await insertWithLineage(
+        ctx,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [practitionerId],
+          createdAt: BigInt(Date.now()),
+          duration: 30,
+          followUpPlan: [],
+          lastModified: BigInt(Date.now()),
+          name: "Dependency Type",
+          practiceId,
+          ruleSetId: initialRuleSetId,
+        },
+      );
+
+      return { appointmentTypeId, practitionerId };
+    });
+
+    const deletePractitionerResult = await t.mutation(
+      api.entities.deletePractitionerWithDependencies,
+      {
+        expectedDraftRevision: null,
+        practiceId,
+        practitionerId: seeded.practitionerId,
+        practitionerLineageKey: seeded.practitionerId,
+        selectedRuleSetId: initialRuleSetId,
+      },
+    );
+
+    const deleteAppointmentTypeResult = await t.mutation(
+      api.entities.deleteAppointmentType,
+      {
+        appointmentTypeId: seeded.appointmentTypeId,
+        appointmentTypeLineageKey: seeded.appointmentTypeId,
+        expectedDraftRevision: deletePractitionerResult.draftRevision,
+        practiceId,
+        selectedRuleSetId: initialRuleSetId,
+      },
+    );
+
+    await t.mutation(api.entities.restorePractitionerWithDependencies, {
+      expectedDraftRevision: deleteAppointmentTypeResult.draftRevision,
+      practiceId,
+      selectedRuleSetId: initialRuleSetId,
+      snapshot: deletePractitionerResult.snapshot,
+    });
+
+    const appointmentTypeAfterRestore = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointmentTypes")
+        .withIndex("by_ruleSetId_lineageKey", (q) =>
+          q
+            .eq("ruleSetId", deletePractitionerResult.ruleSetId)
+            .eq("lineageKey", seeded.appointmentTypeId),
+        )
+        .first();
+    });
+
+    expect(appointmentTypeAfterRestore?.deleted).toBe(true);
+    expect(appointmentTypeAfterRestore?.allowedPractitionerLineageKeys).toEqual(
+      [],
+    );
+  });
+
+  test("creating a draft from practitioner deletion does not copy soft-deleted appointment types", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await t.mutation(api.practices.createPractice, {
+      name: "Draft Deleted Appointment Types Practice",
+    });
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
+
+    const seeded = await t.run(async (ctx) => {
+      const practitionerId = await insertWithLineage(ctx, "practitioners", {
+        name: "Dr. Draft Copy",
+        practiceId,
+        ruleSetId: initialRuleSetId,
+      });
+      const activeAppointmentTypeId = await insertWithLineage(
+        ctx,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [practitionerId],
+          createdAt: BigInt(Date.now()),
+          duration: 30,
+          followUpPlan: [],
+          lastModified: BigInt(Date.now()),
+          name: "Active Type",
+          practiceId,
+          ruleSetId: initialRuleSetId,
+        },
+      );
+      const deletedAppointmentTypeId = await insertWithLineage(
+        ctx,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [practitionerId],
+          createdAt: BigInt(Date.now()),
+          deleted: true,
+          duration: 30,
+          followUpPlan: [],
+          lastModified: BigInt(Date.now()),
+          name: "Deleted Type",
+          practiceId,
+          ruleSetId: initialRuleSetId,
+        },
+      );
+
+      return {
+        activeAppointmentTypeId,
+        deletedAppointmentTypeId,
+        practitionerId,
+      };
+    });
+
+    const deletePractitionerResult = await t.mutation(
+      api.entities.deletePractitionerWithDependencies,
+      {
+        expectedDraftRevision: null,
+        practiceId,
+        practitionerId: seeded.practitionerId,
+        practitionerLineageKey: seeded.practitionerId,
+        selectedRuleSetId: initialRuleSetId,
+      },
+    );
+
+    const draftAppointmentTypes = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointmentTypes")
+        .withIndex("by_ruleSetId", (q) =>
+          q.eq("ruleSetId", deletePractitionerResult.ruleSetId),
+        )
+        .collect();
+    });
+
+    expect(
+      draftAppointmentTypes.map(
+        (appointmentType) => appointmentType.lineageKey,
+      ),
+    ).toContain(seeded.activeAppointmentTypeId);
+    expect(
+      draftAppointmentTypes.map(
+        (appointmentType) => appointmentType.lineageKey,
+      ),
+    ).not.toContain(seeded.deletedAppointmentTypeId);
+  });
+
   test("deleteLocation ignores schedules from saved rule sets with the same lineage", async () => {
     const t = createAuthedTestContext();
 

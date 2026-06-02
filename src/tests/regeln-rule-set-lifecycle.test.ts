@@ -90,6 +90,38 @@ describe("Regeln rule set lifecycle selection", () => {
     expect(selection.working?._id).toBe(draftRuleSet._id);
     expect(selection.navigation.selectedVersionId).toBe(draftRuleSet._id);
   });
+
+  it("selects the current Draft Rule Set when the URL contains the unsaved description", () => {
+    const parentRuleSet = ruleSetDoc({
+      id: "parent-rule-set",
+      saved: true,
+      version: 4,
+    });
+    const draftRuleSet = ruleSetDoc({
+      description: UNSAVED_RULE_SET_DESCRIPTION,
+      id: "draft-rule-set",
+      parentVersion: parentRuleSet._id,
+      saved: false,
+      version: 5,
+    });
+    const summaries = summarizeRuleSets(
+      [parentRuleSet, draftRuleSet],
+      parentRuleSet._id,
+    );
+
+    const selection = selectRuleSetLifecycle({
+      rawRuleSetSearch: UNSAVED_RULE_SET_DESCRIPTION,
+      ruleSetIdFromUrl: undefined,
+      ruleSets: [parentRuleSet, draftRuleSet],
+      ruleSetSummaries: summaries,
+      trackedDraftRuleSetId: null,
+    });
+
+    expect(selection.active?._id).toBe(parentRuleSet._id);
+    expect(selection.draft?._id).toBe(draftRuleSet._id);
+    expect(selection.working?._id).toBe(draftRuleSet._id);
+    expect(selection.navigation.selectedVersionId).toBe(draftRuleSet._id);
+  });
 });
 
 function ruleSetDoc(args: {

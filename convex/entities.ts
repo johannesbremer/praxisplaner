@@ -1727,6 +1727,9 @@ export const restorePractitionerWithDependencies = mutation({
           `[LINEAGE:APPOINTMENT_TYPE_NOT_FOUND] Terminart mit lineageKey ${patch.lineageKey} kann nicht wiederhergestellt werden (Regelset ${ruleSetId}).`,
         );
       }
+      if (isDeletedRuleSetEntity(existingByLineage)) {
+        continue;
+      }
 
       const mergedAllowedPractitionerLineageKeys = [
         ...new Set<PractitionerLineageKey>([

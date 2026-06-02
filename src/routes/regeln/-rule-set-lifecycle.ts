@@ -50,11 +50,13 @@ export function selectRuleSetLifecycle(params: {
     )
       ? params.trackedDraftRuleSetId
       : null;
+  const rawRuleSetSearchSelectsDraft =
+    params.rawRuleSetSearch === undefined ||
+    params.rawRuleSetSearch === "ungespeichert" ||
+    params.rawRuleSetSearch === UNSAVED_RULE_SET_DESCRIPTION;
   const trackedDraftRuleSetId =
     resolvedTrackedDraftRuleSetId ??
-    (params.rawRuleSetSearch && params.rawRuleSetSearch !== "ungespeichert"
-      ? null
-      : (existingDraftRuleSet?._id ?? null));
+    (rawRuleSetSearchSelectsDraft ? (existingDraftRuleSet?._id ?? null) : null);
   const draftRuleSet = toDraftRuleSetSummary({
     rawDraftRuleSet: trackedDraftRuleSetId
       ? params.ruleSets?.find(
