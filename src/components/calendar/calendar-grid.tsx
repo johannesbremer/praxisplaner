@@ -389,6 +389,7 @@ export function CalendarGrid({
               return (
                 <div
                   className={`h-4 group ${isInteractionDisabled ? "cursor-not-allowed" : "hover:bg-muted/50 cursor-pointer"} ${isHour ? "border-t-2 border-t-border border-b border-b-border/30" : isHalfHour ? "border-t border-t-border/80 border-b border-b-border/30" : "border-b border-b-border/30"}`}
+                  data-calendar-slot-row="true"
                   key={i}
                   onClick={() => {
                     if (isInteractionDisabled) {

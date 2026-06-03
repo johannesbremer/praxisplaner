@@ -670,9 +670,14 @@ export function useCalendarLogic({
   const getPointerSlot = useCallback(
     (e: React.DragEvent) => {
       const rect = e.currentTarget.getBoundingClientRect();
+      const slotRow = e.currentTarget.querySelector(
+        '[data-calendar-slot-row="true"]',
+      );
+      const slotRowRect = slotRow?.getBoundingClientRect();
+
       return resolvePointerSlot({
         pointerOffsetPx: e.clientY - rect.top,
-        renderedGridHeightPx: rect.height,
+        renderedSlotHeightPx: slotRowRect?.height ?? 0,
         totalSlots,
       });
     },
@@ -1041,11 +1046,11 @@ export function useCalendarLogic({
         newTime,
       });
       toast.error("Termin konnte nicht verschoben werden");
+    } finally {
+      // Convex optimistic updates will handle successful UI updates.
+      setDraggedAppointment(null);
+      setDragPreview(emptyDragPreview);
     }
-    // Convex optimistic updates will handle the UI update
-
-    setDraggedAppointment(null);
-    setDragPreview(emptyDragPreview);
   };
 
   const handleDragEnd = () => {

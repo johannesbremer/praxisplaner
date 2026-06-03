@@ -153,7 +153,7 @@ describe("Manual Blocked Slots Integration", () => {
       expect(
         resolvePointerSlot({
           pointerOffsetPx: 36 * 16,
-          renderedGridHeightPx: 96 * 16,
+          renderedSlotHeightPx: 16,
           totalSlots: 96,
         }),
       ).toBe(36);
@@ -163,7 +163,7 @@ describe("Manual Blocked Slots Integration", () => {
       expect(
         resolvePointerSlot({
           pointerOffsetPx: 36 * 12,
-          renderedGridHeightPx: 96 * 12,
+          renderedSlotHeightPx: 12,
           totalSlots: 96,
         }),
       ).toBe(36);

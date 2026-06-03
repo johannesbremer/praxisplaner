@@ -255,15 +255,16 @@ export function resolveDragPreviewSlot(args: {
 
 export function resolvePointerSlot(args: {
   pointerOffsetPx: number;
-  renderedGridHeightPx: number;
+  renderedSlotHeightPx: number;
   totalSlots: number;
 }): number {
-  if (args.totalSlots <= 0 || args.renderedGridHeightPx <= 0) {
+  if (args.totalSlots <= 0 || args.renderedSlotHeightPx <= 0) {
     return 0;
   }
 
-  const renderedSlotHeightPx = args.renderedGridHeightPx / args.totalSlots;
-  const pointerSlot = Math.floor(args.pointerOffsetPx / renderedSlotHeightPx);
+  const pointerSlot = Math.floor(
+    args.pointerOffsetPx / args.renderedSlotHeightPx,
+  );
 
   return Math.max(0, Math.min(args.totalSlots - 1, pointerSlot));
 }
