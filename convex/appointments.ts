@@ -100,8 +100,12 @@ type AppointmentListItemDocBackedOptionalKey = Extract<
 type AppointmentScope = "all" | "real" | "simulation";
 type AppointmentSeriesDoc = Doc<"appointmentSeries">;
 type BlockedSlotDoc = Doc<"blockedSlots">;
-
 type BlockedSlotListItem = Infer<typeof blockedSlotListItemValidator>;
+
+type BlockedSlotListItemDocBackedOptionalKey = Extract<
+  OptionalKeys<BlockedSlotListItem>,
+  keyof BlockedSlotDoc
+>;
 type OptionalKeys<T> = {
   [K in keyof T]-?: undefined extends T[K] ? K : never;
 }[keyof T];
@@ -269,6 +273,11 @@ export const appointmentListItemDocBackedOptionalFieldCoverage = {
   simulationValidatedAt: true,
   userId: true,
 } satisfies Record<AppointmentListItemDocBackedOptionalKey, true>;
+
+export const blockedSlotListItemDocBackedOptionalFieldCoverage = {
+  isSimulation: true,
+  replacesBlockedSlotId: true,
+} satisfies Record<BlockedSlotListItemDocBackedOptionalKey, true>;
 
 function appointmentChainError(code: string, message: string) {
   return new ConvexError({ code, message });
