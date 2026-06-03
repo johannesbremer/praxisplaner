@@ -4,7 +4,6 @@ import { type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 
 import { mutation, type MutationCtx, query } from "./_generated/server";
-import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
 import { resolveActivePvsPatientIdForBookingIdentity } from "./bookingIdentities";
 import {
   beihilfeStatusValidator,
@@ -319,12 +318,10 @@ const legacyBookingBlockImportRowValidator = v.object({
 
 const legacyBookingReplayRowValidator = v.object({
   beihilfeStatus: v.optional(beihilfeStatusValidator),
-  bookedDurationMinutes: v.optional(v.number()),
   createdAt: v.number(),
   dataSharingContacts: v.array(dataSharingContactInputValidator),
   hzvStatus: v.optional(hzvStatusValidator),
   insuranceType: v.optional(insuranceTypeValidator),
-  legacyAppointmentId: v.optional(v.string()),
   locationName: v.optional(v.string()),
   medicalHistory: v.optional(legacyMedicalHistorySnapshotValidator),
   medicalHistoryComplete: v.optional(v.boolean()),
@@ -332,11 +329,7 @@ const legacyBookingReplayRowValidator = v.object({
   pkvInsuranceType: v.optional(pkvInsuranceTypeValidator),
   pkvTariff: v.optional(pkvTariffValidator),
   practitionerName: v.optional(v.string()),
-  pvsAppointmentStart: v.optional(v.string()),
-  pvsAppointmentTypeTitle: v.optional(v.string()),
   pvsConsent: v.optional(v.literal(true)),
-  pvsPatientNumber: v.optional(v.number()),
-  reasonDescription: v.optional(v.string()),
   sessionStep: v.union(
     v.literal("privacy"),
     v.literal("location"),
@@ -388,18 +381,13 @@ const pvsPatientPractitionerAssociationImportRowValidator = v.object({
 });
 
 const replayImportSkipReasonValidator = v.union(
-  v.literal("missing_appointment"),
   v.literal("missing_location"),
   v.literal("missing_practitioner"),
 );
 
 const replayImportSkipRowValidator = v.object({
-  legacyAppointmentId: v.optional(v.string()),
   locationName: v.optional(v.string()),
   practitionerName: v.optional(v.string()),
-  pvsAppointmentStart: v.optional(v.string()),
-  pvsAppointmentTypeTitle: v.optional(v.string()),
-  pvsPatientNumber: v.optional(v.number()),
   reason: replayImportSkipReasonValidator,
   sessionStep: legacyBookingReplayRowValidator.fields.sessionStep,
   source: legacyBookingReplayRowValidator.fields.source,
@@ -846,7 +834,6 @@ export const importLegacyBookingStepReplay = mutation({
     let insertedUsers = 0;
     let reusedUsers = 0;
     let associatedPractitioners = 0;
-    let skippedMissingAppointment = 0;
     const skippedRows: Infer<typeof replayImportSkipRowValidator>[] = [];
     const practitionerAssociationDivergences: Infer<
       typeof practitionerAssociationDivergenceRowValidator
@@ -859,26 +846,13 @@ export const importLegacyBookingStepReplay = mutation({
         ruleSetId: args.ruleSetId,
       });
       if (resolvedReplayContext.kind === "skipped") {
-        skippedMissingAppointment += 1;
         skippedRows.push({
-          ...(replayRow.legacyAppointmentId === undefined
-            ? {}
-            : { legacyAppointmentId: replayRow.legacyAppointmentId }),
           ...(replayRow.locationName === undefined
             ? {}
             : { locationName: replayRow.locationName }),
           ...(replayRow.practitionerName === undefined
             ? {}
             : { practitionerName: replayRow.practitionerName }),
-          ...(replayRow.pvsAppointmentStart === undefined
-            ? {}
-            : { pvsAppointmentStart: replayRow.pvsAppointmentStart }),
-          ...(replayRow.pvsAppointmentTypeTitle === undefined
-            ? {}
-            : { pvsAppointmentTypeTitle: replayRow.pvsAppointmentTypeTitle }),
-          ...(replayRow.pvsPatientNumber === undefined
-            ? {}
-            : { pvsPatientNumber: replayRow.pvsPatientNumber }),
           reason: resolvedReplayContext.reason,
           sessionStep: replayRow.sessionStep,
           source: replayRow.source,
@@ -921,14 +895,12 @@ export const importLegacyBookingStepReplay = mutation({
             userAuthId: replayRow.userAuthId,
           });
         const patientId =
-          resolvedReplayContext.context.appointment?.patientId ??
           (bookingIdentityId === undefined
             ? null
             : await resolveActivePvsPatientIdForBookingIdentity(
                 ctx.db,
                 bookingIdentityId,
-              )) ??
-          undefined;
+              )) ?? undefined;
         if (bookingIdentityId !== undefined || patientId !== undefined) {
           if (patientId !== undefined) {
             const existingAssociation =
@@ -948,9 +920,6 @@ export const importLegacyBookingStepReplay = mutation({
                 ...(bookingIdentityId === undefined
                   ? {}
                   : { bookingIdentityId }),
-                ...(replayRow.legacyAppointmentId === undefined
-                  ? {}
-                  : { legacyAppointmentId: replayRow.legacyAppointmentId }),
                 patientId,
                 sourceSessionKey: replayRow.sourceSessionKey,
                 userAuthId: replayRow.userAuthId,
@@ -1004,7 +973,6 @@ export const importLegacyBookingStepReplay = mutation({
       practitionerAssociationDivergences,
       reusedSessions,
       reusedUsers,
-      skippedMissingAppointment,
       skippedRows,
     };
   },
@@ -1017,7 +985,6 @@ export const importLegacyBookingStepReplay = mutation({
     ),
     reusedSessions: v.number(),
     reusedUsers: v.number(),
-    skippedMissingAppointment: v.number(),
     skippedRows: v.array(replayImportSkipRowValidator),
   }),
 });
@@ -1498,7 +1465,6 @@ export const countRehearsalTable = query({
 
 interface LegacyBookingReplayRowInput {
   beihilfeStatus?: "no" | "yes";
-  bookedDurationMinutes?: number;
   createdAt: number;
   dataSharingContacts: {
     city: string;
@@ -1513,7 +1479,6 @@ interface LegacyBookingReplayRowInput {
   }[];
   hzvStatus?: "has-contract" | "interested" | "no-interest";
   insuranceType?: "gkv" | "pkv";
-  legacyAppointmentId?: string;
   locationName?: string;
   medicalHistory?: {
     allergyNotes?: string;
@@ -1561,11 +1526,7 @@ interface LegacyBookingReplayRowInput {
   pkvInsuranceType?: "kvb" | "other" | "postb";
   pkvTariff?: "basis" | "premium" | "standard";
   practitionerName?: string;
-  pvsAppointmentStart?: string;
-  pvsAppointmentTypeTitle?: string;
   pvsConsent?: true;
-  pvsPatientNumber?: number;
-  reasonDescription?: string;
   sessionStep:
     | "existing-calendar-selection"
     | "existing-data-input"
@@ -1586,24 +1547,7 @@ interface LegacyBookingReplayRowInput {
   userEmail: string;
 }
 
-interface ResolvedReplayAppointment {
-  appointmentId: Id<"appointments">;
-  appointmentTypeLineageKey: Id<"appointmentTypes">;
-  bookedDurationMinutes: number;
-  locationLineageKey: Id<"locations">;
-  patientId?: Id<"patients">;
-  practitionerLineageKey: Id<"practitioners">;
-  practitionerName: string;
-  reasonDescription: string;
-  selectedSlot: {
-    practitionerLineageKey: Id<"practitioners">;
-    practitionerName: string;
-    startTime: string;
-  };
-}
-
 interface ResolvedReplayContext {
-  appointment?: ResolvedReplayAppointment;
   locationLineageKey?: Id<"locations">;
   practitionerLineageKey?: Id<"practitioners">;
 }
@@ -1630,7 +1574,6 @@ async function ensureImportedUser(
 }
 
 function getReplayImportSkipReason(args: {
-  appointment: null | ResolvedReplayAppointment;
   locationLineageKey: Id<"locations"> | undefined;
   practitionerLineageKey: Id<"practitioners"> | undefined;
   sessionStep: LegacyBookingReplayRowInput["sessionStep"];
@@ -1649,10 +1592,6 @@ function getReplayImportSkipReason(args: {
     return "missing_practitioner";
   }
 
-  if (replayStepRequiresAppointment() && args.appointment === null) {
-    return "missing_appointment";
-  }
-
   return null;
 }
 
@@ -1668,9 +1607,7 @@ async function insertImportedExistingReplaySteps(
   },
 ): Promise<void> {
   const locationLineageKey = args.resolved.locationLineageKey;
-  const practitionerLineageKey =
-    args.resolved.appointment?.practitionerLineageKey ??
-    args.resolved.practitionerLineageKey;
+  const practitionerLineageKey = args.resolved.practitionerLineageKey;
   const personalData = args.replayRow.personalData;
 
   const base = {
@@ -1958,10 +1895,6 @@ async function insertImportedNewReplaySteps(
   }
 }
 
-function replayStepRequiresAppointment(): boolean {
-  return false;
-}
-
 function replayStepRequiresLocation(
   step: LegacyBookingReplayRowInput["sessionStep"],
 ): boolean {
@@ -2019,83 +1952,6 @@ async function resolvePractitionerLineageKey(
   return undefined;
 }
 
-async function resolveReplayAppointment(
-  ctx: MutationCtx,
-  args: {
-    practiceId: Id<"practices">;
-    replayRow: LegacyBookingReplayRowInput;
-  },
-): Promise<null | ResolvedReplayAppointment> {
-  if (
-    args.replayRow.bookedDurationMinutes === undefined ||
-    args.replayRow.pvsAppointmentStart === undefined ||
-    args.replayRow.pvsAppointmentTypeTitle === undefined ||
-    args.replayRow.pvsPatientNumber === undefined ||
-    args.replayRow.reasonDescription === undefined
-  ) {
-    return null;
-  }
-  const pvsPatientNumber = args.replayRow.pvsPatientNumber;
-  const pvsAppointmentStart = args.replayRow.pvsAppointmentStart;
-
-  const patient = await ctx.db
-    .query("patients")
-    .withIndex("by_practiceId_patientId", (q) =>
-      q.eq("practiceId", args.practiceId).eq("patientId", pvsPatientNumber),
-    )
-    .first();
-
-  if (patient?.recordType !== "pvs") {
-    return null;
-  }
-
-  const appointmentsAtStart = await ctx.db
-    .query("appointments")
-    .withIndex("by_practiceId_start", (q) =>
-      q.eq("practiceId", args.practiceId).eq("start", pvsAppointmentStart),
-    )
-    .collect();
-  const appointment = appointmentsAtStart.find(
-    (row) =>
-      row.patientId === patient._id &&
-      row.appointmentTypeTitle === args.replayRow.pvsAppointmentTypeTitle &&
-      getAppointmentPractitionerLineageKey(row.occupancyScope) !== undefined,
-  );
-
-  const practitionerLineageKey =
-    appointment === undefined
-      ? undefined
-      : getAppointmentPractitionerLineageKey(appointment.occupancyScope);
-  if (!appointment || !practitionerLineageKey) {
-    return null;
-  }
-
-  const practitioner = await ctx.db.get(
-    "practitioners",
-    practitionerLineageKey,
-  );
-
-  if (!practitioner) {
-    return null;
-  }
-
-  return {
-    appointmentId: appointment._id,
-    appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
-    bookedDurationMinutes: args.replayRow.bookedDurationMinutes,
-    locationLineageKey: appointment.locationLineageKey,
-    patientId: patient._id,
-    practitionerLineageKey,
-    practitionerName: practitioner.name,
-    reasonDescription: args.replayRow.reasonDescription,
-    selectedSlot: {
-      practitionerLineageKey,
-      practitionerName: practitioner.name,
-      startTime: appointment.start,
-    },
-  };
-}
-
 async function resolveReplayContext(
   ctx: MutationCtx,
   args: {
@@ -2107,33 +1963,21 @@ async function resolveReplayContext(
   | { context: ResolvedReplayContext; kind: "resolved" }
   | {
       kind: "skipped";
-      reason:
-        | "missing_appointment"
-        | "missing_location"
-        | "missing_practitioner";
+      reason: "missing_location" | "missing_practitioner";
     }
 > {
-  const appointment = await resolveReplayAppointment(ctx, {
-    practiceId: args.practiceId,
-    replayRow: args.replayRow,
-  });
-  const locationLineageKey =
-    appointment?.locationLineageKey ??
-    (await resolveLocationLineageKey(
-      ctx,
-      args.ruleSetId,
-      args.replayRow.locationName,
-    ));
+  const locationLineageKey = await resolveLocationLineageKey(
+    ctx,
+    args.ruleSetId,
+    args.replayRow.locationName,
+  );
 
-  const practitionerLineageKey =
-    appointment?.practitionerLineageKey ??
-    (await resolvePractitionerLineageKey(ctx, {
-      practitionerName: args.replayRow.practitionerName,
-      ruleSetId: args.ruleSetId,
-    }));
+  const practitionerLineageKey = await resolvePractitionerLineageKey(ctx, {
+    practitionerName: args.replayRow.practitionerName,
+    ruleSetId: args.ruleSetId,
+  });
 
   const preflightSkipReason = getReplayImportSkipReason({
-    appointment,
     locationLineageKey,
     practitionerLineageKey,
     sessionStep: args.replayRow.sessionStep,
@@ -2144,7 +1988,6 @@ async function resolveReplayContext(
 
   return {
     context: {
-      ...(appointment === null ? {} : { appointment }),
       ...(locationLineageKey === undefined ? {} : { locationLineageKey }),
       ...(practitionerLineageKey === undefined
         ? {}

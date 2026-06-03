@@ -227,16 +227,6 @@ function normalizeBeihilfeStatus(value) {
   }
 }
 
-function toStoredPvsDateTime(value) {
-  const match = value.match(
-    /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-]\d{2}:\d{2})$/,
-  );
-  if (!match) {
-    throw new Error(`Unsupported Praxistimer datetime: ${value}`);
-  }
-  return `${match[1]}T${match[2]}${match[3]}[Europe/Berlin]`;
-}
-
 function toStoredLegacyDateTime(value) {
   return Temporal.Instant.from(value)
     .toZonedDateTimeISO("Europe/Berlin")
@@ -249,12 +239,6 @@ function parseDate(value) {
     throw new Error(`Unsupported date: ${value}`);
   }
   return new Date(timestamp);
-}
-
-function durationMinutes(start, end) {
-  const minutes =
-    (parseDate(end).getTime() - parseDate(start).getTime()) / 60_000;
-  return Number.isFinite(minutes) && minutes > 0 ? minutes : 5;
 }
 
 function trimToUndefined(value) {
@@ -522,30 +506,6 @@ function isLegacyMedicalHistoryComplete(
   );
 }
 
-function normalizeImportedReasonDescription(value, sourceKind) {
-  const trimmed = trimToUndefined(value);
-  if (!trimmed) {
-    return { reasonDescription: undefined, strippedPrefix: undefined };
-  }
-
-  if (sourceKind === "online") {
-    const normalized = trimmed.replace(/^Online:\s*/u, "").trim();
-    return {
-      reasonDescription: normalized,
-      strippedPrefix: normalized === trimmed ? undefined : "Online",
-    };
-  }
-  if (sourceKind === "telefonki") {
-    const normalized = trimmed.replace(/^TelefonKI:\s*/u, "").trim();
-    return {
-      reasonDescription: normalized,
-      strippedPrefix: normalized === trimmed ? undefined : "TelefonKI",
-    };
-  }
-
-  return { reasonDescription: trimmed, strippedPrefix: undefined };
-}
-
 function isTruthyLegacyFlag(value) {
   return value === 1 || value === "1" || value === true;
 }
@@ -700,9 +660,6 @@ function inferLegacyUiStepForNewPatient(args) {
   if (!args.hasLegacyMedicalHistory) {
     return "medical-history";
   }
-  if (args.hasImportableConfirmation) {
-    return "confirmation";
-  }
   return "calendar-selection";
 }
 
@@ -712,9 +669,6 @@ function inferLegacyUiStepForExistingPatient(args) {
   }
   if (!args.hasLegacyPersonalData) {
     return "personal-data";
-  }
-  if (args.hasImportableConfirmation) {
-    return "confirmation";
   }
   return "calendar-selection";
 }
@@ -743,10 +697,6 @@ function mapLegacyUiStepToSessionStep(args) {
     case "personal-data":
       return args.isNewPatient ? "new-data-input" : "existing-data-input";
     case "calendar-selection":
-      return args.isNewPatient
-        ? "new-calendar-selection"
-        : "existing-calendar-selection";
-    case "confirmation":
       return args.isNewPatient
         ? "new-calendar-selection"
         : "existing-calendar-selection";
@@ -837,19 +787,6 @@ function buildSnapshotReplayRow(
       ? normalizeBeihilfeStatus(pkv?.beihilfe)
       : undefined;
   const hasPkvDetails = isLegacyPkvDetailsComplete(pkv);
-  const normalizedReason = normalizeImportedReasonDescription(
-    currentMatch?.pvsReason,
-    currentMatch?.sourceKind,
-  );
-  const reasonDescription = normalizedReason.reasonDescription;
-  const hasMatchedAppointment =
-    currentMatch !== undefined &&
-    personalData !== undefined &&
-    currentMatch.pvsPatientSourceId !== undefined &&
-    currentMatch.pvsStart !== undefined &&
-    currentMatch.pvsType !== undefined;
-  const hasImportableConfirmation =
-    hasMatchedAppointment && reasonDescription !== undefined;
   const legacyUiStep = !hasConsent
     ? "privacy"
     : !locationName
@@ -858,7 +795,6 @@ function buildSnapshotReplayRow(
         ? "patient-status"
         : isNewPatient
           ? inferLegacyUiStepForNewPatient({
-              hasImportableConfirmation,
               hasLegacyDataSharing,
               hasLegacyMedicalHistory,
               hasLegacyPersonalData,
@@ -868,7 +804,6 @@ function buildSnapshotReplayRow(
               pvsConsent,
             })
           : inferLegacyUiStepForExistingPatient({
-              hasImportableConfirmation,
               hasLegacyPersonalData,
               practitionerName,
             });
@@ -893,7 +828,6 @@ function buildSnapshotReplayRow(
     ...(pkvTariff === undefined ? {} : { pkvTariff }),
     ...(practitionerName === undefined ? {} : { practitionerName }),
     ...(insuranceType !== "pkv" || !pvsConsent ? {} : { pvsConsent: true }),
-    reasonDescription,
     sessionStep,
     source: "legacy-online",
     sourceSessionKey: `legacy-pocketbase:snapshot:${userId}`,
@@ -901,29 +835,8 @@ function buildSnapshotReplayRow(
     userEmail,
   };
 
-  if (!sessionStep.endsWith("confirmation")) {
-    return {
-      replayRow: row,
-      strippedPrefix: undefined,
-    };
-  }
-  if (!currentMatch || !reasonDescription) {
-    return undefined;
-  }
-
   return {
-    replayRow: {
-      ...row,
-      bookedDurationMinutes: durationMinutes(
-        currentMatch.pvsStart,
-        currentMatch.pvsEnd,
-      ),
-      legacyAppointmentId: currentMatch.legacyAppointmentId,
-      pvsAppointmentStart: toStoredPvsDateTime(currentMatch.pvsStart),
-      pvsAppointmentTypeTitle: currentMatch.pvsType,
-      pvsPatientNumber: Number(currentMatch.pvsPatientSourceId),
-    },
-    strippedPrefix: normalizedReason.strippedPrefix,
+    replayRow: row,
   };
 }
 
@@ -991,21 +904,6 @@ function main() {
     .map((userId) => buildSnapshotReplayRow(userId, maps, currentOnlineMatches))
     .filter(Boolean);
   const replayRows = snapshotReplayEntries.map((entry) => entry.replayRow);
-  const strippedReasonPrefixCounts = Object.fromEntries(
-    [
-      ...Map.groupBy(
-        snapshotReplayEntries
-          .map((entry) => entry.strippedPrefix)
-          .filter(Boolean),
-        (prefix) => prefix,
-      ).entries(),
-    ]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([prefix, rows]) => [prefix, rows.length]),
-  );
-  const appointmentLinkedReplayRows = replayRows.filter(
-    (row) => row.legacyAppointmentId !== undefined,
-  );
   const unmatchedFutureBookingHoldRows = buildUnmatchedFutureBookingHoldRows(
     snapshotExportedAt,
     unmatched,
@@ -1030,7 +928,6 @@ function main() {
   console.log(
     JSON.stringify(
       {
-        appointmentLinkedReplayRows: appointmentLinkedReplayRows.length,
         blockedUsers: blockRows.length,
         replayRows: replayRows.length,
         replayRowsWithBaumPractitionerPriority: replayRows.filter(
@@ -1051,10 +948,6 @@ function main() {
         ),
         snapshotReplayRows: snapshotReplayEntries.length,
         snapshotExportedAt: snapshotExportedAt.toISOString(),
-        strippedReasonPrefixCounts,
-        strippedReasonPrefixes: Object.values(
-          strippedReasonPrefixCounts,
-        ).reduce((sum, count) => sum + count, 0),
         unmatchedFutureBookingHolds: unmatchedFutureBookingHoldRows.length,
       },
       null,

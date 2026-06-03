@@ -258,7 +258,6 @@ async function main() {
     associatedPractitionersFromReplay: 0,
     insertedSessions: 0,
     reusedSessions: 0,
-    skippedMissingAppointment: 0,
   };
   const unmatchedFutureHoldTotals = {
     insertedHolds: 0,
@@ -361,10 +360,6 @@ async function main() {
     );
     replayTotals.insertedSessions += numberResult(result, "insertedSessions");
     replayTotals.reusedSessions += numberResult(result, "reusedSessions");
-    replayTotals.skippedMissingAppointment += numberResult(
-      result,
-      "skippedMissingAppointment",
-    );
     replayTotals.associatedPractitionersFromReplay += numberResult(
       result,
       "associatedPractitioners",
