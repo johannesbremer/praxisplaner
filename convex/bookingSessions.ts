@@ -1310,6 +1310,22 @@ async function requireActiveFlow(
   return { rows, state };
 }
 
+async function requireActiveFlowAtStep(
+  ctx: MutationCtx | QueryCtx,
+  flowKey: BookingFlowKey,
+  expectedStep: BookingSessionState["step"],
+  errorMessage: string,
+): Promise<{
+  rows: BookingFlowRows;
+  state: BookingSessionState;
+}> {
+  const activeFlow = await requireActiveFlow(ctx, flowKey);
+  if (activeFlow.state.step !== expectedStep) {
+    throw new Error(errorMessage);
+  }
+  return activeFlow;
+}
+
 async function requireCurrentUserCanStartBooking(
   ctx: MutationCtx,
   flowKey: BookingFlowKey,
@@ -1843,6 +1859,13 @@ export const acceptPrivacy = mutation({
   args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await assertCalendarNotReached(ctx, flowKey);
+    await requireActiveFlowAtStep(
+      ctx,
+      flowKey,
+      "privacy",
+      "Privacy consent is not available in the current flow.",
+    );
     await upsertPrivacyStep(ctx, flowKey, true);
     return null;
   },
@@ -1857,6 +1880,13 @@ export const selectLocation = mutation({
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
     await assertCalendarNotReached(ctx, flowKey);
+    await requireActiveFlowAtStep(
+      ctx,
+      flowKey,
+      "location",
+      "Location selection is not available in the current flow.",
+    );
+
     const locationId = await resolveLocationIdForRuleSetByLineage(ctx.db, {
       lineageKey: asLocationLineageKey(args.locationLineageKey),
       ruleSetId: flowKey.ruleSetId,
@@ -1868,7 +1898,6 @@ export const selectLocation = mutation({
       expectedRuleSetId: flowKey.ruleSetId,
     });
 
-    await upsertPrivacyStep(ctx, flowKey, true);
     await upsertLocationStep(ctx, flowKey, args.locationLineageKey);
     await removeRowsAfterLocationSelection(ctx, flowKey);
     return null;
@@ -1881,6 +1910,12 @@ export const selectNewPatient = mutation({
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
     await assertCalendarNotReached(ctx, flowKey);
+    await requireActiveFlowAtStep(
+      ctx,
+      flowKey,
+      "patient-status",
+      "Patient status is not available in the current flow.",
+    );
     await upsertPatientStatusStep(ctx, flowKey, true);
     await removeRowsAfterPatientStatus(ctx, flowKey);
     return null;
@@ -1893,6 +1928,12 @@ export const selectExistingPatient = mutation({
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
     await assertCalendarNotReached(ctx, flowKey);
+    await requireActiveFlowAtStep(
+      ctx,
+      flowKey,
+      "patient-status",
+      "Patient status is not available in the current flow.",
+    );
     await upsertPatientStatusStep(ctx, flowKey, false);
     await removeRowsAfterPatientStatus(ctx, flowKey);
     return null;
@@ -1908,18 +1949,12 @@ export const selectInsuranceType = mutation({
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
     await assertCalendarNotReached(ctx, flowKey);
-    const { state } = await requireActiveFlow(ctx, flowKey);
-    if (
-      state.step !== "new-insurance-type" &&
-      state.step !== "new-gkv-details" &&
-      state.step !== "new-pvs-consent" &&
-      state.step !== "new-pkv-details" &&
-      state.step !== "new-data-input" &&
-      state.step !== "new-data-sharing" &&
-      state.step !== "new-calendar-selection"
-    ) {
-      throw new Error("Insurance type is not available in the current flow.");
-    }
+    await requireActiveFlowAtStep(
+      ctx,
+      flowKey,
+      "new-insurance-type",
+      "Insurance type is not available in the current flow.",
+    );
 
     await upsertNewInsuranceTypeStep(ctx, flowKey, args.insuranceType);
     await removeRowsAfterInsuranceType(ctx, flowKey);
@@ -1936,7 +1971,12 @@ export const confirmGkvDetails = mutation({
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
     await assertCalendarNotReached(ctx, flowKey);
-    const rows = await loadFlowRows(ctx, flowKey);
+    const { rows } = await requireActiveFlowAtStep(
+      ctx,
+      flowKey,
+      "new-gkv-details",
+      "GKV details are not available in the current flow.",
+    );
     if (rows.newInsuranceType?.insuranceType !== "gkv") {
       throw new Error("GKV details are not available in the current flow.");
     }
@@ -1952,7 +1992,12 @@ export const acceptPvsConsent = mutation({
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
     await assertCalendarNotReached(ctx, flowKey);
-    const rows = await loadFlowRows(ctx, flowKey);
+    const { rows } = await requireActiveFlowAtStep(
+      ctx,
+      flowKey,
+      "new-pvs-consent",
+      "PVS consent is not available in the current flow.",
+    );
     if (rows.newInsuranceType?.insuranceType !== "pkv") {
       throw new Error("PVS consent is not available in the current flow.");
     }
@@ -1974,7 +2019,12 @@ export const confirmPkvDetails = mutation({
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
     await assertCalendarNotReached(ctx, flowKey);
-    const rows = await loadFlowRows(ctx, flowKey);
+    const { rows } = await requireActiveFlowAtStep(
+      ctx,
+      flowKey,
+      "new-pkv-details",
+      "PKV details are not available in the current flow.",
+    );
     if (rows.newInsuranceType?.insuranceType !== "pkv" || !rows.newPkvConsent) {
       throw new Error("PKV details are not available in the current flow.");
     }
@@ -2002,7 +2052,12 @@ export const submitNewPatientData = mutation({
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
     await assertCalendarNotReached(ctx, flowKey);
-    const rows = await loadFlowRows(ctx, flowKey);
+    const { rows } = await requireActiveFlowAtStep(
+      ctx,
+      flowKey,
+      "new-data-input",
+      "Personal data is not available in the current flow.",
+    );
     const isGkv =
       rows.newInsuranceType?.insuranceType === "gkv" && !!rows.newGkvDetail;
     const isPkv =
@@ -2038,13 +2093,13 @@ export const submitNewDataSharing = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
-    const { state } = await requireActiveFlow(ctx, flowKey);
-    if (
-      state.step !== "new-data-sharing" &&
-      state.step !== "new-calendar-selection"
-    ) {
-      throw new Error("Data sharing is not available in the current flow.");
-    }
+    await assertCalendarNotReached(ctx, flowKey);
+    await requireActiveFlowAtStep(
+      ctx,
+      flowKey,
+      "new-data-sharing",
+      "Data sharing is not available in the current flow.",
+    );
 
     assertValidDataSharingContacts(args.dataSharingContacts);
     await upsertNewDataSharingStep(ctx, flowKey);
@@ -2069,6 +2124,12 @@ export const selectDoctor = mutation({
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
     await assertCalendarNotReached(ctx, flowKey);
+    await requireActiveFlowAtStep(
+      ctx,
+      flowKey,
+      "existing-doctor-selection",
+      "Doctor selection is not available in the current flow.",
+    );
     const practitionerId = await resolvePractitionerIdForRuleSetByLineage(
       ctx.db,
       {
@@ -2096,7 +2157,13 @@ export const submitExistingPatientData = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
-    const rows = await loadFlowRows(ctx, flowKey);
+    await assertCalendarNotReached(ctx, flowKey);
+    const { rows } = await requireActiveFlowAtStep(
+      ctx,
+      flowKey,
+      "existing-data-input",
+      "Personal data is not available in the current flow.",
+    );
     if (!rows.existingDoctor) {
       throw new Error("Personal data is not available in the current flow.");
     }

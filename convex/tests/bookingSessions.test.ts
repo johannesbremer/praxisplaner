@@ -176,6 +176,121 @@ describe("booking flow without bookingSessions table", () => {
     expect(rows.patientStatus).toHaveLength(0);
   });
 
+  test("location selection requires accepted privacy consent", async () => {
+    const t = createAuthedTestContext("location_requires_privacy");
+    const fixture = await createFlowFixture(t);
+
+    await t.mutation(api.bookingSessions.create, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    await expect(
+      t.mutation(api.bookingSessions.selectLocation, {
+        locationLineageKey: fixture.locationLineageKey,
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow("Location selection is not available");
+
+    const rows = await t.run(async (ctx) => ({
+      location: await ctx.db.query("bookingLocationSteps").collect(),
+      privacy: await ctx.db.query("bookingPrivacySteps").collect(),
+    }));
+    expect(rows.location).toHaveLength(0);
+    expect(rows.privacy).toHaveLength(1);
+    expect(rows.privacy[0]?.consent).toBe(false);
+  });
+
+  test("patient status selection requires completed location selection", async () => {
+    const t = createAuthedTestContext("patient_status_requires_location");
+    const fixture = await createFlowFixture(t);
+
+    await t.mutation(api.bookingSessions.create, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.acceptPrivacy, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    await expect(
+      t.mutation(api.bookingSessions.selectNewPatient, {
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow("Patient status is not available");
+    await expect(
+      t.mutation(api.bookingSessions.selectExistingPatient, {
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow("Patient status is not available");
+
+    const rows = await t.run(async (ctx) => ({
+      location: await ctx.db.query("bookingLocationSteps").collect(),
+      patientStatus: await ctx.db.query("bookingPatientStatusSteps").collect(),
+    }));
+    expect(rows.location).toHaveLength(0);
+    expect(rows.patientStatus).toHaveLength(0);
+  });
+
+  test("doctor selection requires existing-patient branch selection", async () => {
+    const t = createAuthedTestContext("doctor_requires_existing_branch");
+    const fixture = await createFlowFixture(t);
+
+    await createFlowToPatientStatus(t, fixture);
+
+    await expect(
+      t.mutation(api.bookingSessions.selectDoctor, {
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: fixture.practitionerLineageKey,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow("Doctor selection is not available");
+
+    const rows = await t.run(async (ctx) => ({
+      existingDoctor: await ctx.db
+        .query("bookingExistingDoctorSelectionSteps")
+        .collect(),
+      patientStatus: await ctx.db.query("bookingPatientStatusSteps").collect(),
+    }));
+    expect(rows.existingDoctor).toHaveLength(0);
+    expect(rows.patientStatus).toHaveLength(0);
+  });
+
+  test("new-patient branch mutations require the current new-patient step", async () => {
+    const t = createAuthedTestContext("new_branch_requires_current_step");
+    const fixture = await createFlowFixture(t);
+
+    await createFlowToPatientStatus(t, fixture);
+
+    await expect(
+      t.mutation(api.bookingSessions.selectInsuranceType, {
+        insuranceType: "gkv",
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow("Insurance type is not available");
+    await expect(
+      t.mutation(api.bookingSessions.confirmGkvDetails, {
+        hzvStatus: "has-contract",
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow("GKV details are not available");
+
+    const rows = await t.run(async (ctx) => ({
+      gkvDetails: await ctx.db.query("bookingNewGkvDetailSteps").collect(),
+      insuranceType: await ctx.db
+        .query("bookingNewInsuranceTypeSteps")
+        .collect(),
+    }));
+    expect(rows.gkvDetails).toHaveLength(0);
+    expect(rows.insuranceType).toHaveLength(0);
+  });
+
   test("new patient flow persists normalized medical history and data sharing rows", async () => {
     const t = createAuthedTestContext("new_patient_flow");
     const fixture = await createFlowFixture(t);
