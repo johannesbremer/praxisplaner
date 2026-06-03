@@ -154,9 +154,12 @@ async function insertAppointmentRecord(
   t: TestContext,
   args: {
     appointmentTypeId: Id<"appointmentTypes">;
+    bookingIdentityId?: Id<"bookingIdentities">;
     cancelledAt?: bigint;
+    cancelledByPhoneBookingIdentityId?: Id<"phoneBookingIdentities">;
     isSimulation?: boolean;
     locationId: Id<"locations">;
+    phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
     practiceId: Id<"practices">;
     practitionerId: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
@@ -193,6 +196,15 @@ async function insertAppointmentRecord(
         : {
             cancelledAt: args.cancelledAt,
           }),
+      ...(args.bookingIdentityId === undefined
+        ? {}
+        : { bookingIdentityId: args.bookingIdentityId }),
+      ...(args.cancelledByPhoneBookingIdentityId === undefined
+        ? {}
+        : {
+            cancelledByPhoneBookingIdentityId:
+              args.cancelledByPhoneBookingIdentityId,
+          }),
       createdAt: now,
       end: args.window.end,
       ...(args.isSimulation === true ? { isSimulation: true } : {}),
@@ -213,6 +225,9 @@ async function insertAppointmentRecord(
         }),
       },
       practiceId: args.practiceId,
+      ...(args.phoneBookingIdentityId === undefined
+        ? {}
+        : { phoneBookingIdentityId: args.phoneBookingIdentityId }),
       ...(args.replacesAppointmentId === undefined
         ? {}
         : { replacesAppointmentId: args.replacesAppointmentId }),
@@ -2269,6 +2284,94 @@ describe("appointments update safety", () => {
     );
     expect(displayedAppointment?.locationId).toBe(baseData.locationId);
     expect(displayedAppointment?.practitionerId).toBe(baseData.practitionerId);
+  });
+
+  test("getAppointments preserves booking identity owner refs", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_identity_refs",
+      "identity-refs@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "identity-refs@example.com",
+      subject: "workos_identity_refs",
+    });
+
+    const identityRefs = await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const now = BigInt(Date.now());
+      const bookingIdentityId = await ctx.db.insert("bookingIdentities", {
+        createdAt: now,
+        kind: "online",
+        lastModified: now,
+        practiceId: baseData.practiceId,
+        sourceIdentityId: "legacy-online-identity",
+        sourceSystem: "legacy-online",
+      });
+      const phoneBookingIdentityId = await ctx.db.insert(
+        "phoneBookingIdentities",
+        {
+          callId: "telefonki-owner-call",
+          createdAt: now,
+          lastModified: now,
+          practiceId: baseData.practiceId,
+          ruleSetId: baseData.ruleSetId,
+        },
+      );
+      const cancelledByPhoneBookingIdentityId = await ctx.db.insert(
+        "phoneBookingIdentities",
+        {
+          callId: "telefonki-canceller-call",
+          createdAt: now,
+          lastModified: now,
+          practiceId: baseData.practiceId,
+          ruleSetId: baseData.ruleSetId,
+        },
+      );
+
+      return {
+        bookingIdentityId,
+        cancelledByPhoneBookingIdentityId,
+        phoneBookingIdentityId,
+      };
+    });
+
+    const appointmentId = await insertAppointmentRecord(t, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      bookingIdentityId: identityRefs.bookingIdentityId,
+      cancelledByPhoneBookingIdentityId:
+        identityRefs.cancelledByPhoneBookingIdentityId,
+      locationId: baseData.locationId,
+      phoneBookingIdentityId: identityRefs.phoneBookingIdentityId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      userId,
+      window: makeSlotWindow(4),
+    });
+
+    const appointments = await authed.query(api.appointments.getAppointments, {
+      activeRuleSetId: baseData.ruleSetId,
+      selectedRuleSetId: baseData.ruleSetId,
+    });
+
+    const appointment = appointments.find(
+      (candidate) => candidate._id === appointmentId,
+    );
+    expect(appointment?.bookingIdentityId).toBe(identityRefs.bookingIdentityId);
+    expect(appointment?.phoneBookingIdentityId).toBe(
+      identityRefs.phoneBookingIdentityId,
+    );
+    expect(appointment?.cancelledByPhoneBookingIdentityId).toBe(
+      identityRefs.cancelledByPhoneBookingIdentityId,
+    );
   });
 
   test("getAppointments ignores unrelated draft simulations before remapping the displayed rule set", async () => {

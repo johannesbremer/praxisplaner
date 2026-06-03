@@ -1141,12 +1141,24 @@ function toAppointmentListItem(
     ...(appointment.cancelledAt === undefined
       ? {}
       : { cancelledAt: appointment.cancelledAt }),
+    ...(appointment.bookingIdentityId === undefined
+      ? {}
+      : { bookingIdentityId: appointment.bookingIdentityId }),
+    ...(appointment.cancelledByPhoneBookingIdentityId === undefined
+      ? {}
+      : {
+          cancelledByPhoneBookingIdentityId:
+            appointment.cancelledByPhoneBookingIdentityId,
+        }),
     ...(appointment.isSimulation === undefined
       ? {}
       : { isSimulation: appointment.isSimulation }),
     ...(appointment.patientId === undefined
       ? {}
       : { patientId: appointment.patientId }),
+    ...(appointment.phoneBookingIdentityId === undefined
+      ? {}
+      : { phoneBookingIdentityId: appointment.phoneBookingIdentityId }),
     ...(practitionerLineageKey
       ? {
           practitionerId: practitionerLineageKey,
