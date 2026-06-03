@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { Temporal } from "temporal-polyfill";
 
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const legacyDbPath = join(workspaceRoot, ".cache/migration/source/data.db");
@@ -101,7 +102,11 @@ function parsePvsWallClock(value) {
   if (!match) {
     throw new Error(`Unsupported Praxistimer datetime: ${value}`);
   }
-  return `${match[1]}T${match[2]}`;
+  return Temporal.ZonedDateTime.from(
+    `${match[1]}T${match[2]}${match[3]}[Europe/Berlin]`,
+  )
+    .toPlainDateTime()
+    .toString();
 }
 
 function parseLegacyWallClock(value) {
@@ -111,7 +116,7 @@ function parseLegacyWallClock(value) {
   if (!match) {
     throw new Error(`Unsupported legacy datetime: ${value}`);
   }
-  return `${match[1]}T${match[2]}`;
+  return Temporal.PlainDateTime.from(`${match[1]}T${match[2]}`).toString();
 }
 
 function startWallClockKey(fields) {
