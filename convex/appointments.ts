@@ -93,11 +93,18 @@ type AppointmentListItem = AppointmentResult &
     | "simulationKind"
     | "simulationRuleSetId"
   >;
+type AppointmentListItemDocBackedOptionalKey = Extract<
+  OptionalKeys<AppointmentListItem>,
+  keyof AppointmentDoc
+>;
 type AppointmentScope = "all" | "real" | "simulation";
 type AppointmentSeriesDoc = Doc<"appointmentSeries">;
-
 type BlockedSlotDoc = Doc<"blockedSlots">;
+
 type BlockedSlotListItem = Infer<typeof blockedSlotListItemValidator>;
+type OptionalKeys<T> = {
+  [K in keyof T]-?: undefined extends T[K] ? K : never;
+}[keyof T];
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 
 type AppointmentOwner = LinkedAppointmentOwner | TemporaryAppointmentOwner;
@@ -244,6 +251,24 @@ const bookedAppointmentSummaryItemValidator = v.union(
 export type BookedAppointmentSummaryItem = Infer<
   typeof bookedAppointmentSummaryItemValidator
 >;
+
+export const appointmentListItemDocBackedOptionalFieldCoverage = {
+  bookingIdentityId: true,
+  cancelledAt: true,
+  cancelledByPhoneBookingIdentityId: true,
+  isSimulation: true,
+  patientId: true,
+  phoneBookingIdentityId: true,
+  reassignmentSourceVacationLineageKey: true,
+  replacesAppointmentId: true,
+  seriesId: true,
+  seriesStepId: true,
+  seriesStepIndex: true,
+  simulationKind: true,
+  simulationRuleSetId: true,
+  simulationValidatedAt: true,
+  userId: true,
+} satisfies Record<AppointmentListItemDocBackedOptionalKey, true>;
 
 function appointmentChainError(code: string, message: string) {
   return new ConvexError({ code, message });
