@@ -73,6 +73,7 @@ function Calendar({
           "flex items-center justify-center h-(--cell-size) w-full px-(--cell-size)",
           defaultClassNames.month_caption,
         ),
+        month_grid: cn("w-full border-collapse", defaultClassNames.month_grid),
         months: cn(
           "flex gap-4 flex-col md:flex-row relative",
           defaultClassNames.months,
@@ -92,7 +93,6 @@ function Calendar({
           defaultClassNames.range_start,
         ),
         root: cn("w-fit", defaultClassNames.root),
-        table: "w-full border-collapse",
         today: cn(
           "bg-accent text-accent-foreground rounded-md data-[selected=true]:rounded-none",
           defaultClassNames.today,
