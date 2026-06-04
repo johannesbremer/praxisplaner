@@ -1884,7 +1884,13 @@ interface AppointmentUpdateArgs {
   userId?: Id<"users">;
 }
 
+type AppointmentUpdateData = Omit<AppointmentUpdateArgs, "id">;
 type AppointmentUpdateMode = "activationReassignment" | "real" | "simulation";
+
+type PersistedAppointmentUpdateData = Pick<
+  AppointmentUpdateData,
+  "end" | "patientId" | "start" | "title" | "userId"
+>;
 
 function assertExpectedAppointmentUpdateMode(
   appointment: AppointmentDoc,
@@ -1944,6 +1950,54 @@ function assertImmutableAppointmentModeFields(
   }
 }
 
+function compactAppointmentUpdateData(
+  updateData: AppointmentUpdateData,
+): Partial<AppointmentUpdateData> {
+  const compacted: Partial<AppointmentUpdateData> = {};
+
+  if (updateData.appointmentTypeId !== undefined) {
+    compacted.appointmentTypeId = updateData.appointmentTypeId;
+  }
+  if (updateData.calendarResourceColumn !== undefined) {
+    compacted.calendarResourceColumn = updateData.calendarResourceColumn;
+  }
+  if (updateData.end !== undefined) {
+    compacted.end = updateData.end;
+  }
+  if (updateData.isSimulation !== undefined) {
+    compacted.isSimulation = updateData.isSimulation;
+  }
+  if (updateData.locationId !== undefined) {
+    compacted.locationId = updateData.locationId;
+  }
+  if (updateData.patientId !== undefined) {
+    compacted.patientId = updateData.patientId;
+  }
+  if (updateData.practitionerId !== undefined) {
+    compacted.practitionerId = updateData.practitionerId;
+  }
+  if (updateData.replacesAppointmentId !== undefined) {
+    compacted.replacesAppointmentId = updateData.replacesAppointmentId;
+  }
+  if (updateData.simulationKind !== undefined) {
+    compacted.simulationKind = updateData.simulationKind;
+  }
+  if (updateData.simulationRuleSetId !== undefined) {
+    compacted.simulationRuleSetId = updateData.simulationRuleSetId;
+  }
+  if (updateData.start !== undefined) {
+    compacted.start = updateData.start;
+  }
+  if (updateData.title !== undefined) {
+    compacted.title = updateData.title;
+  }
+  if (updateData.userId !== undefined) {
+    compacted.userId = updateData.userId;
+  }
+
+  return compacted;
+}
+
 function getExistingAppointmentUpdateMode(
   appointment: AppointmentDoc,
 ): AppointmentUpdateMode {
@@ -1980,6 +2034,30 @@ function getPersistentSimulationFields(
   };
 }
 
+function persistedAppointmentUpdateData(
+  updateData: Partial<AppointmentUpdateData>,
+): Partial<PersistedAppointmentUpdateData> {
+  const persisted: Partial<PersistedAppointmentUpdateData> = {};
+
+  if (updateData.end !== undefined) {
+    persisted.end = updateData.end;
+  }
+  if (updateData.patientId !== undefined) {
+    persisted.patientId = updateData.patientId;
+  }
+  if (updateData.start !== undefined) {
+    persisted.start = updateData.start;
+  }
+  if (updateData.title !== undefined) {
+    persisted.title = updateData.title;
+  }
+  if (updateData.userId !== undefined) {
+    persisted.userId = updateData.userId;
+  }
+
+  return persisted;
+}
+
 async function updateAppointmentByMode(
   ctx: MutationCtx,
   args: AppointmentUpdateArgs,
@@ -1993,11 +2071,7 @@ async function updateAppointmentByMode(
   await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
   assertExpectedAppointmentUpdateMode(existingAppointment, expectedMode);
 
-  // Filter out undefined values
-  const filteredUpdateData = Object.fromEntries(
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    Object.entries(updateData).filter(([, value]) => value !== undefined),
-  ) as Partial<typeof updateData>;
+  const filteredUpdateData = compactAppointmentUpdateData(updateData);
   assertImmutableAppointmentModeFields(filteredUpdateData);
 
   const { patientId, userId } = filteredUpdateData;
@@ -2517,21 +2591,8 @@ async function updateAppointmentByMode(
     return null;
   }
 
-  const persistedUpdateData = Object.fromEntries(
-    Object.entries(filteredUpdateData).filter(
-      ([key]) =>
-        key !== "appointmentTypeId" &&
-        key !== "locationId" &&
-        key !== "practitionerId" &&
-        key !== "calendarResourceColumn",
-    ),
-  ) as Omit<
-    typeof filteredUpdateData,
-    | "appointmentTypeId"
-    | "calendarResourceColumn"
-    | "locationId"
-    | "practitionerId"
-  >;
+  const persistedUpdateData =
+    persistedAppointmentUpdateData(filteredUpdateData);
 
   await ctx.db.patch("appointments", id, {
     ...persistedUpdateData,
