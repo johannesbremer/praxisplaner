@@ -381,6 +381,7 @@ function getAllowedBackTargetStep(
     }
   }
 }
+
 async function getFlowKeyForMutation(
   ctx: MutationCtx,
   args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
@@ -391,6 +392,7 @@ async function getFlowKeyForMutation(
     userId: await ensureAuthenticatedUserId(ctx),
   };
 }
+
 async function getFlowKeyForQuery(
   ctx: QueryCtx,
   args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
@@ -406,7 +408,6 @@ async function getFlowKeyForQuery(
     userId,
   };
 }
-
 function getFlowRow(
   ctx: MutationCtx | QueryCtx,
   tableName: "bookingCalendarReachedSteps",
@@ -638,13 +639,11 @@ function hasFlowStepRows(rows: BookingFlowRows): boolean {
     rows.newDataSharing !== null
   );
 }
-
 function hasRequiredMedicalHistoryEntries(
   row: BookingFlowRows["medicalHistoryEntry"],
 ): boolean {
   return row?.isComplete === true;
 }
-
 async function loadFlowRows(
   ctx: MutationCtx | QueryCtx,
   flowKey: BookingFlowKey,
@@ -1332,6 +1331,13 @@ async function requireBookingRuleSetBelongsToPractice(
   ctx: MutationCtx | QueryCtx,
   args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
 ): Promise<void> {
+  const practice = await ctx.db.get("practices", args.practiceId);
+  if (!practice) {
+    throw new Error("Practice not found.");
+  }
+  if (practice.currentActiveRuleSetId !== args.ruleSetId) {
+    throw new Error("Rule set is not active for this practice.");
+  }
   const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
   if (!ruleSet) {
     throw new Error("Rule set not found.");
@@ -1394,6 +1400,80 @@ async function requireCurrentUserCanStartBooking(
     throw new Error(
       "This account already has a future appointment and cannot start another online booking.",
     );
+  }
+}
+
+async function requireOfferedNewPatientSlot(
+  ctx: MutationCtx,
+  args: {
+    appointmentTypeLineageKey: Id<"appointmentTypes">;
+    locationLineageKey: LocationLineageKey;
+    patientDateOfBirth: string;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+    selectedSlot: {
+      practitionerLineageKey: Id<"practitioners">;
+      startTime: ZonedDateTimeString;
+    };
+  },
+): Promise<void> {
+  await requireOfferedPatientSlot(ctx, {
+    appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+    isNewPatient: true,
+    locationLineageKey: args.locationLineageKey,
+    patientDateOfBirth: args.patientDateOfBirth,
+    practiceId: args.practiceId,
+    practitionerLineageKey: asPractitionerLineageKey(
+      args.selectedSlot.practitionerLineageKey,
+    ),
+    ruleSetId: args.ruleSetId,
+    startTime: args.selectedSlot.startTime,
+  });
+}
+
+async function requireOfferedPatientSlot(
+  ctx: MutationCtx,
+  args: {
+    appointmentTypeLineageKey: Id<"appointmentTypes">;
+    isNewPatient: boolean;
+    locationLineageKey: LocationLineageKey;
+    patientDateOfBirth: string;
+    practiceId: Id<"practices">;
+    practitionerLineageKey: PractitionerLineageKey;
+    ruleSetId: Id<"ruleSets">;
+    startTime: ZonedDateTimeString;
+  },
+): Promise<void> {
+  const selectedDate = Temporal.ZonedDateTime.from(args.startTime)
+    .toPlainDate()
+    .toString();
+  const slotsResult = await ctx.runQuery(
+    internal.scheduling.getSlotsForDayInternal,
+    {
+      date: selectedDate,
+      enforceFutureOnly: true,
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+      scope: "real",
+      simulatedContext: {
+        appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+        locationLineageKey: args.locationLineageKey,
+        patient: {
+          dateOfBirth: args.patientDateOfBirth,
+          isNew: args.isNewPatient,
+        },
+      },
+    },
+  );
+  const matchingSlot = slotsResult.slots.find(
+    (slot) =>
+      slot.status === "AVAILABLE" &&
+      slot.startTime === args.startTime &&
+      slot.locationLineageKey === args.locationLineageKey &&
+      slot.practitionerLineageKey === args.practitionerLineageKey,
+  );
+  if (!matchingSlot) {
+    throw new Error("Selected slot is no longer available");
   }
 }
 
@@ -2248,6 +2328,16 @@ export const selectNewPatientSlot = mutation({
       ruleSetId: flowKey.ruleSetId,
       startTime: selectedSlot.startTime,
     });
+    await requireOfferedNewPatientSlot(ctx, {
+      appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+      locationLineageKey: asLocationLineageKey(
+        rows.location.locationLineageKey,
+      ),
+      patientDateOfBirth: personalData.dateOfBirth,
+      practiceId: flowKey.practiceId,
+      ruleSetId: flowKey.ruleSetId,
+      selectedSlot,
+    });
 
     const [locationId, practitionerId] = await Promise.all([
       resolveLocationIdForRuleSetByLineage(ctx.db, {
@@ -2263,6 +2353,7 @@ export const selectNewPatientSlot = mutation({
     ]);
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
+      allowUnrelatedUserId: true,
       appointmentTypeId,
       isNewPatient: true,
       locationId,
@@ -2338,6 +2429,20 @@ export const selectExistingPatientSlot = mutation({
       ruleSetId: flowKey.ruleSetId,
       startTime: selectedSlot.startTime,
     });
+    await requireOfferedPatientSlot(ctx, {
+      appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+      isNewPatient: false,
+      locationLineageKey: asLocationLineageKey(
+        rows.location.locationLineageKey,
+      ),
+      patientDateOfBirth: personalData.dateOfBirth,
+      practiceId: flowKey.practiceId,
+      practitionerLineageKey: asPractitionerLineageKey(
+        rows.existingDoctor.practitionerLineageKey,
+      ),
+      ruleSetId: flowKey.ruleSetId,
+      startTime: selectedSlot.startTime,
+    });
 
     const [locationId, practitionerId] = await Promise.all([
       resolveLocationIdForRuleSetByLineage(ctx.db, {
@@ -2353,6 +2458,7 @@ export const selectExistingPatientSlot = mutation({
     ]);
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
+      allowUnrelatedUserId: true,
       appointmentTypeId,
       isNewPatient: false,
       locationId,

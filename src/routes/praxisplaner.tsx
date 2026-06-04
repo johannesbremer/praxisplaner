@@ -695,7 +695,7 @@ function PraxisPlanerComponent() {
           procerrorMsg = `GDT parsing error in "${fileName}": ${gdtError instanceof Error ? gdtError.message : String(gdtError)}`;
           addGdtLog(`⚠️ ${procerrorMsg}`);
 
-          // Capture specific GDT parsing error with comprehensive context
+          // Capture parser diagnostics without exporting patient file contents.
           captureError(gdtError, {
             context: "GDT parsing error",
             directoryName: directoryHandle.name,
@@ -703,7 +703,7 @@ function PraxisPlanerComponent() {
               ? gdtError.name
               : undefined,
             errorType: "gdt_parsing",
-            fileContent, // Full file content as requested
+            fileContentLength: fileContent.length,
             fileLastModified: new Date(file.lastModified).toISOString(),
             fileName,
             fileSize: file.size,
@@ -720,7 +720,6 @@ function PraxisPlanerComponent() {
             context: "GDT file processing error",
             directoryName: directoryHandle.name,
             errorType: "file_processing",
-            fileContent, // Include full content for debugging
             fileContentLength: fileContent.length,
             fileLastModified: new Date(file.lastModified).toISOString(),
             fileName,
@@ -738,13 +737,12 @@ function PraxisPlanerComponent() {
         const errorMsg = error instanceof Error ? error.message : String(error);
         addGdtLog(`❌ Error with "${fileName}": ${errorMsg}`);
 
-        // Capture error with PostHog instead of storing in IndexedDB
+        // Capture file diagnostics without exporting patient file contents.
         captureError(error, {
           context: "GDT file processing error",
           directoryName: directoryHandle.name,
           domExceptionName: isDOMException(error) ? error.name : undefined,
           errorType: "file_processing",
-          fileContent, // Include full content for debugging
           fileContentLength: fileContent.length,
           fileLastModified: file
             ? new Date(file.lastModified).toISOString()

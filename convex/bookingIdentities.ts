@@ -13,6 +13,7 @@ import {
   applyAppointmentHistoryPractitionerAssociation,
   canonicalizeBookingIdentityPractitionerAssociations,
 } from "./practitionerAssociations";
+import { userHasPracticeRelation } from "./scopedResources";
 
 type Reader = GenericDatabaseReader<DataModel>;
 
@@ -62,6 +63,15 @@ export const createBookingIdentity = mutation({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    if (
+      args.userId !== undefined &&
+      !(await userHasPracticeRelation(ctx.db, {
+        practiceId: args.practiceId,
+        userId: args.userId,
+      }))
+    ) {
+      throw new Error("User does not belong to this practice.");
+    }
 
     const now = BigInt(Date.now());
     return await ctx.db.insert("bookingIdentities", {

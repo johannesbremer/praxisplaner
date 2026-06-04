@@ -135,6 +135,39 @@ export async function getAccessiblePracticeIdsForQuery(
   return memberships.map((membership) => membership.practiceId);
 }
 
+export function isConvexAuthBypassEnabled(): boolean {
+  if (process.env["NODE_ENV"] === "test" || process.env["VITEST"] === "true") {
+    return false;
+  }
+  const bypassEnabled =
+    process.env["AUTH_BYPASS_ENABLED"] === "true" ||
+    process.env["VITE_AUTH_BYPASS_ENABLED"] === "true";
+  if (!bypassEnabled) {
+    return false;
+  }
+  return (
+    process.env["VERCEL_ENV"] !== "production" &&
+    process.env["VITE_VERCEL_ENV"] !== "production"
+  );
+}
+
+export async function requireActiveBookingRuleSet(
+  ctx: MutationCtx | QueryCtx,
+  args: {
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+): Promise<Doc<"ruleSets">> {
+  const practice = await ctx.db.get("practices", args.practiceId);
+  if (!practice) {
+    throw notFoundError("Practice not found");
+  }
+  if (practice.currentActiveRuleSetId !== args.ruleSetId) {
+    throw forbiddenError("Booking rule set is not active for this practice");
+  }
+  return await requireRule(ctx, args.ruleSetId);
+}
+
 export async function requireAuthenticatedRuleSet(
   ctx: QueryCtx,
   ruleSetId: Id<"ruleSets">,
@@ -173,6 +206,13 @@ export async function requirePracticeManager(
   practiceId: Id<"practices">,
 ): Promise<Doc<"practiceMembers">> {
   return await ensurePracticeAccessForQuery(ctx, practiceId, "admin");
+}
+
+export async function requirePracticeManagerForMutation(
+  ctx: MutationCtx,
+  practiceId: Id<"practices">,
+): Promise<Doc<"practiceMembers">> {
+  return await ensurePracticeAccessForMutation(ctx, practiceId, "admin");
 }
 
 export async function requirePracticeMember(
@@ -222,6 +262,13 @@ export async function requireRuleSetBelongsToPractice(
     practiceId,
     "Rule set does not belong to this practice",
   );
+}
+
+export async function requireRuleSetManagerForMutation(
+  ctx: MutationCtx,
+  ruleSetId: Id<"ruleSets">,
+): Promise<Id<"practices">> {
+  return await ensureRuleSetAccessForMutation(ctx, ruleSetId, "admin");
 }
 
 export async function requireRuleSetMember(
@@ -301,22 +348,6 @@ function forbiddenError(message: string): ConvexError<{
 
 async function getQueryUserId(ctx: QueryCtx): Promise<Id<"users"> | null> {
   return await getAuthenticatedUserIdForQuery(ctx);
-}
-
-function isConvexAuthBypassEnabled(): boolean {
-  if (process.env["NODE_ENV"] === "test" || process.env["VITEST"] === "true") {
-    return false;
-  }
-  const bypassEnabled =
-    process.env["AUTH_BYPASS_ENABLED"] === "true" ||
-    process.env["VITE_AUTH_BYPASS_ENABLED"] === "true";
-  if (!bypassEnabled) {
-    return false;
-  }
-  return (
-    process.env["VERCEL_ENV"] !== "production" &&
-    process.env["VITE_VERCEL_ENV"] !== "production"
-  );
 }
 
 function notFoundError(message: string): ConvexError<{

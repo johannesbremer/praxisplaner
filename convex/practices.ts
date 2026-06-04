@@ -8,6 +8,7 @@ import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
   getAccessiblePracticeIdsForQuery,
+  isConvexAuthBypassEnabled,
   practiceRoleValidator,
   requirePracticeManager,
 } from "./practiceAccess";
@@ -202,6 +203,12 @@ export const removePracticePhoneNumber = mutation({
 export const initializeDefaultPractice = mutation({
   args: {},
   handler: async (ctx) => {
+    if (!isConvexAuthBypassEnabled()) {
+      throw new Error(
+        "Default practice bootstrap is only available in bypass mode.",
+      );
+    }
+
     const userId = await ensureAuthenticatedUserId(ctx);
     const existingMemberships = await ctx.db
       .query("practiceMembers")

@@ -47,7 +47,7 @@ export const saveUnsavedRuleSet = mutation({
     setAsActive: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     return await saveDraftRuleSet(ctx.db, args);
   },
   returns: v.id("ruleSets"),
@@ -62,7 +62,7 @@ export const discardUnsavedRuleSet = mutation({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     await discardCurrentDraftRuleSet(ctx.db, args.practiceId);
   },
 });
@@ -153,7 +153,7 @@ export const setActiveRuleSet = mutation({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     await activateSavedRuleSet(ctx.db, args);
   },
 });
@@ -230,7 +230,7 @@ export const deleteUnsavedRuleSet = mutation({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     await deleteDraftRuleSet(ctx.db, args);
   },
 });
@@ -245,7 +245,7 @@ export const discardUnsavedRuleSetIfEquivalentToParent = mutation({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     return await discardDraftRuleSetIfEquivalentToParent(ctx.db, args);
   },
   returns: v.object({

@@ -94,6 +94,22 @@ describe("Convex query authorization", () => {
     );
   });
 
+  test("authenticated users cannot self-enroll through default practice bootstrap", async () => {
+    const t = createTestContext();
+    const authId = "workos_authz_bootstrap_denied";
+    const email = "authz-bootstrap-denied@example.com";
+    await createPracticeForUser(
+      t,
+      "workos_authz_existing_owner",
+      "owner@example.com",
+    );
+    const authed = t.withIdentity({ email, subject: authId });
+
+    await expect(
+      authed.mutation(api.practices.initializeDefaultPractice, {}),
+    ).rejects.toThrow("only available in bypass mode");
+  });
+
   test("staff can read practice data but not manager-only practice data", async () => {
     const t = createTestContext();
     const authId = "workos_authz_staff";
@@ -113,6 +129,22 @@ describe("Convex query authorization", () => {
     ).rejects.toThrow("Role staff is insufficient");
   });
 
+  test("staff cannot perform manager-only rule-set lifecycle mutations", async () => {
+    const t = createTestContext();
+    const authId = "workos_authz_staff_rule_mutation";
+    const email = "authz-staff-rule-mutation@example.com";
+    const { authed, practiceId, userId } = await createPracticeForUser(
+      t,
+      authId,
+      email,
+    );
+    await setMembershipRole(t, { practiceId, role: "staff", userId });
+
+    await expect(
+      authed.mutation(api.ruleSets.discardUnsavedRuleSet, { practiceId }),
+    ).rejects.toThrow("Role staff is insufficient");
+  });
+
   test("admin can read manager-only practice data", async () => {
     const t = createTestContext();
     const authId = "workos_authz_admin";
@@ -127,6 +159,77 @@ describe("Convex query authorization", () => {
     await expect(
       authed.query(api.practices.getPracticeMembers, { practiceId }),
     ).resolves.toHaveLength(1);
+  });
+
+  test("practice-scoped user display returns booking personal data from the authorized practice only", async () => {
+    const t = createTestContext();
+    const first = await createPracticeForUser(
+      t,
+      "workos_authz_user_display_first",
+      "authz-user-display-first@example.com",
+    );
+    const second = await createPracticeForUser(
+      t,
+      "workos_authz_user_display_second",
+      "authz-user-display-second@example.com",
+    );
+    const targetUserId = await createUser(
+      t,
+      "workos_authz_user_display_target",
+      "authz-user-display-target@example.com",
+    );
+    await setMembershipRole(t, {
+      practiceId: first.practiceId,
+      role: "staff",
+      userId: targetUserId,
+    });
+    await setMembershipRole(t, {
+      practiceId: second.practiceId,
+      role: "staff",
+      userId: targetUserId,
+    });
+    await t.run(async (ctx) => {
+      const baseRow = {
+        city: "Dissen",
+        dateOfBirth: "1980-01-01",
+        email: "target@example.com",
+        gender: "diverse" as const,
+        phoneNumber: "+491700000002",
+        postalCode: "49201",
+        street: "Westendarpstrasse 1",
+        userId: targetUserId,
+      };
+      await ctx.db.insert("bookingPersonalDataSteps", {
+        ...baseRow,
+        createdAt: 1n,
+        firstName: "Same",
+        lastModified: 1n,
+        lastName: "Practice",
+        practiceId: first.practiceId,
+        ruleSetId: first.ruleSetId,
+      });
+      await ctx.db.insert("bookingPersonalDataSteps", {
+        ...baseRow,
+        createdAt: 2n,
+        firstName: "Foreign",
+        lastModified: 2n,
+        lastName: "Practice",
+        practiceId: second.practiceId,
+        ruleSetId: second.ruleSetId,
+      });
+    });
+
+    await expect(
+      first.authed.query(api.users.getById, {
+        id: targetUserId,
+        practiceId: first.practiceId,
+      }),
+    ).resolves.toMatchObject({
+      bookingPersonalData: {
+        firstName: "Same",
+        lastName: "Practice",
+      },
+    });
   });
 
   test("patient booking scope rejects mismatched practice and rule set", async () => {

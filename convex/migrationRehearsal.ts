@@ -47,6 +47,7 @@ export const replaceReferenceTables = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requireRuleSetMember(ctx, args.ruleSetId, "admin");
 
     const [appointmentTypes, baseSchedules, locations, practitioners] =
       await Promise.all([
@@ -200,7 +201,6 @@ export const listPatientMappingsByPatientIdRange = query({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
-    await requirePracticeManager(ctx, args.practiceId);
 
     const patients = await ctx.db
       .query("patients")
@@ -728,6 +728,7 @@ export const importPvsPatientPractitionerAssociations = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requirePracticeManager(ctx, args.practiceId);
 
     const now = BigInt(Date.now());
     let importedAssociations = 0;
@@ -771,6 +772,7 @@ export const importLegacyBookingBlocks = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requirePracticeManager(ctx, args.practiceId);
 
     const now = BigInt(Date.now());
     let insertedBlocks = 0;
@@ -831,6 +833,7 @@ export const importLegacyBookingStepReplay = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requirePracticeManager(ctx, args.practiceId);
 
     let insertedSessions = 0;
     let reusedSessions = 0;

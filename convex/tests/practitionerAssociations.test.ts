@@ -119,6 +119,32 @@ async function createAssociationFixture(t: TestContext) {
   });
 }
 
+async function createMigrationManager(
+  t: TestContext,
+  practiceId: Id<"practices">,
+  suffix: string,
+) {
+  const now = BigInt(Date.now());
+  const subject = `migration-manager:${suffix}`;
+  const email = `migration-manager-${suffix}@example.com`;
+
+  await t.run(async (ctx) => {
+    const userId = await ctx.db.insert("users", {
+      authId: subject,
+      createdAt: now,
+      email,
+    });
+    await ctx.db.insert("practiceMembers", {
+      createdAt: now,
+      practiceId,
+      role: "admin",
+      userId,
+    });
+  });
+
+  return t.withIdentity({ email, subject });
+}
+
 function createTestContext() {
   return convexTest(schema, modules);
 }
@@ -419,7 +445,13 @@ describe("practitioner associations", () => {
         };
       });
 
-      const result = await t.mutation(
+      const manager = await createMigrationManager(
+        t,
+        practiceId,
+        "linked-identity",
+      );
+
+      const result = await manager.mutation(
         api.migrationRehearsal.importLegacyBookingStepReplay,
         {
           practiceId,
@@ -490,7 +522,13 @@ describe("practitioner associations", () => {
         };
       });
 
-      const result = await t.mutation(
+      const manager = await createMigrationManager(
+        t,
+        practiceId,
+        "skip-unresolved",
+      );
+
+      const result = await manager.mutation(
         api.migrationRehearsal.importLegacyBookingStepReplay,
         {
           practiceId,
@@ -552,7 +590,13 @@ describe("practitioner associations", () => {
         return { practiceId, ruleSetId };
       });
 
-      const result = await t.mutation(
+      const manager = await createMigrationManager(
+        t,
+        setup.practiceId,
+        "privacy",
+      );
+
+      const result = await manager.mutation(
         api.migrationRehearsal.importLegacyBookingStepReplay,
         {
           practiceId: setup.practiceId,
@@ -623,7 +667,13 @@ describe("practitioner associations", () => {
         };
       });
 
-      const result = await t.mutation(
+      const manager = await createMigrationManager(
+        t,
+        practiceId,
+        "personal-data",
+      );
+
+      const result = await manager.mutation(
         api.migrationRehearsal.importLegacyBookingStepReplay,
         {
           practiceId,
@@ -714,7 +764,18 @@ describe("practitioner associations", () => {
         userEmail: "shared@example.com",
       };
 
-      const first = await t.mutation(
+      const managerA = await createMigrationManager(
+        t,
+        setup.practiceA,
+        "dedupe-a",
+      );
+      const managerB = await createMigrationManager(
+        t,
+        setup.practiceB,
+        "dedupe-b",
+      );
+
+      const first = await managerA.mutation(
         api.migrationRehearsal.importLegacyBookingStepReplay,
         {
           practiceId: setup.practiceA,
@@ -722,7 +783,7 @@ describe("practitioner associations", () => {
           ruleSetId: setup.ruleSetA,
         },
       );
-      const second = await t.mutation(
+      const second = await managerB.mutation(
         api.migrationRehearsal.importLegacyBookingStepReplay,
         {
           practiceId: setup.practiceB,

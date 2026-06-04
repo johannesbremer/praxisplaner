@@ -1169,11 +1169,6 @@ describe("appointment series", () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
-    const userId = await createUser(
-      t,
-      "workos_real_series_user",
-      "real-series-user@example.com",
-    );
 
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
@@ -1245,7 +1240,6 @@ describe("appointment series", () => {
       practitionerId,
       start: rootStart,
       title: "Realer Kettentermin",
-      userId,
     });
 
     const appointments = await t.run(async (ctx) => {

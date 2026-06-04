@@ -58,6 +58,9 @@ async function createFlowFixture(
       saved: true,
       version: 1,
     });
+    await ctx.db.patch("practices", practiceId, {
+      currentActiveRuleSetId: ruleSetId,
+    });
     const locationLineageKey = await insertSelfLineageEntity(
       ctx.db,
       "locations",
@@ -90,6 +93,16 @@ async function createFlowFixture(
         ruleSetId,
       },
     );
+    await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+      breakTimes: [],
+      dayOfWeek: 6,
+      endTime: "11:00",
+      locationLineageKey,
+      practiceId,
+      practitionerLineageKey,
+      ruleSetId,
+      startTime: "10:00",
+    });
 
     return {
       appointmentTypeLineageKey,

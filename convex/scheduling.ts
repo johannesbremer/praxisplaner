@@ -275,13 +275,9 @@ function toPublicSchedulingResultSlot(
     practitionerName: slot.practitionerName,
     startTime: asZonedDateTimeString(slot.startTime),
     status: slot.status,
-    ...(slot.blockedByBlockedSlotId && {
-      blockedByBlockedSlotId: slot.blockedByBlockedSlotId,
+    ...(slot.status === "BLOCKED" && {
+      reason: "Dieser Zeitraum ist nicht verfuegbar.",
     }),
-    ...(slot.blockedByRuleId && {
-      blockedByRuleId: slot.blockedByRuleId,
-    }),
-    ...(slot.reason && { reason: slot.reason }),
   };
 }
 

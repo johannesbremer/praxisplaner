@@ -16,13 +16,25 @@ type BookingPersonalData = PersonalDataInput;
 
 async function getLatestBookingPersonalData(
   db: DatabaseReader,
-  userId: Id<"users">,
+  args: {
+    practiceId: Id<"practices">;
+    userId: Id<"users">;
+  },
 ): Promise<BookingPersonalData | null> {
-  const latestPersonalDataStep = await db
+  const personalDataSteps = await db
     .query("bookingPersonalDataSteps")
-    .withIndex("by_userId", (q) => q.eq("userId", userId))
-    .order("desc")
-    .first();
+    .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+      q.eq("userId", args.userId).eq("practiceId", args.practiceId),
+    )
+    .collect();
+  const latestPersonalDataStep = personalDataSteps
+    .toSorted((left, right) => {
+      if (left.createdAt !== right.createdAt) {
+        return Number(right.createdAt - left.createdAt);
+      }
+      return right._id.localeCompare(left._id);
+    })
+    .at(0);
 
   return latestPersonalDataStep
     ? asPersonalDataInput({
@@ -103,7 +115,10 @@ export const getById = query({
       return null;
     }
 
-    const personalData = await getLatestBookingPersonalData(ctx.db, args.id);
+    const personalData = await getLatestBookingPersonalData(ctx.db, {
+      practiceId: args.practiceId,
+      userId: args.id,
+    });
 
     return {
       ...user,

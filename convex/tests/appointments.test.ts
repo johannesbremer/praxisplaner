@@ -1160,11 +1160,6 @@ describe("appointments self-service cancellation", () => {
         practitionerId,
       };
     });
-    const userId = await createUser(
-      t,
-      "workos_staff_server_duration_user",
-      "staff-server-duration@example.com",
-    );
     const window = makeSlotWindow(4);
 
     const appointmentId = await authed.mutation(
@@ -1175,8 +1170,9 @@ describe("appointments self-service cancellation", () => {
         practiceId: baseData.practiceId,
         practitionerId: baseData.practitionerId,
         start: window.start,
+        temporaryPatientName: "Server Duration",
+        temporaryPatientPhoneNumber: "+491700000000",
         title: "Server duration",
-        userId,
       },
     );
 
@@ -1186,6 +1182,80 @@ describe("appointments self-service cancellation", () => {
 
     expect(createdAppointment).not.toBeNull();
     expect(createdAppointment?.end).toBe(window.end);
+  });
+
+  test("createAppointment rejects resource ids from another practice", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_cross_practice_write_staff",
+      "cross-practice-write-staff@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "cross-practice-write-staff@example.com",
+      subject: "workos_cross_practice_write_staff",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: foreignData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(6).start,
+        temporaryPatientName: "Foreign Resource",
+        temporaryPatientPhoneNumber: "+491700000001",
+        title: "Foreign resource",
+      }),
+    ).rejects.toThrow("Standort nicht in dieser Praxis");
+  });
+
+  test("createBlockedSlot rejects practitioner ids from another practice", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_cross_practice_block_staff",
+      "cross-practice-block-staff@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "cross-practice-block-staff@example.com",
+      subject: "workos_cross_practice_block_staff",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+    const window = makeSlotWindow(7);
+
+    await expect(
+      authed.mutation(api.appointments.createBlockedSlot, {
+        end: window.end,
+        locationId: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerId: foreignData.practitionerId,
+        },
+        practiceId: baseData.practiceId,
+        start: window.start,
+        title: "Foreign practitioner block",
+      }),
+    ).rejects.toThrow("Behandler nicht in dieser Praxis");
   });
 
   test("cancelOwnAppointment cancels all future appointments in a series when the root appointment is cancelled", async () => {

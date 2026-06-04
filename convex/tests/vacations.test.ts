@@ -2841,7 +2841,9 @@ describe("vacations", () => {
     );
 
     expect(blockedMorningSlot?.status).toBe("BLOCKED");
-    expect(blockedMorningSlot?.reason).toBe("Urlaub");
+    expect(blockedMorningSlot?.reason).toBe(
+      "Dieser Zeitraum ist nicht verfuegbar.",
+    );
     expect(availableAfternoonSlot?.status).toBe("AVAILABLE");
 
     await t.mutation(api.vacations.createVacation, {

@@ -90,7 +90,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
 
     const name = args.name.trim();
     if (!name) {
@@ -149,7 +149,7 @@ export const remove = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
 
     const { ruleSetId } = await selectDraftRuleSetForEdit(ctx.db, {
       expectedDraftRevision: args.expectedDraftRevision,
