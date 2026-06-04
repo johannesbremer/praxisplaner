@@ -68,6 +68,9 @@ import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
   requireRuleSetBelongsToPractice,
+  requireTrustedPracticeScope,
+  requireTrustedRuleSetScope,
+  type TrustedPracticeScope,
 } from "./practiceAccess";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
@@ -1593,7 +1596,7 @@ export async function createAppointmentFromTrustedSource(
     allowsMissingLinkedRecords,
     allowUnrelatedUserId: allowUnrelatedUserId === true,
     owner,
-    practiceId,
+    scope: await requireTrustedPracticeScope(ctx, practiceId),
   });
 
   if (simulationKind && isSimulation !== true) {
@@ -1616,15 +1619,19 @@ export async function createAppointmentFromTrustedSource(
     ctx.db,
     {
       appointmentTypeId,
-      practiceId,
-      ruleSetId: loadedAppointmentType.ruleSetId,
+      scope: await requireTrustedRuleSetScope(ctx, {
+        practiceId,
+        ruleSetId: loadedAppointmentType.ruleSetId,
+      }),
     },
   );
 
   const location = await requireLocationInPracticeRuleSet(ctx.db, {
     locationId,
-    practiceId,
-    ruleSetId: activeAppointmentType.ruleSetId,
+    scope: await requireTrustedRuleSetScope(ctx, {
+      practiceId,
+      ruleSetId: activeAppointmentType.ruleSetId,
+    }),
   });
   requireEntityUsableForNewAppointment({
     entity: location,
@@ -1634,9 +1641,11 @@ export async function createAppointmentFromTrustedSource(
 
   if (practitionerId) {
     const practitioner = await requirePractitionerInPracticeRuleSet(ctx.db, {
-      practiceId,
       practitionerId,
-      ruleSetId: activeAppointmentType.ruleSetId,
+      scope: await requireTrustedRuleSetScope(ctx, {
+        practiceId,
+        ruleSetId: activeAppointmentType.ruleSetId,
+      }),
     });
     requireEntityUsableForNewAppointment({
       entity: practitioner,
@@ -1786,7 +1795,7 @@ async function resolveAppointmentOwnerRefs(
     allowsMissingLinkedRecords: boolean;
     allowUnrelatedUserId: boolean;
     owner: AppointmentOwner;
-    practiceId: Id<"practices">;
+    scope: TrustedPracticeScope;
   },
 ): Promise<ResolvedAppointmentOwnerRefs> {
   if (args.owner.kind === "temporary") {
@@ -1794,7 +1803,7 @@ async function resolveAppointmentOwnerRefs(
       patientId: await createTemporaryPatientRecord(ctx, {
         name: args.owner.name,
         phoneNumber: args.owner.phoneNumber,
-        practiceId: args.practiceId,
+        practiceId: args.scope.practiceId,
       }),
     };
   }
@@ -1804,13 +1813,13 @@ async function resolveAppointmentOwnerRefs(
   if (args.owner.patientId !== undefined) {
     if (args.allowsMissingLinkedRecords) {
       const patient = await ctx.db.get("patients", args.owner.patientId);
-      if (patient?.practiceId === args.practiceId) {
+      if (patient?.practiceId === args.scope.practiceId) {
         resolvedRefs.patientId = args.owner.patientId;
       }
     } else {
       await requirePatientInPractice(ctx.db, {
         patientId: args.owner.patientId,
-        practiceId: args.practiceId,
+        scope: args.scope,
       });
       resolvedRefs.patientId = args.owner.patientId;
     }
@@ -1827,7 +1836,7 @@ async function resolveAppointmentOwnerRefs(
     if (
       !args.allowUnrelatedUserId &&
       !(await userHasPracticeRelation(ctx.db, {
-        practiceId: args.practiceId,
+        scope: args.scope,
         userId: args.owner.userId,
       }))
     ) {
@@ -1842,13 +1851,13 @@ async function resolveAppointmentOwnerRefs(
         "bookingIdentities",
         args.owner.bookingIdentityId,
       );
-      if (bookingIdentity?.practiceId === args.practiceId) {
+      if (bookingIdentity?.practiceId === args.scope.practiceId) {
         resolvedRefs.bookingIdentityId = args.owner.bookingIdentityId;
       }
     } else {
       await requireBookingIdentityInPractice(ctx.db, {
         bookingIdentityId: args.owner.bookingIdentityId,
-        practiceId: args.practiceId,
+        scope: args.scope,
       });
       resolvedRefs.bookingIdentityId = args.owner.bookingIdentityId;
     }
@@ -1857,7 +1866,7 @@ async function resolveAppointmentOwnerRefs(
   if (args.owner.phoneBookingIdentityId !== undefined) {
     await requirePhoneBookingIdentityInPractice(ctx.db, {
       phoneBookingIdentityId: args.owner.phoneBookingIdentityId,
-      practiceId: args.practiceId,
+      scope: args.scope,
     });
     resolvedRefs.phoneBookingIdentityId = args.owner.phoneBookingIdentityId;
   }
@@ -2124,6 +2133,10 @@ async function updateAppointmentByMode(
     throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
   }
   await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
+  const existingPracticeScope = await requireTrustedPracticeScope(
+    ctx,
+    existingAppointment.practiceId,
+  );
   assertExpectedAppointmentUpdateMode(existingAppointment, expectedMode);
 
   const filteredUpdateData = compactAppointmentUpdateData(updateData);
@@ -2134,7 +2147,7 @@ async function updateAppointmentByMode(
   if (patientId) {
     await requirePatientInPractice(ctx.db, {
       patientId,
-      practiceId: existingAppointment.practiceId,
+      scope: existingPracticeScope,
     });
   }
 
@@ -2145,7 +2158,7 @@ async function updateAppointmentByMode(
     }
     if (
       !(await userHasPracticeRelation(ctx.db, {
-        practiceId: existingAppointment.practiceId,
+        scope: existingPracticeScope,
         userId,
       }))
     ) {
@@ -2196,25 +2209,26 @@ async function updateAppointmentByMode(
     practitionerRecord?.ruleSetId ??
     locationRecord?.ruleSetId;
   if (editingRuleSetId !== undefined) {
+    const editingRuleSetScope = await requireTrustedRuleSetScope(ctx, {
+      practiceId: existingAppointment.practiceId,
+      ruleSetId: editingRuleSetId,
+    });
     if (filteredUpdateData.appointmentTypeId !== undefined) {
       await requireAppointmentTypeInPracticeRuleSet(ctx.db, {
         appointmentTypeId: filteredUpdateData.appointmentTypeId,
-        practiceId: existingAppointment.practiceId,
-        ruleSetId: editingRuleSetId,
+        scope: editingRuleSetScope,
       });
     }
     if (filteredUpdateData.locationId !== undefined) {
       await requireLocationInPracticeRuleSet(ctx.db, {
         locationId: filteredUpdateData.locationId,
-        practiceId: existingAppointment.practiceId,
-        ruleSetId: editingRuleSetId,
+        scope: editingRuleSetScope,
       });
     }
     if (filteredUpdateData.practitionerId !== undefined) {
       await requirePractitionerInPracticeRuleSet(ctx.db, {
-        practiceId: existingAppointment.practiceId,
         practitionerId: filteredUpdateData.practitionerId,
-        ruleSetId: editingRuleSetId,
+        scope: editingRuleSetScope,
       });
     }
   }
@@ -2368,10 +2382,13 @@ async function updateAppointmentByMode(
       entityId: appointmentTypeIdForValidation,
       entityLabel: "Terminart",
     });
-    await requireAppointmentTypeInPracticeRuleSet(ctx.db, {
-      appointmentTypeId: appointmentTypeIdForValidation,
+    const activeAppointmentTypeScope = await requireTrustedRuleSetScope(ctx, {
       practiceId: existingAppointment.practiceId,
       ruleSetId: activeAppointmentType.ruleSetId,
+    });
+    await requireAppointmentTypeInPracticeRuleSet(ctx.db, {
+      appointmentTypeId: appointmentTypeIdForValidation,
+      scope: activeAppointmentTypeScope,
     });
 
     const practitionerIdForValidation = explicitlyUsingResourceColumn
@@ -2390,9 +2407,8 @@ async function updateAppointmentByMode(
       practitionerIdForValidation &&
       !activeAppointmentType.allowedPractitionerLineageKeys.includes(
         await requirePractitionerInPracticeRuleSet(ctx.db, {
-          practiceId: existingAppointment.practiceId,
           practitionerId: practitionerIdForValidation,
-          ruleSetId: activeAppointmentType.ruleSetId,
+          scope: activeAppointmentTypeScope,
         }).then((practitioner) =>
           asPractitionerLineageKey(practitioner.lineageKey ?? practitioner._id),
         ),
@@ -3229,6 +3245,10 @@ export const createBlockedSlot = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    const practiceScope = await requireTrustedPracticeScope(
+      ctx,
+      args.practiceId,
+    );
     const { isSimulation, replacesBlockedSlotId, ...rest } = args;
 
     if (replacesBlockedSlotId && isSimulation !== true) {
@@ -3239,7 +3259,7 @@ export const createBlockedSlot = mutation({
 
     const location = await requireLocationInPractice(ctx.db, {
       locationId: rest.locationId,
-      practiceId: rest.practiceId,
+      scope: practiceScope,
     });
     const locationLineageKey = asLocationLineageKey(
       location.lineageKey ?? location._id,
@@ -3252,8 +3272,8 @@ export const createBlockedSlot = mutation({
             practitionerLineageKey: await requirePractitionerInPractice(
               ctx.db,
               {
-                practiceId: rest.practiceId,
                 practitionerId: rest.occupancyScope.practitionerId,
+                scope: practiceScope,
               },
             ).then((practitioner) =>
               asPractitionerLineageKey(
@@ -3300,6 +3320,10 @@ export const updateBlockedSlot = mutation({
       throw new Error("Blocked slot not found");
     }
     await ensurePracticeAccessForMutation(ctx, existingBlockedSlot.practiceId);
+    const practiceScope = await requireTrustedPracticeScope(
+      ctx,
+      existingBlockedSlot.practiceId,
+    );
 
     const updatedReferences =
       locationId !== undefined || occupancyScope !== undefined
@@ -3309,7 +3333,7 @@ export const updateBlockedSlot = mutation({
                 ? existingBlockedSlot.locationLineageKey
                 : await requireLocationInPractice(ctx.db, {
                     locationId,
-                    practiceId: existingBlockedSlot.practiceId,
+                    scope: practiceScope,
                   }).then((location) =>
                     asLocationLineageKey(location.lineageKey ?? location._id),
                   ),
@@ -3322,8 +3346,8 @@ export const updateBlockedSlot = mutation({
                       kind: "practitioner" as const,
                       practitionerLineageKey:
                         await requirePractitionerInPractice(ctx.db, {
-                          practiceId: existingBlockedSlot.practiceId,
                           practitionerId: occupancyScope.practitionerId,
+                          scope: practiceScope,
                         }).then((practitioner) =>
                           asPractitionerLineageKey(
                             practitioner.lineageKey ?? practitioner._id,

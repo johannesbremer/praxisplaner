@@ -8,6 +8,7 @@ import { mutation, query } from "./_generated/server";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
+  requireTrustedPracticeScope,
 } from "./practiceAccess";
 import {
   applyAppointmentHistoryPractitionerAssociation,
@@ -63,10 +64,14 @@ export const createBookingIdentity = mutation({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    const practiceScope = await requireTrustedPracticeScope(
+      ctx,
+      args.practiceId,
+    );
     if (
       args.userId !== undefined &&
       !(await userHasPracticeRelation(ctx.db, {
-        practiceId: args.practiceId,
+        scope: practiceScope,
         userId: args.userId,
       }))
     ) {

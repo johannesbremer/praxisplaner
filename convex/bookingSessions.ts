@@ -30,6 +30,10 @@ import {
   type PractitionerLineageKey,
 } from "./identity";
 import { getFutureLegacyUnmatchedBookingHoldsForUser } from "./legacyUnmatchedFutureBookingHolds";
+import {
+  type PatientBookingScope,
+  requirePatientBookingScopeForMutation,
+} from "./practiceAccess";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
   beihilfeStatusValidator,
@@ -129,20 +133,19 @@ async function assertSlotAllowedByRules(
     appointmentTypeId: Id<"appointmentTypes">;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth: string;
-    practiceId: Id<"practices">;
     practitionerLineageKey: PractitionerLineageKey;
-    ruleSetId: Id<"ruleSets">;
+    scope: PatientBookingScope;
     startTime: ZonedDateTimeString;
   },
 ): Promise<void> {
   const [locationId, practitionerId] = await Promise.all([
     resolveLocationIdForRuleSetByLineage(ctx.db, {
       lineageKey: args.locationLineageKey,
-      ruleSetId: args.ruleSetId,
+      ruleSetId: args.scope.ruleSetId,
     }),
     resolvePractitionerIdForRuleSetByLineage(ctx.db, {
       lineageKey: args.practitionerLineageKey,
-      ruleSetId: args.ruleSetId,
+      ruleSetId: args.scope.ruleSetId,
     }),
   ]);
 
@@ -154,13 +157,13 @@ async function assertSlotAllowedByRules(
         dateTime: args.startTime,
         locationId,
         patientDateOfBirth: args.patientDateOfBirth,
-        practiceId: args.practiceId,
+        practiceId: args.scope.practiceId,
         practitionerId,
         requestedAt: Temporal.Now.instant()
           .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
           .toString(),
       },
-      ruleSetId: args.ruleSetId,
+      ruleSetId: args.scope.ruleSetId,
     },
   );
 
@@ -1409,8 +1412,7 @@ async function requireOfferedNewPatientSlot(
     appointmentTypeLineageKey: Id<"appointmentTypes">;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth: string;
-    practiceId: Id<"practices">;
-    ruleSetId: Id<"ruleSets">;
+    scope: PatientBookingScope;
     selectedSlot: {
       practitionerLineageKey: Id<"practitioners">;
       startTime: ZonedDateTimeString;
@@ -1422,11 +1424,10 @@ async function requireOfferedNewPatientSlot(
     isNewPatient: true,
     locationLineageKey: args.locationLineageKey,
     patientDateOfBirth: args.patientDateOfBirth,
-    practiceId: args.practiceId,
     practitionerLineageKey: asPractitionerLineageKey(
       args.selectedSlot.practitionerLineageKey,
     ),
-    ruleSetId: args.ruleSetId,
+    scope: args.scope,
     startTime: args.selectedSlot.startTime,
   });
 }
@@ -1438,9 +1439,8 @@ async function requireOfferedPatientSlot(
     isNewPatient: boolean;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth: string;
-    practiceId: Id<"practices">;
     practitionerLineageKey: PractitionerLineageKey;
-    ruleSetId: Id<"ruleSets">;
+    scope: PatientBookingScope;
     startTime: ZonedDateTimeString;
   },
 ): Promise<void> {
@@ -1452,8 +1452,8 @@ async function requireOfferedPatientSlot(
     {
       date: selectedDate,
       enforceFutureOnly: true,
-      practiceId: args.practiceId,
-      ruleSetId: args.ruleSetId,
+      practiceId: args.scope.practiceId,
+      ruleSetId: args.scope.ruleSetId,
       scope: "real",
       simulatedContext: {
         appointmentTypeLineageKey: args.appointmentTypeLineageKey,
@@ -2283,6 +2283,10 @@ export const selectNewPatientSlot = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    const bookingScope = await requirePatientBookingScopeForMutation(
+      ctx,
+      flowKey,
+    );
     await requireCurrentUserCanStartBooking(ctx, flowKey);
     const { rows, state } = await requireActiveFlow(ctx, flowKey);
     if (state.step !== "new-calendar-selection" || !rows.location) {
@@ -2321,11 +2325,10 @@ export const selectNewPatientSlot = mutation({
         rows.location.locationLineageKey,
       ),
       patientDateOfBirth: personalData.dateOfBirth,
-      practiceId: flowKey.practiceId,
       practitionerLineageKey: asPractitionerLineageKey(
         selectedSlot.practitionerLineageKey,
       ),
-      ruleSetId: flowKey.ruleSetId,
+      scope: bookingScope,
       startTime: selectedSlot.startTime,
     });
     await requireOfferedNewPatientSlot(ctx, {
@@ -2334,8 +2337,7 @@ export const selectNewPatientSlot = mutation({
         rows.location.locationLineageKey,
       ),
       patientDateOfBirth: personalData.dateOfBirth,
-      practiceId: flowKey.practiceId,
-      ruleSetId: flowKey.ruleSetId,
+      scope: bookingScope,
       selectedSlot,
     });
 
@@ -2380,6 +2382,10 @@ export const selectExistingPatientSlot = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    const bookingScope = await requirePatientBookingScopeForMutation(
+      ctx,
+      flowKey,
+    );
     await requireCurrentUserCanStartBooking(ctx, flowKey);
     const { rows, state } = await requireActiveFlow(ctx, flowKey);
     if (
@@ -2422,11 +2428,10 @@ export const selectExistingPatientSlot = mutation({
         rows.location.locationLineageKey,
       ),
       patientDateOfBirth: personalData.dateOfBirth,
-      practiceId: flowKey.practiceId,
       practitionerLineageKey: asPractitionerLineageKey(
         rows.existingDoctor.practitionerLineageKey,
       ),
-      ruleSetId: flowKey.ruleSetId,
+      scope: bookingScope,
       startTime: selectedSlot.startTime,
     });
     await requireOfferedPatientSlot(ctx, {
@@ -2436,11 +2441,10 @@ export const selectExistingPatientSlot = mutation({
         rows.location.locationLineageKey,
       ),
       patientDateOfBirth: personalData.dateOfBirth,
-      practiceId: flowKey.practiceId,
       practitionerLineageKey: asPractitionerLineageKey(
         rows.existingDoctor.practitionerLineageKey,
       ),
-      ruleSetId: flowKey.ruleSetId,
+      scope: bookingScope,
       startTime: selectedSlot.startTime,
     });
 

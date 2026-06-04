@@ -3,7 +3,13 @@ import { type Infer, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 
-import { mutation, type MutationCtx, query } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  type MutationCtx,
+  query,
+} from "./_generated/server";
 import { resolveActivePvsPatientIdForBookingIdentity } from "./bookingIdentities";
 import {
   beihilfeStatusValidator,
@@ -201,6 +207,7 @@ export const listPatientMappingsByPatientIdRange = query({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requirePracticeManager(ctx, args.practiceId);
 
     const patients = await ctx.db
       .query("patients")
@@ -504,6 +511,7 @@ export const importBookingIdentities = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requirePracticeManager(ctx, args.practiceId);
 
     const now = BigInt(Date.now());
     let insertedIdentities = 0;
@@ -537,6 +545,7 @@ export const importBookingIdentityAssociations = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requirePracticeManager(ctx, args.practiceId);
 
     const now = BigInt(Date.now());
     let insertedAssociations = 0;
@@ -683,7 +692,7 @@ export const importBookingIdentityAssociations = mutation({
   }),
 });
 
-export const importLegacyUsers = mutation({
+export const importLegacyUsers = internalMutation({
   args: {
     users: v.array(legacyUserImportRowValidator),
   },
@@ -1002,6 +1011,7 @@ export const importLegacyUnmatchedFutureBookingHolds = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requirePracticeManager(ctx, args.practiceId);
 
     let insertedHolds = 0;
     let insertedUsers = 0;
@@ -1071,7 +1081,7 @@ export const importLegacyUnmatchedFutureBookingHolds = mutation({
   }),
 });
 
-export const countBookingIdentityAssociationImport = query({
+export const countBookingIdentityAssociationImport = internalQuery({
   args: {},
   handler: async (ctx) => {
     assertMigrationRehearsalEnabled();
@@ -1120,7 +1130,7 @@ export const countBookingIdentityAssociationImport = query({
   }),
 });
 
-export const getRehearsalDiagnostics = query({
+export const getRehearsalDiagnostics = internalQuery({
   args: {},
   handler: async (ctx) => {
     assertMigrationRehearsalEnabled();
@@ -1220,7 +1230,7 @@ const rehearsalCountTableNameValidator = v.union(
   v.literal("practitionerAssociations"),
 );
 
-export const countRehearsalTablePage = query({
+export const countRehearsalTablePage = internalQuery({
   args: {
     paginationOpts: paginationOptsValidator,
     tableName: rehearsalCountTableNameValidator,
@@ -1388,7 +1398,7 @@ export const countRehearsalTablePage = query({
   }),
 });
 
-export const countRehearsalTable = query({
+export const countRehearsalTable = internalQuery({
   args: {
     tableName: rehearsalCountTableNameValidator,
   },

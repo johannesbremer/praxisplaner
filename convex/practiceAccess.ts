@@ -30,6 +30,59 @@ interface RuleSetAccess {
   ruleSet: Doc<"ruleSets">;
 }
 
+declare const scopeBrand: unique symbol;
+
+export type ManagerPracticeScope = ScopeBrand<"ManagerPracticeScope"> & {
+  membership: Doc<"practiceMembers">;
+  practiceId: Id<"practices">;
+};
+
+export type ManagerRuleSetScope = ScopeBrand<"ManagerRuleSetScope"> & {
+  membership: Doc<"practiceMembers">;
+  practiceId: Id<"practices">;
+  ruleSet: Doc<"ruleSets">;
+  ruleSetId: Id<"ruleSets">;
+};
+
+export type MigrationRehearsalScope = ScopeBrand<"MigrationRehearsalScope"> & {
+  practiceId: Id<"practices">;
+  ruleSet?: Doc<"ruleSets">;
+  ruleSetId?: Id<"ruleSets">;
+};
+
+export type PatientBookingScope = ScopeBrand<"PatientBookingScope"> & {
+  practiceId: Id<"practices">;
+  ruleSet: Doc<"ruleSets">;
+  ruleSetId: Id<"ruleSets">;
+  userId: Id<"users">;
+};
+
+export type StaffPracticeScope = ScopeBrand<"StaffPracticeScope"> & {
+  membership: Doc<"practiceMembers">;
+  practiceId: Id<"practices">;
+};
+
+export type StaffRuleSetScope = ScopeBrand<"StaffRuleSetScope"> & {
+  membership: Doc<"practiceMembers">;
+  practiceId: Id<"practices">;
+  ruleSet: Doc<"ruleSets">;
+  ruleSetId: Id<"ruleSets">;
+};
+
+export type TrustedPracticeScope = ScopeBrand<"TrustedPracticeScope"> & {
+  practiceId: Id<"practices">;
+};
+
+export type TrustedRuleSetScope = ScopeBrand<"TrustedRuleSetScope"> & {
+  practiceId: Id<"practices">;
+  ruleSet: Doc<"ruleSets">;
+  ruleSetId: Id<"ruleSets">;
+};
+
+interface ScopeBrand<Name extends string> {
+  readonly [scopeBrand]: Name;
+}
+
 const ROLE_WEIGHT: Record<PracticeRole, number> = {
   admin: 2,
   owner: 3,
@@ -184,10 +237,70 @@ export async function requireCurrentUserBookingScope(
     practiceId: Id<"practices">;
     ruleSetId: Id<"ruleSets">;
   },
-): Promise<{ practiceId: Id<"practices">; userId: Id<"users"> }> {
+): Promise<PatientBookingScope> {
   const user = await requireUser(ctx);
-  await requireRuleSetBelongsToPractice(ctx, args.ruleSetId, args.practiceId);
-  return { practiceId: args.practiceId, userId: user._id };
+  const ruleSet = await requireRuleSetBelongsToPractice(
+    ctx,
+    args.ruleSetId,
+    args.practiceId,
+  );
+  return brandScope({
+    practiceId: args.practiceId,
+    ruleSet,
+    ruleSetId: args.ruleSetId,
+    userId: user._id,
+  } as PatientBookingScope);
+}
+
+export async function requireManagerPracticeScope(
+  ctx: QueryCtx,
+  practiceId: Id<"practices">,
+): Promise<ManagerPracticeScope> {
+  const membership = await requirePracticeManager(ctx, practiceId);
+  return brandScope({ membership, practiceId } as ManagerPracticeScope);
+}
+
+export async function requireManagerPracticeScopeForMutation(
+  ctx: MutationCtx,
+  practiceId: Id<"practices">,
+): Promise<ManagerPracticeScope> {
+  const membership = await requirePracticeManagerForMutation(ctx, practiceId);
+  return brandScope({ membership, practiceId } as ManagerPracticeScope);
+}
+
+export async function requireManagerRuleSetScope(
+  ctx: QueryCtx,
+  ruleSetId: Id<"ruleSets">,
+): Promise<ManagerRuleSetScope> {
+  const { membership, practiceId, ruleSet } = await requireRuleSetMember(
+    ctx,
+    ruleSetId,
+    "admin",
+  );
+  return brandScope({
+    membership,
+    practiceId,
+    ruleSet,
+    ruleSetId,
+  } as ManagerRuleSetScope);
+}
+
+export async function requireManagerRuleSetScopeForMutation(
+  ctx: MutationCtx,
+  ruleSetId: Id<"ruleSets">,
+): Promise<ManagerRuleSetScope> {
+  const ruleSet = await requireRule(ctx, ruleSetId);
+  const membership = await ensurePracticeAccessForMutation(
+    ctx,
+    ruleSet.practiceId,
+    "admin",
+  );
+  return brandScope({
+    membership,
+    practiceId: ruleSet.practiceId,
+    ruleSet,
+    ruleSetId,
+  } as ManagerRuleSetScope);
 }
 
 export async function requireOwnedUserId(
@@ -199,6 +312,27 @@ export async function requireOwnedUserId(
     throw forbiddenError("Cannot read another user's data");
   }
   return user;
+}
+
+export async function requirePatientBookingScopeForMutation(
+  ctx: MutationCtx,
+  args: {
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+    userId: Id<"users">;
+  },
+): Promise<PatientBookingScope> {
+  const ruleSet = await requireRuleSetBelongsToPractice(
+    ctx,
+    args.ruleSetId,
+    args.practiceId,
+  );
+  return brandScope({
+    practiceId: args.practiceId,
+    ruleSet,
+    ruleSetId: args.ruleSetId,
+    userId: args.userId,
+  } as PatientBookingScope);
 }
 
 export async function requirePracticeManager(
@@ -299,6 +433,73 @@ export function requireSamePractice<T extends PracticeScopedResource>(
   return resource;
 }
 
+export async function requireStaffPracticeScope(
+  ctx: QueryCtx,
+  practiceId: Id<"practices">,
+): Promise<StaffPracticeScope> {
+  const membership = await requirePracticeMember(ctx, practiceId, "staff");
+  return brandScope({ membership, practiceId } as StaffPracticeScope);
+}
+
+export async function requireStaffPracticeScopeForMutation(
+  ctx: MutationCtx,
+  practiceId: Id<"practices">,
+): Promise<StaffPracticeScope> {
+  const membership = await ensurePracticeAccessForMutation(
+    ctx,
+    practiceId,
+    "staff",
+  );
+  return brandScope({ membership, practiceId } as StaffPracticeScope);
+}
+
+export async function requireStaffRuleSetScope(
+  ctx: QueryCtx,
+  ruleSetId: Id<"ruleSets">,
+): Promise<StaffRuleSetScope> {
+  const { membership, practiceId, ruleSet } = await requireRuleSetMember(
+    ctx,
+    ruleSetId,
+    "staff",
+  );
+  return brandScope({
+    membership,
+    practiceId,
+    ruleSet,
+    ruleSetId,
+  } as StaffRuleSetScope);
+}
+
+export async function requireTrustedPracticeScope(
+  ctx: MutationCtx | QueryCtx,
+  practiceId: Id<"practices">,
+): Promise<TrustedPracticeScope> {
+  const practice = await ctx.db.get("practices", practiceId);
+  if (!practice) {
+    throw notFoundError("Practice not found");
+  }
+  return brandScope({ practiceId } as TrustedPracticeScope);
+}
+
+export async function requireTrustedRuleSetScope(
+  ctx: MutationCtx | QueryCtx,
+  args: {
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+): Promise<TrustedRuleSetScope> {
+  const ruleSet = await requireRuleSetBelongsToPractice(
+    ctx,
+    args.ruleSetId,
+    args.practiceId,
+  );
+  return brandScope({
+    practiceId: args.practiceId,
+    ruleSet,
+    ruleSetId: args.ruleSetId,
+  } as TrustedRuleSetScope);
+}
+
 export async function requireUser(ctx: QueryCtx): Promise<Doc<"users">> {
   const userId = await getAuthenticatedUserIdForQuery(ctx);
   if (!userId) {
@@ -311,6 +512,10 @@ export async function requireUser(ctx: QueryCtx): Promise<Doc<"users">> {
   }
 
   return user;
+}
+
+function brandScope<T>(scope: T): T {
+  return scope;
 }
 
 async function findAnyPracticeMembership(
