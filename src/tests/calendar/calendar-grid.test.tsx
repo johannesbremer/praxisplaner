@@ -448,7 +448,9 @@ describe("CalendarGrid", () => {
         <CalendarGrid {...defaultProps} currentTimeSlot={24} />,
       );
 
-      const indicators = container.querySelectorAll(".border-red-500");
+      const indicators = container.querySelectorAll(
+        ".border-calendar-current-time",
+      );
       expect(indicators.length).toBeGreaterThan(0);
     });
 
@@ -457,7 +459,9 @@ describe("CalendarGrid", () => {
         <CalendarGrid {...defaultProps} currentTimeSlot={24} />,
       );
 
-      const indicators = container.querySelectorAll(".bg-red-500");
+      const indicators = container.querySelectorAll(
+        ".bg-calendar-current-time",
+      );
       // Should have indicator in time column + each calendar column
       expect(indicators.length).toBeGreaterThanOrEqual(mockColumns.length);
     });
@@ -468,7 +472,9 @@ describe("CalendarGrid", () => {
         <CalendarGrid {...defaultProps} currentTimeSlot={currentTimeSlot} />,
       );
 
-      const indicator = container.querySelector(".border-red-500");
+      const indicator = container.querySelector(
+        ".border-calendar-current-time",
+      );
       expect(indicator).toBeInTheDocument();
 
       const style = indicator?.getAttribute("style");
@@ -574,6 +580,17 @@ describe("CalendarGrid", () => {
   });
 
   describe("Accessibility", () => {
+    test("calendar exposes grid semantics", () => {
+      render(<CalendarGrid {...defaultProps} />);
+
+      expect(
+        screen.getByRole("grid", { name: "Praxis-Kalender" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("columnheader", { name: "Dr. Smith" }),
+      ).toBeInTheDocument();
+    });
+
     test("column headers have proper structure", () => {
       render(<CalendarGrid {...defaultProps} />);
 
@@ -584,10 +601,79 @@ describe("CalendarGrid", () => {
     });
 
     test("time slots are keyboard accessible", () => {
-      const { container } = render(<CalendarGrid {...defaultProps} />);
+      render(<CalendarGrid {...defaultProps} />);
 
-      const slots = container.querySelectorAll(".cursor-pointer");
-      expect(slots.length).toBeGreaterThan(0);
+      expect(
+        screen.getByRole("button", {
+          name: "Termin um 00:00 bei Dr. Smith erstellen",
+        }),
+      ).toHaveAttribute("tabindex", "0");
+      expect(
+        screen.getByRole("button", {
+          name: "Termin um 00:00 bei Dr. Jones erstellen",
+        }),
+      ).toHaveAttribute("tabindex", "-1");
+    });
+
+    test("arrow keys move the roving slot focus across rows and columns", () => {
+      render(<CalendarGrid {...defaultProps} />);
+
+      const firstSlot = screen.getByRole("button", {
+        name: "Termin um 00:00 bei Dr. Smith erstellen",
+      });
+      firstSlot.focus();
+      fireEvent.keyDown(firstSlot, { key: "ArrowDown" });
+
+      expect(
+        screen.getByRole("button", {
+          name: "Termin um 00:05 bei Dr. Smith erstellen",
+        }),
+      ).toHaveFocus();
+
+      const activeSlot = document.activeElement;
+      assertElement(activeSlot);
+      fireEvent.keyDown(activeSlot, { key: "ArrowRight" });
+
+      expect(
+        screen.getByRole("button", {
+          name: "Termin um 00:05 bei Dr. Jones erstellen",
+        }),
+      ).toHaveFocus();
+    });
+
+    test("enter creates an appointment from the focused slot", () => {
+      render(<CalendarGrid {...defaultProps} />);
+      const firstSlot = screen.getByRole("button", {
+        name: "Termin um 00:00 bei Dr. Smith erstellen",
+      });
+
+      fireEvent.keyDown(firstSlot, { key: "Enter" });
+
+      expect(mockHandlers.onAddAppointment).toHaveBeenCalledExactlyOnceWith(
+        practitionerColumn1,
+        0,
+      );
+    });
+
+    test("enter creates a blocked slot in blocking mode", () => {
+      const onBlockSlot = vi.fn();
+      render(
+        <CalendarGrid
+          {...defaultProps}
+          isBlockingModeActive={true}
+          onBlockSlot={onBlockSlot}
+        />,
+      );
+      const firstSlot = screen.getByRole("button", {
+        name: "Zeitraum um 00:00 bei Dr. Smith sperren",
+      });
+
+      fireEvent.keyDown(firstSlot, { key: "Enter" });
+
+      expect(onBlockSlot).toHaveBeenCalledExactlyOnceWith(
+        practitionerColumn1,
+        0,
+      );
     });
 
     test("appointments are keyboard accessible", () => {

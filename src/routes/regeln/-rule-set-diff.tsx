@@ -1077,12 +1077,12 @@ function RuleSetDiffSectionView({
                     {isRuleSection ? (
                       <td className="px-0 py-0">
                         <div className="flex">
-                          <div className="bg-red-50/60 px-3 py-2 text-red-950">
+                          <div className="bg-diff-removed px-3 py-2 text-diff-removed-foreground">
                             <pre className="whitespace-pre-wrap font-sans leading-relaxed">
                               {row.before}
                             </pre>
                           </div>
-                          <div className="border-l bg-emerald-50/60 px-3 py-2 text-emerald-950">
+                          <div className="border-l bg-diff-added px-3 py-2 text-diff-added-foreground">
                             <pre className="whitespace-pre-wrap font-sans leading-relaxed">
                               {row.after}
                             </pre>
@@ -1096,9 +1096,11 @@ function RuleSetDiffSectionView({
                         </td>
                         <td className="border-l px-3 py-2">
                           <div className="flex items-center gap-2">
-                            <span className="text-red-950">{row.before}</span>
+                            <span className="text-diff-removed-foreground">
+                              {row.before}
+                            </span>
                             <span className="text-muted-foreground">-&gt;</span>
-                            <span className="text-emerald-950">
+                            <span className="text-diff-added-foreground">
                               {row.after}
                             </span>
                           </div>
@@ -1109,12 +1111,12 @@ function RuleSetDiffSectionView({
                         <td className="bg-muted/10 px-3 py-2 font-medium text-foreground">
                           {row.path}
                         </td>
-                        <td className="border-l bg-red-50/60 px-3 py-2 text-red-950">
+                        <td className="border-l bg-diff-removed px-3 py-2 text-diff-removed-foreground">
                           <pre className="whitespace-pre-wrap font-sans leading-relaxed">
                             {row.before}
                           </pre>
                         </td>
-                        <td className="border-l bg-emerald-50/60 px-3 py-2 text-emerald-950">
+                        <td className="border-l bg-diff-added px-3 py-2 text-diff-added-foreground">
                           <pre className="whitespace-pre-wrap font-sans leading-relaxed">
                             {row.after}
                           </pre>
@@ -1134,8 +1136,8 @@ function RuleSetDiffSectionView({
                     <td
                       className={
                         row.kind === "added"
-                          ? "bg-emerald-50/60 px-3 py-2 font-medium text-emerald-950"
-                          : "bg-red-50/60 px-3 py-2 font-medium text-red-950"
+                          ? "bg-diff-added px-3 py-2 font-medium text-diff-added-foreground"
+                          : "bg-diff-removed px-3 py-2 font-medium text-diff-removed-foreground"
                       }
                     >
                       {row.path}
@@ -1144,8 +1146,8 @@ function RuleSetDiffSectionView({
                       <Badge
                         className={
                           row.kind === "added"
-                            ? "bg-emerald-100 text-emerald-900"
-                            : "bg-red-100 text-red-900"
+                            ? "bg-diff-added text-diff-added-foreground"
+                            : "bg-diff-removed text-diff-removed-foreground"
                         }
                         variant="outline"
                       >

@@ -469,7 +469,7 @@ function RightSidebarContent({
                               "w-full text-left p-2 rounded-md text-sm transition-colors",
                               "hover:bg-muted/50",
                               isSelected &&
-                                "bg-blue-50 ring-2 ring-blue-400 dark:bg-blue-950/30",
+                                "bg-info-muted text-info-foreground ring-2 ring-info",
                             )}
                             key={appointment._id}
                             onClick={() => onSelectAppointment?.(appointment)}

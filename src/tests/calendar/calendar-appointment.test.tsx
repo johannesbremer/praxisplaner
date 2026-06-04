@@ -88,12 +88,48 @@ describe("CalendarAppointment", () => {
   });
 
   test("calls onEdit when clicked", () => {
-    const { container } = render(<CalendarAppointment {...defaultProps} />);
-    const appointmentElement = container.querySelector(".cursor-move");
-
-    assertElement(appointmentElement);
-    fireEvent.click(appointmentElement);
+    render(<CalendarAppointment {...defaultProps} />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Termin Test Appointment, 09:00. Bearbeiten",
+      }),
+    );
     expect(mockHandlers.onEdit).toHaveBeenCalledExactlyOnceWith(mockLayout.id);
+  });
+
+  test("exposes an accessible edit button name", () => {
+    render(<CalendarAppointment {...defaultProps} />);
+    expect(
+      screen.getByRole("button", {
+        name: "Termin Test Appointment, 09:00. Bearbeiten",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  test("calls onEdit from keyboard activation", () => {
+    render(<CalendarAppointment {...defaultProps} />);
+    const appointmentButton = screen.getByRole("button", {
+      name: "Termin Test Appointment, 09:00. Bearbeiten",
+    });
+
+    fireEvent.keyDown(appointmentButton, { key: "Enter" });
+    fireEvent.keyDown(appointmentButton, { key: " " });
+
+    expect(mockHandlers.onEdit).toHaveBeenCalledTimes(2);
+    expect(mockHandlers.onEdit).toHaveBeenCalledWith(mockLayout.id);
+  });
+
+  test("calls onDelete from keyboard delete shortcuts", () => {
+    render(<CalendarAppointment {...defaultProps} />);
+    const appointmentButton = screen.getByRole("button", {
+      name: "Termin Test Appointment, 09:00. Bearbeiten",
+    });
+
+    fireEvent.keyDown(appointmentButton, { key: "Delete" });
+    fireEvent.keyDown(appointmentButton, { key: "Backspace" });
+
+    expect(mockHandlers.onDelete).toHaveBeenCalledTimes(2);
+    expect(mockHandlers.onDelete).toHaveBeenCalledWith(mockLayout.id);
   });
 
   test("calls onDelete on right-click", () => {
@@ -258,14 +294,16 @@ describe("CalendarAppointment", () => {
   test("applies hover styles", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
     const appointmentElement = container.querySelector(
-      String.raw`.hover\:shadow-md`,
+      String.raw`.hover\:shadow`,
     );
     expect(appointmentElement).toBeInTheDocument();
   });
 
   test("applies transition classes", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
-    const appointmentElement = container.querySelector(".transition-all");
+    const appointmentElement = container.querySelector(
+      String.raw`.transition-\[opacity\,box-shadow\]`,
+    );
     expect(appointmentElement).toBeInTheDocument();
   });
 

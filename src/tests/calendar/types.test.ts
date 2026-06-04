@@ -16,6 +16,7 @@ import {
 } from "../../../lib/calendar-occupancy";
 import {
   APPOINTMENT_COLORS,
+  CALENDAR_APPOINTMENT_COLOR_CLASSES,
   type CalendarAppointmentLayout,
   type CalendarAppointmentView,
   SLOT_DURATION,
@@ -122,10 +123,16 @@ describe("Calendar Types and Constants", () => {
       }
     });
 
-    test("should include common colors", () => {
-      expect(APPOINTMENT_COLORS).toContain("bg-blue-500");
-      expect(APPOINTMENT_COLORS).toContain("bg-green-500");
-      expect(APPOINTMENT_COLORS).toContain("bg-red-500");
+    test("should be derived from named calendar palette classes", () => {
+      expect(APPOINTMENT_COLORS).toContain(
+        CALENDAR_APPOINTMENT_COLOR_CLASSES.blue,
+      );
+      expect(APPOINTMENT_COLORS).toContain(
+        CALENDAR_APPOINTMENT_COLOR_CLASSES.emerald,
+      );
+      expect(APPOINTMENT_COLORS).toContain(
+        CALENDAR_APPOINTMENT_COLOR_CLASSES.rose,
+      );
     });
 
     test("should not have duplicate colors", () => {

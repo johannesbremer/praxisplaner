@@ -196,7 +196,9 @@ export function getRouter() {
           errorType: "mutation",
         });
 
-        toast(errorMessage, { className: "bg-red-500 text-white" });
+        toast(errorMessage, {
+          className: "bg-destructive text-destructive-foreground",
+        });
       },
     }),
   });

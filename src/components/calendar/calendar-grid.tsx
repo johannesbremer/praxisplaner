@@ -1,6 +1,7 @@
 import type React from "react";
 
 import { Plus } from "lucide-react";
+import { useState } from "react";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type {
@@ -83,6 +84,11 @@ interface CalendarGridProps {
   totalSlots: number;
 }
 
+interface FocusedCalendarSlot {
+  columnIndex: number;
+  slot: number;
+}
+
 type ManualBlockedSlot = Extract<BlockedSlot, { isManual: true }>;
 
 export function CalendarGrid({
@@ -118,6 +124,10 @@ export function CalendarGrid({
   timeToSlot,
   totalSlots,
 }: CalendarGridProps) {
+  const [focusedSlot, setFocusedSlot] = useState<FocusedCalendarSlot>({
+    columnIndex: 0,
+    slot: 0,
+  });
   const isColumnInteractionDisabled = (column: CalendarColumn) =>
     column.isUnavailable === true ||
     column.isAppointmentTypeUnavailable === true ||
@@ -179,7 +189,7 @@ export function CalendarGrid({
 
       return (
         <div
-          className={`absolute left-1 right-1 ${draggedAppointment.color} opacity-50 border-2 border-white border-dashed rounded z-20 h-(--calendar-appointment-height) min-h-4 top-(--calendar-appointment-top)`}
+          className={`absolute left-1 right-1 ${draggedAppointment.color} opacity-50 border-2 border-background border-dashed rounded z-20 h-(--calendar-appointment-height) min-h-4 top-(--calendar-appointment-top)`}
           style={
             {
               "--calendar-appointment-height": `${height}px`,
@@ -210,7 +220,7 @@ export function CalendarGrid({
 
       return (
         <div
-          className="absolute left-1 right-1 bg-gray-500 opacity-50 border-2 border-white border-dashed rounded z-20 h-(--calendar-appointment-height) min-h-4 top-(--calendar-appointment-top)"
+          className="absolute left-1 right-1 bg-muted-foreground opacity-50 border-2 border-background border-dashed rounded z-20 h-(--calendar-appointment-height) min-h-4 top-(--calendar-appointment-top)"
           style={
             {
               "--calendar-appointment-height": `${height}px`,
@@ -334,9 +344,90 @@ export function CalendarGrid({
     );
   };
 
+  const moveFocusedSlot = (
+    currentColumnIndex: number,
+    currentSlot: number,
+    columnDelta: number,
+    slotDelta: number,
+  ) => {
+    const nextColumnIndex = Math.min(
+      Math.max(currentColumnIndex + columnDelta, 0),
+      columns.length - 1,
+    );
+    const nextSlot = Math.min(
+      Math.max(currentSlot + slotDelta, 0),
+      totalSlots - 1,
+    );
+    setFocusedSlot({ columnIndex: nextColumnIndex, slot: nextSlot });
+    const focusNextSlot = () => {
+      document
+        .querySelector<HTMLButtonElement>(
+          `[data-calendar-slot-button="${nextColumnIndex}:${nextSlot}"]`,
+        )
+        ?.focus();
+    };
+    focusNextSlot();
+  };
+
+  const handleSlotKeyDown = (
+    e: React.KeyboardEvent<HTMLButtonElement>,
+    column: CalendarColumn,
+    columnIndex: number,
+    slot: number,
+    isInteractionDisabled: boolean,
+  ) => {
+    switch (e.key) {
+      case " ":
+      case "Enter": {
+        e.preventDefault();
+        if (isInteractionDisabled) {
+          return;
+        }
+        if (isBlockingModeActive && onBlockSlot) {
+          onBlockSlot(column.id, slot);
+        } else {
+          onAddAppointment(column.id, slot);
+        }
+        break;
+      }
+      case "ArrowDown": {
+        e.preventDefault();
+        moveFocusedSlot(columnIndex, slot, 0, 1);
+        break;
+      }
+      case "ArrowLeft": {
+        e.preventDefault();
+        moveFocusedSlot(columnIndex, slot, -1, 0);
+        break;
+      }
+      case "ArrowRight": {
+        e.preventDefault();
+        moveFocusedSlot(columnIndex, slot, 1, 0);
+        break;
+      }
+      case "ArrowUp": {
+        e.preventDefault();
+        moveFocusedSlot(columnIndex, slot, 0, -1);
+        break;
+      }
+      case "End": {
+        e.preventDefault();
+        moveFocusedSlot(columnIndex, slot, 0, totalSlots - 1 - slot);
+        break;
+      }
+      case "Home": {
+        e.preventDefault();
+        moveFocusedSlot(columnIndex, slot, 0, -slot);
+        break;
+      }
+    }
+  };
+
   return (
     <div
+      aria-label="Praxis-Kalender"
       className="grid min-h-full"
+      role="grid"
       style={{
         gridTemplateColumns: `80px repeat(${columns.length}, 1fr)`,
       }}
@@ -349,13 +440,14 @@ export function CalendarGrid({
       />
 
       {/* Calendar columns */}
-      {columns.map((column) => (
+      {columns.map((column, columnIndex) => (
         <div
           className={`border-r border-border last:border-r-0 ${column.isMuted ? "bg-muted/40" : ""}`}
           key={calendarColumnScopeKey(column.id)}
         >
           <div
             className={`h-12 border-b border-border bg-card flex items-center justify-center sticky top-0 z-30 ${column.isMuted ? "bg-muted/90 text-muted-foreground" : ""}`}
+            role="columnheader"
           >
             <span className="font-medium">{column.title}</span>
           </div>
@@ -386,9 +478,19 @@ export function CalendarGrid({
               const isHour = i % 12 === 0;
               const isHalfHour = i % 6 === 0 && !isHour;
               const isInteractionDisabled = isColumnInteractionDisabled(column);
+              const isFocusedSlot =
+                focusedSlot.columnIndex === columnIndex &&
+                focusedSlot.slot === i;
+              const actionLabel =
+                isBlockingModeActive && onBlockSlot
+                  ? `Zeitraum um ${slotToTime(i)} bei ${column.title} sperren`
+                  : `Termin um ${slotToTime(i)} bei ${column.title} erstellen`;
               return (
-                <div
-                  className={`h-4 group ${isInteractionDisabled ? "cursor-not-allowed" : "hover:bg-muted/50 cursor-pointer"} ${isHour ? "border-t-2 border-t-border border-b border-b-border/30" : isHalfHour ? "border-t border-t-border/80 border-b border-b-border/30" : "border-b border-b-border/30"}`}
+                <button
+                  aria-disabled={isInteractionDisabled}
+                  aria-label={actionLabel}
+                  className={`h-4 w-full group border-x-0 border-b border-b-border/30 bg-transparent p-0 text-left focus-visible:relative focus-visible:z-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${isInteractionDisabled ? "cursor-not-allowed" : "hover:bg-muted/50 cursor-pointer"} ${isHour ? "border-t-2 border-t-border" : isHalfHour ? "border-t border-t-border/80" : "border-t-0"}`}
+                  data-calendar-slot-button={`${columnIndex}:${i}`}
                   data-calendar-slot-row="true"
                   key={i}
                   onClick={() => {
@@ -401,26 +503,40 @@ export function CalendarGrid({
                       onAddAppointment(column.id, i);
                     }
                   }}
+                  onFocus={() => {
+                    setFocusedSlot({ columnIndex, slot: i });
+                  }}
+                  onKeyDown={(e) => {
+                    handleSlotKeyDown(
+                      e,
+                      column,
+                      columnIndex,
+                      i,
+                      isInteractionDisabled,
+                    );
+                  }}
+                  tabIndex={isFocusedSlot && !isInteractionDisabled ? 0 : -1}
+                  type="button"
                 >
                   <div
                     className={`flex items-center justify-center h-full ${isInteractionDisabled ? "opacity-0" : "opacity-0 group-hover:opacity-100"}`}
                   >
                     <Plus className="h-3 w-3 text-muted-foreground" />
                   </div>
-                </div>
+                </button>
               );
             })}
 
             {currentTimeSlot >= 0 && (
               <div
-                className="absolute left-0 right-0 h-0.5 bg-red-500 z-20 pointer-events-none top-(--calendar-current-time-top)"
+                className="absolute left-0 right-0 h-0.5 bg-calendar-current-time z-20 pointer-events-none top-(--calendar-current-time-top)"
                 style={
                   {
                     "--calendar-current-time-top": `${currentTimeSlot * 16}px`,
                   } as React.CSSProperties
                 }
               >
-                <div className="absolute -left-1 -top-1 w-2 h-2 bg-red-500 rounded-full" />
+                <div className="absolute -left-1 -top-1 w-2 h-2 bg-calendar-current-time rounded-full" />
               </div>
             )}
 

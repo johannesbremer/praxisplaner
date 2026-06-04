@@ -594,7 +594,7 @@ function PractitionerDialog({
                   value={field.state.value}
                 />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">
+                  <p className="text-sm text-destructive">
                     {field.state.meta.errors[0]}
                   </p>
                 )}

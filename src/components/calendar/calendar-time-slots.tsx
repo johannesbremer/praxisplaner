@@ -41,14 +41,14 @@ export function CalendarTimeSlots({
         {renderTimeSlots()}
         {currentTimeSlot >= 0 && (
           <div
-            className="absolute left-0 right-0 border-t-2 border-red-500 z-30 h-0 top-[var(--calendar-current-time-top)]"
+            className="absolute left-0 right-0 border-t-2 border-calendar-current-time z-30 h-0 top-[var(--calendar-current-time-top)]"
             style={
               {
                 "--calendar-current-time-top": `${currentTimeSlot * 16}px`,
               } as React.CSSProperties
             }
           >
-            <div className="w-2 h-2 bg-red-500 rounded-full -mt-1 -ml-1" />
+            <div className="w-2 h-2 bg-calendar-current-time rounded-full -mt-1 -ml-1" />
           </div>
         )}
       </div>
