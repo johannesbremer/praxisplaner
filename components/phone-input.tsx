@@ -51,7 +51,7 @@ const PhoneInput: React.ForwardRefExoticComponent<PhoneInputProps> =
          * the value is coerced to an empty string.
          * @param value The entered value
          */
-        onChange={(value) => onChange?.(value ?? ("" as RPNInput.Value))}
+        onChange={(value) => onChange?.(value ?? "")}
         ref={ref}
         value={value ?? ""}
         {...props}

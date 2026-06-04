@@ -2,5 +2,3 @@ onlyBuiltDependencies:
   - core-js
   - esbuild
   - msw
-patchedDependencies:
-  skills@1.5.1: patches/skills@1.5.1.patch

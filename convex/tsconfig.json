@@ -26,6 +26,7 @@
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "isolatedModules": true,
+    "types": ["node"],
     "noEmit": true
   },
   "include": ["./**/*"],
