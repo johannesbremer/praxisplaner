@@ -325,11 +325,12 @@ function readLegacyUsers() {
   return readSqliteJson(`
     select
       id as sourceUserId,
+      created,
       email,
       username,
       verified
     from users
-    order by id
+    order by created, id
   `);
 }
 
@@ -446,7 +447,35 @@ function optionalString(value) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function buildBookingIdentityRows(legacyRows) {
+function fallbackLegacyUserEmail(sourceUserId) {
+  return `${sourceUserId}@legacy-users.invalid`;
+}
+
+function normalizeImportedEmail(value) {
+  const email = optionalString(value)?.toLocaleLowerCase();
+  return email?.includes("@") ? email : undefined;
+}
+
+function buildCanonicalLegacyUserIdById(users) {
+  const canonicalIdByEmail = new Map();
+  const canonicalIdById = new Map();
+
+  for (const user of users) {
+    const email = normalizeImportedEmail(user.email);
+    if (email === undefined) {
+      canonicalIdById.set(user.sourceUserId, user.sourceUserId);
+      continue;
+    }
+
+    const canonicalId = canonicalIdByEmail.get(email) ?? user.sourceUserId;
+    canonicalIdByEmail.set(email, canonicalId);
+    canonicalIdById.set(user.sourceUserId, canonicalId);
+  }
+
+  return canonicalIdById;
+}
+
+function buildBookingIdentityRows(legacyRows, canonicalLegacyUserIdById) {
   const bySourceKey = new Map();
 
   for (const row of legacyRows) {
@@ -477,12 +506,16 @@ function buildBookingIdentityRows(legacyRows) {
       ...(row.sourceKind === "telefonki"
         ? {}
         : {
-            ...(optionalString(row.legacyUserEmail) === undefined
+            ...(normalizeImportedEmail(row.legacyUserEmail) === undefined
               ? {}
-              : { userEmail: optionalString(row.legacyUserEmail) }),
+              : { userEmail: normalizeImportedEmail(row.legacyUserEmail) }),
             ...(optionalString(row.legacyIdentityId) === undefined
               ? {}
-              : { userSourceId: optionalString(row.legacyIdentityId) }),
+              : {
+                  userSourceId:
+                    canonicalLegacyUserIdById.get(row.legacyIdentityId) ??
+                    row.legacyIdentityId,
+                }),
           }),
     });
   }
@@ -575,20 +608,30 @@ function main() {
     ...readTelefonkiAppointments(),
   ];
   const result = classifyAppointments(legacyRows, pvs.index);
-  const legacyUserRows = readLegacyUsers().map((user) => ({
-    authId: `legacy-pocketbase:${user.sourceUserId}`,
-    email:
-      typeof user.email === "string" && user.email.includes("@")
-        ? user.email
-        : `${user.sourceUserId}@legacy-users.invalid`,
-    sourceUserId: user.sourceUserId,
-    username: user.username,
-    verified: user.verified === 1,
-  }));
-  const bookingIdentityRows = buildBookingIdentityRows([
-    ...legacyRows,
-    ...onlineSnapshotUsers,
-  ]);
+  const legacyUsers = readLegacyUsers();
+  const canonicalLegacyUserIdById = buildCanonicalLegacyUserIdById(legacyUsers);
+  const legacyUserRowsByCanonicalId = new Map();
+  for (const user of legacyUsers) {
+    const canonicalSourceUserId =
+      canonicalLegacyUserIdById.get(user.sourceUserId) ?? user.sourceUserId;
+    if (legacyUserRowsByCanonicalId.has(canonicalSourceUserId)) {
+      continue;
+    }
+    legacyUserRowsByCanonicalId.set(canonicalSourceUserId, {
+      authId: `legacy-pocketbase:${canonicalSourceUserId}`,
+      email:
+        normalizeImportedEmail(user.email) ??
+        fallbackLegacyUserEmail(canonicalSourceUserId),
+      sourceUserId: canonicalSourceUserId,
+      username: user.username,
+      verified: user.verified === 1,
+    });
+  }
+  const legacyUserRows = [...legacyUserRowsByCanonicalId.values()];
+  const bookingIdentityRows = buildBookingIdentityRows(
+    [...legacyRows, ...onlineSnapshotUsers],
+    canonicalLegacyUserIdById,
+  );
   const associationRows = buildAssociationRows(result.matches);
   const { appendOnlyRows, conflictRows } =
     splitAssociationRowsByConflict(associationRows);

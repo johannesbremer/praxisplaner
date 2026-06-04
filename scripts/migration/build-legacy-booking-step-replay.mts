@@ -125,8 +125,32 @@ function normalizeGender(value) {
 
 function normalizeEmail(email, fallbackLocalPart, domain) {
   return typeof email === "string" && email.includes("@")
-    ? email
+    ? email.toLocaleLowerCase()
     : `${fallbackLocalPart}@${domain}`;
+}
+
+function normalizedRealEmail(email) {
+  const normalized = trimToUndefined(email)?.toLocaleLowerCase();
+  return normalized?.includes("@") ? normalized : undefined;
+}
+
+function buildCanonicalLegacyUserIdById(users) {
+  const canonicalIdByEmail = new Map();
+  const canonicalIdById = new Map();
+
+  for (const user of users) {
+    const email = normalizedRealEmail(user.email);
+    if (email === undefined) {
+      canonicalIdById.set(user.id, user.id);
+      continue;
+    }
+
+    const canonicalId = canonicalIdByEmail.get(email) ?? user.id;
+    canonicalIdByEmail.set(email, canonicalId);
+    canonicalIdById.set(user.id, canonicalId);
+  }
+
+  return canonicalIdById;
 }
 
 function normalizeLocationName(value) {
@@ -529,11 +553,9 @@ function readSourceMaps() {
       row,
     ]),
   );
-  const userById = new Map(
-    readSqliteJson("select id, email from users order by created").map(
-      (row) => [row.id, row],
-    ),
-  );
+  const users = readSqliteJson("select id, email from users order by created");
+  const userById = new Map(users.map((row) => [row.id, row]));
+  const canonicalUserIdById = buildCanonicalLegacyUserIdById(users);
   const dataSharingByUser = Map.groupBy(
     readSqliteJson("select * from datenweitergabe order by created, id"),
     (row) => row.user,
@@ -610,6 +632,7 @@ function readSourceMaps() {
     baumByUser,
     baumPractitionerPriorityEligibleUsers,
     blockedUsers,
+    canonicalUserIdById,
     currentAppointmentsByUser,
     dataSharingByUser,
     personalByUser,
@@ -714,7 +737,9 @@ function buildSnapshotReplayRow(
   }
 
   const userEmail =
-    maps.userById.get(userId)?.email ?? `${userId}@legacy-users.invalid`;
+    normalizedRealEmail(maps.userById.get(userId)?.email) ??
+    `${userId}@legacy-users.invalid`;
+  const canonicalUserId = maps.canonicalUserIdById.get(userId) ?? userId;
   const currentAppointment = maps.currentAppointmentsByUser.get(userId);
   const currentMatch =
     currentAppointment === undefined
@@ -831,7 +856,7 @@ function buildSnapshotReplayRow(
     sessionStep,
     source: "legacy-online",
     sourceSessionKey: `legacy-pocketbase:snapshot:${userId}`,
-    userAuthId: `legacy-pocketbase:${userId}`,
+    userAuthId: `legacy-pocketbase:${canonicalUserId}`,
     userEmail,
   };
 
@@ -843,6 +868,7 @@ function buildSnapshotReplayRow(
 function buildUnmatchedFutureBookingHoldRows(
   snapshotExportedAt,
   unmatchedRows,
+  canonicalUserIdById,
 ) {
   return unmatchedRows
     .filter(
@@ -866,8 +892,10 @@ function buildUnmatchedFutureBookingHoldRows(
           .join(" "),
       );
       const userEmail =
-        trimToUndefined(row.legacyUserEmail) ??
+        normalizedRealEmail(row.legacyUserEmail) ??
         `${legacyIdentityId}@legacy-users.invalid`;
+      const canonicalUserId =
+        canonicalUserIdById.get(legacyIdentityId) ?? legacyIdentityId;
 
       return {
         createdAt: snapshotExportedAt.getTime(),
@@ -881,7 +909,7 @@ function buildUnmatchedFutureBookingHoldRows(
           : { locationName: normalizeLocationName(row.legacyLocation) }),
         ...(practitionerName === undefined ? {} : { practitionerName }),
         start: toStoredLegacyDateTime(row.legacyStart),
-        userAuthId: `legacy-pocketbase:${legacyIdentityId}`,
+        userAuthId: `legacy-pocketbase:${canonicalUserId}`,
         userEmail,
       };
     })
@@ -903,16 +931,33 @@ function main() {
   const snapshotReplayEntries = [...maps.baumByUser.keys()]
     .map((userId) => buildSnapshotReplayRow(userId, maps, currentOnlineMatches))
     .filter(Boolean);
-  const replayRows = snapshotReplayEntries.map((entry) => entry.replayRow);
+  const replayRows = [
+    ...new Map(
+      snapshotReplayEntries
+        .map((entry) => entry.replayRow)
+        .toSorted((left, right) => {
+          if (left.createdAt !== right.createdAt) {
+            return right.createdAt - left.createdAt;
+          }
+          return left.sourceSessionKey.localeCompare(right.sourceSessionKey);
+        })
+        .map((row) => [row.userAuthId, row]),
+    ).values(),
+  ].sort((left, right) =>
+    left.sourceSessionKey.localeCompare(right.sourceSessionKey),
+  );
   const unmatchedFutureBookingHoldRows = buildUnmatchedFutureBookingHoldRows(
     snapshotExportedAt,
     unmatched,
+    maps.canonicalUserIdById,
   );
 
   const blockRows = maps.blockedUsers.map((row) => ({
     legacyUserId: row.legacyUserId,
     reason: "Legacy baumdiagramm.isUserBlocked",
-    userAuthId: `legacy-pocketbase:${row.legacyUserId}`,
+    userAuthId: `legacy-pocketbase:${
+      maps.canonicalUserIdById.get(row.legacyUserId) ?? row.legacyUserId
+    }`,
     userEmail: `${row.legacyUserId}@legacy-users.invalid`,
   }));
 
