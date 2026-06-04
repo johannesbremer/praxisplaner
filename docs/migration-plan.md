@@ -135,7 +135,7 @@ Plan:
 
 Map legacy tables to current booking concepts and replay completed historical flows into imported booking sessions:
 
-- `baumdiagramm`: booking decision state and selected branch. Import blocked users from `isUserBlocked` into `legacyBookingBlocks`. Replay meaningful completed history into `bookingSessions` with `status: "imported"` so active booking queries and expiry cleanup ignore it.
+- `baumdiagramm`: current resumable booking decision state and selected branch. Import blocked users from `isUserBlocked` into `onlineAccountBlocks`. Replay each user's current meaningful wizard snapshot into the current booking step tables so a user who was halfway through legacy online booking can log in after migration and resume from the same Booking Session state.
 - `personal`: patient personal data entered by a user. Map to existing/new personal-data step rows or preserve as an imported profile history table if the current step tables are too workflow-specific.
 - `datenweitergabe`: data-sharing contacts. Map only to the new-patient data-sharing step tables; existing-patient replay skips this step.
 - `anamnese` and `anamnesetexte`: map to `medicalHistory` fields.
@@ -143,7 +143,7 @@ Map legacy tables to current booking concepts and replay completed historical fl
 - `termine` and `oldTermine`: complementary legacy online-booked appointment tables. `termine` holds the currently active booked appointment that still blocks the user from booking another one; `oldTermine` holds appointments rotated out of `termine` when the user returns later to book again. Use the union of both tables for the booked-appointment subset, not either table in isolation. Correlate both to imported Praxistimer appointments, which are the canonical appointment source of truth, by exact appointment facts plus exact patient-name identity rules. Do not create duplicates without a conflict report.
 - `phoneusers`: TelefonKI identities and requested appointment metadata. Correlate to PVS patients with the same conservative matching pipeline.
 
-Imported sessions use the current booking step tables, but they are not resumable active sessions. `bookingSessions.status` and `bookingSessions.source` separate active current-booking sessions from imported legacy PocketBase and TelefonKI history. `baumdiagramm` is only the current booking wizard snapshot; it must not be treated as the source of truth for booked appointments when a matching `termine` or `oldTermine` row exists.
+Imported `baumdiagramm` rows are active resumable Booking Session state, not inert history. The import should keep exactly one current wizard snapshot per legacy online booking user in the current booking step tables. `baumdiagramm` is not the source of truth for booked Appointments: when a matching `termine` or `oldTermine` row exists, the booked Appointment comes from the appointment correlation pipeline and the wizard snapshot only controls where the user resumes if they do not already have a future booked Appointment or unmatched future hold.
 
 ## Phase 6: identity correlation
 
