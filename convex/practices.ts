@@ -9,6 +9,7 @@ import {
   ensurePracticeAccessForQuery,
   getAccessiblePracticeIdsForQuery,
   practiceRoleValidator,
+  requirePracticeManager,
 } from "./practiceAccess";
 import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
 import { ensureAuthenticatedUserId } from "./userIdentity";
@@ -105,7 +106,7 @@ export const listPracticePhoneNumbers = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeManager(ctx, args.practiceId);
 
     const phoneNumbers = await ctx.db
       .query("practicePhoneNumbers")
@@ -294,7 +295,7 @@ export const getPracticeMembers = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeManager(ctx, args.practiceId);
 
     const members = await ctx.db
       .query("practiceMembers")

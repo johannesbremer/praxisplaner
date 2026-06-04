@@ -378,7 +378,7 @@ describe("appointments self-service cancellation", () => {
 
     const visibleAppointments = await owner.query(
       api.appointments.getAppointmentsForPatient,
-      { userId: ownerUserId },
+      { practiceId: baseData.practiceId, userId: ownerUserId },
     );
     expect(visibleAppointments).toHaveLength(0);
   });
@@ -479,6 +479,7 @@ describe("appointments self-service cancellation", () => {
 
     await expect(
       authed.query(api.appointments.getAppointmentsForPatient, {
+        practiceId: baseData.practiceId,
         scope: "simulation",
         selectedRuleSetId: baseData.ruleSetId,
         userId,
@@ -2271,6 +2272,7 @@ describe("appointments update safety", () => {
       api.appointments.getAppointments,
       {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         selectedRuleSetId: baseData.ruleSetId,
       },
     );
@@ -2359,6 +2361,7 @@ describe("appointments update safety", () => {
 
     const appointments = await authed.query(api.appointments.getAppointments, {
       activeRuleSetId: baseData.ruleSetId,
+      practiceId: baseData.practiceId,
       selectedRuleSetId: baseData.ruleSetId,
     });
 
@@ -2467,6 +2470,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getAppointments, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
       }),
     ).resolves.toEqual([]);
   });
@@ -2517,6 +2521,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getAppointments, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         scope: "real",
       }),
     ).resolves.toMatchObject([{ _id: realAppointmentId }]);
@@ -2577,6 +2582,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getAppointments, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         scope: "all",
       }),
     ).resolves.toMatchObject([
@@ -2586,6 +2592,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getAppointments, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         scope: "all",
       }),
     ).resolves.toHaveLength(2);
@@ -2644,12 +2651,10 @@ describe("appointments update safety", () => {
 
     await expect(
       authed.query(api.appointments.getAppointments, {
+        practiceId: baseData.practiceId,
         scope: "all",
       }),
-    ).resolves.toMatchObject([
-      { _id: foreignRealAppointmentId },
-      { _id: localSimulationReplacementId },
-    ]);
+    ).resolves.toMatchObject([{ _id: localSimulationReplacementId }]);
   });
 
   test("getAppointments remaps through soft-deleted entities in the displayed rule set", async () => {
@@ -2740,6 +2745,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getAppointments, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         selectedRuleSetId: savedRuleSetId,
       }),
     ).resolves.toMatchObject([
@@ -2795,6 +2801,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getAppointments, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         selectedRuleSetId: savedRuleSetId,
       }),
     ).resolves.toEqual([]);
@@ -2889,6 +2896,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getBlockedSlots, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         scope: "real",
       }),
     ).resolves.toMatchObject([
@@ -3782,6 +3790,7 @@ describe("calendar day appointment queries", () => {
       authed.query(api.appointments.getAppointmentsInRange, {
         activeRuleSetId: baseData.ruleSetId,
         end: targetRange.dayEnd,
+        practiceId: baseData.practiceId,
         scope: "real",
         start: targetRange.dayStart,
       }),
@@ -3859,6 +3868,7 @@ describe("calendar day appointment queries", () => {
     await expect(
       authed.query(api.appointments.getAppointmentsInRange, {
         end: targetRange.dayEnd,
+        practiceId: baseData.practiceId,
         scope: "real",
         start: rangeStart.toString(),
       }),
@@ -3935,6 +3945,7 @@ describe("calendar day appointment queries", () => {
             timeZone: "Europe/Berlin",
           })
           .toString(),
+        practiceId: baseData.practiceId,
         scope: "real",
         start: targetRange.date
           .toZonedDateTime({
@@ -4015,6 +4026,7 @@ describe("calendar day appointment queries", () => {
       authed.query(api.appointments.getAppointmentsInRange, {
         activeRuleSetId: baseData.ruleSetId,
         end: targetRange.dayEnd,
+        practiceId: baseData.practiceId,
         scope: "real",
         start: targetRange.dayStart,
       }),

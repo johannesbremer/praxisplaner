@@ -31,7 +31,10 @@ import {
   asPractitionerLineageKey,
 } from "./identity";
 import { requireLineageKey } from "./lineage";
-import { ensurePracticeAccessForQuery } from "./practiceAccess";
+import {
+  ensurePracticeAccessForQuery,
+  requirePracticeMemberOrCurrentUserBookingScope,
+} from "./practiceAccess";
 import { buildPreloadedDayData, evaluateLoadedRulesHelper } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
@@ -672,7 +675,14 @@ export const getSlotsForDay = query({
     args,
   ): Promise<{ log: string[]; slots: SchedulingResultSlot[] }> => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    if (args.ruleSetId) {
+      await requirePracticeMemberOrCurrentUserBookingScope(ctx, {
+        practiceId: args.practiceId,
+        ruleSetId: args.ruleSetId,
+      });
+    } else {
+      await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    }
     const effectiveRuleSetId = await resolveSchedulingRuleSetId(ctx.db, {
       practiceId: args.practiceId,
       ...(args.ruleSetId ? { preferredRuleSetId: args.ruleSetId } : {}),
@@ -706,7 +716,14 @@ export const getNextAvailableSlot = query({
   },
   handler: async (ctx, args): Promise<null | SchedulingResultSlot> => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    if (args.ruleSetId) {
+      await requirePracticeMemberOrCurrentUserBookingScope(ctx, {
+        practiceId: args.practiceId,
+        ruleSetId: args.ruleSetId,
+      });
+    } else {
+      await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    }
     const date = asIsoDateString(args.date);
     const simulatedContext = asSimulatedContextInput(args.simulatedContext);
     const effectiveRuleSetId = await resolveSchedulingRuleSetId(ctx.db, {
@@ -857,7 +874,14 @@ export const getBlockedSlotsWithoutAppointmentType = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    if (args.ruleSetId) {
+      await requirePracticeMemberOrCurrentUserBookingScope(ctx, {
+        practiceId: args.practiceId,
+        ruleSetId: args.ruleSetId,
+      });
+    } else {
+      await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    }
     const date = asIsoDateString(args.date);
     const targetPlainDate = Temporal.PlainDate.from(date);
 

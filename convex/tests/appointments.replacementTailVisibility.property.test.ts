@@ -120,6 +120,7 @@ describe("appointment replacement tail visibility properties", () => {
 
           const appointments = await t.query(api.appointments.getAppointments, {
             activeRuleSetId: fixture.ruleSetId,
+            practiceId: fixture.practiceId,
             scope: "real",
             selectedRuleSetId: fixture.ruleSetId,
           });
@@ -139,6 +140,7 @@ describe("appointment replacement tail visibility properties", () => {
               end: Temporal.ZonedDateTime.from(rangeStart)
                 .add({ days: maxDayOffset + 1 })
                 .toString(),
+              practiceId: fixture.practiceId,
               scope: "real",
               selectedRuleSetId: fixture.ruleSetId,
               start: rangeStart,

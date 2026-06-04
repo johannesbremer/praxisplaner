@@ -225,7 +225,11 @@ function AuthProvidersInner({
   redirectUri: string;
 }) {
   return (
-    <AuthKitProvider clientId={clientId} devMode redirectUri={redirectUri}>
+    <AuthKitProvider
+      clientId={clientId}
+      devMode={isWorkOSDevModeEnabled()}
+      redirectUri={redirectUri}
+    >
       <ConvexProviderWithAuth
         client={convexQueryClient.convexClient}
         useAuth={useConvexAuthFromWorkOS}
@@ -243,6 +247,11 @@ function FatalConfigScreen({ error }: { error: FrontendError }) {
       <p>{error.message}</p>
     </div>
   );
+}
+
+function isWorkOSDevModeEnabled(): boolean {
+  const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
+  return import.meta.env.DEV || vercelEnv === "preview";
 }
 
 function useConvexQueryClient(): Result<ConvexQueryClient, FrontendError> {

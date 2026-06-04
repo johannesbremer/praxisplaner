@@ -1,5 +1,3 @@
-// src/routes/buchung.tsx
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
@@ -28,6 +26,7 @@ import {
 import { api } from "@/convex/_generated/api";
 import { getBookingSessionStepKind } from "@/lib/booking-session-steps";
 
+import { PatientAuthGate } from "../auth/access-control";
 import {
   BookedAppointmentsSummary,
   type BookingSessionState,
@@ -397,100 +396,49 @@ function isServerBackTargetStep(
  * Handles authentication check before rendering the booking flow.
  */
 function BookingPage() {
-  const { isLoading: authLoading, signIn, user } = useAuth();
+  const { user } = useAuth();
   const { isAuthenticated: convexAuthenticated, isLoading: convexLoading } =
     useConvexAuth();
-  const [signInError, setSignInError] = useState<null | string>(null);
-  const signInRequestedRef = useRef(false);
 
-  const startSignIn = useCallback(() => {
-    if (signInRequestedRef.current) {
-      return;
-    }
-    signInRequestedRef.current = true;
-    signIn().catch((error: unknown) => {
-      signInRequestedRef.current = false;
-      setSignInError(
-        error instanceof Error
-          ? error.message
-          : "Anmeldung konnte nicht gestartet werden",
-      );
-    });
-  }, [signIn]);
-
-  const handleRetrySignIn = useCallback(() => {
-    setSignInError(null);
-    startSignIn();
-  }, [startSignIn]);
-
-  useEffect(() => {
-    // Start WorkOS sign-in as soon as WorkOS auth state is resolved and no user exists.
-    // Do not block this on Convex loading, otherwise unauthenticated users can get stuck.
-    if (authLoading || user) {
-      return;
-    }
-    startSignIn();
-  }, [authLoading, startSignIn, user]);
-
-  // Authentication loading:
-  // - always wait for WorkOS auth state
-  // - wait for Convex only after WorkOS has a user
-  if (authLoading || (user && convexLoading)) {
+  if (user && convexLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Card className="w-96">
-          <CardContent className="py-6">
-            <div className="flex items-center justify-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Laden...</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // Require authentication - redirect to sign-in automatically.
-  if (!user || !convexAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Card className="max-w-md">
-          <CardHeader className="text-center">
-            <CardTitle>Weiterleitung zur Anmeldung...</CardTitle>
-            <VisuallyHidden>
-              <CardDescription>
-                Bitte warten Sie einen Moment. Wir leiten Sie automatisch zur
-                Anmeldung weiter.
-              </CardDescription>
-            </VisuallyHidden>
-          </CardHeader>
-          <CardContent>
-            {signInError ? (
-              <div className="space-y-3">
-                <p className="text-sm text-destructive">{signInError}</p>
-                <Button
-                  className="w-full"
-                  onClick={() => {
-                    handleRetrySignIn();
-                  }}
-                >
-                  Erneut versuchen
-                </Button>
-              </div>
-            ) : (
+      <PatientAuthGate>
+        <div className="min-h-screen flex items-center justify-center">
+          <Card className="w-96">
+            <CardContent className="py-6">
               <div className="flex items-center justify-center gap-2 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Anmeldung wird geöffnet...</span>
+                <span>Laden...</span>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+        </div>
+      </PatientAuthGate>
     );
   }
 
-  // User is authenticated, render the booking flow
-  return <AuthenticatedBookingFlow />;
+  if (user && !convexAuthenticated) {
+    return (
+      <PatientAuthGate>
+        <div className="min-h-screen flex items-center justify-center">
+          <Card className="w-96">
+            <CardContent className="py-6">
+              <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Benutzer wird vorbereitet...</span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </PatientAuthGate>
+    );
+  }
+
+  return (
+    <PatientAuthGate>
+      <AuthenticatedBookingFlow />
+    </PatientAuthGate>
+  );
 }
 
 /**

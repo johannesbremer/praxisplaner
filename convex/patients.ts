@@ -12,7 +12,6 @@ import {
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
-  getAccessiblePracticeIdsForQuery,
 } from "./practiceAccess";
 import { createTemporaryPatientRecord } from "./temporaryPatients";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
@@ -188,27 +187,30 @@ export const listPatients = query({
     orderBy: v.optional(
       v.union(v.literal("createdAt"), v.literal("lastModified")),
     ),
+    practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const accessiblePracticeIds = new Set(
-      await getAccessiblePracticeIdsForQuery(ctx),
-    );
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const limit = args.limit ?? 20;
     const orderBy = args.orderBy ?? "lastModified";
     const order = args.order ?? "desc";
 
     const patients = await ctx.db
       .query("patients")
-      .withIndex(
-        orderBy === "lastModified" ? "by_lastModified" : "by_createdAt",
-      )
+      .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
       .order(order)
-      .take(limit);
+      .collect();
 
-    return patients.filter((patient) =>
-      accessiblePracticeIds.has(patient.practiceId),
-    );
+    return patients
+      .toSorted((left, right) => {
+        const comparison =
+          orderBy === "lastModified"
+            ? Number(left.lastModified - right.lastModified)
+            : Number(left.createdAt - right.createdAt);
+        return order === "asc" ? comparison : -comparison;
+      })
+      .slice(0, limit);
   },
   returns: v.array(patientDocumentValidator),
 });
@@ -247,12 +249,13 @@ export const getPatient = query({
 
 /** Get multiple patients by their Convex IDs */
 export const getPatientsByIds = query({
-  args: { patientIds: v.array(v.id("patients")) },
+  args: {
+    patientIds: v.array(v.id("patients")),
+    practiceId: v.id("practices"),
+  },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const accessiblePracticeIds = new Set(
-      await getAccessiblePracticeIdsForQuery(ctx),
-    );
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const patients = await Promise.all(
       args.patientIds.map((id) => ctx.db.get("patients", id)),
     );
@@ -263,7 +266,7 @@ export const getPatientsByIds = query({
     > = {};
     for (const patient of patients) {
       if (patient) {
-        if (!accessiblePracticeIds.has(patient.practiceId)) {
+        if (patient.practiceId !== args.practiceId) {
           continue;
         }
         const entry: {
@@ -289,12 +292,13 @@ export const getPatientsByIds = query({
 });
 
 export const getPatientSidebarDetailsByIds = query({
-  args: { patientIds: v.array(v.id("patients")) },
+  args: {
+    patientIds: v.array(v.id("patients")),
+    practiceId: v.id("practices"),
+  },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const accessiblePracticeIds = new Set(
-      await getAccessiblePracticeIdsForQuery(ctx),
-    );
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const patients = await Promise.all(
       args.patientIds.map((id) => ctx.db.get("patients", id)),
     );
@@ -315,7 +319,7 @@ export const getPatientSidebarDetailsByIds = query({
     > = {};
 
     for (const patient of patients) {
-      if (!patient || !accessiblePracticeIds.has(patient.practiceId)) {
+      if (patient?.practiceId !== args.practiceId) {
         continue;
       }
 

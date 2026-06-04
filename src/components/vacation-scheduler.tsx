@@ -194,6 +194,7 @@ export function VacationScheduler({
       })
       .toString(),
     ...(activeRuleSet?._id ? { selectedRuleSetId: ruleSetId } : {}),
+    practiceId,
     scope: "simulation",
     start: monthDate
       .toZonedDateTime({
@@ -233,12 +234,14 @@ export function VacationScheduler({
   const patientDetails = useQuery(
     api.patients.getPatientSidebarDetailsByIds,
     appointmentPatientIds.length > 0
-      ? { patientIds: appointmentPatientIds }
+      ? { patientIds: appointmentPatientIds, practiceId }
       : "skip",
   );
   const userDetails = useQuery(
     api.users.getUsersByIds,
-    appointmentUserIds.length > 0 ? { userIds: appointmentUserIds } : "skip",
+    appointmentUserIds.length > 0
+      ? { practiceId, userIds: appointmentUserIds }
+      : "skip",
   );
 
   const createMfa = useMutation(api.mfas.create);

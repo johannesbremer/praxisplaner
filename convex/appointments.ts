@@ -68,7 +68,7 @@ import {
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
-  getAccessiblePracticeIdsForQuery,
+  requireRuleSetBelongsToPractice,
 } from "./practiceAccess";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import { createTemporaryPatientRecord } from "./temporaryPatients";
@@ -1129,6 +1129,26 @@ async function requireAppointmentDisplayScope(
   return displayScope;
 }
 
+async function requireDisplayRuleSetArgsBelongToPractice(
+  ctx: QueryCtx,
+  args: DisplayRuleSetArgs & { practiceId: Id<"practices"> },
+): Promise<void> {
+  if (args.activeRuleSetId) {
+    await requireRuleSetBelongsToPractice(
+      ctx,
+      args.activeRuleSetId,
+      args.practiceId,
+    );
+  }
+  if (args.selectedRuleSetId) {
+    await requireRuleSetBelongsToPractice(
+      ctx,
+      args.selectedRuleSetId,
+      args.practiceId,
+    );
+  }
+}
+
 async function resolveAppointmentDisplayScope(
   db: DatabaseReader,
   args: DisplayRuleSetArgs,
@@ -1243,6 +1263,7 @@ function toBookedAppointmentSummaryItem(
 export const getAppointments = query({
   args: {
     activeRuleSetId: v.optional(v.id("ruleSets")),
+    practiceId: v.id("practices"),
     scope: v.optional(
       v.union(v.literal("real"), v.literal("simulation"), v.literal("all")),
     ),
@@ -1250,20 +1271,18 @@ export const getAppointments = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const accessiblePracticeIds = new Set(
-      await getAccessiblePracticeIdsForQuery(ctx),
-    );
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
     const scope: AppointmentScope = args.scope ?? "real";
 
     const appointmentDocs = await ctx.db
       .query("appointments")
-      .order("asc")
+      .withIndex("by_practiceId_start", (q) =>
+        q.eq("practiceId", args.practiceId),
+      )
       .collect();
-    const accessibleAppointments = appointmentDocs.filter((appointment) =>
-      accessiblePracticeIds.has(appointment.practiceId),
-    );
     const scopedAppointments = filterAppointmentsForVisibleScope(
-      accessibleAppointments,
+      appointmentDocs,
       args,
       scope,
     );
@@ -1376,6 +1395,7 @@ export const getAppointmentsInRange = query({
   args: {
     activeRuleSetId: v.optional(v.id("ruleSets")),
     end: v.string(),
+    practiceId: v.id("practices"),
     scope: v.optional(
       v.union(v.literal("real"), v.literal("simulation"), v.literal("all")),
     ),
@@ -1384,25 +1404,22 @@ export const getAppointmentsInRange = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const accessiblePracticeIds = new Set(
-      await getAccessiblePracticeIdsForQuery(ctx),
-    );
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
     const rangeOverlapBounds = getRangeOverlapBounds(args);
     const appointmentDocs = await ctx.db
       .query("appointments")
-      .withIndex("by_start", (q) =>
+      .withIndex("by_practiceId_start", (q) =>
         q
+          .eq("practiceId", args.practiceId)
           .gte("start", rangeOverlapBounds.queryStartInclusive)
           .lt("start", rangeOverlapBounds.queryEndExclusive),
       )
       .collect();
 
-    const filteredAppointments = appointmentDocs.filter((appointment) =>
-      accessiblePracticeIds.has(appointment.practiceId),
-    );
     const scope: AppointmentScope = args.scope ?? "real";
     const scopedAppointments = filterAppointmentsForVisibleScope(
-      filteredAppointments,
+      appointmentDocs,
       args,
       scope,
     ).filter((appointment) => isTimeRangeOverlap(appointment, args));
@@ -2807,12 +2824,15 @@ async function getBookedAppointmentsForUser(
   }
 
   const displayScope = await requireAppointmentDisplayScope(ctx.db, args);
+  const scopedUserAppointments = appointments.filter(
+    (appointment) => appointment.practiceId === displayScope.practiceId,
+  );
   const displayRuleSetId = getDisplayRuleSetIdFromScope(displayScope);
   const legacyHoldScope = getLegacyHoldScopeForDisplayScope(displayScope);
   if (displayRuleSetId) {
     const remappedAppointments = await remapAppointmentIds(
       ctx,
-      appointments,
+      scopedUserAppointments,
       displayRuleSetId,
     );
     const unresolvedFutureHolds =
@@ -2836,7 +2856,7 @@ async function getBookedAppointmentsForUser(
       userId,
     });
   return [
-    ...appointments.map((appointment) =>
+    ...scopedUserAppointments.map((appointment) =>
       toBookedAppointmentSummaryItem(toAppointmentListItem(appointment)),
     ),
     ...unresolvedFutureHolds.map((hold) =>
@@ -2850,6 +2870,7 @@ export const getAppointmentsForPatient = query({
   args: {
     activeRuleSetId: v.optional(v.id("ruleSets")),
     patientId: v.optional(v.id("patients")),
+    practiceId: v.id("practices"),
     scope: v.optional(
       v.union(v.literal("real"), v.literal("simulation"), v.literal("all")),
     ),
@@ -2858,9 +2879,19 @@ export const getAppointmentsForPatient = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const accessiblePracticeIds = new Set(
-      await getAccessiblePracticeIdsForQuery(ctx),
-    );
+    const currentUserId = await getAuthenticatedUserIdForQuery(ctx);
+    if (!currentUserId) {
+      throw new ConvexError({
+        code: "UNAUTHORIZED",
+        message: "Authenticated user is not provisioned in Convex",
+      });
+    }
+    const isCurrentUserSelfServiceRead =
+      args.userId === currentUserId && args.patientId === undefined;
+    if (!isCurrentUserSelfServiceRead) {
+      await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    }
+    await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
     // Need at least one patient ID
     if (!args.patientId && !args.userId) {
       return [];
@@ -2870,6 +2901,10 @@ export const getAppointmentsForPatient = query({
 
     // Query by patient ID if provided
     if (args.patientId) {
+      const patient = await ctx.db.get("patients", args.patientId);
+      if (patient?.practiceId !== args.practiceId) {
+        return [];
+      }
       const patientAppointments = await ctx.db
         .query("appointments")
         .withIndex("by_patientId", (q) => q.eq("patientId", args.patientId))
@@ -2896,9 +2931,7 @@ export const getAppointmentsForPatient = query({
     // Dedupe in case both queries return the same appointment, then sort by start time (ascending)
     const uniqueAppointments = [
       ...new Map(appointments.map((appt) => [appt._id, appt])).values(),
-    ].filter((appointment) =>
-      accessiblePracticeIds.has(appointment.practiceId),
-    );
+    ].filter((appointment) => appointment.practiceId === args.practiceId);
 
     const scope: AppointmentScope = args.scope ?? "real";
     const scopedAppointments = filterAppointmentsForVisibleScope(
@@ -2945,6 +2978,7 @@ async function deleteAllSimulatedAppointmentsForPractice(
 export const getBlockedSlots = query({
   args: {
     activeRuleSetId: v.optional(v.id("ruleSets")),
+    practiceId: v.id("practices"),
     scope: v.optional(
       v.union(v.literal("real"), v.literal("simulation"), v.literal("all")),
     ),
@@ -2952,18 +2986,16 @@ export const getBlockedSlots = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const accessiblePracticeIds = new Set(
-      await getAccessiblePracticeIdsForQuery(ctx),
-    );
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
     const scope: AppointmentScope = args.scope ?? "real";
 
-    let blockedSlots = await ctx.db
+    const blockedSlots = await ctx.db
       .query("blockedSlots")
-      .order("asc")
+      .withIndex("by_practiceId_start", (q) =>
+        q.eq("practiceId", args.practiceId),
+      )
       .collect();
-    blockedSlots = blockedSlots.filter((blockedSlot) =>
-      accessiblePracticeIds.has(blockedSlot.practiceId),
-    );
 
     let resultSlots: BlockedSlotDoc[];
 
@@ -2990,6 +3022,7 @@ export const getBlockedSlotsInRange = query({
   args: {
     activeRuleSetId: v.optional(v.id("ruleSets")),
     end: v.string(),
+    practiceId: v.id("practices"),
     scope: v.optional(
       v.union(v.literal("real"), v.literal("simulation"), v.literal("all")),
     ),
@@ -2998,22 +3031,20 @@ export const getBlockedSlotsInRange = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const accessiblePracticeIds = new Set(
-      await getAccessiblePracticeIdsForQuery(ctx),
-    );
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
     const rangeOverlapBounds = getRangeOverlapBounds(args);
     const rangeBlockedSlots = await ctx.db
       .query("blockedSlots")
-      .withIndex("by_start", (q) =>
+      .withIndex("by_practiceId_start", (q) =>
         q
+          .eq("practiceId", args.practiceId)
           .gte("start", rangeOverlapBounds.queryStartInclusive)
           .lt("start", rangeOverlapBounds.queryEndExclusive),
       )
       .collect();
-    const blockedSlots = rangeBlockedSlots.filter(
-      (blockedSlot) =>
-        accessiblePracticeIds.has(blockedSlot.practiceId) &&
-        isTimeRangeOverlap(blockedSlot, args),
+    const blockedSlots = rangeBlockedSlots.filter((blockedSlot) =>
+      isTimeRangeOverlap(blockedSlot, args),
     );
 
     const scope: AppointmentScope = args.scope ?? "real";

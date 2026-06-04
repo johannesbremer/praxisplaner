@@ -10,7 +10,7 @@ import { asMfaId, asMfaLineageKey } from "./identity";
 import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
-  ensureRuleSetAccessForQuery,
+  requireRuleSetMember,
 } from "./practiceAccess";
 import { selectDraftRuleSetForEdit } from "./ruleSetLifecycle";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
@@ -72,7 +72,7 @@ export const list = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     return await ctx.db
       .query("mfas")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))

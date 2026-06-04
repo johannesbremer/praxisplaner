@@ -1173,6 +1173,7 @@ describe("vacations", () => {
       api.appointments.getAppointments,
       {
         activeRuleSetId: fixture.ruleSetId,
+        practiceId: fixture.practiceId,
         scope: "simulation",
         selectedRuleSetId: result.ruleSetId,
       },
@@ -1244,6 +1245,7 @@ describe("vacations", () => {
       api.appointments.getAppointments,
       {
         activeRuleSetId: fixture.ruleSetId,
+        practiceId: fixture.practiceId,
         scope: "simulation",
         selectedRuleSetId: result.ruleSetId,
       },
@@ -1352,6 +1354,7 @@ describe("vacations", () => {
       api.appointments.getAppointments,
       {
         activeRuleSetId: fixture.ruleSetId,
+        practiceId: fixture.practiceId,
         scope: "simulation",
         selectedRuleSetId: result.ruleSetId,
       },
@@ -1499,6 +1502,7 @@ describe("vacations", () => {
       api.appointments.getAppointments,
       {
         activeRuleSetId: fixture.ruleSetId,
+        practiceId: fixture.practiceId,
         scope: "simulation",
         selectedRuleSetId: result.ruleSetId,
       },
@@ -2515,6 +2519,7 @@ describe("vacations", () => {
       api.appointments.getAppointments,
       {
         activeRuleSetId: fixture.ruleSetId,
+        practiceId: fixture.practiceId,
         scope: "simulation",
         selectedRuleSetId: draftResult.ruleSetId,
       },
@@ -2647,6 +2652,7 @@ describe("vacations", () => {
       api.appointments.getAppointments,
       {
         activeRuleSetId: fixture.ruleSetId,
+        practiceId: fixture.practiceId,
         scope: "simulation",
         selectedRuleSetId: updatedDraft.ruleSetId,
       },

@@ -86,7 +86,8 @@ import { insertSelfLineageEntity } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
-  ensureRuleSetAccessForQuery,
+  requireAuthenticatedRuleSet,
+  requireRuleSetMember,
 } from "./practiceAccess";
 import { type ConditionTreeNode, validateConditionTree } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
@@ -1028,8 +1029,11 @@ export const getAppointmentTypes = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    if (args.includeDeleted === true) {
+      await requireRuleSetMember(ctx, args.ruleSetId, "admin");
+    } else {
+      await requireAuthenticatedRuleSet(ctx, args.ruleSetId);
+    }
     const appointmentTypes = await ctx.db
       .query("appointmentTypes")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -1795,8 +1799,11 @@ export const getPractitioners = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    if (args.includeDeleted === true) {
+      await requireRuleSetMember(ctx, args.ruleSetId, "admin");
+    } else {
+      await requireAuthenticatedRuleSet(ctx, args.ruleSetId);
+    }
     const practitioners = await ctx.db
       .query("practitioners")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -2069,8 +2076,11 @@ export const getLocations = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    if (args.includeDeleted === true) {
+      await requireRuleSetMember(ctx, args.ruleSetId, "admin");
+    } else {
+      await requireAuthenticatedRuleSet(ctx, args.ruleSetId);
+    }
     const locations = await ctx.db
       .query("locations")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -2921,8 +2931,7 @@ export const getBaseSchedules = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    await requireAuthenticatedRuleSet(ctx, args.ruleSetId);
     const schedules = await ctx.db
       .query("baseSchedules")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -2962,8 +2971,7 @@ export const getBaseSchedulesByPractitioner = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    await requireAuthenticatedRuleSet(ctx, args.ruleSetId);
     const practitioner = await ctx.db.get("practitioners", args.practitionerId);
     if (!practitioner) {
       throw new Error(`Behandler ${args.practitionerId} nicht gefunden.`);
@@ -3444,8 +3452,7 @@ export const getRules = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     // Get all root nodes (rules)
     const roots = await ctx.db
       .query("ruleConditions")

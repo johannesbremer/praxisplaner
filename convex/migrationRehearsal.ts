@@ -16,6 +16,7 @@ import {
   pkvTariffValidator,
 } from "./bookingValidators";
 import { insertSelfLineageEntity } from "./lineage";
+import { requirePracticeManager, requireRuleSetMember } from "./practiceAccess";
 import {
   applyAppointmentHistoryPractitionerAssociation,
   canonicalizeBookingIdentityPractitionerAssociations,
@@ -199,6 +200,7 @@ export const listPatientMappingsByPatientIdRange = query({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requirePracticeManager(ctx, args.practiceId);
 
     const patients = await ctx.db
       .query("patients")
@@ -230,6 +232,7 @@ export const listReferenceTableRows = query({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requireRuleSetMember(ctx, args.ruleSetId, "admin");
 
     const [appointmentTypes, locations, practitioners] = await Promise.all([
       ctx.db

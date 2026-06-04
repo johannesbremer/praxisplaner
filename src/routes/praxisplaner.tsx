@@ -41,6 +41,7 @@ import type {
 import { api } from "../../convex/_generated/api";
 import { parseGdtContent } from "../../convex/gdt/processing";
 import { isValidDate } from "../../convex/gdt/validation";
+import { StaffAuthGate } from "../auth/access-control";
 import { PraxisCalendar } from "../components/praxis-calendar";
 import { VacationScheduler } from "../components/vacation-scheduler";
 import {
@@ -132,9 +133,17 @@ const buildSearchFromState = (
 };
 
 export const Route = createFileRoute("/praxisplaner")({
-  component: PraxisPlanerComponent,
+  component: PraxisPlanerRoute,
   validateSearch: normalizePraxisplanerSearch,
 });
+
+function PraxisPlanerRoute() {
+  return (
+    <StaffAuthGate>
+      <PraxisPlanerComponent />
+    </StaffAuthGate>
+  );
+}
 
 const IDB_GDT_HANDLE_KEY = "gdtDirectoryHandle";
 const IDB_GDT_PERMISSION_KEY = "gdtDirPermission";

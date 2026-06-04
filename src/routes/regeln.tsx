@@ -38,6 +38,7 @@ import type { SchedulingSimulatedContext } from "../types";
 import type { RuleSetReplayTarget } from "../utils/cow-history";
 
 import { createSimulatedContext } from "../../lib/utils";
+import { PraxismanagerAuthGate } from "../auth/access-control";
 import { AppointmentTypesManagement } from "../components/appointment-types-management";
 import BaseScheduleManagement from "../components/base-schedule-management";
 import { LocationsManagement } from "../components/locations-management";
@@ -86,7 +87,7 @@ function isRegelnTab(value: string): value is RegelnTab {
 }
 
 export const Route = createFileRoute("/regeln")({
-  component: LogicView,
+  component: RegelnRoute,
   validateSearch: (search): RegelnSearchParams => {
     const params = search;
 
@@ -1574,5 +1575,13 @@ function LogicView() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function RegelnRoute() {
+  return (
+    <PraxismanagerAuthGate>
+      <LogicView />
+    </PraxismanagerAuthGate>
   );
 }

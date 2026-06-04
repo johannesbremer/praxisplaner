@@ -4,8 +4,8 @@ import { mutation, query } from "./_generated/server";
 import { findUnsavedRuleSet } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
-  ensurePracticeAccessForQuery,
-  ensureRuleSetAccessForQuery,
+  requirePracticeManager,
+  requireRuleSetMember,
 } from "./practiceAccess";
 import { summarizeDraftRuleSetDiff } from "./ruleSetDiff";
 import {
@@ -26,7 +26,7 @@ export const getUnsavedRuleSetDiff = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeManager(ctx, args.practiceId);
     return await summarizeDraftRuleSetDiff(ctx.db, args);
   },
 });
@@ -75,7 +75,7 @@ export const getUnsavedRuleSet = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeManager(ctx, args.practiceId);
     return await findUnsavedRuleSet(ctx.db, args.practiceId);
   },
   returns: v.union(
@@ -103,7 +103,7 @@ export const getSavedRuleSets = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeManager(ctx, args.practiceId);
     return await ctx.db
       .query("ruleSets")
       .withIndex("by_practiceId_saved", (q) =>
@@ -123,7 +123,7 @@ export const getAllRuleSets = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeManager(ctx, args.practiceId);
     return await ctx.db
       .query("ruleSets")
       .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
@@ -139,7 +139,7 @@ export const getRuleSet = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     return await ctx.db.get("ruleSets", args.ruleSetId);
   },
 });
@@ -166,7 +166,7 @@ export const getActiveRuleSet = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeManager(ctx, args.practiceId);
     const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
       return null;
@@ -189,7 +189,7 @@ export const getVersionHistory = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeManager(ctx, args.practiceId);
     const ruleSets = await ctx.db
       .query("ruleSets")
       .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))

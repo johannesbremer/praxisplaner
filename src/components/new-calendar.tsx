@@ -168,7 +168,9 @@ export function NewCalendar({
 
   const selectedUserData = useQuery(
     api.users.getById,
-    selectedPatient?.type === "user" ? { id: selectedPatient.id } : "skip",
+    selectedPatient?.type === "user"
+      ? { id: selectedPatient.id, practiceId: propPracticeId }
+      : "skip",
   );
   const appointmentTypesData = useQuery(
     api.entities.getAppointmentTypes,
@@ -319,10 +321,12 @@ export function NewCalendar({
       ? selectedPatient.type === "patient"
         ? {
             patientId: selectedPatient.id,
+            practiceId: propPracticeId,
             ...patientAppointmentScopeArgs,
           }
         : selectedPatient.type === "user"
           ? {
+              practiceId: propPracticeId,
               userId: selectedPatient.id,
               ...patientAppointmentScopeArgs,
             }
@@ -330,10 +334,12 @@ export function NewCalendar({
       : activePatient?.convexPatientId
         ? {
             patientId: activePatient.convexPatientId,
+            practiceId: propPracticeId,
             ...patientAppointmentScopeArgs,
           }
         : activePatient?.userId
           ? {
+              practiceId: propPracticeId,
               userId: activePatient.userId,
               ...patientAppointmentScopeArgs,
             }

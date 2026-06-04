@@ -72,7 +72,7 @@ WORKOS_ID="${WORKOS_ID:-client_local_preview_placeholder}"
 POSTHOG_HOST="${VITE_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}"
 
 if [ -f .env.local ]; then
-  sed -E '/^(WORKOS_CLIENT_ID|VITE_WORKOS_CLIENT_ID|VITE_PUBLIC_POSTHOG_HOST)=/d' .env.local > "$ENV_NEXT"
+  sed -E '/^(AUTH_BYPASS_ENABLED|VITE_AUTH_BYPASS_ENABLED|VITE_VERCEL_ENV|WORKOS_CLIENT_ID|VITE_WORKOS_CLIENT_ID|VITE_PUBLIC_POSTHOG_HOST)=/d' .env.local > "$ENV_NEXT"
 else
   : > "$ENV_NEXT"
 fi
@@ -83,6 +83,9 @@ if [ -n "${VITE_PUBLIC_POSTHOG_KEY:-}" ]; then
 fi
 
 {
+  printf 'AUTH_BYPASS_ENABLED=true\n'
+  printf 'VITE_AUTH_BYPASS_ENABLED=true\n'
+  printf 'VITE_VERCEL_ENV=preview\n'
   printf 'WORKOS_CLIENT_ID=%s\n' "$WORKOS_ID"
   printf 'VITE_WORKOS_CLIENT_ID=%s\n' "$WORKOS_ID"
   printf 'VITE_PUBLIC_POSTHOG_HOST=%s\n' "$POSTHOG_HOST"

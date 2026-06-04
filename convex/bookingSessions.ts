@@ -385,6 +385,7 @@ async function getFlowKeyForMutation(
   ctx: MutationCtx,
   args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
 ): Promise<BookingFlowKey> {
+  await requireBookingRuleSetBelongsToPractice(ctx, args);
   return {
     ...args,
     userId: await ensureAuthenticatedUserId(ctx),
@@ -398,12 +399,14 @@ async function getFlowKeyForQuery(
   if (!userId) {
     return null;
   }
+  await requireBookingRuleSetBelongsToPractice(ctx, args);
 
   return {
     ...args,
     userId,
   };
 }
+
 function getFlowRow(
   ctx: MutationCtx | QueryCtx,
   tableName: "bookingCalendarReachedSteps",
@@ -621,7 +624,6 @@ async function getFlowRow(
     }
   }
 }
-
 function hasFlowStepRows(rows: BookingFlowRows): boolean {
   return (
     rows.privacy !== null ||
@@ -1324,6 +1326,19 @@ async function requireActiveFlowAtStep(
     throw new Error(errorMessage);
   }
   return activeFlow;
+}
+
+async function requireBookingRuleSetBelongsToPractice(
+  ctx: MutationCtx | QueryCtx,
+  args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
+): Promise<void> {
+  const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
+  if (!ruleSet) {
+    throw new Error("Rule set not found.");
+  }
+  if (ruleSet.practiceId !== args.practiceId) {
+    throw new Error("Rule set does not belong to this practice.");
+  }
 }
 
 async function requireCurrentUserCanStartBooking(

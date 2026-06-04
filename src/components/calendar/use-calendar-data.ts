@@ -219,6 +219,7 @@ export function useCalendarData(args: {
       convex.query(api.appointments.getAppointmentsInRange, {
         ...(activeRuleSetId === undefined ? {} : { activeRuleSetId }),
         end: dayRange.dayEnd,
+        practiceId: args.practiceId,
         scope: "all",
         ...(args.ruleSetId === undefined
           ? {}
@@ -228,6 +229,7 @@ export function useCalendarData(args: {
       convex.query(api.appointments.getBlockedSlotsInRange, {
         ...(activeRuleSetId === undefined ? {} : { activeRuleSetId }),
         end: dayRange.dayEnd,
+        practiceId: args.practiceId,
         scope: "all",
         ...(args.ruleSetId === undefined
           ? {}
@@ -572,12 +574,14 @@ export function useCalendarData(args: {
   const patientData = useQuery(
     api.patients.getPatientsByIds,
     appointmentPatientIds.length > 0
-      ? { patientIds: appointmentPatientIds }
+      ? { patientIds: appointmentPatientIds, practiceId: args.practiceId }
       : "skip",
   );
   const userData = useQuery(
     api.users.getUsersByIds,
-    appointmentUserIds.length > 0 ? { userIds: appointmentUserIds } : "skip",
+    appointmentUserIds.length > 0
+      ? { practiceId: args.practiceId, userIds: appointmentUserIds }
+      : "skip",
   );
 
   return {
