@@ -71,8 +71,11 @@ describe("ruleEngine preloaded day data", () => {
         isSimulation: false,
         lastModified: now,
         locationLineageKey: locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: practitionerId,
+        },
         practiceId,
-        practitionerLineageKey: practitionerId,
         start: start.toString(),
         title: "Active appointment",
       });
@@ -86,8 +89,11 @@ describe("ruleEngine preloaded day data", () => {
         isSimulation: false,
         lastModified: now,
         locationLineageKey: locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: practitionerId,
+        },
         practiceId,
-        practitionerLineageKey: practitionerId,
         start: start.add({ minutes: 30 }).toString(),
         title: "Cancelled appointment",
       });
@@ -237,8 +243,11 @@ describe("ruleEngine preloaded day data", () => {
         isSimulation: false,
         lastModified: now,
         locationLineageKey: baseLocationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: basePractitionerId,
+        },
         practiceId,
-        practitionerLineageKey: basePractitionerId,
         start: start.toString(),
         title: "Mapped appointment",
       });

@@ -133,13 +133,16 @@ async function insertAppointment(
         lineageKey: location.lineageKey,
         ruleSetId: location.ruleSetId,
       }),
+      occupancyScope: {
+        kind: "practitioner",
+        practitionerLineageKey: requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      },
       practiceId: args.practiceId,
-      practitionerLineageKey: requireLineageKey({
-        entityId: practitioner._id,
-        entityType: "practitioner",
-        lineageKey: practitioner.lineageKey,
-        ruleSetId: practitioner.ruleSetId,
-      }),
       start: args.window.start,
       title: "Online-Termin: Checkup",
       userId: args.userId,
@@ -151,9 +154,12 @@ async function insertAppointmentRecord(
   t: TestContext,
   args: {
     appointmentTypeId: Id<"appointmentTypes">;
+    bookingIdentityId?: Id<"bookingIdentities">;
     cancelledAt?: bigint;
+    cancelledByPhoneBookingIdentityId?: Id<"phoneBookingIdentities">;
     isSimulation?: boolean;
     locationId: Id<"locations">;
+    phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
     practiceId: Id<"practices">;
     practitionerId: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
@@ -190,6 +196,15 @@ async function insertAppointmentRecord(
         : {
             cancelledAt: args.cancelledAt,
           }),
+      ...(args.bookingIdentityId === undefined
+        ? {}
+        : { bookingIdentityId: args.bookingIdentityId }),
+      ...(args.cancelledByPhoneBookingIdentityId === undefined
+        ? {}
+        : {
+            cancelledByPhoneBookingIdentityId:
+              args.cancelledByPhoneBookingIdentityId,
+          }),
       createdAt: now,
       end: args.window.end,
       ...(args.isSimulation === true ? { isSimulation: true } : {}),
@@ -200,13 +215,19 @@ async function insertAppointmentRecord(
         lineageKey: location.lineageKey,
         ruleSetId: location.ruleSetId,
       }),
+      occupancyScope: {
+        kind: "practitioner",
+        practitionerLineageKey: requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      },
       practiceId: args.practiceId,
-      practitionerLineageKey: requireLineageKey({
-        entityId: practitioner._id,
-        entityType: "practitioner",
-        lineageKey: practitioner.lineageKey,
-        ruleSetId: practitioner.ruleSetId,
-      }),
+      ...(args.phoneBookingIdentityId === undefined
+        ? {}
+        : { phoneBookingIdentityId: args.phoneBookingIdentityId }),
       ...(args.replacesAppointmentId === undefined
         ? {}
         : { replacesAppointmentId: args.replacesAppointmentId }),
@@ -256,17 +277,19 @@ async function insertBlockedSlotRecord(
         lineageKey: location.lineageKey,
         ruleSetId: location.ruleSetId,
       }),
+      occupancyScope:
+        practitioner === null
+          ? { kind: "location-wide" }
+          : {
+              kind: "practitioner",
+              practitionerLineageKey: requireLineageKey({
+                entityId: practitioner._id,
+                entityType: "practitioner",
+                lineageKey: practitioner.lineageKey,
+                ruleSetId: practitioner.ruleSetId,
+              }),
+            },
       practiceId: args.practiceId,
-      ...(practitioner
-        ? {
-            practitionerLineageKey: requireLineageKey({
-              entityId: practitioner._id,
-              entityType: "practitioner",
-              lineageKey: practitioner.lineageKey,
-              ruleSetId: practitioner.ruleSetId,
-            }),
-          }
-        : {}),
       ...(args.replacesBlockedSlotId === undefined
         ? {}
         : { replacesBlockedSlotId: args.replacesBlockedSlotId }),
@@ -390,7 +413,7 @@ describe("appointments self-service cancellation", () => {
 
     const upcomingAppointments = await authed.query(
       api.appointments.getBookedAppointmentsForCurrentUser,
-      {},
+      { activeRuleSetId: baseData.ruleSetId },
     );
     expect(upcomingAppointments.map((appointment) => appointment._id)).toEqual([
       firstFutureAppointmentId,
@@ -403,11 +426,156 @@ describe("appointments self-service cancellation", () => {
 
     const afterCancellation = await authed.query(
       api.appointments.getBookedAppointmentsForCurrentUser,
-      {},
+      { activeRuleSetId: baseData.ruleSetId },
     );
     expect(afterCancellation.map((appointment) => appointment._id)).toEqual([
       secondFutureAppointmentId,
     ]);
+  });
+
+  test('getAppointmentsForPatient with scope "simulation" overlays simulation replacements', async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_patient_simulation_scope";
+    const userId = await createUser(
+      t,
+      authId,
+      "patient-simulation-scope@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "patient-simulation-scope@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const realWindow = makeSlotWindow(7);
+    const realAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: realWindow,
+    });
+    const replacementStart = Temporal.ZonedDateTime.from(realWindow.start).add({
+      hours: 1,
+    });
+    const replacementAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      isSimulation: true,
+      replacesAppointmentId: realAppointmentId,
+      simulationRuleSetId: baseData.ruleSetId,
+      userId,
+      window: {
+        end: replacementStart.add({ minutes: 30 }).toString(),
+        start: replacementStart.toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getAppointmentsForPatient, {
+        scope: "simulation",
+        selectedRuleSetId: baseData.ruleSetId,
+        userId,
+      }),
+    ).resolves.toMatchObject([{ _id: replacementAppointmentId }]);
+  });
+
+  test("getBookedAppointmentsForCurrentUser includes unresolved imported future booking holds", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_booked_user_with_legacy_hold";
+    const userId = await createUser(t, authId, "booked-hold@example.com");
+
+    const holdWindow = makeSlotWindow(3);
+    const futureAppointmentId = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(5),
+    });
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("legacyUnmatchedFutureBookingHolds", {
+        createdAt: now,
+        end: holdWindow.end,
+        lastModified: now,
+        legacyAppointmentId: "legacy-unmatched-hold-1",
+        legacyType: "Akuttermin",
+        locationName: "Dissen a.T.W.",
+        practiceId: baseData.practiceId,
+        practitionerName: "Dr. Legacy",
+        start: holdWindow.start,
+        userId,
+      });
+    });
+
+    const authed = t.withIdentity({
+      email: "booked-hold@example.com",
+      subject: authId,
+    });
+
+    const upcomingAppointments = await authed.query(
+      api.appointments.getBookedAppointmentsForCurrentUser,
+      { activeRuleSetId: baseData.ruleSetId },
+    );
+
+    expect(upcomingAppointments).toHaveLength(2);
+    expect(upcomingAppointments[0]?.kind).toBe("legacy-unmatched-future-hold");
+    expect(upcomingAppointments[1]?.kind).toBe("appointment");
+    expect(upcomingAppointments[1]?._id).toBe(futureAppointmentId);
+  });
+
+  test("getBookedAppointmentsForCurrentUser scopes imported holds to the display rule set practice", async () => {
+    const t = createTestContext();
+    const displayPracticeData = await createAppointmentBaseData(t);
+    const otherPracticeData = await createAppointmentBaseData(t);
+    const authId = "workos_booked_user_cross_practice_legacy_hold";
+    const userId = await createUser(t, authId, "cross-hold@example.com");
+    const holdWindow = makeSlotWindow(3);
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("legacyUnmatchedFutureBookingHolds", {
+        createdAt: now,
+        end: holdWindow.end,
+        lastModified: now,
+        legacyAppointmentId: "legacy-unmatched-hold-other-practice",
+        legacyType: "Akuttermin",
+        locationName: "Other Practice",
+        practiceId: otherPracticeData.practiceId,
+        practitionerName: "Dr. Other",
+        start: holdWindow.start,
+        userId,
+      });
+    });
+
+    const authed = t.withIdentity({
+      email: "cross-hold@example.com",
+      subject: authId,
+    });
+
+    const displayPracticeAppointments = await authed.query(
+      api.appointments.getBookedAppointmentsForCurrentUser,
+      { activeRuleSetId: displayPracticeData.ruleSetId },
+    );
+
+    expect(displayPracticeAppointments).toHaveLength(0);
+
+    const otherPracticeAppointments = await authed.query(
+      api.appointments.getBookedAppointmentsForCurrentUser,
+      { activeRuleSetId: otherPracticeData.ruleSetId },
+    );
+
+    expect(otherPracticeAppointments).toHaveLength(1);
+    expect(otherPracticeAppointments[0]?.kind).toBe(
+      "legacy-unmatched-future-hold",
+    );
   });
 
   test("getBookedAppointmentsForCurrentUser remaps appointment type titles for the active display rule set", async () => {
@@ -481,11 +649,15 @@ describe("appointments self-service cancellation", () => {
     );
 
     expect(upcomingAppointments).toHaveLength(1);
+    expect(upcomingAppointments[0]?.kind).toBe("appointment");
     expect(upcomingAppointments[0]?._id).toBe(appointmentId);
-    expect(upcomingAppointments[0]?.appointmentTypeId).not.toBe(
+    if (upcomingAppointments[0]?.kind !== "appointment") {
+      throw new Error("Expected a real appointment summary item.");
+    }
+    expect(upcomingAppointments[0].appointmentTypeId).not.toBe(
       baseData.appointmentTypeId,
     );
-    expect(upcomingAppointments[0]?.appointmentTypeTitle).toBe(
+    expect(upcomingAppointments[0].appointmentTypeTitle).toBe(
       "Display Checkup",
     );
   });
@@ -507,8 +679,11 @@ describe("appointments self-service cancellation", () => {
         isSimulation: true,
         lastModified: now,
         locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: baseData.practitionerId,
         start: simulationWindow.start,
         title: "Simulation-Termin",
         userId,
@@ -526,8 +701,11 @@ describe("appointments self-service cancellation", () => {
         isSimulation: false,
         lastModified: now,
         locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: baseData.practitionerId,
         start: realWindow.start,
         title: "Online-Termin: Checkup",
         userId,
@@ -541,8 +719,9 @@ describe("appointments self-service cancellation", () => {
 
     const upcomingAppointment = await authed.query(
       api.appointments.getBookedAppointmentForCurrentUser,
-      {},
+      { activeRuleSetId: baseData.ruleSetId },
     );
+    expect(upcomingAppointment?.kind).toBe("appointment");
     expect(upcomingAppointment?._id).toBe(realAppointmentId);
   });
 
@@ -637,6 +816,63 @@ describe("appointments self-service cancellation", () => {
     expect(patient?.recordType).toBe("temporary");
     expect(patient?.firstName).toBeUndefined();
     expect(patient?.lastName).toBeUndefined();
+  });
+
+  test("createAppointment preserves explicit end for simulated replacement", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_simulated_replacement_duration";
+    const userId = await createUser(t, authId, "replacement@example.com");
+    const authed = t.withIdentity({
+      email: "replacement@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const originalAppointmentId = await insertAppointment(t, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      userId,
+      window: makeSlotWindow(10),
+    });
+    const start = makeSlotWindow(20).start;
+    const end = Temporal.ZonedDateTime.from(start)
+      .add({ minutes: 45 })
+      .toString();
+
+    const replacementId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        end,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        replacesAppointmentId: originalAppointmentId,
+        start,
+        title: "Simulierter Ersatztermin",
+        userId,
+      },
+    );
+
+    const replacement = await t.run(async (ctx) =>
+      ctx.db.get("appointments", replacementId),
+    );
+
+    expect(replacement?.end).toBe(end);
+    expect(replacement?.replacesAppointmentId).toBe(originalAppointmentId);
+    expect(replacement?.isSimulation).toBe(true);
   });
 
   test("cancelOwnAppointment cancels the whole future chain from a non-root step", async () => {
@@ -974,8 +1210,11 @@ describe("appointments self-service cancellation", () => {
         end: rootWindow.end,
         lastModified: now,
         locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: baseData.practitionerId,
         seriesId,
         seriesStepIndex: 0n,
         start: rootWindow.start,
@@ -990,8 +1229,11 @@ describe("appointments self-service cancellation", () => {
         end: followUpEnd,
         lastModified: now,
         locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: baseData.practitionerId,
         seriesId,
         seriesStepIndex: 1n,
         start: followUpStart,
@@ -1013,7 +1255,7 @@ describe("appointments self-service cancellation", () => {
 
     const remainingAppointments = await authed.query(
       api.appointments.getBookedAppointmentsForCurrentUser,
-      {},
+      { activeRuleSetId: baseData.ruleSetId },
     );
     expect(remainingAppointments).toHaveLength(0);
   });
@@ -1080,6 +1322,133 @@ describe("appointments update safety", () => {
         practitionerId: otherPractitionerId,
       }),
     ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+  });
+
+  test("updateAppointment preserves resource scope when resizing resource appointments", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_resource_resize";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-resource-resize@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-resource-resize@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const window = makeSlotWindow(4);
+    const resourceAppointmentId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const appointmentType = await ctx.db.get(
+        "appointmentTypes",
+        baseData.appointmentTypeId,
+      );
+      const location = await ctx.db.get("locations", baseData.locationId);
+
+      if (!appointmentType || !location) {
+        throw new Error(
+          "Resource appointment test fixture is missing referenced entities",
+        );
+      }
+
+      return await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: requireLineageKey({
+          entityId: appointmentType._id,
+          entityType: "appointment type",
+          lineageKey: appointmentType.lineageKey,
+          ruleSetId: appointmentType.ruleSetId,
+        }),
+        appointmentTypeTitle: "Labor",
+        createdAt: now,
+        end: window.end,
+        lastModified: now,
+        locationLineageKey: requireLineageKey({
+          entityId: location._id,
+          entityType: "location",
+          lineageKey: location.lineageKey,
+          ruleSetId: location.ruleSetId,
+        }),
+        occupancyScope: { calendarResourceColumn: "labor", kind: "resource" },
+        practiceId: baseData.practiceId,
+        start: window.start,
+        title: "Labor booking",
+        userId,
+      });
+    });
+    await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window,
+    });
+
+    const resizedEnd = Temporal.ZonedDateTime.from(window.start)
+      .add({ minutes: 20 })
+      .toString();
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        end: resizedEnd,
+        id: resourceAppointmentId,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  test("updateAppointment moves practitioner appointments into resource columns", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_practitioner_to_resource";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-practitioner-to-resource@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-practitioner-to-resource@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const window = makeSlotWindow(4);
+    const appointmentId = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        calendarResourceColumn: "ekg",
+        id: appointmentId,
+      }),
+    ).resolves.toBeNull();
+
+    const updatedAppointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", appointmentId);
+    });
+
+    expect(updatedAppointment?.occupancyScope).toEqual({
+      calendarResourceColumn: "ekg",
+      kind: "resource",
+    });
   });
 
   test("createAppointment rejects creating an appointment on an occupied blocked slot", async () => {
@@ -1318,7 +1687,10 @@ describe("appointments update safety", () => {
       expect(updated?.start).toBe(movedWindow.start);
       expect(updated?.end).toBe(movedWindow.end);
       expect(updated?.locationLineageKey).toBe(baseData.locationId);
-      expect(updated?.practitionerLineageKey).toBe(baseData.practitionerId);
+      expect(updated?.occupancyScope).toEqual({
+        kind: "practitioner",
+        practitionerLineageKey: baseData.practitionerId,
+      });
     });
   });
 
@@ -1670,8 +2042,11 @@ describe("appointments update safety", () => {
         isSimulation: true,
         lastModified: BigInt(Date.now()),
         locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: baseData.practitionerId,
         reassignmentSourceVacationLineageKey: vacationId,
         replacesAppointmentId: realAppointmentId,
         simulationKind: "activation-reassignment",
@@ -1911,6 +2286,94 @@ describe("appointments update safety", () => {
     expect(displayedAppointment?.practitionerId).toBe(baseData.practitionerId);
   });
 
+  test("getAppointments preserves booking identity owner refs", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_identity_refs",
+      "identity-refs@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "identity-refs@example.com",
+      subject: "workos_identity_refs",
+    });
+
+    const identityRefs = await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const now = BigInt(Date.now());
+      const bookingIdentityId = await ctx.db.insert("bookingIdentities", {
+        createdAt: now,
+        kind: "online",
+        lastModified: now,
+        practiceId: baseData.practiceId,
+        sourceIdentityId: "legacy-online-identity",
+        sourceSystem: "legacy-online",
+      });
+      const phoneBookingIdentityId = await ctx.db.insert(
+        "phoneBookingIdentities",
+        {
+          callId: "telefonki-owner-call",
+          createdAt: now,
+          lastModified: now,
+          practiceId: baseData.practiceId,
+          ruleSetId: baseData.ruleSetId,
+        },
+      );
+      const cancelledByPhoneBookingIdentityId = await ctx.db.insert(
+        "phoneBookingIdentities",
+        {
+          callId: "telefonki-canceller-call",
+          createdAt: now,
+          lastModified: now,
+          practiceId: baseData.practiceId,
+          ruleSetId: baseData.ruleSetId,
+        },
+      );
+
+      return {
+        bookingIdentityId,
+        cancelledByPhoneBookingIdentityId,
+        phoneBookingIdentityId,
+      };
+    });
+
+    const appointmentId = await insertAppointmentRecord(t, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      bookingIdentityId: identityRefs.bookingIdentityId,
+      cancelledByPhoneBookingIdentityId:
+        identityRefs.cancelledByPhoneBookingIdentityId,
+      locationId: baseData.locationId,
+      phoneBookingIdentityId: identityRefs.phoneBookingIdentityId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      userId,
+      window: makeSlotWindow(4),
+    });
+
+    const appointments = await authed.query(api.appointments.getAppointments, {
+      activeRuleSetId: baseData.ruleSetId,
+      selectedRuleSetId: baseData.ruleSetId,
+    });
+
+    const appointment = appointments.find(
+      (candidate) => candidate._id === appointmentId,
+    );
+    expect(appointment?.bookingIdentityId).toBe(identityRefs.bookingIdentityId);
+    expect(appointment?.phoneBookingIdentityId).toBe(
+      identityRefs.phoneBookingIdentityId,
+    );
+    expect(appointment?.cancelledByPhoneBookingIdentityId).toBe(
+      identityRefs.cancelledByPhoneBookingIdentityId,
+    );
+  });
+
   test("getAppointments ignores unrelated draft simulations before remapping the displayed rule set", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
@@ -1987,8 +2450,11 @@ describe("appointments update safety", () => {
         isSimulation: true,
         lastModified: now,
         locationLineageKey: foreignLocationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: foreignPractitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: foreignPractitionerId,
         simulationKind: "draft",
         simulationRuleSetId: foreignRuleSetId,
         simulationValidatedAt: now,
@@ -2396,8 +2862,11 @@ describe("appointments update safety", () => {
         end: realWindow.end,
         lastModified: now,
         locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: baseData.practitionerId,
         start: realWindow.start,
         title: "Real blocked slot",
       });
@@ -2407,8 +2876,11 @@ describe("appointments update safety", () => {
         isSimulation: true,
         lastModified: now,
         locationLineageKey: foreignLocationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: foreignPractitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: foreignPractitionerId,
         start: simulationWindow.start,
         title: "Foreign simulation blocked slot",
       });
@@ -3622,8 +4094,11 @@ describe("calendar day appointment queries", () => {
           .toString(),
         lastModified: now,
         locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: baseData.practitionerId,
         start: targetRange.date
           .toZonedDateTime({
             plainTime: { hour: 10, minute: 0 },
@@ -3642,8 +4117,11 @@ describe("calendar day appointment queries", () => {
           .toString(),
         lastModified: now,
         locationLineageKey: otherLocationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
         practiceId: baseData.practiceId,
-        practitionerLineageKey: baseData.practitionerId,
         start: targetRange.date
           .toZonedDateTime({
             plainTime: { hour: 12, minute: 0 },

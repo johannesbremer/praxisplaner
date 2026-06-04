@@ -4,10 +4,21 @@ import type {
   LocationLineageKey,
   PractitionerLineageKey,
 } from "../../../convex/identity";
+import type { CalendarResourceColumn } from "../../../lib/calendar-occupancy";
 import type {
+  CalendarAppointmentPlacement,
   CalendarBlockedSlotEditorRecord,
+  CalendarBlockedSlotPlacement,
   CalendarBlockedSlotRecord,
 } from "./types";
+
+export type AppointmentDisplayOccupancyScope =
+  | { calendarResourceColumn: CalendarResourceColumn; kind: "resource" }
+  | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
+
+export type BlockedSlotDisplayOccupancyScope =
+  | { kind: "location-wide" }
+  | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
 
 export interface CalendarReferenceMaps {
   appointmentTypeIdByLineageKey: ReadonlyMap<
@@ -33,36 +44,34 @@ export interface CalendarReferenceMaps {
 export function resolveAppointmentDisplayRefs(
   args: {
     appointmentTypeLineageKey: AppointmentTypeLineageKey;
-    locationLineageKey: LocationLineageKey;
-    practitionerLineageKey?: PractitionerLineageKey;
+    placement: CalendarAppointmentPlacement;
   },
   maps: CalendarReferenceMaps,
 ): null | {
   appointmentTypeId: Id<"appointmentTypes">;
   locationId: Id<"locations">;
+  occupancyScope: AppointmentDisplayOccupancyScope;
   practitionerId?: Id<"practitioners">;
 } {
   const appointmentTypeId = maps.appointmentTypeIdByLineageKey.get(
     args.appointmentTypeLineageKey,
   );
-  const locationId = maps.locationIdByLineageKey.get(args.locationLineageKey);
-  const practitionerId =
-    args.practitionerLineageKey === undefined
-      ? undefined
-      : maps.practitionerIdByLineageKey.get(args.practitionerLineageKey);
+  const placementRefs = resolveAppointmentPlacementDisplayRefs(
+    args.placement,
+    maps,
+  );
 
-  if (
-    appointmentTypeId === undefined ||
-    locationId === undefined ||
-    (args.practitionerLineageKey !== undefined && practitionerId === undefined)
-  ) {
+  if (appointmentTypeId === undefined || placementRefs === null) {
     return null;
   }
 
   return {
     appointmentTypeId,
-    locationId,
-    ...(practitionerId === undefined ? {} : { practitionerId }),
+    locationId: placementRefs.locationId,
+    occupancyScope: placementRefs.occupancyScope,
+    ...(placementRefs.occupancyScope.kind === "practitioner"
+      ? { practitionerId: placementRefs.occupancyScope.practitionerId }
+      : {}),
   };
 }
 
@@ -70,93 +79,207 @@ export function resolveAppointmentLineageRefs(
   args: {
     appointmentTypeId: Id<"appointmentTypes">;
     locationId: Id<"locations">;
-    practitionerId?: Id<"practitioners">;
+    occupancyScope: AppointmentDisplayOccupancyScope;
   },
   maps: CalendarReferenceMaps,
 ): null | {
   appointmentTypeLineageKey: AppointmentTypeLineageKey;
-  locationLineageKey: LocationLineageKey;
-  practitionerLineageKey?: PractitionerLineageKey;
+  placement: CalendarAppointmentPlacement;
 } {
   const appointmentTypeLineageKey = maps.appointmentTypeLineageKeyById.get(
     args.appointmentTypeId,
   );
-  const locationLineageKey = maps.locationLineageKeyById.get(args.locationId);
-  const practitionerLineageKey =
-    args.practitionerId === undefined
-      ? undefined
-      : maps.practitionerLineageKeyById.get(args.practitionerId);
+  const placement = resolveAppointmentPlacementLineageRefs(
+    {
+      locationId: args.locationId,
+      occupancyScope: args.occupancyScope,
+    },
+    maps,
+  );
 
-  if (
-    appointmentTypeLineageKey === undefined ||
-    locationLineageKey === undefined ||
-    (args.practitionerId !== undefined && practitionerLineageKey === undefined)
-  ) {
+  if (appointmentTypeLineageKey === undefined || placement === null) {
     return null;
   }
 
   return {
     appointmentTypeLineageKey,
-    locationLineageKey,
-    ...(practitionerLineageKey === undefined ? {} : { practitionerLineageKey }),
+    placement,
   };
 }
 
-export function resolveBlockedSlotDisplayRefs(
-  args: {
-    locationLineageKey: LocationLineageKey;
-    practitionerLineageKey?: PractitionerLineageKey;
-  },
+export function resolveAppointmentPlacementDisplayRefs(
+  placement: CalendarAppointmentPlacement,
   maps: CalendarReferenceMaps,
 ): null | {
   locationId: Id<"locations">;
-  practitionerId?: Id<"practitioners">;
+  occupancyScope: AppointmentDisplayOccupancyScope;
 } {
-  const locationId = maps.locationIdByLineageKey.get(args.locationLineageKey);
-  const practitionerId =
-    args.practitionerLineageKey === undefined
-      ? undefined
-      : maps.practitionerIdByLineageKey.get(args.practitionerLineageKey);
+  const locationId = maps.locationIdByLineageKey.get(
+    placement.locationLineageKey,
+  );
+  if (locationId === undefined) {
+    return null;
+  }
 
-  if (
-    locationId === undefined ||
-    (args.practitionerLineageKey !== undefined && practitionerId === undefined)
-  ) {
+  if (placement.occupancyScope.kind === "resource") {
+    return {
+      locationId,
+      occupancyScope: placement.occupancyScope,
+    };
+  }
+
+  const practitionerId = resolvePractitionerId(
+    placement.occupancyScope.practitionerLineageKey,
+    maps,
+  );
+  if (practitionerId === undefined) {
     return null;
   }
 
   return {
     locationId,
-    ...(practitionerId === undefined ? {} : { practitionerId }),
+    occupancyScope: { kind: "practitioner", practitionerId },
+  };
+}
+
+export function resolveAppointmentPlacementLineageRefs(
+  args: {
+    locationId: Id<"locations">;
+    occupancyScope: AppointmentDisplayOccupancyScope;
+  },
+  maps: CalendarReferenceMaps,
+): CalendarAppointmentPlacement | null {
+  const locationLineageKey = maps.locationLineageKeyById.get(args.locationId);
+  if (locationLineageKey === undefined) {
+    return null;
+  }
+
+  if (args.occupancyScope.kind === "resource") {
+    return {
+      locationLineageKey,
+      occupancyScope: args.occupancyScope,
+    };
+  }
+
+  const practitionerLineageKey = resolvePractitionerLineageKey(
+    args.occupancyScope.practitionerId,
+    maps,
+  );
+  if (practitionerLineageKey === undefined) {
+    return null;
+  }
+
+  return {
+    locationLineageKey,
+    occupancyScope: {
+      kind: "practitioner",
+      practitionerLineageKey,
+    },
+  };
+}
+
+export function resolveBlockedSlotDisplayRefs(
+  placement: CalendarBlockedSlotPlacement,
+  maps: CalendarReferenceMaps,
+): null | {
+  locationId: Id<"locations">;
+  practitionerId?: Id<"practitioners">;
+} {
+  const displayRefs = resolveBlockedSlotPlacementDisplayRefs(placement, maps);
+  if (!displayRefs) {
+    return null;
+  }
+
+  return {
+    locationId: displayRefs.locationId,
+    ...(displayRefs.occupancyScope.kind === "practitioner"
+      ? { practitionerId: displayRefs.occupancyScope.practitionerId }
+      : {}),
   };
 }
 
 export function resolveBlockedSlotLineageRefs(
   args: {
     locationId: Id<"locations">;
-    practitionerId?: Id<"practitioners">;
+    occupancyScope: BlockedSlotDisplayOccupancyScope;
   },
   maps: CalendarReferenceMaps,
-): null | {
-  locationLineageKey: LocationLineageKey;
-  practitionerLineageKey?: PractitionerLineageKey;
-} {
-  const locationLineageKey = maps.locationLineageKeyById.get(args.locationId);
-  const practitionerLineageKey =
-    args.practitionerId === undefined
-      ? undefined
-      : maps.practitionerLineageKeyById.get(args.practitionerId);
+): CalendarBlockedSlotPlacement | null {
+  const placement = resolveBlockedSlotPlacementLineageRefs(
+    {
+      locationId: args.locationId,
+      occupancyScope: args.occupancyScope,
+    },
+    maps,
+  );
+  return placement;
+}
 
-  if (
-    locationLineageKey === undefined ||
-    (args.practitionerId !== undefined && practitionerLineageKey === undefined)
-  ) {
+export function resolveBlockedSlotPlacementDisplayRefs(
+  placement: CalendarBlockedSlotPlacement,
+  maps: CalendarReferenceMaps,
+): null | {
+  locationId: Id<"locations">;
+  occupancyScope: BlockedSlotDisplayOccupancyScope;
+} {
+  const locationId = maps.locationIdByLineageKey.get(
+    placement.locationLineageKey,
+  );
+  if (locationId === undefined) {
+    return null;
+  }
+
+  const practitionerLineageKey =
+    placement.occupancyScope.kind === "practitioner"
+      ? placement.occupancyScope.practitionerLineageKey
+      : undefined;
+  const practitionerId = resolvePractitionerId(practitionerLineageKey, maps);
+  if (practitionerLineageKey !== undefined && practitionerId === undefined) {
+    return null;
+  }
+
+  return {
+    locationId,
+    occupancyScope:
+      practitionerId === undefined
+        ? { kind: "location-wide" }
+        : { kind: "practitioner", practitionerId },
+  };
+}
+
+export function resolveBlockedSlotPlacementLineageRefs(
+  args: {
+    locationId: Id<"locations">;
+    occupancyScope: BlockedSlotDisplayOccupancyScope;
+  },
+  maps: CalendarReferenceMaps,
+): CalendarBlockedSlotPlacement | null {
+  const locationLineageKey = maps.locationLineageKeyById.get(args.locationId);
+  if (locationLineageKey === undefined) {
+    return null;
+  }
+
+  if (args.occupancyScope.kind === "location-wide") {
+    return {
+      locationLineageKey,
+      occupancyScope: { kind: "location-wide" },
+    };
+  }
+
+  const practitionerLineageKey = resolvePractitionerLineageKey(
+    args.occupancyScope.practitionerId,
+    maps,
+  );
+  if (practitionerLineageKey === undefined) {
     return null;
   }
 
   return {
     locationLineageKey,
-    ...(practitionerLineageKey === undefined ? {} : { practitionerLineageKey }),
+    occupancyScope: {
+      kind: "practitioner",
+      practitionerLineageKey,
+    },
   };
 }
 
@@ -164,13 +287,8 @@ export function toBlockedSlotEditorRecord(
   blockedSlot: CalendarBlockedSlotRecord,
   maps: CalendarReferenceMaps,
 ): CalendarBlockedSlotEditorRecord | null {
-  const displayRefs = resolveBlockedSlotDisplayRefs(
-    {
-      locationLineageKey: blockedSlot.locationLineageKey,
-      ...(blockedSlot.practitionerLineageKey === undefined
-        ? {}
-        : { practitionerLineageKey: blockedSlot.practitionerLineageKey }),
-    },
+  const displayRefs = resolveBlockedSlotPlacementDisplayRefs(
+    blockedSlot.placement,
     maps,
   );
   if (!displayRefs) {
@@ -181,10 +299,28 @@ export function toBlockedSlotEditorRecord(
     end: blockedSlot.end,
     locationId: displayRefs.locationId,
     practiceId: blockedSlot.practiceId,
-    ...(displayRefs.practitionerId === undefined
-      ? {}
-      : { practitionerId: displayRefs.practitionerId }),
+    ...(displayRefs.occupancyScope.kind === "practitioner"
+      ? { practitionerId: displayRefs.occupancyScope.practitionerId }
+      : {}),
     start: blockedSlot.start,
     title: blockedSlot.title,
   };
+}
+
+function resolvePractitionerId(
+  practitionerLineageKey: PractitionerLineageKey | undefined,
+  maps: CalendarReferenceMaps,
+): Id<"practitioners"> | undefined {
+  return practitionerLineageKey === undefined
+    ? undefined
+    : maps.practitionerIdByLineageKey.get(practitionerLineageKey);
+}
+
+function resolvePractitionerLineageKey(
+  practitionerId: Id<"practitioners"> | undefined,
+  maps: CalendarReferenceMaps,
+): PractitionerLineageKey | undefined {
+  return practitionerId === undefined
+    ? undefined
+    : maps.practitionerLineageKeyById.get(practitionerId);
 }

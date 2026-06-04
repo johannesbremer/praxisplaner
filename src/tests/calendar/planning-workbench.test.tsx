@@ -13,8 +13,13 @@ import {
   asLocationLineageKey,
   toTableId,
 } from "../../../convex/identity";
+import { createCalendarPlacement } from "../../../lib/calendar-occupancy";
 import { useCalendarPlanningWorkbench } from "../../components/calendar/use-calendar-planning-workbench";
 import { zonedDateTimeStringResult } from "../../utils/time-calculations";
+import {
+  buildCalendarAppointmentRecord,
+  buildCalendarBlockedSlotRecord,
+} from "./test-records";
 
 const mutationQueue: {
   withOptimisticUpdate: (
@@ -126,7 +131,13 @@ describe("calendar planning workbench", () => {
     await act(async () => {
       createdId = await result.current.commands.createAppointment({
         appointmentTypeId,
-        locationId,
+        placement: createCalendarPlacement({
+          locationLineageKey,
+          occupancyScope: {
+            calendarResourceColumn: "ekg",
+            kind: "resource",
+          },
+        }),
         practiceId,
         start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
         title: "Check-up",
@@ -137,6 +148,7 @@ describe("calendar planning workbench", () => {
     expect(createAppointmentMutation).toHaveBeenCalledWith(
       expect.objectContaining({
         appointmentTypeId,
+        calendarResourceColumn: "ekg",
         locationId,
         practiceId,
         start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
@@ -156,20 +168,20 @@ describe("calendar planning workbench", () => {
     const practiceId = toTableId<"practices">("practice_1");
     const blockedSlotId = toTableId<"blockedSlots">("blocked_slot_1");
     const conflictingAppointment: CalendarAppointmentRecord = {
-      _creationTime: 1,
-      _id: toTableId<"appointments">("appointment_conflict"),
-      appointmentTypeLineageKey: asAppointmentTypeLineageKey(
-        toTableId<"appointmentTypes">("type_lineage_1"),
-      ),
-      appointmentTypeTitle: "Check-up",
-      createdAt: 1n,
-      end: "2026-04-25T09:45:00+02:00[Europe/Berlin]",
+      ...buildCalendarAppointmentRecord({
+        _id: toTableId<"appointments">("appointment_conflict"),
+        appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+          toTableId<"appointmentTypes">("type_lineage_1"),
+        ),
+        appointmentTypeTitle: "Check-up",
+        calendarResourceColumn: "ekg",
+        end: "2026-04-25T09:45:00+02:00[Europe/Berlin]",
+        locationLineageKey,
+        practiceId,
+        start: "2026-04-25T09:15:00+02:00[Europe/Berlin]",
+        title: "Existing Appointment",
+      }),
       isSimulation: false,
-      lastModified: 1n,
-      locationLineageKey,
-      practiceId,
-      start: "2026-04-25T09:15:00+02:00[Europe/Berlin]",
-      title: "Existing Appointment",
     };
     const allPracticeAppointmentMap = new Map([
       [conflictingAppointment._id, conflictingAppointment],
@@ -216,6 +228,7 @@ describe("calendar planning workbench", () => {
       await result.current.commands.createBlockedSlot({
         end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
         locationId,
+        occupancyScope: { kind: "location-wide" },
         practiceId,
         start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
         title: "Team meeting",
@@ -239,16 +252,15 @@ describe("calendar planning workbench", () => {
     );
     const practiceId = toTableId<"practices">("practice_1");
     const blockedSlot: CalendarBlockedSlotRecord = {
-      _creationTime: 1,
-      _id: toTableId<"blockedSlots">("blocked_slot_1"),
-      createdAt: 1n,
-      end: "2026-04-25T10:00:00+02:00[Europe/Berlin]",
+      ...buildCalendarBlockedSlotRecord({
+        _id: toTableId<"blockedSlots">("blocked_slot_1"),
+        end: "2026-04-25T10:00:00+02:00[Europe/Berlin]",
+        locationLineageKey,
+        practiceId,
+        start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+        title: "Team meeting",
+      }),
       isSimulation: false,
-      lastModified: 1n,
-      locationLineageKey,
-      practiceId,
-      start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
-      title: "Team meeting",
     };
     const activeBlockedSlots = new Map([[blockedSlot._id, blockedSlot]]);
 

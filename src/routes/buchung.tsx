@@ -26,13 +26,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { api } from "@/convex/_generated/api";
+import { getBookingSessionStepKind } from "@/lib/booking-session-steps";
 
 import {
   BookedAppointmentsSummary,
   type BookingSessionState,
   CalendarSelectionStep,
   canGoBack,
-  ConfirmationStep,
   DataInputStep,
   DataSharingStep,
   DoctorSelectionStep,
@@ -60,7 +60,6 @@ export const Route = createFileRoute("/buchung")({
 // Step group labels for progress indicator
 const STEP_GROUP_LABELS: Record<ReturnType<typeof getStepGroup>, string> = {
   booking: "Termin",
-  confirmation: "Bestätigung",
   consent: "Einwilligung",
   info: "Angaben",
 };
@@ -70,8 +69,328 @@ const STEP_GROUP_ORDER: ReturnType<typeof getStepGroup>[] = [
   "consent",
   "info",
   "booking",
-  "confirmation",
 ];
+
+function buildDisplayedBookingState(
+  baseState: BookingSessionState,
+  overrideStep: BookingSessionState["step"] | null,
+): BookingSessionState {
+  if (overrideStep === null || overrideStep === baseState.step) {
+    return baseState;
+  }
+
+  switch (overrideStep) {
+    case "existing-calendar-selection":
+    case "new-calendar-selection": {
+      return baseState;
+    }
+    case "existing-data-input": {
+      if (
+        "locationLineageKey" in baseState &&
+        "locationName" in baseState &&
+        "practitionerLineageKey" in baseState &&
+        "practitionerName" in baseState
+      ) {
+        return {
+          isNewPatient: false,
+          locationLineageKey: baseState.locationLineageKey,
+          locationName: baseState.locationName,
+          ...("personalData" in baseState
+            ? { personalData: baseState.personalData }
+            : {}),
+          practitionerLineageKey: baseState.practitionerLineageKey,
+          practitionerName: baseState.practitionerName,
+          step: "existing-data-input",
+        };
+      }
+      return baseState;
+    }
+    case "existing-doctor-selection": {
+      return "locationLineageKey" in baseState && "locationName" in baseState
+        ? {
+            isNewPatient: false,
+            locationLineageKey: baseState.locationLineageKey,
+            locationName: baseState.locationName,
+            step: "existing-doctor-selection",
+          }
+        : baseState;
+    }
+    case "location": {
+      return { step: "location" };
+    }
+    case "new-data-input": {
+      if (
+        "locationLineageKey" in baseState &&
+        "locationName" in baseState &&
+        "insuranceType" in baseState
+      ) {
+        if (baseState.insuranceType === "gkv" && "hzvStatus" in baseState) {
+          return {
+            hzvStatus: baseState.hzvStatus,
+            insuranceType: "gkv",
+            isNewPatient: true,
+            locationLineageKey: baseState.locationLineageKey,
+            locationName: baseState.locationName,
+            ...("medicalHistory" in baseState
+              ? { medicalHistory: baseState.medicalHistory }
+              : {}),
+            ...("personalData" in baseState
+              ? { personalData: baseState.personalData }
+              : {}),
+            step: "new-data-input",
+          };
+        }
+        if (baseState.insuranceType === "pkv") {
+          return {
+            ...("beihilfeStatus" in baseState
+              ? { beihilfeStatus: baseState.beihilfeStatus }
+              : {}),
+            insuranceType: "pkv",
+            isNewPatient: true,
+            locationLineageKey: baseState.locationLineageKey,
+            locationName: baseState.locationName,
+            ...("medicalHistory" in baseState
+              ? { medicalHistory: baseState.medicalHistory }
+              : {}),
+            ...("personalData" in baseState
+              ? { personalData: baseState.personalData }
+              : {}),
+            ...("pkvInsuranceType" in baseState
+              ? { pkvInsuranceType: baseState.pkvInsuranceType }
+              : {}),
+            ...("pkvTariff" in baseState
+              ? { pkvTariff: baseState.pkvTariff }
+              : {}),
+            pvsConsent: true,
+            step: "new-data-input",
+          };
+        }
+      }
+      return baseState;
+    }
+    case "new-data-input-complete":
+    case "new-gkv-details-complete":
+    case "new-pkv-details-complete": {
+      return baseState;
+    }
+    case "new-data-sharing": {
+      if (
+        "locationLineageKey" in baseState &&
+        "locationName" in baseState &&
+        "insuranceType" in baseState &&
+        "personalData" in baseState
+      ) {
+        if (baseState.insuranceType === "gkv" && "hzvStatus" in baseState) {
+          return {
+            hzvStatus: baseState.hzvStatus,
+            insuranceType: "gkv",
+            isNewPatient: true,
+            locationLineageKey: baseState.locationLineageKey,
+            locationName: baseState.locationName,
+            ...("medicalHistory" in baseState
+              ? { medicalHistory: baseState.medicalHistory }
+              : {}),
+            personalData: baseState.personalData,
+            step: "new-data-sharing",
+          };
+        }
+        return {
+          ...("beihilfeStatus" in baseState
+            ? { beihilfeStatus: baseState.beihilfeStatus }
+            : {}),
+          insuranceType: "pkv",
+          isNewPatient: true,
+          locationLineageKey: baseState.locationLineageKey,
+          locationName: baseState.locationName,
+          ...("medicalHistory" in baseState
+            ? { medicalHistory: baseState.medicalHistory }
+            : {}),
+          personalData: baseState.personalData,
+          ...("pkvInsuranceType" in baseState
+            ? { pkvInsuranceType: baseState.pkvInsuranceType }
+            : {}),
+          ...("pkvTariff" in baseState
+            ? { pkvTariff: baseState.pkvTariff }
+            : {}),
+          pvsConsent: true,
+          step: "new-data-sharing",
+        };
+      }
+      return baseState;
+    }
+    case "new-gkv-details": {
+      if (
+        "locationLineageKey" in baseState &&
+        "locationName" in baseState &&
+        "insuranceType" in baseState &&
+        baseState.insuranceType === "gkv"
+      ) {
+        return {
+          ...("hzvStatus" in baseState
+            ? { hzvStatus: baseState.hzvStatus }
+            : {}),
+          insuranceType: "gkv",
+          isNewPatient: true,
+          locationLineageKey: baseState.locationLineageKey,
+          locationName: baseState.locationName,
+          step: "new-gkv-details",
+        };
+      }
+      return baseState;
+    }
+    case "new-insurance-type": {
+      return "locationLineageKey" in baseState && "locationName" in baseState
+        ? {
+            isNewPatient: true,
+            locationLineageKey: baseState.locationLineageKey,
+            locationName: baseState.locationName,
+            step: "new-insurance-type",
+          }
+        : baseState;
+    }
+    case "new-pkv-details": {
+      if (
+        "locationLineageKey" in baseState &&
+        "locationName" in baseState &&
+        "insuranceType" in baseState &&
+        baseState.insuranceType === "pkv"
+      ) {
+        return {
+          ...("beihilfeStatus" in baseState
+            ? { beihilfeStatus: baseState.beihilfeStatus }
+            : {}),
+          insuranceType: "pkv",
+          isNewPatient: true,
+          locationLineageKey: baseState.locationLineageKey,
+          locationName: baseState.locationName,
+          ...("pkvInsuranceType" in baseState
+            ? { pkvInsuranceType: baseState.pkvInsuranceType }
+            : {}),
+          ...("pkvTariff" in baseState
+            ? { pkvTariff: baseState.pkvTariff }
+            : {}),
+          pvsConsent: true,
+          step: "new-pkv-details",
+        };
+      }
+      return baseState;
+    }
+    case "new-pvs-consent": {
+      return "locationLineageKey" in baseState && "locationName" in baseState
+        ? {
+            insuranceType: "pkv",
+            isNewPatient: true,
+            locationLineageKey: baseState.locationLineageKey,
+            locationName: baseState.locationName,
+            step: "new-pvs-consent",
+          }
+        : baseState;
+    }
+    case "patient-status": {
+      return "locationLineageKey" in baseState && "locationName" in baseState
+        ? {
+            locationLineageKey: baseState.locationLineageKey,
+            locationName: baseState.locationName,
+            step: "patient-status",
+          }
+        : baseState;
+    }
+    case "privacy": {
+      return { step: "privacy" };
+    }
+  }
+}
+
+function getPreviousDisplayStep(
+  state: BookingSessionState,
+): BookingSessionState["step"] | null {
+  switch (state.step) {
+    case "existing-calendar-selection": {
+      return "existing-data-input";
+    }
+    case "existing-data-input": {
+      return "existing-doctor-selection";
+    }
+    case "existing-doctor-selection": {
+      return "patient-status";
+    }
+    case "location": {
+      return "privacy";
+    }
+    case "new-calendar-selection": {
+      return "new-data-sharing";
+    }
+    case "new-data-input": {
+      return state.insuranceType === "gkv"
+        ? "new-gkv-details"
+        : "new-pkv-details";
+    }
+    case "new-data-input-complete": {
+      return "new-data-input";
+    }
+    case "new-data-sharing": {
+      return "new-data-input";
+    }
+    case "new-gkv-details": {
+      return "new-insurance-type";
+    }
+    case "new-gkv-details-complete": {
+      return "new-gkv-details";
+    }
+    case "new-insurance-type": {
+      return "patient-status";
+    }
+    case "new-pkv-details": {
+      return "new-pvs-consent";
+    }
+    case "new-pkv-details-complete": {
+      return "new-pkv-details";
+    }
+    case "new-pvs-consent": {
+      return "new-insurance-type";
+    }
+    case "patient-status": {
+      return "location";
+    }
+    case "privacy": {
+      return null;
+    }
+  }
+}
+
+function isServerBackTargetStep(
+  step: BookingSessionState["step"],
+): step is Exclude<
+  BookingSessionState["step"],
+  | "existing-calendar-selection"
+  | "new-calendar-selection"
+  | "new-data-input-complete"
+  | "new-gkv-details-complete"
+  | "new-pkv-details-complete"
+> {
+  switch (step) {
+    case "existing-calendar-selection":
+    case "new-calendar-selection":
+    case "new-data-input-complete":
+    case "new-gkv-details-complete":
+    case "new-pkv-details-complete": {
+      return false;
+    }
+    case "existing-data-input":
+    case "existing-doctor-selection":
+    case "location":
+    case "new-data-input":
+    case "new-data-sharing":
+    case "new-gkv-details":
+    case "new-insurance-type":
+    case "new-pkv-details":
+    case "new-pvs-consent":
+    case "patient-status":
+    case "privacy": {
+      return true;
+    }
+  }
+}
 
 /**
  * Main booking page component.
@@ -180,18 +499,15 @@ function BookingPage() {
  */
 function AuthenticatedBookingFlow() {
   const { signOut } = useAuth();
-  const [pendingSessionForActiveRuleSet, setPendingSessionForActiveRuleSet] =
-    useState<null | {
-      ruleSetId: Id<"ruleSets">;
-      sessionId: Id<"bookingSessions">;
-    }>(null);
   const [bookedAppointmentRefreshNonce, setBookedAppointmentRefreshNonce] =
     useState(0);
   const [sessionError, setSessionError] = useState<null | string>(null);
+  const [displayStepOverride, setDisplayStepOverride] = useState<
+    BookingSessionState["step"] | null
+  >(null);
   const isCreatingSessionRef = useRef(false);
   const stepContainerRef = useRef<HTMLDivElement>(null);
   const isInitializingPracticeRef = useRef(false);
-  const isReturningToCalendarRef = useRef(false);
 
   // Fetch practice data
   const practicesQuery = useQuery(api.practices.getAllPractices, {});
@@ -212,28 +528,14 @@ function AuthenticatedBookingFlow() {
         }
       : "skip",
   );
-
-  const pendingSessionIdForActiveRuleSet =
-    pendingSessionForActiveRuleSet &&
-    pendingSessionForActiveRuleSet.ruleSetId === practiceActiveRuleSetId
-      ? pendingSessionForActiveRuleSet.sessionId
-      : null;
-  const resolvedSessionId =
-    activeRuleSetSession?._id ?? pendingSessionIdForActiveRuleSet;
-
-  // Query the session if we have one
-  const session = useQuery(
-    api.bookingSessions.get,
-    resolvedSessionId ? { sessionId: resolvedSessionId } : "skip",
-  );
   const bookedAppointments = useQuery(
     api.appointments.getBookedAppointmentsForCurrentUser,
-    {
-      refreshNonce: bookedAppointmentRefreshNonce,
-      ...(practiceActiveRuleSetId
-        ? { activeRuleSetId: practiceActiveRuleSetId }
-        : {}),
-    },
+    practiceActiveRuleSetId
+      ? {
+          activeRuleSetId: practiceActiveRuleSetId,
+          refreshNonce: bookedAppointmentRefreshNonce,
+        }
+      : "skip",
   );
   const practitioners = useQuery(
     api.entities.getPractitioners,
@@ -242,11 +544,8 @@ function AuthenticatedBookingFlow() {
 
   // Mutations
   const createSession = useMutation(api.bookingSessions.create);
+  const goBackToStep = useMutation(api.bookingSessions.goBackToStep);
   const removeSession = useMutation(api.bookingSessions.remove);
-  const goBackMutation = useMutation(api.bookingSessions.goBack);
-  const returnToCalendarSelectionAfterCancellation = useMutation(
-    api.bookingSessions.returnToCalendarSelectionAfterCancellation,
-  );
 
   useEffect(() => {
     if (
@@ -266,12 +565,11 @@ function AuthenticatedBookingFlow() {
       });
   }, [initializeDefaultPractice, practicesQuery]);
 
-  // Create session on mount
   useEffect(() => {
     if (
       currentPractice &&
       practiceActiveRuleSetId &&
-      !resolvedSessionId &&
+      bookedAppointments?.length === 0 &&
       !isCreatingSessionRef.current &&
       !sessionError &&
       activeRuleSetSession !== undefined &&
@@ -292,12 +590,7 @@ function AuthenticatedBookingFlow() {
           }),
       )
         .match(
-          (createdSessionId) => {
-            setPendingSessionForActiveRuleSet({
-              ruleSetId: practiceActiveRuleSetId,
-              sessionId: createdSessionId,
-            });
-          },
+          () => void 0,
           (error) => {
             captureFrontendError(error, {
               context: "BookingPage.createSession",
@@ -318,11 +611,10 @@ function AuthenticatedBookingFlow() {
   }, [
     currentPractice,
     practiceActiveRuleSetId,
-    pendingSessionForActiveRuleSet,
+    bookedAppointments,
     createSession,
     sessionError,
     activeRuleSetSession,
-    resolvedSessionId,
   ]);
 
   // Handle retry after session creation error
@@ -332,39 +624,65 @@ function AuthenticatedBookingFlow() {
 
   // Handle starting over
   const handleStartOver = useCallback(() => {
-    if (resolvedSessionId) {
-      void removeSession({ sessionId: resolvedSessionId });
+    setDisplayStepOverride(null);
+    if (currentPractice && practiceActiveRuleSetId) {
+      void removeSession({
+        practiceId: currentPractice._id,
+        ruleSetId: practiceActiveRuleSetId,
+      });
     }
-    setPendingSessionForActiveRuleSet(null);
-  }, [resolvedSessionId, removeSession]);
+  }, [currentPractice, practiceActiveRuleSetId, removeSession]);
 
-  // Handle back navigation using unified goBack mutation
-  const handleBack = useCallback(async () => {
-    if (!resolvedSessionId) {
+  const handleBookedAppointmentCancelled = useCallback(() => {
+    setSessionError(null);
+    setBookedAppointmentRefreshNonce((current) => current + 1);
+  }, []);
+
+  const handleBack = useCallback(() => {
+    if (!activeRuleSetSession) {
+      return;
+    }
+    const currentState = buildDisplayedBookingState(
+      activeRuleSetSession.state,
+      displayStepOverride,
+    );
+    const previousStep = getPreviousDisplayStep(currentState);
+    if (previousStep === null) {
+      setDisplayStepOverride(null);
+      return;
+    }
+    if (!isServerBackTargetStep(previousStep)) {
       return;
     }
 
-    await wrapAsyncResult(
-      () => goBackMutation({ sessionId: resolvedSessionId }),
+    void wrapAsyncResult(
+      () =>
+        goBackToStep({
+          practiceId: activeRuleSetSession.practiceId,
+          ruleSetId: activeRuleSetSession.ruleSetId,
+          targetStep: previousStep,
+        }),
       (error) =>
         frontendErrorFromUnknown(error, {
           kind: "unknown",
-          message: "Navigation fehlgeschlagen.",
+          message: "Zurückgehen fehlgeschlagen.",
           source: "BookingPage.handleBack",
         }),
     ).match(
-      () => void 0,
+      () => {
+        setDisplayStepOverride(null);
+      },
       (error) => {
         captureFrontendError(error, {
           context: "BookingPage.handleBack",
-          sessionId: resolvedSessionId,
+          targetStep: previousStep,
         });
-        toast.error("Navigation fehlgeschlagen", {
+        toast.error("Zurückgehen fehlgeschlagen", {
           description: error.message || "Bitte versuchen Sie es erneut.",
         });
       },
     );
-  }, [resolvedSessionId, goBackMutation]);
+  }, [activeRuleSetSession, displayStepOverride, goBackToStep]);
 
   const handleSignOut = useCallback(() => {
     void wrapAsyncResult(
@@ -389,7 +707,20 @@ function AuthenticatedBookingFlow() {
       },
     );
   }, [signOut]);
-  const currentStep = session?.state.step;
+  const effectiveDisplayStepOverride =
+    bookedAppointments !== undefined && bookedAppointments.length > 0
+      ? null
+      : displayStepOverride !== null &&
+          activeRuleSetSession?.state.step === displayStepOverride
+        ? null
+        : displayStepOverride;
+  const displayedState = activeRuleSetSession
+    ? buildDisplayedBookingState(
+        activeRuleSetSession.state,
+        effectiveDisplayStepOverride,
+      )
+    : null;
+  const currentStep = displayedState?.step;
 
   const handleForward = useCallback(() => {
     const container = stepContainerRef.current;
@@ -415,12 +746,12 @@ function AuthenticatedBookingFlow() {
     "Mod+Z",
     () => {
       if (currentStep && canGoBack(currentStep)) {
-        void handleBack();
+        handleBack();
       }
     },
     {
       conflictBehavior: "replace",
-      enabled: Boolean(resolvedSessionId),
+      enabled: Boolean(activeRuleSetSession),
       requireReset: true,
     },
   );
@@ -432,7 +763,7 @@ function AuthenticatedBookingFlow() {
     },
     {
       conflictBehavior: "replace",
-      enabled: Boolean(resolvedSessionId),
+      enabled: Boolean(activeRuleSetSession),
       requireReset: true,
     },
   );
@@ -444,7 +775,7 @@ function AuthenticatedBookingFlow() {
     },
     {
       conflictBehavior: "replace",
-      enabled: Boolean(resolvedSessionId),
+      enabled: Boolean(activeRuleSetSession),
       requireReset: true,
     },
   );
@@ -453,12 +784,12 @@ function AuthenticatedBookingFlow() {
     "Alt+ArrowLeft",
     () => {
       if (currentStep && canGoBack(currentStep)) {
-        void handleBack();
+        handleBack();
       }
     },
     {
       conflictBehavior: "replace",
-      enabled: Boolean(resolvedSessionId),
+      enabled: Boolean(activeRuleSetSession),
       requireReset: true,
     },
   );
@@ -470,13 +801,15 @@ function AuthenticatedBookingFlow() {
     },
     {
       conflictBehavior: "replace",
-      enabled: Boolean(resolvedSessionId),
+      enabled: Boolean(activeRuleSetSession),
       requireReset: true,
     },
   );
 
   const nextBookedAppointment = bookedAppointments?.[0];
-  const bookedAppointmentId = nextBookedAppointment?._id;
+  const bookedAppointmentId = nextBookedAppointment
+    ? `${nextBookedAppointment.kind}:${String(nextBookedAppointment._id)}`
+    : undefined;
   const bookedAppointmentStart = nextBookedAppointment?.start;
   useEffect(() => {
     if (!bookedAppointmentStart) {
@@ -508,55 +841,6 @@ function AuthenticatedBookingFlow() {
 
   const isShowingBookedAppointment =
     bookedAppointments !== undefined && bookedAppointments.length > 0;
-  const isSessionAtConfirmationStep =
-    session?.state.step === "existing-confirmation" ||
-    session?.state.step === "new-confirmation";
-  const shouldReturnToCalendarAfterAppointmentElapsed =
-    bookedAppointments?.length === 0 && isSessionAtConfirmationStep;
-
-  useEffect(() => {
-    if (
-      !shouldReturnToCalendarAfterAppointmentElapsed ||
-      !resolvedSessionId ||
-      isReturningToCalendarRef.current
-    ) {
-      return;
-    }
-
-    isReturningToCalendarRef.current = true;
-    void wrapAsyncResult(
-      () =>
-        returnToCalendarSelectionAfterCancellation({
-          sessionId: resolvedSessionId,
-        }),
-      (error) =>
-        frontendErrorFromUnknown(error, {
-          kind: "unknown",
-          message: "Schrittwechsel fehlgeschlagen.",
-          source: "BookingPage.returnToCalendarSelectionAfterCancellation",
-        }),
-    )
-      .match(
-        () => void 0,
-        (error) => {
-          captureFrontendError(error, {
-            context: "BookingPage.returnToCalendarSelectionAfterCancellation",
-            sessionId: resolvedSessionId,
-          });
-          toast.error("Schrittwechsel fehlgeschlagen", {
-            description: error.message || "Bitte versuchen Sie es erneut.",
-          });
-        },
-      )
-      .finally(() => {
-        isReturningToCalendarRef.current = false;
-      });
-  }, [
-    resolvedSessionId,
-    returnToCalendarSelectionAfterCancellation,
-    shouldReturnToCalendarAfterAppointmentElapsed,
-  ]);
-
   // Loading state
   if (!practicesQuery) {
     return (
@@ -630,10 +914,7 @@ function AuthenticatedBookingFlow() {
     );
   }
 
-  if (
-    !isShowingBookedAppointment &&
-    (!resolvedSessionId || session === undefined)
-  ) {
+  if (!isShowingBookedAppointment && activeRuleSetSession === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="w-96">
@@ -648,31 +929,15 @@ function AuthenticatedBookingFlow() {
     );
   }
 
-  if (shouldReturnToCalendarAfterAppointmentElapsed) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Card className="w-96">
-          <CardContent className="py-6">
-            <div className="flex items-center justify-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Termin wird aktualisiert...</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // Session expired or not found
-  if (!isShowingBookedAppointment && session === null) {
+  if (!isShowingBookedAppointment && activeRuleSetSession === null) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
           <CardHeader>
-            <CardTitle>Sitzung abgelaufen</CardTitle>
+            <CardTitle>Buchungsdaten fehlen</CardTitle>
             <CardDescription>
-              Ihre Buchungssitzung ist abgelaufen. Bitte starten Sie den
-              Buchungsvorgang erneut.
+              Ihre gespeicherten Buchungsangaben konnten nicht geladen werden.
+              Bitte starten Sie den Buchungsvorgang erneut.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -690,20 +955,6 @@ function AuthenticatedBookingFlow() {
   let stepContent: ReactElement;
 
   if (isShowingBookedAppointment) {
-    const handleBookedAppointmentCancelled = async () => {
-      if (
-        !resolvedSessionId ||
-        !session ||
-        (session.state.step !== "existing-confirmation" &&
-          session.state.step !== "new-confirmation")
-      ) {
-        return;
-      }
-      await returnToCalendarSelectionAfterCancellation({
-        sessionId: resolvedSessionId,
-      });
-    };
-
     const practitionerNamesById = new Map<Id<"practitioners">, string>(
       (practitioners ?? []).flatMap((practitioner) => [
         [practitioner._id, practitioner.name] as const,
@@ -711,7 +962,7 @@ function AuthenticatedBookingFlow() {
       ]),
     );
 
-    currentGroup = "confirmation";
+    currentGroup = "booking";
     showBackButton = false;
     stepContent = (
       <BookedAppointmentsSummary
@@ -721,9 +972,9 @@ function AuthenticatedBookingFlow() {
       />
     );
   } else {
-    if (!resolvedSessionId || !session) {
+    if (!activeRuleSetSession || !displayedState) {
       const error = invalidStateError(
-        "Session missing while rendering booking wizard",
+        "Booking flow missing while rendering booking wizard",
         "AuthenticatedBookingFlow",
       );
       stepContent = (
@@ -740,17 +991,16 @@ function AuthenticatedBookingFlow() {
       currentGroup = "info";
       showBackButton = false;
     } else {
-      currentGroup = getStepGroup(session.state.step);
-      showBackButton = canGoBack(session.state.step);
+      currentGroup = getStepGroup(displayedState.step);
+      showBackButton = canGoBack(displayedState.step);
       stepContent = (
         <StepRenderer
           onStartOver={handleStartOver}
-          step={session.state.step}
+          step={displayedState.step}
           stepProps={{
             practiceId: currentPractice._id,
             ruleSetId: practiceActiveRuleSetId,
-            sessionId: resolvedSessionId,
-            state: session.state,
+            state: displayedState,
           }}
         />
       );
@@ -819,7 +1069,9 @@ function AuthenticatedBookingFlow() {
           <div className="max-w-2xl mx-auto mb-6">
             <Button
               className="w-fit"
-              onClick={() => void handleBack()}
+              onClick={() => {
+                handleBack();
+              }}
               variant="ghost"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
@@ -845,49 +1097,39 @@ interface StepRendererProps {
 }
 
 function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
-  switch (step) {
-    case "existing-calendar-selection":
-    case "new-calendar-selection": {
+  switch (getBookingSessionStepKind(step)) {
+    case "calendar-selection": {
       return <CalendarSelectionStep {...stepProps} />;
     }
-    case "existing-confirmation":
-    case "new-confirmation": {
-      return <ConfirmationStep {...stepProps} />;
-    }
-    case "existing-data-input":
-    case "existing-data-input-complete":
-    case "new-data-input":
-    case "new-data-input-complete": {
+    case "data-input": {
       return <DataInputStep {...stepProps} />;
     }
-    case "existing-doctor-selection": {
+    case "data-sharing": {
+      return <DataSharingStep {...stepProps} />;
+    }
+    case "doctor-selection": {
       return <DoctorSelectionStep {...stepProps} />;
+    }
+    case "gkv-details": {
+      return <GkvDetailsStep {...stepProps} />;
+    }
+    case "insurance-type": {
+      return <InsuranceTypeStep {...stepProps} />;
     }
     case "location": {
       return <LocationStep {...stepProps} />;
     }
-    case "new-data-sharing": {
-      return <DataSharingStep {...stepProps} />;
-    }
-    case "new-gkv-details":
-    case "new-gkv-details-complete": {
-      return <GkvDetailsStep {...stepProps} />;
-    }
-    case "new-insurance-type": {
-      return <InsuranceTypeStep {...stepProps} />;
-    }
-    case "new-pkv-details":
-    case "new-pkv-details-complete": {
-      return <PkvDetailsStep {...stepProps} />;
-    }
-    case "new-pvs-consent": {
-      return <PvsConsentStep {...stepProps} />;
-    }
     case "patient-status": {
       return <PatientStatusStep {...stepProps} />;
     }
+    case "pkv-details": {
+      return <PkvDetailsStep {...stepProps} />;
+    }
     case "privacy": {
       return <PrivacyStep {...stepProps} />;
+    }
+    case "pvs-consent": {
+      return <PvsConsentStep {...stepProps} />;
     }
     default: {
       return (

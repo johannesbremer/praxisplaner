@@ -6,6 +6,10 @@ import { Temporal } from "temporal-polyfill";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { CalendarAppointmentRecord, CalendarColumnId } from "./types";
 
+import {
+  getAppointmentPractitionerLineageKey,
+  getBlockedSlotPractitionerLineageKey,
+} from "../../../convex/appointmentOccupancy";
 import { invalidStateError } from "../../utils/frontend-errors";
 
 export const TIMEZONE = "Europe/Berlin";
@@ -18,10 +22,19 @@ export interface BlockedSlotConversionOptions {
   title?: string;
 }
 
+export type BlockedSlotDropResolution =
+  | { kind: "location-wide" }
+  | { kind: "practitioner"; practitionerId: Id<"practitioners"> }
+  | { kind: "reject-resource-column" };
+
 export interface CalendarBlockedSlotRecord {
   end: string;
-  locationLineageKey: Id<"locations">;
-  practitionerLineageKey?: Id<"practitioners">;
+  placement: {
+    locationLineageKey: Id<"locations">;
+    occupancyScope:
+      | { kind: "location-wide" }
+      | { kind: "practitioner"; practitionerLineageKey: Id<"practitioners"> };
+  };
   start: string;
 }
 
@@ -36,14 +49,25 @@ export interface SimulatedBlockedSlotConversionResult {
   startISO: string;
 }
 
-export interface SimulationConversionOptions {
+export type SimulationConversionOptions = SimulationConversionPlacementOptions &
+  SimulationConversionTimingOptions;
+
+interface SimulationConversionPlacementOptions {
+  calendarResourceColumn?: "ekg" | "labor" | null;
   columnOverride?: CalendarColumnId;
-  durationMinutes?: number;
-  endISO?: string;
   locationId?: Id<"locations">;
   practitionerId?: Id<"practitioners">;
-  startISO?: string;
 }
+
+type SimulationConversionTimingOptions =
+  | {
+      endISO: string;
+      startISO: string;
+    }
+  | {
+      endISO?: undefined;
+      startISO?: undefined;
+    };
 
 export function collectDeletedPractitionerCalendarRanges(args: {
   appointments: CalendarAppointmentRecord[];
@@ -78,18 +102,20 @@ export function collectDeletedPractitionerCalendarRanges(args: {
   };
 
   for (const appointment of args.appointments) {
+    const practitionerLineageKey = getAppointmentPractitionerLineageKey(
+      appointment.placement.occupancyScope,
+    );
     if (
-      !appointment.practitionerLineageKey ||
-      !args.deletedPractitionerLineageKeys.has(
-        appointment.practitionerLineageKey,
-      )
+      !practitionerLineageKey ||
+      !args.deletedPractitionerLineageKeys.has(practitionerLineageKey)
     ) {
       continue;
     }
 
     if (
       args.effectiveLocationLineageKey !== undefined &&
-      appointment.locationLineageKey !== args.effectiveLocationLineageKey
+      appointment.placement.locationLineageKey !==
+        args.effectiveLocationLineageKey
     ) {
       continue;
     }
@@ -103,7 +129,7 @@ export function collectDeletedPractitionerCalendarRanges(args: {
 
     const end = Temporal.ZonedDateTime.from(appointment.end);
     addRange(
-      appointment.practitionerLineageKey,
+      practitionerLineageKey,
       start.hour * 60 + start.minute,
       end.hour * 60 + end.minute,
     );
@@ -114,11 +140,12 @@ export function collectDeletedPractitionerCalendarRanges(args: {
     args.selectedDate,
     args.effectiveLocationLineageKey,
   )) {
+    const practitionerLineageKey = getBlockedSlotPractitionerLineageKey(
+      blockedSlot.placement.occupancyScope,
+    );
     if (
-      !blockedSlot.practitionerLineageKey ||
-      !args.deletedPractitionerLineageKeys.has(
-        blockedSlot.practitionerLineageKey,
-      )
+      !practitionerLineageKey ||
+      !args.deletedPractitionerLineageKeys.has(practitionerLineageKey)
     ) {
       continue;
     }
@@ -126,7 +153,7 @@ export function collectDeletedPractitionerCalendarRanges(args: {
     const start = Temporal.ZonedDateTime.from(blockedSlot.start).toPlainTime();
     const end = Temporal.ZonedDateTime.from(blockedSlot.end).toPlainTime();
     addRange(
-      blockedSlot.practitionerLineageKey,
+      practitionerLineageKey,
       start.hour * 60 + start.minute,
       end.hour * 60 + end.minute,
     );
@@ -162,7 +189,7 @@ export function filterBlockedSlotsForDateAndLocation<
 
     if (
       effectiveLocationLineageKey !== undefined &&
-      blockedSlot.locationLineageKey !== effectiveLocationLineageKey
+      blockedSlot.placement.locationLineageKey !== effectiveLocationLineageKey
     ) {
       return false;
     }
@@ -192,4 +219,52 @@ export function parsePlainTimeResult(
       invalidStateError(`Invalid time format: ${value}`, source, error),
     );
   }
+}
+
+export function resolveBlockedSlotDropOccupancyScope(args: {
+  column: CalendarColumnId;
+  getPractitionerIdForColumn: (
+    column: CalendarColumnId,
+  ) => Id<"practitioners"> | undefined;
+}): BlockedSlotDropResolution {
+  const practitionerId = args.getPractitionerIdForColumn(args.column);
+  if (practitionerId !== undefined) {
+    return { kind: "practitioner", practitionerId };
+  }
+
+  if (args.column.kind === "resource") {
+    return { kind: "reject-resource-column" };
+  }
+
+  return { kind: "location-wide" };
+}
+
+export function resolveDragPreviewSlot(args: {
+  durationMinutes: number;
+  pointerSlot: number;
+  slotDurationMinutes: number;
+  totalSlots: number;
+}): number {
+  const durationSlots = Math.ceil(
+    args.durationMinutes / args.slotDurationMinutes,
+  );
+  const latestStartSlot = Math.max(0, args.totalSlots - durationSlots);
+
+  return Math.max(0, Math.min(latestStartSlot, args.pointerSlot));
+}
+
+export function resolvePointerSlot(args: {
+  pointerOffsetPx: number;
+  renderedSlotHeightPx: number;
+  totalSlots: number;
+}): number {
+  if (args.totalSlots <= 0 || args.renderedSlotHeightPx <= 0) {
+    return 0;
+  }
+
+  const pointerSlot = Math.floor(
+    args.pointerOffsetPx / args.renderedSlotHeightPx,
+  );
+
+  return Math.max(0, Math.min(args.totalSlots - 1, pointerSlot));
 }

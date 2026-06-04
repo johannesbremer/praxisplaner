@@ -6,12 +6,12 @@ import { CalendarItemContent } from "./calendar-item-content";
 
 interface BlockedSlot {
   column: CalendarColumnId;
-  duration?: number;
-  id?: string;
-  isManual?: boolean;
+  duration: number;
+  id: string;
+  isManual: true;
   reason?: string;
   slot: number;
-  startSlot?: number;
+  startSlot: number;
   title?: string;
 }
 
@@ -45,32 +45,22 @@ export function CalendarBlockedSlot({
   const height = slotCount * 16;
   const top = blockedSlot.slot * 16;
 
-  if (!blockedSlot.id) {
-    return null;
-  }
-
   return (
     <div
       className={`absolute left-1 right-1 bg-gray-400 text-white text-xs rounded shadow-sm hover:shadow-md transition-all z-10 cursor-move ${
-        isDragging ? "opacity-50" : "opacity-100"
+        isDragging ? "opacity-0" : "opacity-100"
       } h-(--blocked-height) min-h-4 top-(--blocked-top)`}
       draggable
       onClick={() => {
-        if (blockedSlot.id) {
-          onEdit(blockedSlot.id);
-        }
+        onEdit(blockedSlot.id);
       }}
       onContextMenu={(e) => {
         e.preventDefault();
-        if (blockedSlot.id) {
-          onDelete(blockedSlot.id);
-        }
+        onDelete(blockedSlot.id);
       }}
       onDragEnd={onDragEnd}
       onDragStart={(e) => {
-        if (blockedSlot.id) {
-          onDragStart(e, blockedSlot.id);
-        }
+        onDragStart(e, blockedSlot.id);
       }}
       style={
         {
@@ -89,9 +79,7 @@ export function CalendarBlockedSlot({
         className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-white/20 flex items-center justify-center"
         onMouseDown={(e) => {
           e.stopPropagation();
-          if (blockedSlot.id) {
-            onResizeStart(e, blockedSlot.id, blockedSlot.duration || 0);
-          }
+          onResizeStart(e, blockedSlot.id, blockedSlot.duration);
         }}
       >
         <div className="w-8 h-0.5 bg-white/60 rounded" />

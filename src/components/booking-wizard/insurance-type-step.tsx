@@ -16,14 +16,17 @@ import { api } from "@/convex/_generated/api";
 
 import type { StepComponentProps } from "./types";
 
-export function InsuranceTypeStep({ sessionId }: StepComponentProps) {
+export function InsuranceTypeStep({
+  practiceId,
+  ruleSetId,
+}: StepComponentProps) {
   const selectInsuranceType = useMutation(
     api.bookingSessions.selectInsuranceType,
   );
 
   const handleInsuranceSelection = async (insuranceType: "gkv" | "pkv") => {
     try {
-      await selectInsuranceType({ insuranceType, sessionId });
+      await selectInsuranceType({ insuranceType, practiceId, ruleSetId });
     } catch (error) {
       console.error("Failed to select insurance type:", error);
       toast.error("Versicherungsart konnte nicht ausgewählt werden", {

@@ -353,7 +353,6 @@ function formatEnumValue(key: string, value: unknown) {
       LOCATION: "Standort",
       PATIENT_AGE: "Patientenalter",
       PRACTITIONER: "Behandler",
-      PRACTITIONER_TAG: "Behandler-Tag",
     },
     locationMode: {
       any: "Beliebiger Standort",

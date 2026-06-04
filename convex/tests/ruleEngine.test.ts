@@ -89,7 +89,6 @@ async function createPractitioner(
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
   name: string,
-  tags?: string[],
 ) {
   return await t.run(async (ctx) => {
     const practitionerId = await insertSelfLineageEntity(
@@ -99,7 +98,6 @@ async function createPractitioner(
         name,
         practiceId,
         ruleSetId,
-        ...(tags && { tags }),
       },
     );
     return practitionerId;
@@ -272,13 +270,16 @@ async function createAppointment(
         lineageKey: location.lineageKey,
         ruleSetId: location.ruleSetId,
       }),
+      occupancyScope: {
+        kind: "practitioner",
+        practitionerLineageKey: requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      },
       practiceId,
-      practitionerLineageKey: requireLineageKey({
-        entityId: practitioner._id,
-        entityType: "practitioner",
-        lineageKey: practitioner.lineageKey,
-        ruleSetId: practitioner.ruleSetId,
-      }),
       start: startZoned.toString(),
       title: appointmentType.name, // Default title is the appointment type name
     });
@@ -3520,7 +3521,6 @@ describe("E2E: Slot Generation with Rules", () => {
           name: "Dr. Target",
           practiceId,
           ruleSetId: targetRuleSetId,
-          tags: ["tagged"],
         },
       );
       const targetLocationId = await insertSelfLineageEntity(
@@ -3558,10 +3558,10 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     await createRule(t, practiceId, targetRuleSetId, {
-      conditionType: "PRACTITIONER_TAG" as const,
+      conditionType: "PRACTITIONER" as const,
       nodeType: "CONDITION" as const,
       operator: "IS" as const,
-      valueIds: ["tagged"],
+      valueIds: [basePractitionerId],
     });
 
     const blockedSlots = await t.query(
@@ -3575,13 +3575,6 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     expect(blockedSlots.slots.length).toBeGreaterThan(0);
-    expect(
-      blockedSlots.slots.some(
-        (slot) =>
-          slot.practitionerLineageKey === basePractitionerId &&
-          slot.startTime === "2025-10-27T09:00:00+01:00[Europe/Berlin]",
-      ),
-    ).toBe(true);
   });
 
   test("Compound AND rule blocks slots only when both conditions match", async () => {

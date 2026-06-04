@@ -31,7 +31,11 @@ import type { StepComponentProps } from "./types";
 type ContactField = keyof ContactFormValue;
 type ContactFormValue = DataSharingContactFormValue;
 
-export function DataSharingStep({ sessionId, state }: StepComponentProps) {
+export function DataSharingStep({
+  practiceId,
+  ruleSetId,
+  state,
+}: StepComponentProps) {
   const isNewDataSharing = state.step === "new-data-sharing";
 
   const submitNewDataSharing = useMutation(
@@ -143,7 +147,8 @@ export function DataSharingStep({ sessionId, state }: StepComponentProps) {
     try {
       await submitNewDataSharing({
         dataSharingContacts: parsed.data,
-        sessionId,
+        practiceId,
+        ruleSetId,
       });
     } catch (error) {
       console.error("Failed to submit data sharing contacts:", error);

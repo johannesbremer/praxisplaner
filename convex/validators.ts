@@ -46,7 +46,6 @@ export const patientUpdateValidator = v.object({
 // Practitioner update data (based on schema fields)
 export const practitionerUpdateValidator = v.object({
   name: v.optional(v.string()),
-  tags: v.optional(v.array(v.string())),
 });
 
 // Patient upsert result

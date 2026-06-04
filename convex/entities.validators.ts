@@ -128,7 +128,6 @@ export const practitionerSnapshotValidator = v.object({
   id: v.id("practitioners"),
   lineageKey: v.id("practitioners"),
   name: v.string(),
-  tags: v.optional(v.array(v.string())),
 });
 
 export const practitionerAppointmentTypePatchValidator = v.object({

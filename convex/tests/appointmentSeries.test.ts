@@ -409,8 +409,11 @@ describe("appointment series", () => {
         end: blockedFollowUpEnd,
         lastModified: now,
         locationLineageKey: locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: practitionerId,
+        },
         practiceId,
-        practitionerLineageKey: practitionerId,
         start: blockedFollowUpStart,
         title: "Blockiert",
       });
@@ -1013,8 +1016,11 @@ describe("appointment series", () => {
         end: rootEnd,
         lastModified: now,
         locationLineageKey: activeLocationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: activePractitionerId,
+        },
         practiceId,
-        practitionerLineageKey: activePractitionerId,
         start: rootStart,
         title: "Bereits gebucht",
         userId,
@@ -1219,9 +1225,21 @@ describe("appointment series", () => {
         timeZone: TIMEZONE,
       })
       .toString();
+    const bookingIdentityId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      return await ctx.db.insert("bookingIdentities", {
+        createdAt: now,
+        kind: "online",
+        lastModified: now,
+        practiceId,
+        sourceIdentityId: "legacy-user-1",
+        sourceSystem: "legacy-online",
+      });
+    });
 
     await t.mutation(api.appointments.createAppointment, {
       appointmentTypeId: rootAppointmentTypeId,
+      bookingIdentityId,
       locationId,
       practiceId,
       practitionerId,
@@ -1244,7 +1262,260 @@ describe("appointment series", () => {
     expect(
       new Set(appointments.map((appointment) => appointment.seriesId)).size,
     ).toBe(1);
+    expect(
+      appointments.every(
+        (appointment) => appointment.bookingIdentityId === bookingIdentityId,
+      ),
+    ).toBe(true);
+    expect(seriesRecord?.bookingIdentityId).toBe(bookingIdentityId);
     expect(seriesRecord?.rootAppointmentId).toBeDefined();
+  });
+
+  test("createAppointmentSeries rejects booking identities from another practice", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const { practiceId: otherPracticeId } = await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_cross_practice_series_user",
+      "cross-practice-series@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        lineageKey: targetAppointmentTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 2,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const bookingIdentityId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      return await ctx.db.insert("bookingIdentities", {
+        createdAt: now,
+        kind: "online",
+        lastModified: now,
+        practiceId: otherPracticeId,
+        sourceIdentityId: "other-practice-identity",
+        sourceSystem: "legacy-online",
+      });
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    await expect(
+      t.mutation(api.appointments.createAppointmentSeries, {
+        bookingIdentityId,
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Ersttermin",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      }),
+    ).rejects.toThrow(
+      "Booking identity does not belong to the appointment practice.",
+    );
+  });
+
+  test("replanned optional follow-up appointments inherit the stored booking identity", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_series_optional_identity_user",
+      "series-optional-identity@example.com",
+    );
+    const alternatePractitionerId = await t.run(async (ctx) => {
+      const createdPractitionerId = await insertWithLineage(
+        ctx,
+        "practitioners",
+        {
+          name: "Dr. Followup",
+          practiceId,
+          ruleSetId,
+        },
+      );
+
+      for (const dayOfWeek of [1, 2, 3, 4, 5]) {
+        await insertWithLineage(ctx, "baseSchedules", {
+          dayOfWeek,
+          endTime: "17:00",
+          locationLineageKey: locationId,
+          practiceId,
+          practitionerLineageKey: createdPractitionerId,
+          ruleSetId,
+          startTime: "08:00",
+        });
+      }
+
+      return createdPractitionerId;
+    });
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const optionalFollowUpTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [alternatePractitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Optionale Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", optionalFollowUpTypeId, {
+        lineageKey: optionalFollowUpTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [
+          practitionerId,
+          alternatePractitionerId,
+        ],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: optionalFollowUpTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 2,
+            practitionerMode: "inherit",
+            required: false,
+            searchMode: "same_day",
+            stepId: "optional-step-1",
+          },
+        ],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const bookingIdentityId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      return await ctx.db.insert("bookingIdentities", {
+        createdAt: now,
+        kind: "online",
+        lastModified: now,
+        practiceId,
+        sourceIdentityId: "legacy-user-optional-1",
+        sourceSystem: "legacy-online",
+      });
+    });
+
+    const mondayStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    const createdSeries = await t.mutation(
+      api.appointments.createAppointmentSeries,
+      {
+        bookingIdentityId,
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Ersttermin",
+        ruleSetId,
+        start: mondayStart,
+        userId,
+      },
+    );
+
+    expect(createdSeries.steps).toHaveLength(1);
+
+    await t.mutation(api.appointments.updateAppointment, {
+      end: Temporal.ZonedDateTime.from(mondayStart)
+        .add({ minutes: 30 })
+        .toString(),
+      id: createdSeries.rootAppointmentId,
+      practitionerId: alternatePractitionerId,
+      start: mondayStart,
+    });
+
+    const replannedAppointments = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) =>
+          q.eq("seriesId", createdSeries.seriesId),
+        )
+        .collect();
+    });
+    const storedSeries = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointmentSeries")
+        .withIndex("by_seriesId", (q) =>
+          q.eq("seriesId", createdSeries.seriesId),
+        )
+        .first();
+    });
+
+    expect(storedSeries?.bookingIdentityId).toBe(bookingIdentityId);
+    expect(replannedAppointments).toHaveLength(2);
+    expect(
+      replannedAppointments.every(
+        (appointment) => appointment.bookingIdentityId === bookingIdentityId,
+      ),
+    ).toBe(true);
+    expect(
+      replannedAppointments.some(
+        (appointment) => appointment.seriesStepIndex === 1n,
+      ),
+    ).toBe(true);
   });
 
   test("updateAppointmentType clears follow-up plans without patching undefined", async () => {
@@ -1491,6 +1762,15 @@ describe("appointment series", () => {
         .toPlainDate()
         .toString(),
     ).toBe(monday.add({ days: 3 }).toString());
+
+    await expect(
+      t.mutation(api.appointments.updateAppointment, {
+        calendarResourceColumn: "ekg",
+        id: createdSeries.rootAppointmentId,
+      }),
+    ).rejects.toThrow(
+      "Kettentermine können nicht in EKG- oder Labor-Spalten verschoben werden.",
+    );
 
     await t.mutation(api.appointments.deleteAppointment, {
       id: createdSeries.rootAppointmentId,

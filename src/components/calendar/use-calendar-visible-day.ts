@@ -17,6 +17,12 @@ import type {
 
 import { asPractitionerLineageKey } from "../../../convex/identity";
 import {
+  calendarColumnScopeFromPractitioner,
+  calendarColumnScopeFromResourceColumn,
+  getCalendarResourceColumnFromOccupancy,
+  getPractitionerLineageKeyFromOccupancy,
+} from "../../../lib/calendar-occupancy";
+import {
   getPractitionerAvailabilityRangesForDate,
   type VacationPortion,
 } from "../../../lib/vacation-utils";
@@ -134,7 +140,16 @@ export function useCalendarVisibleDay({
 
     const appointmentsForSelectedDate = appointmentsData.filter(
       (appointment) => {
-        if (!appointment.practitionerLineageKey) {
+        const practitionerLineageKey = getPractitionerLineageKeyFromOccupancy(
+          appointment.placement.occupancyScope,
+        );
+        const resourceColumn = getCalendarResourceColumnFromOccupancy(
+          appointment.placement.occupancyScope,
+        );
+        if (
+          practitionerLineageKey === undefined &&
+          resourceColumn === undefined
+        ) {
           return false;
         }
 
@@ -149,10 +164,15 @@ export function useCalendarVisibleDay({
 
         return (
           effectiveLocationLineageKey === undefined ||
-          appointment.locationLineageKey === effectiveLocationLineageKey
+          appointment.placement.locationLineageKey ===
+            effectiveLocationLineageKey
         );
       },
     );
+    const appointmentRangesByPractitioner =
+      collectAppointmentRangesByPractitioner(appointmentsForSelectedDate);
+    const appointmentRangesByResourceColumn =
+      collectAppointmentRangesByResourceColumn(appointmentsForSelectedDate);
     const deletedPractitionerIds = new Set(
       practitionersData
         .filter((practitioner) => practitioner.deleted === true)
@@ -178,6 +198,8 @@ export function useCalendarVisibleDay({
 
     if (
       daySchedules.length === 0 &&
+      appointmentRangesByPractitioner.size === 0 &&
+      appointmentRangesByResourceColumn.size === 0 &&
       deletedPractitionerIdsWithCalendarItems.size === 0
     ) {
       return emptyVisibleDay();
@@ -204,7 +226,11 @@ export function useCalendarVisibleDay({
     if (vacationsData) {
       const practitionersWithAppointments = new Set(
         appointmentsForSelectedDate
-          .map((appointment) => appointment.practitionerLineageKey)
+          .map((appointment) =>
+            getPractitionerLineageKeyFromOccupancy(
+              appointment.placement.occupancyScope,
+            ),
+          )
           .filter((lineageKey) => lineageKey !== undefined),
       );
 
@@ -289,6 +315,26 @@ export function useCalendarVisibleDay({
       working.map((practitioner) => practitioner.lineageKey),
     );
 
+    for (const [
+      practitionerLineageKey,
+      range,
+    ] of appointmentRangesByPractitioner) {
+      if (workingPractitionerIds.has(practitionerLineageKey)) {
+        continue;
+      }
+
+      mutedPractitionerIds.add(practitionerLineageKey);
+      working.push({
+        endTime: formatMinutesAsTime(range.endMinutes),
+        lineageKey: practitionerLineageKey,
+        name:
+          practitionerNameByLineageKey.get(practitionerLineageKey) ??
+          "Unbekannt",
+        startTime: formatMinutesAsTime(range.startMinutes),
+      });
+      workingPractitionerIds.add(practitionerLineageKey);
+    }
+
     for (const {
       endMinutes,
       practitionerLineageKey,
@@ -331,9 +377,12 @@ export function useCalendarVisibleDay({
     );
     const appointmentRanges = appointmentsForSelectedDate.flatMap(
       (appointment) => {
+        const practitionerLineageKey = getPractitionerLineageKeyFromOccupancy(
+          appointment.placement.occupancyScope,
+        );
         if (
-          appointment.practitionerLineageKey === undefined ||
-          !practitionerIds.has(appointment.practitionerLineageKey)
+          practitionerLineageKey === undefined ||
+          !practitionerIds.has(practitionerLineageKey)
         ) {
           return [];
         }
@@ -357,6 +406,7 @@ export function useCalendarVisibleDay({
     const visibleRanges = [
       ...effectiveWorkingRanges,
       ...appointmentRanges,
+      ...appointmentRangesByResourceColumn.values(),
       ...deletedPractitionerCalendarItemRanges,
     ];
 
@@ -390,7 +440,7 @@ export function useCalendarVisibleDay({
 
     const practitionerColumns: CalendarColumn[] = working.map(
       (practitioner) => ({
-        id: practitioner.lineageKey,
+        id: calendarColumnScopeFromPractitioner(practitioner.lineageKey),
         isAppointmentTypeUnavailable: placementUnsupportedPractitionerIds.has(
           practitioner.lineageKey,
         ),
@@ -401,30 +451,34 @@ export function useCalendarVisibleDay({
           mutedPractitionerIds.has(practitioner.lineageKey) ||
           placementUnsupportedPractitionerIds.has(practitioner.lineageKey) ||
           dragUnsupportedPractitionerIds.has(practitioner.lineageKey),
-        isUnavailable: deletedPractitionerIdsWithCalendarItems.has(
-          practitioner.lineageKey,
-        ),
+        isUnavailable:
+          deletedPractitionerIdsWithCalendarItems.has(
+            practitioner.lineageKey,
+          ) ||
+          !validSchedules.some((schedule) => {
+            const lineageKey = practitionerLineageKeyById.get(
+              schedule.practitionerId,
+            );
+            return lineageKey === practitioner.lineageKey;
+          }),
         title: practitioner.name,
       }),
     );
 
-    const specialColumns: CalendarColumn[] =
-      working.length > 0
-        ? [
-            {
-              id: "ekg",
-              isMuted: false,
-              isUnavailable: false,
-              title: "EKG",
-            },
-            {
-              id: "labor",
-              isMuted: false,
-              isUnavailable: false,
-              title: "Labor",
-            },
-          ]
-        : [];
+    const shouldShowSpecialColumns =
+      working.length > 0 || appointmentRangesByResourceColumn.size > 0;
+    const specialColumns: CalendarColumn[] = shouldShowSpecialColumns
+      ? [
+          {
+            id: calendarColumnScopeFromResourceColumn("ekg"),
+            title: "EKG",
+          },
+          {
+            id: calendarColumnScopeFromResourceColumn("labor"),
+            title: "Labor",
+          },
+        ]
+      : [];
 
     return {
       businessEndHour,
@@ -452,6 +506,88 @@ export function useCalendarVisibleDay({
     timeToMinutes,
     vacationsData,
   ]);
+}
+
+function collectAppointmentRangesByPractitioner(
+  appointments: readonly CalendarAppointmentRecord[],
+): Map<PractitionerLineageKey, { endMinutes: number; startMinutes: number }> {
+  const ranges = new Map<
+    PractitionerLineageKey,
+    { endMinutes: number; startMinutes: number }
+  >();
+
+  for (const appointment of appointments) {
+    const practitionerLineageKey = getPractitionerLineageKeyFromOccupancy(
+      appointment.placement.occupancyScope,
+    );
+    if (practitionerLineageKey === undefined) {
+      continue;
+    }
+
+    const start = Temporal.ZonedDateTime.from(appointment.start);
+    const end = Temporal.ZonedDateTime.from(appointment.end);
+    const startMinutes = start.hour * 60 + start.minute;
+    const endMinutes = end.hour * 60 + end.minute;
+    const existing = ranges.get(practitionerLineageKey);
+
+    ranges.set(practitionerLineageKey, {
+      endMinutes:
+        existing === undefined
+          ? endMinutes
+          : Math.max(existing.endMinutes, endMinutes),
+      startMinutes:
+        existing === undefined
+          ? startMinutes
+          : Math.min(existing.startMinutes, startMinutes),
+    });
+  }
+
+  return ranges;
+}
+
+function collectAppointmentRangesByResourceColumn(
+  appointments: readonly CalendarAppointmentRecord[],
+): Map<"ekg" | "labor", { endMinutes: number; startMinutes: number }> {
+  const ranges = new Map<
+    "ekg" | "labor",
+    { endMinutes: number; startMinutes: number }
+  >();
+
+  for (const appointment of appointments) {
+    if (
+      getPractitionerLineageKeyFromOccupancy(
+        appointment.placement.occupancyScope,
+      ) !== undefined
+    ) {
+      continue;
+    }
+
+    const resourceColumn = getCalendarResourceColumnFromOccupancy(
+      appointment.placement.occupancyScope,
+    );
+    if (resourceColumn === undefined) {
+      continue;
+    }
+
+    const start = Temporal.ZonedDateTime.from(appointment.start);
+    const end = Temporal.ZonedDateTime.from(appointment.end);
+    const startMinutes = start.hour * 60 + start.minute;
+    const endMinutes = end.hour * 60 + end.minute;
+    const existing = ranges.get(resourceColumn);
+
+    ranges.set(resourceColumn, {
+      endMinutes:
+        existing === undefined
+          ? endMinutes
+          : Math.max(existing.endMinutes, endMinutes),
+      startMinutes:
+        existing === undefined
+          ? startMinutes
+          : Math.min(existing.startMinutes, startMinutes),
+    });
+  }
+
+  return ranges;
 }
 
 function emptyVisibleDay() {

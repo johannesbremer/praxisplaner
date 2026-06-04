@@ -46,8 +46,10 @@ interface BlockedSlotEditModalProps {
     end: string;
     isSimulation?: boolean;
     locationId: Id<"locations">;
+    occupancyScope:
+      | { kind: "location-wide" }
+      | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
     practiceId: Id<"practices">;
-    practitionerId?: Id<"practitioners">;
     replacesBlockedSlotId?: Id<"blockedSlots">;
     start: string;
     title: string;
@@ -114,13 +116,17 @@ export function BlockedSlotEditModal({
             end: slotData.end,
             isSimulation: true,
             locationId: slotData.locationId,
+            occupancyScope:
+              slotData.practitionerId === undefined
+                ? { kind: "location-wide" }
+                : {
+                    kind: "practitioner",
+                    practitionerId: slotData.practitionerId,
+                  },
             practiceId: slotData.practiceId,
             replacesBlockedSlotId: blockedSlotId,
             start: slotData.start,
             title: value.title,
-            ...(slotData.practitionerId
-              ? { practitionerId: slotData.practitionerId }
-              : {}),
           });
         } else {
           // Otherwise, just update the slot directly

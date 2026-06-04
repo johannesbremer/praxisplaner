@@ -12,6 +12,7 @@ import type {
   PracticePatientSelection,
   SchedulingSimulatedContext,
 } from "../types";
+import type { CalendarAppointmentCreateCommandArgs } from "./calendar/use-calendar-planning-workbench";
 
 import {
   type FrontendError,
@@ -76,22 +77,9 @@ export interface CalendarContextValue {
   selectedPatientId?: Id<"patients"> | undefined;
 
   // Optimistic mutations
-  runCreateAppointment?: (args: {
-    appointmentTypeId: Id<"appointmentTypes">;
-    isNewPatient?: boolean;
-    isSimulation?: boolean;
-    locationId: Id<"locations">;
-    patientDateOfBirth?: string;
-    patientId?: Id<"patients">;
-    practiceId: Id<"practices">;
-    practitionerId?: Id<"practitioners">;
-    replacesAppointmentId?: Id<"appointments">;
-    start: string;
-    temporaryPatientName?: string;
-    temporaryPatientPhoneNumber?: string;
-    title: string;
-    userId?: Id<"users">;
-  }) => Promise<Id<"appointments"> | undefined>;
+  runCreateAppointment?: (
+    args: CalendarAppointmentCreateCommandArgs,
+  ) => Promise<Id<"appointments"> | undefined>;
 }
 
 const CalendarContext = createContext<CalendarContextValue | null>(null);

@@ -9,11 +9,18 @@ import {
   toTableId,
 } from "../../../convex/identity";
 import {
+  calendarColumnScopeFromPractitioner,
+  calendarColumnScopeFromResourceColumn,
+  getCalendarResourceColumnFromColumn,
+  sameCalendarColumnScope,
+} from "../../../lib/calendar-occupancy";
+import {
   APPOINTMENT_COLORS,
   type CalendarAppointmentLayout,
   type CalendarAppointmentView,
   SLOT_DURATION,
 } from "../../../src/components/calendar/types";
+import { buildCalendarAppointmentRecord } from "./test-records";
 
 const TAILWIND_BG_COLOR_REGEX = regex.as(String.raw`^bg-\w+-\d{3}$`);
 
@@ -36,30 +43,43 @@ describe("Calendar Types and Constants", () => {
     id: string;
     isSimulation?: boolean;
     patientId?: CalendarAppointmentLayout["record"]["patientId"];
-    practitionerLineageKey?: CalendarAppointmentLayout["record"]["practitionerLineageKey"];
+    practitionerLineageKey?: typeof practitioner1;
     startTime?: string;
     userId?: CalendarAppointmentLayout["record"]["userId"];
   }): CalendarAppointmentLayout => ({
-    column: args.column ?? practitioner1,
+    column: args.column ?? calendarColumnScopeFromPractitioner(practitioner1),
     duration: args.duration ?? 30,
     id: args.id,
     record: {
-      _creationTime: 0,
-      _id: toTableId<"appointments">(args.id),
-      appointmentTypeLineageKey: appointmentType1,
-      appointmentTypeTitle: "Test Appointment Type",
-      createdAt: 0n,
-      end: "2026-04-24T10:30:00+02:00[Europe/Berlin]",
+      ...(() => {
+        const resourceColumn =
+          args.column === undefined
+            ? undefined
+            : getCalendarResourceColumnFromColumn(args.column);
+        const baseArgs = {
+          _id: toTableId<"appointments">(args.id),
+          appointmentTypeLineageKey: appointmentType1,
+          appointmentTypeTitle: "Test Appointment Type",
+          end: "2026-04-24T10:30:00+02:00[Europe/Berlin]" as const,
+          locationLineageKey: location1,
+          practiceId: practice1,
+          start: "2026-04-24T10:00:00+02:00[Europe/Berlin]" as const,
+          title: "Test Appointment",
+        };
+
+        return resourceColumn === undefined
+          ? buildCalendarAppointmentRecord({
+              ...baseArgs,
+              practitionerLineageKey:
+                args.practitionerLineageKey ?? practitioner1,
+            })
+          : buildCalendarAppointmentRecord({
+              ...baseArgs,
+              calendarResourceColumn: resourceColumn,
+            });
+      })(),
       ...(args.isSimulation ? { isSimulation: true } : {}),
-      lastModified: 0n,
-      locationLineageKey: location1,
       ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
-      practiceId: practice1,
-      ...(args.practitionerLineageKey === undefined
-        ? { practitionerLineageKey: practitioner1 }
-        : { practitionerLineageKey: args.practitionerLineageKey }),
-      start: "2026-04-24T10:00:00+02:00[Europe/Berlin]",
-      title: "Test Appointment",
       ...(args.userId === undefined ? {} : { userId: args.userId }),
     },
     startTime: args.startTime ?? "10:00",
@@ -123,7 +143,12 @@ describe("Calendar Types and Constants", () => {
       expect(appointment.layout.id).toBe("test-1");
       expect(appointment.layout.startTime).toBe("10:00");
       expect(appointment.layout.duration).toBe(30);
-      expect(appointment.layout.column).toBe(practitioner1);
+      expect(
+        sameCalendarColumnScope(
+          appointment.layout.column,
+          calendarColumnScopeFromPractitioner(practitioner1),
+        ),
+      ).toBe(true);
       expect(appointment.color).toBe("bg-blue-500");
       expect(appointment.layout.record.isSimulation).toBeUndefined();
     });
@@ -189,14 +214,21 @@ describe("Calendar Types and Constants", () => {
     });
 
     test("should accept appointments for different column types", () => {
-      const columns = [practitioner1, practitioner2, "ekg", "labor"] as const;
+      const columns = [
+        calendarColumnScopeFromPractitioner(practitioner1),
+        calendarColumnScopeFromPractitioner(practitioner2),
+        calendarColumnScopeFromResourceColumn("ekg"),
+        calendarColumnScopeFromResourceColumn("labor"),
+      ] as const;
 
-      for (const column of columns) {
+      for (const [index, column] of columns.entries()) {
         const appointment = createView({
-          layout: createLayout({ column, id: `test-${column}` }),
+          layout: createLayout({ column, id: `test-${index}` }),
         });
 
-        expect(appointment.layout.column).toBe(column);
+        expect(sameCalendarColumnScope(appointment.layout.column, column)).toBe(
+          true,
+        );
       }
     });
   });
@@ -208,7 +240,9 @@ describe("Calendar Types and Constants", () => {
           createView({
             color,
             layout: createLayout({
-              column: index % 2 === 0 ? practitioner1 : practitioner2,
+              column: calendarColumnScopeFromPractitioner(
+                index % 2 === 0 ? practitioner1 : practitioner2,
+              ),
               id: `apt-${index}`,
             }),
           }),

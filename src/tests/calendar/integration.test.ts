@@ -11,8 +11,10 @@ import {
   asPractitionerLineageKey,
   toTableId,
 } from "../../../convex/identity";
+import { calendarColumnScopeFromPractitioner } from "../../../lib/calendar-occupancy";
 import { toCalendarBlockedSlotRecord } from "../../../src/components/calendar/calendar-view-models";
 import { useCalendarInteractions } from "../../components/calendar/use-calendar-interactions";
+import { buildCalendarAppointmentRecord } from "./test-records";
 
 const { captureErrorGlobal, toastError } = vi.hoisted(() => ({
   captureErrorGlobal: vi.fn(),
@@ -34,6 +36,7 @@ const practice1 = toTableId<"practices">("practice_1");
 const practitioner1 = asPractitionerLineageKey(
   toTableId<"practitioners">("practitioner_1"),
 );
+const practitionerColumn1 = calendarColumnScopeFromPractitioner(practitioner1);
 const appointmentType1 = asAppointmentTypeLineageKey(
   toTableId<"appointmentTypes">("appointment_type_1"),
 );
@@ -53,23 +56,21 @@ function buildAppointmentLayout(args: {
   title?: string;
 }): CalendarAppointmentLayout {
   return {
-    column: practitioner1,
+    column: practitionerColumn1,
     duration: args.duration ?? 30,
     id: args.id ?? args._id,
     record: {
-      _creationTime: 0,
-      _id: args._id,
-      appointmentTypeLineageKey: appointmentType1,
-      appointmentTypeTitle: "Checkup",
-      createdAt: 0n,
-      end: "2026-04-23T09:30:00+02:00[Europe/Berlin]",
+      ...buildCalendarAppointmentRecord({
+        _id: args._id,
+        appointmentTypeLineageKey: appointmentType1,
+        end: "2026-04-23T09:30:00+02:00[Europe/Berlin]",
+        locationLineageKey: location1,
+        practiceId: practice1,
+        practitionerLineageKey: practitioner1,
+        start: args.start ?? "2026-04-23T09:00:00+02:00[Europe/Berlin]",
+        title: args.title ?? "Checkup",
+      }),
       ...(args.isSimulation ? { isSimulation: true } : {}),
-      lastModified: 0n,
-      locationLineageKey: location1,
-      practiceId: practice1,
-      practitionerLineageKey: practitioner1,
-      start: args.start ?? "2026-04-23T09:00:00+02:00[Europe/Berlin]",
-      title: args.title ?? "Checkup",
     },
     startTime: args.startTime ?? "09:00",
   };
@@ -87,9 +88,12 @@ function buildBlockedSlotResult(
     lastModified: 0n,
     locationId: location1,
     locationLineageKey: location1,
+    occupancyScope: {
+      kind: "practitioner",
+      practitionerLineageKey: practitioner1,
+    },
     practiceId: practice1,
     practitionerId: practitioner1,
-    practitionerLineageKey: practitioner1,
     start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
     title: "Blocked",
     ...rest,
@@ -381,7 +385,7 @@ describe("calendar resize interactions", () => {
         baseAppointments: [],
         baseManualBlockedSlots: [
           {
-            column: practitioner1,
+            column: practitionerColumn1,
             duration: 30,
             id: "blocked_slot_1",
             isManual: true,
@@ -459,7 +463,7 @@ describe("calendar resize interactions", () => {
         baseAppointments: [],
         baseManualBlockedSlots: [
           {
-            column: practitioner1,
+            column: practitionerColumn1,
             duration: 30,
             id: "blocked_slot_1",
             isManual: true,
@@ -564,7 +568,7 @@ describe("calendar resize interactions", () => {
           baseAppointments: [],
           baseManualBlockedSlots: [
             {
-              column: practitioner1,
+              column: practitionerColumn1,
               duration: 30,
               id: "blocked_slot_1",
               isManual: true,
@@ -621,7 +625,7 @@ describe("calendar resize interactions", () => {
       baseAppointments: [],
       baseManualBlockedSlots: [
         {
-          column: practitioner1,
+          column: practitionerColumn1,
           duration: 30,
           id: "blocked_slot_sim",
           isManual: true,

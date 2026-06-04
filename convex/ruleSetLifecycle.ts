@@ -15,7 +15,7 @@ import {
   findUnsavedRuleSet,
   validateRuleSet,
 } from "./copyOnWrite";
-import { asLocationLineageKey, asPractitionerLineageKey } from "./identity";
+import { asLocationLineageKey } from "./identity";
 import { draftRuleSetHasSemanticChanges } from "./ruleSetDiff";
 import { validateRuleSetDescriptionSync } from "./ruleSetValidation";
 
@@ -358,13 +358,7 @@ async function applyPendingSimulationAppointmentsForRuleSet(
       locationLineageKey: asLocationLineageKey(
         currentSimulation.locationLineageKey,
       ),
-      ...(currentSimulation.practitionerLineageKey
-        ? {
-            practitionerLineageKey: asPractitionerLineageKey(
-              currentSimulation.practitionerLineageKey,
-            ),
-          }
-        : {}),
+      occupancyScope: currentSimulation.occupancyScope,
       start: currentSimulation.start,
     };
 
@@ -384,13 +378,7 @@ async function applyPendingSimulationAppointmentsForRuleSet(
             locationLineageKey: asLocationLineageKey(
               otherSimulation.locationLineageKey,
             ),
-            ...(otherSimulation.practitionerLineageKey
-              ? {
-                  practitionerLineageKey: asPractitionerLineageKey(
-                    otherSimulation.practitionerLineageKey,
-                  ),
-                }
-              : {}),
+            occupancyScope: otherSimulation.occupancyScope,
             start: otherSimulation.start,
           },
           currentCandidate,
@@ -421,13 +409,7 @@ async function applyPendingSimulationAppointmentsForRuleSet(
         locationLineageKey: asLocationLineageKey(
           simulationAppointment.locationLineageKey,
         ),
-        ...(simulationAppointment.practitionerLineageKey
-          ? {
-              practitionerLineageKey: asPractitionerLineageKey(
-                simulationAppointment.practitionerLineageKey,
-              ),
-            }
-          : {}),
+        occupancyScope: simulationAppointment.occupancyScope,
         start: simulationAppointment.start,
       },
       excludeAppointmentIds,
@@ -458,7 +440,7 @@ async function applyPendingSimulationAppointmentsForRuleSet(
       ...(simulationAppointment.patientId
         ? { patientId: simulationAppointment.patientId }
         : {}),
-      practitionerLineageKey: simulationAppointment.practitionerLineageKey,
+      occupancyScope: simulationAppointment.occupancyScope,
       start: simulationAppointment.start,
       title: simulationAppointment.title,
       ...(simulationAppointment.userId

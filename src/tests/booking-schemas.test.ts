@@ -8,25 +8,30 @@ import {
 } from "@/lib/booking-schemas";
 
 describe("booking schema normalization", () => {
-  it("omits empty optional personal-data fields", () => {
+  it("requires migrated personal-data fields and omits empty title", () => {
     const parsed = personalDataFormSchema.parse({
-      city: "",
+      city: "Berlin",
       dateOfBirth: "1990-05-12",
-      email: "",
+      email: "ada@example.com",
       firstName: "Ada",
-      gender: "",
+      gender: "female",
       lastName: "Lovelace",
       phoneNumber: "+491234567890",
-      postalCode: "",
-      street: "",
+      postalCode: "10115",
+      street: "Unter den Linden 1",
       title: "",
     });
 
     expect(parsed).toEqual({
+      city: "Berlin",
       dateOfBirth: "1990-05-12",
+      email: "ada@example.com",
       firstName: "Ada",
+      gender: "female",
       lastName: "Lovelace",
       phoneNumber: "+491234567890",
+      postalCode: "10115",
+      street: "Unter den Linden 1",
     });
   });
 

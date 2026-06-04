@@ -12,27 +12,25 @@ import {
   asPractitionerLineageKey,
   toTableId,
 } from "../../../convex/identity";
+import { calendarColumnScopeFromPractitioner } from "../../../lib/calendar-occupancy";
 import { CalendarAppointment } from "../../../src/components/calendar/calendar-appointment";
 import { assertElement } from "../test-utils";
+import { buildCalendarAppointmentRecord } from "./test-records";
 
 describe("CalendarAppointment", () => {
   const practitioner1 = asPractitionerLineageKey(
     toTableId<"practitioners">("practitioner_1"),
   );
   const mockLayout: CalendarAppointmentLayout = {
-    column: practitioner1,
+    column: calendarColumnScopeFromPractitioner(practitioner1),
     duration: 30,
     id: "apt-1",
-    record: {
-      _creationTime: 0,
+    record: buildCalendarAppointmentRecord({
       _id: toTableId<"appointments">("apt-1"),
       appointmentTypeLineageKey: asAppointmentTypeLineageKey(
         toTableId<"appointmentTypes">("appointment_type_1"),
       ),
-      appointmentTypeTitle: "Checkup",
-      createdAt: 0n,
       end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
-      lastModified: 0n,
       locationLineageKey: asLocationLineageKey(
         toTableId<"locations">("location_1"),
       ),
@@ -40,7 +38,7 @@ describe("CalendarAppointment", () => {
       practitionerLineageKey: practitioner1,
       start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
       title: "Test Appointment",
-    },
+    }),
     startTime: "09:00",
   };
   const mockAppointment: CalendarAppointmentView = {
@@ -134,12 +132,13 @@ describe("CalendarAppointment", () => {
     expect(mockHandlers.onDragEnd).toHaveBeenCalled();
   });
 
-  test("applies opacity when dragging", () => {
+  test("visually hides the source appointment while dragging", () => {
     const { container } = render(
       <CalendarAppointment {...defaultProps} isDragging={true} />,
     );
-    const appointmentElement = container.querySelector(".opacity-50");
+    const appointmentElement = container.querySelector(".opacity-0");
     expect(appointmentElement).toBeInTheDocument();
+    expect(appointmentElement).not.toHaveClass("pointer-events-none");
   });
 
   test("applies full opacity when not dragging", () => {

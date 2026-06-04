@@ -16,6 +16,10 @@ import {
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import {
+  getAppointmentPractitionerLineageKey,
+  getBlockedSlotPractitionerLineageKey,
+} from "./appointmentOccupancy";
+import {
   asLocationId,
   asLocationLineageKey,
   asPractitionerId,
@@ -447,17 +451,19 @@ export function slotOverlapsAppointment(
   >,
   appointment: Pick<
     Doc<"appointments">,
-    "end" | "locationLineageKey" | "practitionerLineageKey" | "start"
+    "end" | "locationLineageKey" | "occupancyScope" | "start"
   > & {
     locationLineageKey: LocationLineageKey;
-    practitionerLineageKey?: PractitionerLineageKey;
   },
 ): boolean {
   if (slot.locationLineageKey !== appointment.locationLineageKey) {
     return false;
   }
 
-  if (slot.practitionerLineageKey !== appointment.practitionerLineageKey) {
+  if (
+    slot.practitionerLineageKey !==
+    getAppointmentPractitionerLineageKey(appointment.occupancyScope)
+  ) {
     return false;
   }
 
@@ -494,9 +500,11 @@ export function slotOverlapsBlockedSlot(
   ).toInstant();
   const blockedEnd = Temporal.ZonedDateTime.from(blockedSlot.end).toInstant();
 
+  const blockedSlotPractitionerLineageKey =
+    getBlockedSlotPractitionerLineageKey(blockedSlot.occupancyScope);
   if (
-    blockedSlot.practitionerLineageKey &&
-    blockedSlot.practitionerLineageKey !== slot.practitionerLineageKey
+    blockedSlotPractitionerLineageKey &&
+    blockedSlotPractitionerLineageKey !== slot.practitionerLineageKey
   ) {
     return false;
   }
@@ -762,13 +770,7 @@ function markSlotsBlockedByAppointments(
           locationLineageKey: asLocationLineageKey(
             appointment.locationLineageKey,
           ),
-          ...(appointment.practitionerLineageKey
-            ? {
-                practitionerLineageKey: asPractitionerLineageKey(
-                  appointment.practitionerLineageKey,
-                ),
-              }
-            : {}),
+          occupancyScope: appointment.occupancyScope,
           start: appointment.start,
         }),
     );

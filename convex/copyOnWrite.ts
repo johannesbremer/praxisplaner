@@ -248,12 +248,34 @@ export async function copyAppointmentTypes(
     .query("appointmentTypes")
     .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
     .collect();
+  const sourcePractitioners = await db
+    .query("practitioners")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
+    .collect();
+  const activePractitionerLineageKeys = new Set(
+    sourcePractitioners
+      .filter((practitioner) => !isRuleSetEntityDeleted(practitioner))
+      .map((practitioner) =>
+        requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      ),
+  );
 
   const idMap = new Map<Id<"appointmentTypes">, Id<"appointmentTypes">>();
 
   for (const sourceType of sourceTypes) {
+    if (isRuleSetEntityDeleted(sourceType)) {
+      continue;
+    }
     const newId = await insertSelfLineageEntity(db, "appointmentTypes", {
-      allowedPractitionerLineageKeys: sourceType.allowedPractitionerLineageKeys,
+      allowedPractitionerLineageKeys:
+        sourceType.allowedPractitionerLineageKeys.filter((lineageKey) =>
+          activePractitionerLineageKeys.has(lineageKey),
+        ),
       createdAt: sourceType.createdAt,
       duration: sourceType.duration,
       ...(sourceType.followUpPlan && { followUpPlan: sourceType.followUpPlan }),
@@ -293,6 +315,9 @@ export async function copyPractitioners(
   const idMap = new Map<Id<"practitioners">, Id<"practitioners">>();
 
   for (const source of sourcePractitioners) {
+    if (isRuleSetEntityDeleted(source)) {
+      continue;
+    }
     const newId = await insertSelfLineageEntity(db, "practitioners", {
       lineageKey: requireLineageKey({
         entityId: source._id,
@@ -304,7 +329,6 @@ export async function copyPractitioners(
       parentId: source._id, // Track which entity this was copied from
       practiceId,
       ruleSetId: targetRuleSetId,
-      ...(source.tags && { tags: source.tags }),
     });
 
     idMap.set(source._id, newId);
@@ -370,6 +394,9 @@ export async function copyLocations(
   const idMap = new Map<Id<"locations">, Id<"locations">>();
 
   for (const source of sourceLocations) {
+    if (isRuleSetEntityDeleted(source)) {
+      continue;
+    }
     const newId = await insertSelfLineageEntity(db, "locations", {
       lineageKey: requireLineageKey({
         entityId: source._id,
@@ -403,8 +430,48 @@ export async function copyBaseSchedules(
     .query("baseSchedules")
     .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
     .collect();
+  const [sourceLocations, sourcePractitioners] = await Promise.all([
+    db
+      .query("locations")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
+      .collect(),
+    db
+      .query("practitioners")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
+      .collect(),
+  ]);
+  const activeLocationLineageKeys = new Set(
+    sourceLocations
+      .filter((location) => !isRuleSetEntityDeleted(location))
+      .map((location) =>
+        requireLineageKey({
+          entityId: location._id,
+          entityType: "location",
+          lineageKey: location.lineageKey,
+          ruleSetId: location.ruleSetId,
+        }),
+      ),
+  );
+  const activePractitionerLineageKeys = new Set(
+    sourcePractitioners
+      .filter((practitioner) => !isRuleSetEntityDeleted(practitioner))
+      .map((practitioner) =>
+        requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      ),
+  );
 
   for (const source of sourceSchedules) {
+    if (
+      !activeLocationLineageKeys.has(source.locationLineageKey) ||
+      !activePractitionerLineageKeys.has(source.practitionerLineageKey)
+    ) {
+      continue;
+    }
     await insertSelfLineageEntity(db, "baseSchedules", {
       dayOfWeek: source.dayOfWeek,
       endTime: source.endTime,
@@ -487,7 +554,6 @@ async function copyConditionNode(
       | "LOCATION"
       | "PATIENT_AGE"
       | "PRACTITIONER"
-      | "PRACTITIONER_TAG"
       | "TIME_RANGE";
     copyFromId: Id<"ruleConditions">;
     createdAt: bigint;

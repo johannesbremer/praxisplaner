@@ -52,7 +52,7 @@ export function CalendarAppointment({
   return (
     <div
       className={`absolute left-1 right-1 ${appointment.color} text-white text-xs rounded shadow-sm hover:shadow-md transition-all z-10 cursor-move ${
-        isDragging ? "opacity-50" : "opacity-100"
+        isDragging ? "opacity-0" : "opacity-100"
       } ${borderClass} h-(--calendar-appointment-height) min-h-4 top-(--calendar-appointment-top)`}
       draggable
       onClick={() => {

@@ -19,13 +19,13 @@ import { api } from "@/convex/_generated/api";
 
 import type { StepComponentProps } from "./types";
 
-export function LocationStep({ ruleSetId, sessionId }: StepComponentProps) {
+export function LocationStep({ practiceId, ruleSetId }: StepComponentProps) {
   const locations = useQuery(api.entities.getLocations, { ruleSetId });
   const selectLocation = useMutation(api.bookingSessions.selectLocation);
 
   const handleSelectLocation = async (locationLineageKey: Id<"locations">) => {
     try {
-      await selectLocation({ locationLineageKey, sessionId });
+      await selectLocation({ locationLineageKey, practiceId, ruleSetId });
     } catch (error) {
       console.error("Failed to select location:", error);
       toast.error("Standort konnte nicht ausgewählt werden", {

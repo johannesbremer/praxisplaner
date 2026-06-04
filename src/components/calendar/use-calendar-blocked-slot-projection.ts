@@ -15,6 +15,14 @@ import type {
 } from "./types";
 import type { CalendarManualBlockedSlot } from "./use-calendar-interactions";
 
+import {
+  getAppointmentPractitionerLineageKey,
+  getBlockedSlotPractitionerLineageKey,
+} from "../../../convex/appointmentOccupancy";
+import {
+  calendarColumnScopeFromPractitioner,
+  sameCalendarColumnScope,
+} from "../../../lib/calendar-occupancy";
 import { getPractitionerVacationRangesForDate } from "../../../lib/vacation-utils";
 import {
   captureFrontendError,
@@ -23,17 +31,9 @@ import {
 import { SLOT_DURATION } from "./types";
 import { filterBlockedSlotsForDateAndLocation } from "./use-calendar-logic-helpers";
 
-interface BlockedSlotProjection {
-  blockedByRuleId?: Id<"ruleConditions">;
-  column: CalendarColumnId;
-  duration?: number;
-  id?: string;
-  isManual?: boolean;
-  reason?: string;
-  slot: number;
-  startSlot?: number;
-  title?: string;
-}
+type BlockedSlotProjection =
+  | CalendarManualBlockedSlot
+  | RuleBlockedSlotProjection;
 
 interface BlockedSlotSchedule {
   breakTimes?: { end: string; start: string }[];
@@ -45,6 +45,15 @@ interface BlockedSlotVacation {
   portion: "afternoon" | "full" | "morning";
   practitionerLineageKey?: string;
   staffType: "mfa" | "practitioner";
+}
+
+interface RuleBlockedSlotProjection {
+  blockedByRuleId?: Id<"ruleConditions">;
+  column: CalendarColumnId;
+  isManual?: false;
+  reason?: string;
+  slot: number;
+  title?: string;
 }
 
 interface SchedulingSlot {
@@ -188,7 +197,9 @@ export function useCalendarBlockedSlotProjection({
 
         for (let slot = startSlot; slot < endSlot; slot++) {
           breaks.push({
-            column: practitionerColumn.lineageKey,
+            column: calendarColumnScopeFromPractitioner(
+              practitionerColumn.lineageKey,
+            ),
             reason: "Pause",
             slot,
           });
@@ -222,14 +233,19 @@ export function useCalendarBlockedSlotProjection({
     );
 
     for (const blockedSlot of dateFilteredBlocks) {
-      const practitionerColumn = blockedSlot.practitionerLineageKey
-        ? workingPractitioners.find(
-            (practitioner) =>
-              practitioner.lineageKey === blockedSlot.practitionerLineageKey,
-          )
-        : undefined;
+      const blockedSlotPractitionerLineageKey =
+        getBlockedSlotPractitionerLineageKey(
+          blockedSlot.placement.occupancyScope,
+        );
+      const resolvedPractitionerColumn =
+        blockedSlotPractitionerLineageKey === undefined
+          ? undefined
+          : workingPractitioners.find(
+              (practitioner) =>
+                practitioner.lineageKey === blockedSlotPractitionerLineageKey,
+            );
 
-      if (practitionerColumn) {
+      if (resolvedPractitionerColumn) {
         const startTime = Temporal.ZonedDateTime.from(
           blockedSlot.start,
         ).toPlainTime();
@@ -242,10 +258,27 @@ export function useCalendarBlockedSlotProjection({
           Temporal.PlainTime.compare(endTime, startTime) >= 0
             ? endTime.since(startTime).total("minutes")
             : 0;
+        if (durationMinutes <= 0) {
+          captureFrontendError(
+            invalidStateError(
+              "Manual blocked slot has invalid duration.",
+              "useCalendarBlockedSlotProjection.manualBlockedSlots",
+            ),
+            {
+              blockedSlotId: blockedSlot._id,
+              end: blockedSlot.end,
+              start: blockedSlot.start,
+            },
+            `manualBlockedSlotInvalidDuration:${blockedSlot._id}`,
+          );
+          continue;
+        }
 
         for (let slot = startSlot; slot < endSlot; slot++) {
           manual.push({
-            column: practitionerColumn.lineageKey,
+            column: calendarColumnScopeFromPractitioner(
+              resolvedPractitionerColumn.lineageKey,
+            ),
             duration: durationMinutes,
             id: blockedSlot._id,
             isManual: true,
@@ -255,7 +288,7 @@ export function useCalendarBlockedSlotProjection({
             title: blockedSlot.title,
           });
         }
-      } else if (blockedSlot.practitionerLineageKey) {
+      } else if (blockedSlotPractitionerLineageKey) {
         captureFrontendError(
           invalidStateError(
             "Manual blocked slot practitioner not in visible columns.",
@@ -263,8 +296,8 @@ export function useCalendarBlockedSlotProjection({
           ),
           {
             blockedSlotId: blockedSlot._id,
-            locationLineageKey: blockedSlot.locationLineageKey,
-            practitionerLineageKey: blockedSlot.practitionerLineageKey,
+            locationLineageKey: blockedSlot.placement.locationLineageKey,
+            practitionerLineageKey: blockedSlotPractitionerLineageKey,
             selectedDate: selectedDate.toString(),
           },
           `manualBlockedSlotMissingColumn:${blockedSlot._id}`,
@@ -308,14 +341,18 @@ export function useCalendarBlockedSlotProjection({
       }
 
       const hasOnlyConflictFreeFullDayVacation =
-        !appointmentsData.some(
-          (appointment) =>
-            appointment.practitionerLineageKey === practitioner.lineageKey &&
+        !appointmentsData.some((appointment) => {
+          const practitionerLineageKey = getAppointmentPractitionerLineageKey(
+            appointment.placement.occupancyScope,
+          );
+          return (
+            practitionerLineageKey === practitioner.lineageKey &&
             Temporal.PlainDate.compare(
               Temporal.ZonedDateTime.from(appointment.start).toPlainDate(),
               selectedDate,
-            ) === 0,
-        ) &&
+            ) === 0
+          );
+        }) &&
         vacationsData.some(
           (vacation) =>
             vacation.staffType === "practitioner" &&
@@ -346,7 +383,9 @@ export function useCalendarBlockedSlotProjection({
 
         for (let slot = Math.max(0, startSlot); slot < endSlot; slot++) {
           blocked.push({
-            column: practitioner.lineageKey,
+            column: calendarColumnScopeFromPractitioner(
+              practitioner.lineageKey,
+            ),
             reason: "Urlaub",
             slot,
           });
@@ -419,8 +458,10 @@ function appendSchedulingSlots(args: {
     const slot = args.timeToSlot(startTime.toString().slice(0, 5));
     const alreadyBlocked = args.blocked.some(
       (blockedSlot) =>
-        blockedSlot.column === practitionerColumn.lineageKey &&
-        blockedSlot.slot === slot,
+        sameCalendarColumnScope(
+          blockedSlot.column,
+          calendarColumnScopeFromPractitioner(practitionerColumn.lineageKey),
+        ) && blockedSlot.slot === slot,
     );
 
     if (args.skipExisting === true && alreadyBlocked) {
@@ -428,18 +469,14 @@ function appendSchedulingSlots(args: {
     }
 
     args.blocked.push({
-      column: practitionerColumn.lineageKey,
+      column: calendarColumnScopeFromPractitioner(
+        practitionerColumn.lineageKey,
+      ),
       slot,
       ...(slotData.reason === undefined ? {} : { reason: slotData.reason }),
       ...(slotData.blockedByRuleId === undefined
         ? {}
         : { blockedByRuleId: slotData.blockedByRuleId }),
-      ...(slotData.blockedByBlockedSlotId === undefined
-        ? {}
-        : {
-            id: slotData.blockedByBlockedSlotId,
-            isManual: true,
-          }),
     });
   }
 }

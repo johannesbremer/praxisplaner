@@ -23,6 +23,10 @@ const baseAppointment: AppointmentResult = {
   lastModified: 0n,
   locationId: toTableId<"locations">("location1"),
   locationLineageKey: toTableId<"locations">("location_lineage_1"),
+  occupancyScope: {
+    calendarResourceColumn: "ekg",
+    kind: "resource",
+  },
   practiceId: toTableId<"practices">("practice1"),
   start: "2024-01-15T10:00:00Z",
   title: "Initial Consultation",
@@ -46,14 +50,20 @@ describe("Regeln Integration - Simulation Metadata", () => {
         "appointment_type_lineage_2",
       ),
       isSimulation: true,
+      occupancyScope: {
+        kind: "practitioner",
+        practitionerLineageKey: practitionerId,
+      },
       practitionerId,
-      practitionerLineageKey: practitionerId,
     });
 
     expect(event.isSimulation).toBe(true);
     expect(event.appointmentTypeId).toBe(appointmentTypeId);
     expect(event.locationId).toBe("location1");
-    expect(event.practitionerLineageKey).toBe(practitionerId);
+    expect(event.occupancyScope).toEqual({
+      kind: "practitioner",
+      practitionerLineageKey: practitionerId,
+    });
   });
 
   it("defaults to real appointments when simulation flag is absent", () => {
@@ -90,11 +100,17 @@ describe("Regeln Integration - Simulation Metadata", () => {
     const event = createAppointment({
       _id: toTableId<"appointments">("sim-appointment-practitioner"),
       isSimulation: true,
+      occupancyScope: {
+        kind: "practitioner",
+        practitionerLineageKey: practitionerId,
+      },
       practitionerId,
-      practitionerLineageKey: practitionerId,
     });
 
-    expect(event.practitionerLineageKey).toBe(practitionerId);
+    expect(event.occupancyScope).toEqual({
+      kind: "practitioner",
+      practitionerLineageKey: practitionerId,
+    });
     expect(event.isSimulation).toBe(true);
   });
 });

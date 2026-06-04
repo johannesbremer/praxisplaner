@@ -11,8 +11,16 @@ import type {
   CalendarBlockedSlotRecord,
   CalendarColumnId,
 } from "./types";
-import type { SimulatedBlockedSlotConversionResult } from "./use-calendar-logic-helpers";
+import type {
+  SimulatedBlockedSlotConversionResult,
+  SimulationConversionOptions,
+} from "./use-calendar-logic-helpers";
 
+import {
+  calendarColumnScopeFromPractitioner,
+  calendarColumnScopeFromResourceColumn,
+  getPractitionerLineageKeyFromOccupancy,
+} from "../../../lib/calendar-occupancy";
 import { captureErrorGlobal } from "../../utils/error-tracking";
 import { SLOT_DURATION } from "./types";
 import { TIMEZONE } from "./use-calendar-logic-helpers";
@@ -41,12 +49,12 @@ export type ActiveResizeDraft =
 
 export interface CalendarManualBlockedSlot {
   column: CalendarColumnId;
-  duration?: number;
-  id?: string;
-  isManual?: boolean;
+  duration: number;
+  id: string;
+  isManual: true;
   reason?: string;
   slot: number;
-  startSlot?: number;
+  startSlot: number;
   title?: string;
 }
 
@@ -86,11 +94,7 @@ export function useCalendarInteractions({
   ) => boolean;
   convertRealAppointmentToSimulation: (
     appointment: CalendarAppointmentLayout,
-    options: {
-      durationMinutes?: number;
-      endISO?: string;
-      startISO?: string;
-    },
+    options: SimulationConversionOptions,
   ) => Promise<CalendarAppointmentLayout | null>;
   convertRealBlockedSlotToSimulation: (
     blockedSlotId: string,
@@ -414,7 +418,6 @@ export function useCalendarInteractions({
               await convertRealAppointmentToSimulationRef.current(
                 targetAppointment,
                 {
-                  durationMinutes: targetAppointment.duration,
                   endISO: endZoned.toString(),
                   startISO: startZoned.toString(),
                 },
@@ -516,10 +519,17 @@ export function useCalendarInteractions({
               const manualBlockedSlot = manualBlockedSlotsRef.current.find(
                 (slot) => slot.id === blockedSlotId,
               );
+              const practitionerLineageKey =
+                getPractitionerLineageKeyFromOccupancy(
+                  blockedSlotDoc.placement.occupancyScope,
+                );
               const column =
                 manualBlockedSlot?.column ??
-                blockedSlotDoc.practitionerLineageKey ??
-                "ekg";
+                (practitionerLineageKey === undefined
+                  ? calendarColumnScopeFromResourceColumn("ekg")
+                  : calendarColumnScopeFromPractitioner(
+                      practitionerLineageKey,
+                    ));
               startResizing({
                 column,
                 commitBlockedSlotId: convertedId.id,

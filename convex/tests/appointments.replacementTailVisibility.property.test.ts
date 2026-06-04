@@ -51,8 +51,11 @@ describe("appointment replacement tail visibility properties", () => {
                 end: window.end,
                 lastModified: now,
                 locationLineageKey: fixture.locationId,
+                occupancyScope: {
+                  kind: "practitioner",
+                  practitionerLineageKey: fixture.practitionerId,
+                },
                 practiceId: fixture.practiceId,
-                practitionerLineageKey: fixture.practitionerId,
                 ...(index === 0
                   ? {}
                   : { replacesAppointmentId: insertedIds[index - 1] }),

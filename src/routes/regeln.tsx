@@ -149,9 +149,6 @@ function LogicView() {
   const [isDiscardDialogOpen, setIsDiscardDialogOpen] = useState(false);
   const [isInitializingPractice, setIsInitializingPractice] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
-  const [discardTargetRuleSetId, setDiscardTargetRuleSetId] = useState<
-    Id<"ruleSets"> | undefined
-  >();
   const [pendingRuleSetId, setPendingRuleSetId] = useState<
     Id<"ruleSets"> | undefined
   >();
@@ -1063,7 +1060,6 @@ function LogicView() {
   };
 
   const handleOpenDiscardDialog = () => {
-    setDiscardTargetRuleSetId(pendingRuleSetId ?? activeRuleSet?._id);
     setIsDiscardDialogOpen(true);
   };
 
@@ -1071,7 +1067,7 @@ function LogicView() {
     if (unsavedRuleSet) {
       const draftToDelete = unsavedRuleSet;
       const targetRuleSetId =
-        discardTargetRuleSetId ?? pendingRuleSetId ?? activeRuleSet?._id;
+        pendingRuleSetId ?? activeRuleSet?._id ?? draftToDelete.parentVersion;
       const wasSaveDialogOpen = isSaveDialogOpen;
 
       setIsSaveDialogOpen(false);
@@ -1092,7 +1088,6 @@ function LogicView() {
           });
 
           setPendingRuleSetId(undefined);
-          setDiscardTargetRuleSetId(undefined);
           toast.success("Änderungen verworfen");
         } catch (error: unknown) {
           if (discardingUnsavedRuleSetIdRef.current === draftToDelete._id) {
@@ -1539,9 +1534,6 @@ function LogicView() {
       <Dialog
         onOpenChange={(open) => {
           setIsDiscardDialogOpen(open);
-          if (!open) {
-            setDiscardTargetRuleSetId(undefined);
-          }
         }}
         open={isDiscardDialogOpen}
       >
