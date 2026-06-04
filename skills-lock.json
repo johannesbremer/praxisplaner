@@ -1,6 +1,48 @@
 {
   "version": 1,
   "skills": {
+    "components-guide": {
+      "source": "get-convex/convex-agent-plugins",
+      "sourceType": "github",
+      "skillPath": "skills/components-guide/SKILL.md",
+      "computedHash": "45dd1171ea2db23f73d571abf79a3560f57a86472f2078791e11c73db79c494f"
+    },
+    "convex-create-component": {
+      "source": "get-convex/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/convex-create-component/SKILL.md",
+      "computedHash": "25b6f56cc6afa4237aa191f5bfa5b86f68b70dc7f1195b86d027bd85346cff41"
+    },
+    "convex-helpers-guide": {
+      "source": "get-convex/convex-agent-plugins",
+      "sourceType": "github",
+      "skillPath": "skills/convex-helpers-guide/SKILL.md",
+      "computedHash": "06d44dbcbd1817b9712378ca93bacacf1091f62029aef375b0d9cb1df4254fe8"
+    },
+    "convex-migration-helper": {
+      "source": "get-convex/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/convex-migration-helper/SKILL.md",
+      "computedHash": "47ad936c1977eecca736211fe4efb171b53c412b49cffc42267095276a8df36d"
+    },
+    "convex-performance-audit": {
+      "source": "get-convex/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/convex-performance-audit/SKILL.md",
+      "computedHash": "d4f372ad6bed01b3a83983f5e8386017606e1bf8a97833c016af07f277157f96"
+    },
+    "convex-setup-auth": {
+      "source": "get-convex/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/convex-setup-auth/SKILL.md",
+      "computedHash": "b1a940758751c5b2fdc6ced105b19927a1655f0c1d4bd2fd5536dc3264202c00"
+    },
+    "function-creator": {
+      "source": "get-convex/convex-agent-plugins",
+      "sourceType": "github",
+      "skillPath": "skills/function-creator/SKILL.md",
+      "computedHash": "7efaf0b4ba942a40093c5dffff6d3fd5af4bc6501959aae4f6d84a3c6c0f1388"
+    },
     "grill-with-docs": {
       "source": "mattpocock/skills",
       "sourceType": "github",
@@ -24,6 +66,12 @@
       "sourceType": "github",
       "skillPath": "skills/livekit-agents/SKILL.md",
       "computedHash": "373669b9a938ced840f301173e838a0046408acd0397c02c03420cc9b6a8cb42"
+    },
+    "schema-builder": {
+      "source": "get-convex/convex-agent-plugins",
+      "sourceType": "github",
+      "skillPath": "skills/schema-builder/SKILL.md",
+      "computedHash": "2a587f944ae744b17ef724c66a661835e7e04b0f2dc4ca428c87f88854e7500c"
     },
     "shadcn": {
       "source": "shadcn/ui",
