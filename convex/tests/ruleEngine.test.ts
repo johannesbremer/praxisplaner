@@ -3592,6 +3592,34 @@ describe("E2E: Slot Generation with Rules", () => {
     expect(blockedSlots.slots.length).toBeGreaterThan(0);
   });
 
+  test("getBlockedSlotsWithoutAppointmentType rejects authenticated non-members", async () => {
+    const t = createTestContext();
+
+    await createPractice(t);
+    const { practiceId, ruleSetId } = await t.run(async (ctx) => {
+      const practiceId = await ctx.db.insert("practices", {
+        name: "Foreign Rule Metadata Practice",
+      });
+      const ruleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Foreign Rule Metadata Rule Set",
+        draftRevision: 0,
+        practiceId,
+        saved: true,
+        version: 1,
+      });
+      return { practiceId, ruleSetId };
+    });
+
+    await expect(
+      t.query(api.scheduling.getBlockedSlotsWithoutAppointmentType, {
+        date: "2025-10-27",
+        practiceId,
+        ruleSetId,
+      }),
+    ).rejects.toThrow("No access to this practice");
+  });
+
   test("Compound AND rule blocks slots only when both conditions match", async () => {
     const t = createTestContext();
 

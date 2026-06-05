@@ -3000,6 +3000,41 @@ describe("calendar day appointment queries", () => {
     ).rejects.toThrow();
   });
 
+  test("getCalendarDayAppointments rejects foreign display rule sets", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_query_foreign_display",
+      "day-query-foreign-display@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-query-foreign-display@example.com",
+      subject: "workos_day_query_foreign_display",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "staff",
+        userId,
+      });
+    });
+    const range = makeDayRange(2);
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: range.dayEnd,
+        dayStart: range.dayStart,
+        practiceId: baseData.practiceId,
+        scope: "real",
+        selectedRuleSetId: foreignData.ruleSetId,
+      }),
+    ).rejects.toThrow("Rule set does not belong to this practice");
+  });
+
   test("getCalendarDayAppointments returns only same-day records for the requested location and scope", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
@@ -4237,6 +4272,41 @@ describe("calendar day appointment queries", () => {
         title: "Main location block",
       },
     ]);
+  });
+
+  test("getCalendarDayBlockedSlots rejects foreign display rule sets", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_blocked_slots_foreign_display",
+      "day-blocked-slots-foreign-display@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-blocked-slots-foreign-display@example.com",
+      subject: "workos_day_blocked_slots_foreign_display",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "staff",
+        userId,
+      });
+    });
+    const range = makeDayRange(2);
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayBlockedSlots, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: range.dayEnd,
+        dayStart: range.dayStart,
+        practiceId: baseData.practiceId,
+        scope: "real",
+        selectedRuleSetId: foreignData.ruleSetId,
+      }),
+    ).rejects.toThrow("Rule set does not belong to this practice");
   });
 
   test("getCalendarDayBlockedSlots hides an in-range real block when its simulation replacement moved to another day", async () => {

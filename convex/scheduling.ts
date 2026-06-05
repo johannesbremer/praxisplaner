@@ -34,6 +34,7 @@ import { requireLineageKey } from "./lineage";
 import {
   ensurePracticeAccessForQuery,
   requirePracticeMemberOrCurrentUserBookingScope,
+  requireRuleSetBelongsToPractice,
 } from "./practiceAccess";
 import { buildPreloadedDayData, evaluateLoadedRulesHelper } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
@@ -870,13 +871,13 @@ export const getBlockedSlotsWithoutAppointmentType = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
     if (args.ruleSetId) {
-      await requirePracticeMemberOrCurrentUserBookingScope(ctx, {
-        practiceId: args.practiceId,
-        ruleSetId: args.ruleSetId,
-      });
-    } else {
-      await ensurePracticeAccessForQuery(ctx, args.practiceId);
+      await requireRuleSetBelongsToPractice(
+        ctx,
+        args.ruleSetId,
+        args.practiceId,
+      );
     }
     const date = asIsoDateString(args.date);
     const targetPlainDate = Temporal.PlainDate.from(date);

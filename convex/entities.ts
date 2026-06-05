@@ -86,7 +86,6 @@ import { insertSelfLineageEntity } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
-  requireAuthenticatedRuleSet,
   requireRuleSetMember,
 } from "./practiceAccess";
 import { type ConditionTreeNode, validateConditionTree } from "./ruleEngine";
@@ -1032,7 +1031,7 @@ export const getAppointmentTypes = query({
     if (args.includeDeleted === true) {
       await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     } else {
-      await requireAuthenticatedRuleSet(ctx, args.ruleSetId);
+      await requireRuleSetMember(ctx, args.ruleSetId);
     }
     const appointmentTypes = await ctx.db
       .query("appointmentTypes")
@@ -1802,7 +1801,7 @@ export const getPractitioners = query({
     if (args.includeDeleted === true) {
       await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     } else {
-      await requireAuthenticatedRuleSet(ctx, args.ruleSetId);
+      await requireRuleSetMember(ctx, args.ruleSetId);
     }
     const practitioners = await ctx.db
       .query("practitioners")
@@ -2079,7 +2078,7 @@ export const getLocations = query({
     if (args.includeDeleted === true) {
       await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     } else {
-      await requireAuthenticatedRuleSet(ctx, args.ruleSetId);
+      await requireRuleSetMember(ctx, args.ruleSetId);
     }
     const locations = await ctx.db
       .query("locations")
@@ -2931,7 +2930,7 @@ export const getBaseSchedules = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await requireAuthenticatedRuleSet(ctx, args.ruleSetId);
+    await requireRuleSetMember(ctx, args.ruleSetId);
     const schedules = await ctx.db
       .query("baseSchedules")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -2971,7 +2970,7 @@ export const getBaseSchedulesByPractitioner = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await requireAuthenticatedRuleSet(ctx, args.ruleSetId);
+    await requireRuleSetMember(ctx, args.ruleSetId);
     const practitioner = await ctx.db.get("practitioners", args.practitionerId);
     if (!practitioner) {
       throw new Error(`Behandler ${args.practitionerId} nicht gefunden.`);

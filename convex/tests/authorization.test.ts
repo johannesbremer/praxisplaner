@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import type { Id } from "../_generated/dataModel";
 
 import { api } from "../_generated/api";
+import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
 
@@ -143,6 +144,34 @@ describe("Convex query authorization", () => {
     await expect(
       authed.mutation(api.ruleSets.discardUnsavedRuleSet, { practiceId }),
     ).rejects.toThrow("Role staff is insufficient");
+  });
+
+  test("authenticated non-members cannot read foreign rule-set entities", async () => {
+    const t = createTestContext();
+    const first = await createPracticeForUser(
+      t,
+      "workos_authz_entity_reader",
+      "authz-entity-reader@example.com",
+    );
+    const second = await createPracticeForUser(
+      t,
+      "workos_authz_entity_foreign_owner",
+      "authz-entity-foreign-owner@example.com",
+    );
+
+    await t.run(async (ctx) => {
+      await insertSelfLineageEntity(ctx.db, "practitioners", {
+        name: "Dr. Foreign Entity",
+        practiceId: second.practiceId,
+        ruleSetId: second.ruleSetId,
+      });
+    });
+
+    await expect(
+      first.authed.query(api.entities.getPractitioners, {
+        ruleSetId: second.ruleSetId,
+      }),
+    ).rejects.toThrow("No access to this practice");
   });
 
   test("admin can read manager-only practice data", async () => {

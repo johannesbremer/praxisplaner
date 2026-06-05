@@ -1333,6 +1333,7 @@ export const getCalendarDayAppointments = query({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
 
     const scope: AppointmentScope = args.scope ?? "real";
     const selectedLocationLineageKey = await getOptionalLocationLineageKey(
@@ -1465,6 +1466,11 @@ export const previewAppointmentSeries = query({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await validateAppointmentSeriesOwnerRefs(ctx, {
+      practiceId: args.practiceId,
+      ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+      ...(args.userId === undefined ? {} : { userId: args.userId }),
+    });
     const { patientDateOfBirth: rawPatientDateOfBirth, start, ...rest } = args;
     const patientDateOfBirth = asOptionalIsoDateString(rawPatientDateOfBirth);
     return await previewAppointmentSeriesHelper(ctx, {
@@ -1489,20 +1495,11 @@ export const createAppointmentSeries = mutation({
     if (!args.patientId && !args.userId) {
       throw new Error("Either patientId or userId must be provided.");
     }
-
-    if (args.patientId) {
-      const patient = await ctx.db.get("patients", args.patientId);
-      if (!patient) {
-        throw new Error(`Patient with ID ${args.patientId} not found`);
-      }
-    }
-
-    if (args.userId) {
-      const user = await ctx.db.get("users", args.userId);
-      if (!user) {
-        throw new Error(`User with ID ${args.userId} not found`);
-      }
-    }
+    await validateAppointmentSeriesOwnerRefs(ctx, {
+      practiceId: args.practiceId,
+      ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+      ...(args.userId === undefined ? {} : { userId: args.userId }),
+    });
 
     if (args.bookingIdentityId) {
       const bookingIdentity = await ctx.db.get(
@@ -1872,6 +1869,39 @@ async function resolveAppointmentOwnerRefs(
   }
 
   return resolvedRefs;
+}
+
+async function validateAppointmentSeriesOwnerRefs(
+  ctx: MutationCtx | QueryCtx,
+  args: {
+    patientId?: Id<"patients">;
+    practiceId: Id<"practices">;
+    userId?: Id<"users">;
+  },
+): Promise<void> {
+  const scope = await requireTrustedPracticeScope(ctx, args.practiceId);
+
+  if (args.patientId) {
+    await requirePatientInPractice(ctx.db, {
+      patientId: args.patientId,
+      scope,
+    });
+  }
+
+  if (args.userId) {
+    const user = await ctx.db.get("users", args.userId);
+    if (!user) {
+      throw new Error(`User with ID ${args.userId} not found`);
+    }
+    if (
+      !(await userHasPracticeRelation(ctx.db, {
+        scope,
+        userId: args.userId,
+      }))
+    ) {
+      throw new Error("User does not belong to this practice.");
+    }
+  }
 }
 
 // Mutation to create a new appointment
@@ -3168,6 +3198,7 @@ export const getCalendarDayBlockedSlots = query({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
 
     const scope: AppointmentScope = args.scope ?? "real";
     const selectedLocationLineageKey = await getOptionalLocationLineageKey(
