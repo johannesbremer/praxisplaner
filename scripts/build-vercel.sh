@@ -27,6 +27,7 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
   cp convex/auth.preview.config.ts convex/auth.config.ts
 
   preview_name="$(printf '%s' "${VERCEL_GIT_COMMIT_REF:-preview}" | tr '/' '-')"
+  preview_deployment_ref="preview/$preview_name"
   deploy_env_file="$(mktemp)"
   runtime_env_file="$(mktemp)"
   trap 'rm -f "$deploy_env_file" "$runtime_env_file"' EXIT
@@ -42,14 +43,14 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
     --cmd "VITE_AUTH_BYPASS_ENABLED=true VITE_VERCEL_ENV=preview pnpm run build" \
     --preview-create "$preview_name"
   pnpm exec convex env set \
-    --deployment "$preview_name" \
+    --deployment "$preview_deployment_ref" \
     --from-file "$runtime_env_file" \
     --force
   pnpm exec convex import \
     --preview-name "$preview_name" \
     --replace-all .cache/seed/preview.zip
   pnpm exec convex run devAuth:ensurePreviewAuthPersonas \
-    --deployment "$preview_name"
+    --deployment "$preview_deployment_ref"
 else
   deploy_env_file="$(mktemp)"
   trap 'rm -f "$deploy_env_file"' EXIT
