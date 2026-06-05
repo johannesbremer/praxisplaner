@@ -24,6 +24,7 @@ import type {
 import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
+import type { AppointmentOccupancyView } from "./appointmentConflicts";
 
 import {
   CONDITION_OPERATORS,
@@ -43,6 +44,7 @@ import {
   isZonedDateTimeString,
 } from "../lib/typed-regex.js";
 import { internalQuery } from "./_generated/server";
+import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts";
 import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
 import { requireLineageKey } from "./lineage";
 import { createDepthBoundedRecursiveUnionValidator } from "./recursiveValidator";
@@ -142,6 +144,9 @@ export async function buildPreloadedDayData(
   day: string,
   ruleSetId: Id<"ruleSets">,
   practitioners: Doc<"practitioners">[],
+  options: {
+    occupancyView?: AppointmentOccupancyView;
+  } = {},
 ): Promise<PreloadedDayData> {
   // Parse the day and compute day boundaries
   const plainDate = Temporal.PlainDate.from(day);
@@ -168,8 +173,10 @@ export async function buildPreloadedDayData(
         .lt("start", dayEndStr),
     )
     .collect();
-  const appointments = rawAppointments.filter(
-    (appointment) => appointment.cancelledAt === undefined,
+  const appointments = getEffectiveAppointmentsForOccupancyView(
+    rawAppointments,
+    options.occupancyView ?? "live",
+    ruleSetId,
   );
 
   const [ruleSetAppointmentTypes, ruleSetLocations] = await Promise.all([

@@ -140,6 +140,132 @@ describe("ruleEngine preloaded day data", () => {
     expect(result.firstAppointmentId).toBe(fixture.activeAppointmentId);
   });
 
+  test("buildPreloadedDayData hides simulation appointments from live rule evaluation", async () => {
+    const t = createTestContext();
+
+    const fixture = await t.run(async (ctx) => {
+      const practiceId = await ctx.db.insert("practices", {
+        name: "Rule Engine Live Scope Practice",
+      });
+      const ruleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Rule Engine Live Scope Rule Set",
+        draftRevision: 0,
+        practiceId,
+        saved: true,
+        version: 1,
+      });
+      const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
+        name: "Main Location",
+        practiceId,
+        ruleSetId,
+      });
+      const practitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          name: "Dr. Simulation",
+          practiceId,
+          ruleSetId,
+        },
+      );
+      const now = BigInt(Date.now());
+      const appointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [practitionerId],
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          name: "Simulation Checkup",
+          practiceId,
+          ruleSetId,
+        },
+      );
+
+      const day = Temporal.Now.plainDateISO("Europe/Berlin").add({ days: 2 });
+      const start = day.toZonedDateTime({
+        plainTime: { hour: 10, minute: 0 },
+        timeZone: "Europe/Berlin",
+      });
+      const end = start.add({ minutes: 30 });
+
+      const simulationAppointmentId = await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: appointmentTypeId,
+        appointmentTypeTitle: "Simulation Checkup",
+        createdAt: now,
+        end: end.toString(),
+        isSimulation: true,
+        lastModified: now,
+        locationLineageKey: locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: practitionerId,
+        },
+        practiceId,
+        simulationRuleSetId: ruleSetId,
+        start: start.toString(),
+        title: "Simulation-only appointment",
+      });
+
+      return {
+        appointmentTypeId,
+        day: day.toString(),
+        practiceId,
+        practitionerId,
+        ruleSetId,
+        simulationAppointmentId,
+      };
+    });
+
+    const result = await t.run(async (ctx) => {
+      const practitioner = await ctx.db.get(
+        "practitioners",
+        fixture.practitionerId,
+      );
+      if (!practitioner) {
+        throw new Error("Practitioner missing");
+      }
+
+      const livePreloaded = await buildPreloadedDayData(
+        ctx.db,
+        fixture.practiceId,
+        fixture.day,
+        fixture.ruleSetId,
+        [practitioner],
+        { occupancyView: "live" },
+      );
+      const simulationPreloaded = await buildPreloadedDayData(
+        ctx.db,
+        fixture.practiceId,
+        fixture.day,
+        fixture.ruleSetId,
+        [practitioner],
+        { occupancyView: "draftEffective" },
+      );
+
+      const practiceTypeKey = `practice:${fixture.appointmentTypeId}`;
+      return {
+        liveAppointmentCount: livePreloaded.appointments.length,
+        liveDailyCount:
+          livePreloaded.dailyCapacityCounts.get(practiceTypeKey) ?? 0,
+        simulationAppointmentCount: simulationPreloaded.appointments.length,
+        simulationDailyCount:
+          simulationPreloaded.dailyCapacityCounts.get(practiceTypeKey) ?? 0,
+        simulationFirstAppointmentId: simulationPreloaded.appointments[0]?._id,
+      };
+    });
+
+    expect(result.liveAppointmentCount).toBe(0);
+    expect(result.liveDailyCount).toBe(0);
+    expect(result.simulationAppointmentCount).toBe(1);
+    expect(result.simulationDailyCount).toBe(1);
+    expect(result.simulationFirstAppointmentId).toBe(
+      fixture.simulationAppointmentId,
+    );
+  });
+
   test("buildPreloadedDayData keys counts by stable appointment type lineage", async () => {
     const t = createTestContext();
 
