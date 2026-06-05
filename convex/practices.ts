@@ -13,7 +13,10 @@ import {
   requirePracticeManager,
 } from "./practiceAccess";
 import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
-import { ensureAuthenticatedUserId } from "./userIdentity";
+import {
+  ensureAuthenticatedIdentity,
+  ensureAuthenticatedUserId,
+} from "./userIdentity";
 
 /**
  * Create a new practice with the given name.
@@ -69,6 +72,29 @@ export const getAllPractices = query({
     }
 
     return practices;
+  },
+  returns: v.array(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("practices"),
+      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
+      name: v.string(),
+    }),
+  ),
+});
+
+/**
+ * Get practices visible to authenticated patient booking flows.
+ *
+ * Patients are not practice members, so this intentionally does not use
+ * practiceMembers. Booking-specific queries still validate practice/rule-set
+ * relationships before exposing scheduling data.
+ */
+export const getBookingPractices = query({
+  args: {},
+  handler: async (ctx) => {
+    await ensureAuthenticatedIdentity(ctx);
+    return await ctx.db.query("practices").collect();
   },
   returns: v.array(
     v.object({

@@ -84,8 +84,6 @@ fi
 
 {
   printf 'AUTH_BYPASS_ENABLED=true\n'
-  printf 'AUTH_BYPASS_SUBJECT=dev-admin\n'
-  printf 'AUTH_BYPASS_EMAIL=admin@preview.test\n'
   printf 'VITE_AUTH_BYPASS_ENABLED=true\n'
   printf 'VITE_VERCEL_ENV=preview\n'
   printf 'WORKOS_CLIENT_ID=%s\n' "$WORKOS_ID"

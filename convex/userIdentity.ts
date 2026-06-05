@@ -79,35 +79,7 @@ export async function getAuthenticatedUserIdForQuery(
 async function getIdentityWithOptionalInsecureFallback(
   ctx: AuthCtx,
 ): Promise<AuthenticatedIdentity | null> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (identity) {
-    return identity;
-  }
-  if (!isConvexAuthBypassEnabled()) {
-    return null;
-  }
-  const subject = process.env["AUTH_BYPASS_SUBJECT"] ?? "dev-admin";
-  const email = process.env["AUTH_BYPASS_EMAIL"] ?? `${subject}@preview.test`;
-  return {
-    email,
-    subject,
-  };
-}
-
-function isConvexAuthBypassEnabled(): boolean {
-  if (process.env["NODE_ENV"] === "test" || process.env["VITEST"] === "true") {
-    return false;
-  }
-  const bypassEnabled =
-    process.env["AUTH_BYPASS_ENABLED"] === "true" ||
-    process.env["VITE_AUTH_BYPASS_ENABLED"] === "true";
-  if (!bypassEnabled) {
-    return false;
-  }
-  return (
-    process.env["VERCEL_ENV"] !== "production" &&
-    process.env["VITE_VERCEL_ENV"] !== "production"
-  );
+  return await ctx.auth.getUserIdentity();
 }
 
 function selectCanonicalUser(users: Doc<"users">[]): Doc<"users"> | null {

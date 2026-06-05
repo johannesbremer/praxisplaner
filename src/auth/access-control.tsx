@@ -19,6 +19,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+import {
+  type DevAuthPersona,
+  getDevAuthPersonaAccess,
+  getDevAuthPersonaForPath,
+} from "./dev-auth-jwt";
+
 const STAFF_ROLES = ["staff", "praxismanager"] as const;
 const PRAXISMANAGER_ROLES = ["praxismanager"] as const;
 
@@ -45,7 +51,7 @@ export function PatientAuthGate({
 }: {
   children: ReactNode;
 }): ReactElement {
-  return <AuthenticatedGate>{children}</AuthenticatedGate>;
+  return <AuthenticatedGate devPersona="patient">{children}</AuthenticatedGate>;
 }
 
 export function PraxismanagerAuthGate({
@@ -74,8 +80,10 @@ export function StaffAuthGate({
 
 function AuthenticatedGate({
   children,
+  devPersona,
 }: {
   children: ReactNode;
+  devPersona?: DevAuthPersona;
 }): ReactElement {
   const { isLoading, signIn, user } = useAuth();
   const [signInError, setSignInError] = useState<null | string>(null);
@@ -103,7 +111,7 @@ function AuthenticatedGate({
     startSignIn();
   }, [isLoading, startSignIn, user]);
 
-  if (isAuthBypassEnabled()) {
+  if (isAuthBypassEnabled() && isDevPersonaActive(devPersona)) {
     return <>{children}</>;
   }
 
@@ -147,16 +155,16 @@ function AuthorizedGate({
   requirement,
 }: {
   children: ReactNode;
-  devPersona: "admin" | "staff";
+  devPersona: DevAuthPersona;
   requirement: AccessRequirement;
 }): ReactElement {
   const { permissions, role, roles } = useAuth();
   const access = isAuthBypassEnabled()
-    ? getDevPersonaAccess(devPersona)
+    ? getDevAuthPersonaAccess(devPersona)
     : { permissions, role, roles };
 
   return (
-    <AuthenticatedGate>
+    <AuthenticatedGate devPersona={devPersona}>
       {hasRequiredAccess({ ...access, requirement }) ? (
         children
       ) : (
@@ -164,29 +172,6 @@ function AuthorizedGate({
       )}
     </AuthenticatedGate>
   );
-}
-
-function getDevPersonaAccess(persona: "admin" | "staff"): {
-  permissions: readonly string[];
-  role: string;
-  roles: readonly string[];
-} {
-  switch (persona) {
-    case "admin": {
-      return {
-        permissions: PRAXISMANAGER_PERMISSIONS,
-        role: "praxismanager",
-        roles: PRAXISMANAGER_ROLES,
-      };
-    }
-    case "staff": {
-      return {
-        permissions: STAFF_PERMISSIONS,
-        role: "staff",
-        roles: ["staff"],
-      };
-    }
-  }
 }
 
 function hasRequiredAccess({
@@ -220,6 +205,16 @@ function isAuthBypassEnabled(): boolean {
 
   const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
   return import.meta.env.DEV || vercelEnv === "preview";
+}
+
+function isDevPersonaActive(persona: DevAuthPersona | undefined): boolean {
+  if (!persona) {
+    return true;
+  }
+  if (import.meta.env.SSR) {
+    return true;
+  }
+  return getDevAuthPersonaForPath(globalThis.location.pathname) === persona;
 }
 
 function SignInScreen({

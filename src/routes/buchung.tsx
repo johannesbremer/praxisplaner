@@ -458,7 +458,7 @@ function AuthenticatedBookingFlow() {
   const isInitializingPracticeRef = useRef(false);
 
   // Fetch practice data
-  const practicesQuery = useQuery(api.practices.getAllPractices, {});
+  const practicesQuery = useQuery(api.practices.getBookingPractices, {});
   const initializeDefaultPractice = useMutation(
     api.practices.initializeDefaultPractice,
   );
