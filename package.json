@@ -14,7 +14,7 @@
     "ci-check:test": "sh -c 'log=\"${TMPDIR:-/tmp}/praxisplaner-test-$$.log\"; VITE_ENABLE_POSTHOG_IN_DEV=true pnpm exec vitest --run >\"$log\" 2>&1 || { cat \"$log\" >&2; rm -f \"$log\"; exit 1; }; rm -f \"$log\"'",
     "ci-check:test:property": "sh -c 'log=\"${TMPDIR:-/tmp}/praxisplaner-property-test-$$.log\"; FAST_CHECK_NUM_RUNS=\"${FAST_CHECK_NUM_RUNS:-100}\" FAST_CHECK_SEED=\"${FAST_CHECK_SEED:-1}\" VITE_ENABLE_POSTHOG_IN_DEV=true pnpm exec vitest --run --config vitest.property.config.ts >\"$log\" 2>&1 || { cat \"$log\" >&2; rm -f \"$log\"; exit 1; }; rm -f \"$log\"'",
     "dev": "pnpm dev:frontend & pnpm dev:backend",
-    "dev:backend": "pnpm exec convex dev",
+    "dev:backend": "scripts/convex-dev.sh",
     "dev:frontend": "vite dev",
     "dev:telefonki": "tsx agents/telefonki/agent.ts dev",
     "format": "prettier --write .",

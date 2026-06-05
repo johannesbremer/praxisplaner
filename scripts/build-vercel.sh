@@ -24,6 +24,8 @@ append_auth_config_env() {
 }
 
 if [ "${VERCEL_ENV:-}" = "preview" ]; then
+  cp convex/auth.preview.config.ts convex/auth.config.ts
+
   preview_name="$(printf '%s' "${VERCEL_GIT_COMMIT_REF:-preview}" | tr '/' '-')"
   deploy_env_file="$(mktemp)"
   runtime_env_file="$(mktemp)"
