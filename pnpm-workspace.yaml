@@ -2,3 +2,7 @@ onlyBuiltDependencies:
   - core-js
   - esbuild
   - msw
+overrides:
+  cookie@<0.7.0: '>=0.7.0'
+  qs@>=6.7.0 <=6.14.1: '>=6.14.2'
+  qs@>=6.11.1 <=6.15.1: '>=6.15.2'
