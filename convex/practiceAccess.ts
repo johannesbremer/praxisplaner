@@ -175,10 +175,6 @@ export async function ensureRuleSetAccessForQuery(
 export async function getAccessiblePracticeIdsForQuery(
   ctx: QueryCtx,
 ): Promise<Id<"practices">[]> {
-  if (isConvexAuthBypassEnabled()) {
-    const practices = await ctx.db.query("practices").collect();
-    return practices.map((practice) => practice._id);
-  }
   const { _id: userId } = await requireUser(ctx);
   const memberships = await ctx.db
     .query("practiceMembers")

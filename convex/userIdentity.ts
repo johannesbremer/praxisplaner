@@ -86,9 +86,11 @@ async function getIdentityWithOptionalInsecureFallback(
   if (!isConvexAuthBypassEnabled()) {
     return null;
   }
+  const subject = process.env["AUTH_BYPASS_SUBJECT"] ?? "dev-admin";
+  const email = process.env["AUTH_BYPASS_EMAIL"] ?? `${subject}@preview.test`;
   return {
-    email: "auth-bypass-agent@users.invalid",
-    subject: "auth-bypass-agent",
+    email,
+    subject,
   };
 }
 

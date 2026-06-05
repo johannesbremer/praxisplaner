@@ -54,7 +54,7 @@ export function PraxismanagerAuthGate({
   children: ReactNode;
 }): ReactElement {
   return (
-    <AuthorizedGate requirement={PRAXISMANAGER_ACCESS}>
+    <AuthorizedGate devPersona="admin" requirement={PRAXISMANAGER_ACCESS}>
       {children}
     </AuthorizedGate>
   );
@@ -65,7 +65,11 @@ export function StaffAuthGate({
 }: {
   children: ReactNode;
 }): ReactElement {
-  return <AuthorizedGate requirement={STAFF_ACCESS}>{children}</AuthorizedGate>;
+  return (
+    <AuthorizedGate devPersona="staff" requirement={STAFF_ACCESS}>
+      {children}
+    </AuthorizedGate>
+  );
 }
 
 function AuthenticatedGate({
@@ -139,23 +143,50 @@ function AuthLoadingScreen(): ReactElement {
 
 function AuthorizedGate({
   children,
+  devPersona,
   requirement,
 }: {
   children: ReactNode;
+  devPersona: "admin" | "staff";
   requirement: AccessRequirement;
 }): ReactElement {
   const { permissions, role, roles } = useAuth();
+  const access = isAuthBypassEnabled()
+    ? getDevPersonaAccess(devPersona)
+    : { permissions, role, roles };
 
   return (
     <AuthenticatedGate>
-      {isAuthBypassEnabled() ||
-      hasRequiredAccess({ permissions, requirement, role, roles }) ? (
+      {hasRequiredAccess({ ...access, requirement }) ? (
         children
       ) : (
         <UnauthorizedScreen />
       )}
     </AuthenticatedGate>
   );
+}
+
+function getDevPersonaAccess(persona: "admin" | "staff"): {
+  permissions: readonly string[];
+  role: string;
+  roles: readonly string[];
+} {
+  switch (persona) {
+    case "admin": {
+      return {
+        permissions: PRAXISMANAGER_PERMISSIONS,
+        role: "praxismanager",
+        roles: PRAXISMANAGER_ROLES,
+      };
+    }
+    case "staff": {
+      return {
+        permissions: STAFF_PERMISSIONS,
+        role: "staff",
+        roles: ["staff"],
+      };
+    }
+  }
 }
 
 function hasRequiredAccess({

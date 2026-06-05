@@ -72,7 +72,7 @@ WORKOS_ID="${WORKOS_ID:-client_local_preview_placeholder}"
 POSTHOG_HOST="${VITE_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}"
 
 if [ -f .env.local ]; then
-  sed -E '/^(AUTH_BYPASS_ENABLED|VITE_AUTH_BYPASS_ENABLED|VITE_VERCEL_ENV|WORKOS_CLIENT_ID|VITE_WORKOS_CLIENT_ID|VITE_PUBLIC_POSTHOG_HOST)=/d' .env.local > "$ENV_NEXT"
+  sed -E '/^(AUTH_BYPASS_ENABLED|AUTH_BYPASS_SUBJECT|AUTH_BYPASS_EMAIL|VITE_AUTH_BYPASS_ENABLED|VITE_VERCEL_ENV|WORKOS_CLIENT_ID|VITE_WORKOS_CLIENT_ID|VITE_PUBLIC_POSTHOG_HOST)=/d' .env.local > "$ENV_NEXT"
 else
   : > "$ENV_NEXT"
 fi
@@ -84,6 +84,8 @@ fi
 
 {
   printf 'AUTH_BYPASS_ENABLED=true\n'
+  printf 'AUTH_BYPASS_SUBJECT=dev-admin\n'
+  printf 'AUTH_BYPASS_EMAIL=admin@preview.test\n'
   printf 'VITE_AUTH_BYPASS_ENABLED=true\n'
   printf 'VITE_VERCEL_ENV=preview\n'
   printf 'WORKOS_CLIENT_ID=%s\n' "$WORKOS_ID"
@@ -120,7 +122,9 @@ esac
 pnpm exec convex deploy --preview-name "$PREVIEW_NAME" --env-file .env.local --yes
 CONVEX_IMPORT_DEPLOYMENT="$(sed -n 's/^CONVEX_DEPLOYMENT=preview:\([^ #]*\).*/\1/p' .env.local)"
 [ -n "$CONVEX_IMPORT_DEPLOYMENT" ] || { echo "Missing preview CONVEX_DEPLOYMENT in .env.local"; exit 1; }
+pnpm exec convex env set --deployment "$CONVEX_IMPORT_DEPLOYMENT" --from-file .env.local --force
 pnpm exec convex import --deployment "$CONVEX_IMPORT_DEPLOYMENT" --replace-all --yes .cache/seed/preview.zip
+pnpm exec convex run devAuth:ensurePreviewAuthPersonas --deployment "$CONVEX_IMPORT_DEPLOYMENT"
 pnpm gen
 '''
 

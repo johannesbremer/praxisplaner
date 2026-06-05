@@ -20,6 +20,7 @@ import type * as bookingIdentities from "../bookingIdentities.js";
 import type * as bookingSessions from "../bookingSessions.js";
 import type * as bookingValidators from "../bookingValidators.js";
 import type * as copyOnWrite from "../copyOnWrite.js";
+import type * as devAuth from "../devAuth.js";
 import type * as e164PhoneNumber from "../e164PhoneNumber.js";
 import type * as entities from "../entities.js";
 import type * as followUpPlans from "../followUpPlans.js";
@@ -78,6 +79,7 @@ declare const fullApi: ApiFromModules<{
   bookingSessions: typeof bookingSessions;
   bookingValidators: typeof bookingValidators;
   copyOnWrite: typeof copyOnWrite;
+  devAuth: typeof devAuth;
   e164PhoneNumber: typeof e164PhoneNumber;
   entities: typeof entities;
   followUpPlans: typeof followUpPlans;
