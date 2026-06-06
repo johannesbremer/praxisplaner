@@ -91,8 +91,64 @@ describe("Convex query authorization", () => {
     const t = createTestContext();
 
     await expect(t.query(api.practices.getAllPractices, {})).rejects.toThrow(
-      "Authenticated user is not provisioned",
+      "Authentication required",
     );
+  });
+
+  test("query access rejects authenticated identities without provisioned users", async () => {
+    const t = createTestContext();
+    const authed = t.withIdentity({
+      email: "unprovisioned-authz@example.com",
+      subject: "workos_unprovisioned_authz",
+    });
+
+    await expect(
+      authed.query(api.practices.getAllPractices, {}),
+    ).rejects.toThrow("Authenticated user is not provisioned");
+  });
+
+  test("booking practice discovery requires a provisioned app user", async () => {
+    const t = createTestContext();
+    const authed = t.withIdentity({
+      email: "unprovisioned-booking-practices@example.com",
+      subject: "workos_unprovisioned_booking_practices",
+    });
+
+    await expect(
+      authed.query(api.practices.getBookingPractices, {}),
+    ).rejects.toThrow("Authenticated user is not provisioned");
+  });
+
+  test("query access rejects duplicate app users for one auth identity", async () => {
+    const t = createTestContext();
+    const authId = "workos_duplicate_query_user";
+    await createUser(t, authId, "duplicate-query-1@example.com");
+    await createUser(t, authId, "duplicate-query-2@example.com");
+    const authed = t.withIdentity({
+      email: "duplicate-query@example.com",
+      subject: authId,
+    });
+
+    await expect(
+      authed.query(api.practices.getAllPractices, {}),
+    ).rejects.toThrow("Multiple app users exist for authenticated identity");
+  });
+
+  test("mutation access rejects duplicate app users for one auth identity", async () => {
+    const t = createTestContext();
+    const authId = "workos_duplicate_mutation_user";
+    await createUser(t, authId, "duplicate-mutation-1@example.com");
+    await createUser(t, authId, "duplicate-mutation-2@example.com");
+    const authed = t.withIdentity({
+      email: "duplicate-mutation@example.com",
+      subject: authId,
+    });
+
+    await expect(
+      authed.mutation(api.practices.createPractice, {
+        name: "Duplicate Mutation Practice",
+      }),
+    ).rejects.toThrow("Multiple app users exist for authenticated identity");
   });
 
   test("authenticated users cannot self-enroll through default practice bootstrap", async () => {

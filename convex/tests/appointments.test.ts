@@ -433,6 +433,49 @@ describe("appointments self-service cancellation", () => {
     ]);
   });
 
+  test("current-user booked appointment queries throw for missing auth identity", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+
+    await expect(
+      t.query(api.appointments.getBookedAppointmentsForCurrentUser, {
+        activeRuleSetId: baseData.ruleSetId,
+      }),
+    ).rejects.toThrow("Authentication required");
+  });
+
+  test("current-user booked appointment queries throw for unprovisioned auth identity", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authed = t.withIdentity({
+      email: "unprovisioned-bookings@example.com",
+      subject: "workos_unprovisioned_bookings",
+    });
+
+    await expect(
+      authed.query(api.appointments.getBookedAppointmentsForCurrentUser, {
+        activeRuleSetId: baseData.ruleSetId,
+      }),
+    ).rejects.toThrow("Authenticated user is not provisioned in Convex");
+  });
+
+  test("current-user booked appointment queries return empty results for provisioned users without bookings", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_no_bookings";
+    await createUser(t, authId, "no-bookings@example.com");
+    const authed = t.withIdentity({
+      email: "no-bookings@example.com",
+      subject: authId,
+    });
+
+    await expect(
+      authed.query(api.appointments.getBookedAppointmentsForCurrentUser, {
+        activeRuleSetId: baseData.ruleSetId,
+      }),
+    ).resolves.toEqual([]);
+  });
+
   test('getAppointmentsForPatient with scope "simulation" overlays simulation replacements', async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);

@@ -14,8 +14,8 @@ import {
 } from "./practiceAccess";
 import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
 import {
-  ensureAuthenticatedIdentity,
   ensureAuthenticatedUserId,
+  requireAuthenticatedUserIdForQuery,
 } from "./userIdentity";
 
 /**
@@ -93,7 +93,7 @@ export const getAllPractices = query({
 export const getBookingPractices = query({
   args: {},
   handler: async (ctx) => {
-    await ensureAuthenticatedIdentity(ctx);
+    await requireAuthenticatedUserIdForQuery(ctx);
     return await ctx.db.query("practices").collect();
   },
   returns: v.array(

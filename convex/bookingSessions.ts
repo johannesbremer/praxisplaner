@@ -55,7 +55,7 @@ import {
 } from "./typedDtos";
 import {
   ensureAuthenticatedUserId,
-  getAuthenticatedUserIdForQuery,
+  requireAuthenticatedUserIdForQuery,
 } from "./userIdentity";
 
 const FLOW_KEY_VALIDATOR = {
@@ -399,11 +399,8 @@ async function getFlowKeyForMutation(
 async function getFlowKeyForQuery(
   ctx: QueryCtx,
   args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
-): Promise<BookingFlowKey | null> {
-  const userId = await getAuthenticatedUserIdForQuery(ctx);
-  if (!userId) {
-    return null;
-  }
+): Promise<BookingFlowKey> {
+  const userId = await requireAuthenticatedUserIdForQuery(ctx);
   await requireBookingRuleSetBelongsToPractice(ctx, args);
 
   return {
@@ -1885,9 +1882,6 @@ export const getActiveForUser = query({
   args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForQuery(ctx, args);
-    if (!flowKey) {
-      return null;
-    }
 
     const rows = await loadFlowRows(ctx, flowKey);
     const state = await materializeState(ctx, flowKey, rows);

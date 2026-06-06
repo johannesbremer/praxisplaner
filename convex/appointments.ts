@@ -93,7 +93,7 @@ import {
 import {
   ensureAuthenticatedIdentity,
   ensureAuthenticatedUserId,
-  getAuthenticatedUserIdForQuery,
+  requireAuthenticatedUserIdForQuery,
 } from "./userIdentity";
 
 type AppointmentDoc = Doc<"appointments">;
@@ -2917,10 +2917,7 @@ async function getBookedAppointmentsForUser(
     selectedRuleSetId?: Id<"ruleSets">;
   },
 ): Promise<BookedAppointmentSummaryItem[]> {
-  const userId = await getAuthenticatedUserIdForQuery(ctx);
-  if (!userId) {
-    return [];
-  }
+  const userId = await requireAuthenticatedUserIdForQuery(ctx);
 
   void args.refreshNonce;
 
@@ -3001,14 +2998,7 @@ export const getAppointmentsForPatient = query({
     userId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    const currentUserId = await getAuthenticatedUserIdForQuery(ctx);
-    if (!currentUserId) {
-      throw new ConvexError({
-        code: "UNAUTHORIZED",
-        message: "Authenticated user is not provisioned in Convex",
-      });
-    }
+    const currentUserId = await requireAuthenticatedUserIdForQuery(ctx);
     const isCurrentUserSelfServiceRead =
       args.userId === currentUserId && args.patientId === undefined;
     if (!isCurrentUserSelfServiceRead) {

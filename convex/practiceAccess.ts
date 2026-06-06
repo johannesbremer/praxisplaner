@@ -6,7 +6,7 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
 import {
   ensureAuthenticatedUserId,
-  getAuthenticatedUserIdForQuery,
+  requireAuthenticatedUserIdForQuery,
 } from "./userIdentity";
 
 type MutationCtx = GenericMutationCtx<DataModel>;
@@ -115,18 +115,7 @@ export async function ensurePracticeAccessForQuery(
   practiceId: Id<"practices">,
   minimumRole: PracticeRole = "staff",
 ): Promise<Doc<"practiceMembers">> {
-  if (isConvexAuthBypassEnabled()) {
-    const membership = await findAnyPracticeMembership(ctx, practiceId);
-    if (!membership) {
-      throw forbiddenError("No access to this practice");
-    }
-    return membership;
-  }
-
   const userId = await getQueryUserId(ctx);
-  if (!userId) {
-    throw unauthorizedError("Authenticated user is not provisioned in Convex");
-  }
   const membership = await findPracticeMembership(ctx, practiceId, userId);
 
   if (!membership) {
@@ -221,9 +210,7 @@ export async function requireAuthenticatedRuleSet(
   ctx: QueryCtx,
   ruleSetId: Id<"ruleSets">,
 ): Promise<Doc<"ruleSets">> {
-  if (!isConvexAuthBypassEnabled()) {
-    await requireUser(ctx);
-  }
+  await requireUser(ctx);
   return await requireRule(ctx, ruleSetId);
 }
 
@@ -365,9 +352,6 @@ export async function requirePracticeMemberOrCurrentUserBookingScope(
   userId?: Id<"users">;
 }> {
   await requireRuleSetBelongsToPractice(ctx, args.ruleSetId, args.practiceId);
-  if (isConvexAuthBypassEnabled()) {
-    return { practiceId: args.practiceId };
-  }
   const user = await requireUser(ctx);
   const membership = await findPracticeMembership(
     ctx,
@@ -497,11 +481,7 @@ export async function requireTrustedRuleSetScope(
 }
 
 export async function requireUser(ctx: QueryCtx): Promise<Doc<"users">> {
-  const userId = await getAuthenticatedUserIdForQuery(ctx);
-  if (!userId) {
-    throw unauthorizedError("Authenticated user is not provisioned in Convex");
-  }
-
+  const userId = await requireAuthenticatedUserIdForQuery(ctx);
   const user = await ctx.db.get("users", userId);
   if (!user) {
     throw unauthorizedError("Authenticated user row was not found");
@@ -512,16 +492,6 @@ export async function requireUser(ctx: QueryCtx): Promise<Doc<"users">> {
 
 function brandScope<T>(scope: T): T {
   return scope;
-}
-
-async function findAnyPracticeMembership(
-  ctx: MutationCtx | QueryCtx,
-  practiceId: Id<"practices">,
-): Promise<Doc<"practiceMembers"> | null> {
-  return await ctx.db
-    .query("practiceMembers")
-    .withIndex("by_practiceId", (q) => q.eq("practiceId", practiceId))
-    .first();
 }
 
 async function findPracticeMembership(
@@ -547,8 +517,8 @@ function forbiddenError(message: string): ConvexError<{
   });
 }
 
-async function getQueryUserId(ctx: QueryCtx): Promise<Id<"users"> | null> {
-  return await getAuthenticatedUserIdForQuery(ctx);
+async function getQueryUserId(ctx: QueryCtx): Promise<Id<"users">> {
+  return await requireAuthenticatedUserIdForQuery(ctx);
 }
 
 function notFoundError(message: string): ConvexError<{
