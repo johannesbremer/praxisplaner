@@ -163,11 +163,12 @@ describe("CalendarGrid", () => {
     });
 
     test("renders appointments in correct columns", () => {
-      const { container } = render(<CalendarGrid {...defaultProps} />);
+      render(<CalendarGrid {...defaultProps} />);
 
-      // Should render appointments only in their respective columns
-      const columns = container.querySelectorAll(".border-r");
-      expect(columns.length).toBeGreaterThan(0);
+      const gridCells = screen.getAllByRole("gridcell");
+      expect(gridCells).toHaveLength(
+        defaultProps.totalSlots * mockColumns.length,
+      );
     });
 
     test("renders all time slots for each column", () => {
@@ -302,18 +303,18 @@ describe("CalendarGrid", () => {
     test("calls onDragOver when dragging over column", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const column = container.querySelector(".relative.min-h-full");
-      assertElement(column);
-      fireEvent.dragOver(column);
+      const gridCell = container.querySelector("[role='gridcell']");
+      assertElement(gridCell);
+      fireEvent.dragOver(gridCell);
       expect(mockHandlers.onDragOver).toHaveBeenCalled();
     });
 
     test("calls onDrop when appointment is dropped", async () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const column = container.querySelector(".relative.min-h-full");
-      assertElement(column);
-      fireEvent.drop(column);
+      const gridCell = container.querySelector("[role='gridcell']");
+      assertElement(gridCell);
+      fireEvent.drop(gridCell);
 
       await waitFor(() => {
         expect(mockHandlers.onDrop).toHaveBeenCalled();
@@ -326,7 +327,7 @@ describe("CalendarGrid", () => {
         return;
       }
 
-      const { container } = render(
+      render(
         <CalendarGrid
           {...defaultProps}
           columns={[
@@ -342,12 +343,13 @@ describe("CalendarGrid", () => {
         />,
       );
 
-      const columns = container.querySelectorAll(".relative.min-h-full");
-      const blockedColumn = columns[1];
-      assertElement(blockedColumn);
+      const blockedColumnCell = screen.getByRole("button", {
+        name: "Termin um 00:00 bei Dr. Jones erstellen",
+      }).parentElement;
+      assertElement(blockedColumnCell);
 
-      fireEvent.dragOver(blockedColumn);
-      fireEvent.drop(blockedColumn);
+      fireEvent.dragOver(blockedColumnCell);
+      fireEvent.drop(blockedColumnCell);
 
       await waitFor(() => {
         expect(mockHandlers.onDragOver).not.toHaveBeenCalled();
@@ -478,8 +480,7 @@ describe("CalendarGrid", () => {
       expect(indicator).toBeInTheDocument();
 
       const style = indicator?.getAttribute("style");
-      const expectedTop = `${currentTimeSlot * 16}px`;
-      expect(style).toContain(expectedTop);
+      expect(style).toContain(`grid-row: ${currentTimeSlot + 2}`);
     });
 
     test("does not render indicator when currentTimeSlot is negative", () => {
@@ -589,6 +590,12 @@ describe("CalendarGrid", () => {
       expect(
         screen.getByRole("columnheader", { name: "Dr. Smith" }),
       ).toBeInTheDocument();
+      expect(screen.getAllByRole("row")).toHaveLength(
+        defaultProps.totalSlots + 1,
+      );
+      expect(screen.getAllByRole("gridcell")).toHaveLength(
+        defaultProps.totalSlots * mockColumns.length,
+      );
     });
 
     test("column headers have proper structure", () => {
@@ -613,6 +620,20 @@ describe("CalendarGrid", () => {
           name: "Termin um 00:00 bei Dr. Jones erstellen",
         }),
       ).toHaveAttribute("tabindex", "-1");
+    });
+
+    test("time slot buttons expose expanded hit targets without changing visual row height", () => {
+      render(<CalendarGrid {...defaultProps} />);
+
+      const firstSlot = screen.getByRole("button", {
+        name: "Termin um 00:00 bei Dr. Smith erstellen",
+      });
+      expect(firstSlot).toHaveClass("h-6");
+      expect(firstSlot).toHaveAttribute(
+        "data-calendar-slot-target",
+        "expanded",
+      );
+      expect(firstSlot.parentElement).toHaveClass("h-4");
     });
 
     test("arrow keys move the roving slot focus across rows and columns", () => {

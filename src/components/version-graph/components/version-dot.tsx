@@ -12,7 +12,6 @@ interface Props {
   branchSpacing: number;
   commitSpacing: number;
   nodeRadius: number;
-  onClick?: (version: VersionNode) => void;
   version: VersionNode;
 }
 
@@ -20,7 +19,6 @@ export default function VersionDot({
   branchSpacing,
   commitSpacing,
   nodeRadius,
-  onClick,
   version,
 }: Props) {
   const { x, y } = getVersionDotPosition(
@@ -34,10 +32,10 @@ export default function VersionDot({
   return (
     <>
       <g
+        aria-hidden="true"
+        className="pointer-events-none"
         fill={version.commitColor}
         filter={`url(#${filterId})`}
-        onClick={() => onClick?.(version)}
-        style={{ cursor: onClick ? "pointer" : "default" }}
       >
         <circle
           cx={x}

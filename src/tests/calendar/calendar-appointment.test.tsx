@@ -252,7 +252,7 @@ describe("CalendarAppointment", () => {
     expect(stopPropagationSpy).toHaveBeenCalled();
   });
 
-  test("handles short appointments with minimum height", () => {
+  test("handles short appointments with an expanded hit target", () => {
     const shortAppointment = {
       ...mockAppointment,
       layout: {
@@ -267,6 +267,8 @@ describe("CalendarAppointment", () => {
 
     const appointmentElement = container.querySelector(".min-h-4");
     expect(appointmentElement).toBeInTheDocument();
+    expect(appointmentElement).toHaveClass("before:min-h-6");
+    expect(appointmentElement).toHaveClass("before:content-['']");
   });
 
   test("handles long appointments", () => {

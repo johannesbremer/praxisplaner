@@ -77,4 +77,15 @@ describe("CalendarBlockedSlot", () => {
     expect(handlers.onDelete).toHaveBeenCalledTimes(2);
     expect(handlers.onDelete).toHaveBeenCalledWith(blockedSlot.id);
   });
+
+  test("short blocked slots expose an expanded hit target", () => {
+    render(<CalendarBlockedSlot {...defaultProps} slotCount={1} />);
+    const blockedSlotButton = screen.getByRole("button", {
+      name: "Gesperrter Zeitraum Teammeeting, 09:00. Bearbeiten",
+    });
+
+    expect(blockedSlotButton).toHaveClass("min-h-4");
+    expect(blockedSlotButton).toHaveClass("before:min-h-6");
+    expect(blockedSlotButton).toHaveClass("before:content-['']");
+  });
 });

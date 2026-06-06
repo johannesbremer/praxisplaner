@@ -108,7 +108,6 @@ export default function VersionGraph({
             key={version.hash}
             nodeRadius={style.nodeRadius}
             version={version}
-            {...(onVersionClick && { onClick: onVersionClick })}
           />
         ))}
 
@@ -127,6 +126,7 @@ export default function VersionGraph({
                 y={y - 15}
               >
                 <div
+                  aria-label={`Regelset-Version ${version.message} auswählen`}
                   className={`inline-flex items-center gap-2 text-sm cursor-pointer p-1 rounded ${
                     isSelected
                       ? "bg-primary text-primary-foreground border border-primary"
