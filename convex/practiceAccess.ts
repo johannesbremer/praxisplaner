@@ -315,9 +315,9 @@ export async function requirePatientBookingScopeForMutation(
   args: {
     practiceId: Id<"practices">;
     ruleSetId: Id<"ruleSets">;
-    userId: Id<"users">;
   },
 ): Promise<PatientBookingScope> {
+  const userId = await ensureAuthenticatedUserId(ctx);
   const ruleSet = await requireRuleSetBelongsToPractice(
     ctx,
     args.ruleSetId,
@@ -327,7 +327,7 @@ export async function requirePatientBookingScopeForMutation(
     practiceId: args.practiceId,
     ruleSet,
     ruleSetId: args.ruleSetId,
-    userId: args.userId,
+    userId,
   } as PatientBookingScope);
 }
 

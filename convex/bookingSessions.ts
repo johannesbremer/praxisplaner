@@ -2283,10 +2283,10 @@ export const selectNewPatientSlot = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
-    const bookingScope = await requirePatientBookingScopeForMutation(
-      ctx,
-      flowKey,
-    );
+    const bookingScope = await requirePatientBookingScopeForMutation(ctx, {
+      practiceId: flowKey.practiceId,
+      ruleSetId: flowKey.ruleSetId,
+    });
     await requireCurrentUserCanStartBooking(ctx, flowKey);
     const { rows, state } = await requireActiveFlow(ctx, flowKey);
     if (state.step !== "new-calendar-selection" || !rows.location) {
@@ -2382,10 +2382,10 @@ export const selectExistingPatientSlot = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
-    const bookingScope = await requirePatientBookingScopeForMutation(
-      ctx,
-      flowKey,
-    );
+    const bookingScope = await requirePatientBookingScopeForMutation(ctx, {
+      practiceId: flowKey.practiceId,
+      ruleSetId: flowKey.ruleSetId,
+    });
     await requireCurrentUserCanStartBooking(ctx, flowKey);
     const { rows, state } = await requireActiveFlow(ctx, flowKey);
     if (
