@@ -30,6 +30,10 @@ import {
   type PractitionerLineageKey,
 } from "./identity";
 import { getFutureLegacyUnmatchedBookingHoldsForUser } from "./legacyUnmatchedFutureBookingHolds";
+import {
+  type PatientBookingScope,
+  requirePatientBookingScopeForMutation,
+} from "./practiceAccess";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
   beihilfeStatusValidator,
@@ -51,7 +55,7 @@ import {
 } from "./typedDtos";
 import {
   ensureAuthenticatedUserId,
-  getAuthenticatedUserIdForQuery,
+  requireAuthenticatedUserIdForQuery,
 } from "./userIdentity";
 
 const FLOW_KEY_VALIDATOR = {
@@ -129,20 +133,19 @@ async function assertSlotAllowedByRules(
     appointmentTypeId: Id<"appointmentTypes">;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth: string;
-    practiceId: Id<"practices">;
     practitionerLineageKey: PractitionerLineageKey;
-    ruleSetId: Id<"ruleSets">;
+    scope: PatientBookingScope;
     startTime: ZonedDateTimeString;
   },
 ): Promise<void> {
   const [locationId, practitionerId] = await Promise.all([
     resolveLocationIdForRuleSetByLineage(ctx.db, {
       lineageKey: args.locationLineageKey,
-      ruleSetId: args.ruleSetId,
+      ruleSetId: args.scope.ruleSetId,
     }),
     resolvePractitionerIdForRuleSetByLineage(ctx.db, {
       lineageKey: args.practitionerLineageKey,
-      ruleSetId: args.ruleSetId,
+      ruleSetId: args.scope.ruleSetId,
     }),
   ]);
 
@@ -154,13 +157,13 @@ async function assertSlotAllowedByRules(
         dateTime: args.startTime,
         locationId,
         patientDateOfBirth: args.patientDateOfBirth,
-        practiceId: args.practiceId,
+        practiceId: args.scope.practiceId,
         practitionerId,
         requestedAt: Temporal.Now.instant()
           .toZonedDateTimeISO(APPOINTMENT_TIMEZONE)
           .toString(),
       },
-      ruleSetId: args.ruleSetId,
+      ruleSetId: args.scope.ruleSetId,
     },
   );
 
@@ -381,23 +384,24 @@ function getAllowedBackTargetStep(
     }
   }
 }
+
 async function getFlowKeyForMutation(
   ctx: MutationCtx,
   args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
 ): Promise<BookingFlowKey> {
+  await requireBookingRuleSetBelongsToPractice(ctx, args);
   return {
     ...args,
     userId: await ensureAuthenticatedUserId(ctx),
   };
 }
+
 async function getFlowKeyForQuery(
   ctx: QueryCtx,
   args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
-): Promise<BookingFlowKey | null> {
-  const userId = await getAuthenticatedUserIdForQuery(ctx);
-  if (!userId) {
-    return null;
-  }
+): Promise<BookingFlowKey> {
+  const userId = await requireAuthenticatedUserIdForQuery(ctx);
+  await requireBookingRuleSetBelongsToPractice(ctx, args);
 
   return {
     ...args,
@@ -621,7 +625,6 @@ async function getFlowRow(
     }
   }
 }
-
 function hasFlowStepRows(rows: BookingFlowRows): boolean {
   return (
     rows.privacy !== null ||
@@ -636,13 +639,11 @@ function hasFlowStepRows(rows: BookingFlowRows): boolean {
     rows.newDataSharing !== null
   );
 }
-
 function hasRequiredMedicalHistoryEntries(
   row: BookingFlowRows["medicalHistoryEntry"],
 ): boolean {
   return row?.isComplete === true;
 }
-
 async function loadFlowRows(
   ctx: MutationCtx | QueryCtx,
   flowKey: BookingFlowKey,
@@ -1326,6 +1327,26 @@ async function requireActiveFlowAtStep(
   return activeFlow;
 }
 
+async function requireBookingRuleSetBelongsToPractice(
+  ctx: MutationCtx | QueryCtx,
+  args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
+): Promise<void> {
+  const practice = await ctx.db.get("practices", args.practiceId);
+  if (!practice) {
+    throw new Error("Practice not found.");
+  }
+  if (practice.currentActiveRuleSetId !== args.ruleSetId) {
+    throw new Error("Rule set is not active for this practice.");
+  }
+  const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
+  if (!ruleSet) {
+    throw new Error("Rule set not found.");
+  }
+  if (ruleSet.practiceId !== args.practiceId) {
+    throw new Error("Rule set does not belong to this practice.");
+  }
+}
+
 async function requireCurrentUserCanStartBooking(
   ctx: MutationCtx,
   flowKey: BookingFlowKey,
@@ -1379,6 +1400,77 @@ async function requireCurrentUserCanStartBooking(
     throw new Error(
       "This account already has a future appointment and cannot start another online booking.",
     );
+  }
+}
+
+async function requireOfferedNewPatientSlot(
+  ctx: MutationCtx,
+  args: {
+    appointmentTypeLineageKey: Id<"appointmentTypes">;
+    locationLineageKey: LocationLineageKey;
+    patientDateOfBirth: string;
+    scope: PatientBookingScope;
+    selectedSlot: {
+      practitionerLineageKey: Id<"practitioners">;
+      startTime: ZonedDateTimeString;
+    };
+  },
+): Promise<void> {
+  await requireOfferedPatientSlot(ctx, {
+    appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+    isNewPatient: true,
+    locationLineageKey: args.locationLineageKey,
+    patientDateOfBirth: args.patientDateOfBirth,
+    practitionerLineageKey: asPractitionerLineageKey(
+      args.selectedSlot.practitionerLineageKey,
+    ),
+    scope: args.scope,
+    startTime: args.selectedSlot.startTime,
+  });
+}
+
+async function requireOfferedPatientSlot(
+  ctx: MutationCtx,
+  args: {
+    appointmentTypeLineageKey: Id<"appointmentTypes">;
+    isNewPatient: boolean;
+    locationLineageKey: LocationLineageKey;
+    patientDateOfBirth: string;
+    practitionerLineageKey: PractitionerLineageKey;
+    scope: PatientBookingScope;
+    startTime: ZonedDateTimeString;
+  },
+): Promise<void> {
+  const selectedDate = Temporal.ZonedDateTime.from(args.startTime)
+    .toPlainDate()
+    .toString();
+  const slotsResult = await ctx.runQuery(
+    internal.scheduling.getSlotsForDayInternal,
+    {
+      date: selectedDate,
+      enforceFutureOnly: true,
+      practiceId: args.scope.practiceId,
+      ruleSetId: args.scope.ruleSetId,
+      scope: "real",
+      simulatedContext: {
+        appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+        locationLineageKey: args.locationLineageKey,
+        patient: {
+          dateOfBirth: args.patientDateOfBirth,
+          isNew: args.isNewPatient,
+        },
+      },
+    },
+  );
+  const matchingSlot = slotsResult.slots.find(
+    (slot) =>
+      slot.status === "AVAILABLE" &&
+      slot.startTime === args.startTime &&
+      slot.locationLineageKey === args.locationLineageKey &&
+      slot.practitionerLineageKey === args.practitionerLineageKey,
+  );
+  if (!matchingSlot) {
+    throw new Error("Selected slot is no longer available");
   }
 }
 
@@ -1790,9 +1882,6 @@ export const getActiveForUser = query({
   args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForQuery(ctx, args);
-    if (!flowKey) {
-      return null;
-    }
 
     const rows = await loadFlowRows(ctx, flowKey);
     const state = await materializeState(ctx, flowKey, rows);
@@ -2188,6 +2277,10 @@ export const selectNewPatientSlot = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    const bookingScope = await requirePatientBookingScopeForMutation(ctx, {
+      practiceId: flowKey.practiceId,
+      ruleSetId: flowKey.ruleSetId,
+    });
     await requireCurrentUserCanStartBooking(ctx, flowKey);
     const { rows, state } = await requireActiveFlow(ctx, flowKey);
     if (state.step !== "new-calendar-selection" || !rows.location) {
@@ -2226,12 +2319,20 @@ export const selectNewPatientSlot = mutation({
         rows.location.locationLineageKey,
       ),
       patientDateOfBirth: personalData.dateOfBirth,
-      practiceId: flowKey.practiceId,
       practitionerLineageKey: asPractitionerLineageKey(
         selectedSlot.practitionerLineageKey,
       ),
-      ruleSetId: flowKey.ruleSetId,
+      scope: bookingScope,
       startTime: selectedSlot.startTime,
+    });
+    await requireOfferedNewPatientSlot(ctx, {
+      appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+      locationLineageKey: asLocationLineageKey(
+        rows.location.locationLineageKey,
+      ),
+      patientDateOfBirth: personalData.dateOfBirth,
+      scope: bookingScope,
+      selectedSlot,
     });
 
     const [locationId, practitionerId] = await Promise.all([
@@ -2248,6 +2349,7 @@ export const selectNewPatientSlot = mutation({
     ]);
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
+      allowUnrelatedUserId: true,
       appointmentTypeId,
       isNewPatient: true,
       locationId,
@@ -2274,6 +2376,10 @@ export const selectExistingPatientSlot = mutation({
   },
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    const bookingScope = await requirePatientBookingScopeForMutation(ctx, {
+      practiceId: flowKey.practiceId,
+      ruleSetId: flowKey.ruleSetId,
+    });
     await requireCurrentUserCanStartBooking(ctx, flowKey);
     const { rows, state } = await requireActiveFlow(ctx, flowKey);
     if (
@@ -2316,11 +2422,23 @@ export const selectExistingPatientSlot = mutation({
         rows.location.locationLineageKey,
       ),
       patientDateOfBirth: personalData.dateOfBirth,
-      practiceId: flowKey.practiceId,
       practitionerLineageKey: asPractitionerLineageKey(
         rows.existingDoctor.practitionerLineageKey,
       ),
-      ruleSetId: flowKey.ruleSetId,
+      scope: bookingScope,
+      startTime: selectedSlot.startTime,
+    });
+    await requireOfferedPatientSlot(ctx, {
+      appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+      isNewPatient: false,
+      locationLineageKey: asLocationLineageKey(
+        rows.location.locationLineageKey,
+      ),
+      patientDateOfBirth: personalData.dateOfBirth,
+      practitionerLineageKey: asPractitionerLineageKey(
+        rows.existingDoctor.practitionerLineageKey,
+      ),
+      scope: bookingScope,
       startTime: selectedSlot.startTime,
     });
 
@@ -2338,6 +2456,7 @@ export const selectExistingPatientSlot = mutation({
     ]);
 
     const appointmentId = await createAppointmentFromTrustedSource(ctx, {
+      allowUnrelatedUserId: true,
       appointmentTypeId,
       isNewPatient: false,
       locationId,

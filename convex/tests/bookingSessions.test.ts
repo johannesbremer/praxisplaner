@@ -58,6 +58,9 @@ async function createFlowFixture(
       saved: true,
       version: 1,
     });
+    await ctx.db.patch("practices", practiceId, {
+      currentActiveRuleSetId: ruleSetId,
+    });
     const locationLineageKey = await insertSelfLineageEntity(
       ctx.db,
       "locations",
@@ -90,6 +93,16 @@ async function createFlowFixture(
         ruleSetId,
       },
     );
+    await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+      breakTimes: [],
+      dayOfWeek: 6,
+      endTime: "11:00",
+      locationLineageKey,
+      practiceId,
+      practitionerLineageKey,
+      ruleSetId,
+      startTime: "10:00",
+    });
 
     return {
       appointmentTypeLineageKey,
@@ -121,6 +134,73 @@ async function createFlowToPatientStatus(
 }
 
 describe("booking flow without bookingSessions table", () => {
+  test("getActiveForUser throws for missing auth identity", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await createFlowFixture(
+      t.withIdentity({
+        email: "active-missing-auth-fixture@example.com",
+        subject: "workos_active_missing_auth_fixture",
+      }),
+    );
+
+    await expect(
+      t.query(api.bookingSessions.getActiveForUser, {
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow("Authentication required");
+  });
+
+  test("getActiveForUser throws for unprovisioned auth identity", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await createFlowFixture(
+      t.withIdentity({
+        email: "active-unprovisioned-fixture@example.com",
+        subject: "workos_active_unprovisioned_fixture",
+      }),
+    );
+    const authed = t.withIdentity({
+      email: "active-unprovisioned@example.com",
+      subject: "workos_active_unprovisioned",
+    });
+
+    await expect(
+      authed.query(api.bookingSessions.getActiveForUser, {
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow("Authenticated user is not provisioned in Convex");
+  });
+
+  test("getActiveForUser returns null for provisioned users without an active flow", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await createFlowFixture(
+      t.withIdentity({
+        email: "active-no-flow-fixture@example.com",
+        subject: "workos_active_no_flow_fixture",
+      }),
+    );
+    const authId = "workos_active_no_flow";
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        authId,
+        createdAt: BigInt(Date.now()),
+        email: "active-no-flow@example.com",
+      });
+    });
+    const authed = t.withIdentity({
+      email: "active-no-flow@example.com",
+      subject: authId,
+    });
+
+    await expect(
+      authed.query(api.bookingSessions.getActiveForUser, {
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).resolves.toBeNull();
+  });
+
   test("create, resume, and remove use flow-keyed step rows", async () => {
     const t = createAuthedTestContext("flow_resume");
     const fixture = await createFlowFixture(t);

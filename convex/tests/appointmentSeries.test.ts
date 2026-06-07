@@ -103,11 +103,21 @@ async function createUser(
   email: string,
 ) {
   return await t.run(async (ctx) => {
-    return await ctx.db.insert("users", {
+    const userId = await ctx.db.insert("users", {
       authId,
       createdAt: BigInt(Date.now()),
       email,
     });
+    const practices = await ctx.db.query("practices").collect();
+    for (const practice of practices) {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: practice._id,
+        role: "staff",
+        userId,
+      });
+    }
+    return userId;
   });
 }
 
@@ -1169,11 +1179,6 @@ describe("appointment series", () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
-    const userId = await createUser(
-      t,
-      "workos_real_series_user",
-      "real-series-user@example.com",
-    );
 
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
@@ -1245,7 +1250,6 @@ describe("appointment series", () => {
       practitionerId,
       start: rootStart,
       title: "Realer Kettentermin",
-      userId,
     });
 
     const appointments = await t.run(async (ctx) => {
@@ -1359,6 +1363,112 @@ describe("appointment series", () => {
     ).rejects.toThrow(
       "Booking identity does not belong to the appointment practice.",
     );
+  });
+
+  test("createAppointmentSeries rejects patients from another practice", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const { practiceId: otherPracticeId } = await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_cross_practice_series_patient_user",
+      "cross-practice-series-patient@example.com",
+    );
+    const foreignPatientId = await createPatient(t, {
+      dateOfBirth: "1970-01-01",
+      patientId: 19_700_101,
+      practiceId: otherPracticeId,
+    });
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+      return rootId;
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    await expect(
+      t.mutation(api.appointments.createAppointmentSeries, {
+        locationId,
+        patientId: foreignPatientId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Ersttermin",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      }),
+    ).rejects.toThrow("Patient does not belong to this practice.");
+  });
+
+  test("previewAppointmentSeries rejects unrelated users", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const unrelatedUserId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        authId: "workos_unrelated_series_preview_user",
+        createdAt: BigInt(Date.now()),
+        email: "unrelated-series-preview@example.com",
+      });
+    });
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        followUpPlan: [],
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+      return rootId;
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    await expect(
+      t.query(api.appointments.previewAppointmentSeries, {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        ruleSetId,
+        start: rootStart,
+        userId: unrelatedUserId,
+      }),
+    ).rejects.toThrow("User does not belong to this practice.");
   });
 
   test("replanned optional follow-up appointments inherit the stored booking identity", async () => {

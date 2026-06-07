@@ -11,10 +11,7 @@ import {
   minuteRangeContains,
 } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
-import {
-  getEffectiveAppointmentsForOccupancyView,
-  getOccupancyViewForBookingScope,
-} from "./appointmentConflicts";
+import { getOccupancyViewForBookingScope } from "./appointmentConflicts";
 import {
   getAppointmentPractitionerLineageKey,
   getBlockedSlotPractitionerLineageKey,
@@ -213,19 +210,17 @@ export async function evaluateCandidateSlotsForDay(
     args.date.toString(),
     args.ruleSetId,
     practitioners,
+    {
+      occupancyView: getOccupancyViewForBookingScope(args.scope),
+    },
   );
   diagnostics.appointmentsPreloaded = preloadedData.appointments.length;
 
   const excludedAppointmentIds = new Set(
     args.bookingContext.excludedAppointmentIds,
   );
-  const effectiveAppointments = getEffectiveAppointmentsForOccupancyView(
-    preloadedData.appointments,
-    getOccupancyViewForBookingScope(args.scope),
-    args.ruleSetId,
-  );
   markSlotsBlockedByAppointments(candidateSlots, {
-    appointments: effectiveAppointments,
+    appointments: preloadedData.appointments,
     excludedAppointmentIds,
   });
 

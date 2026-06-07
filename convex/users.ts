@@ -6,6 +6,7 @@ import type { DatabaseReader } from "./_generated/server";
 
 import { query } from "./_generated/server";
 import { authKit } from "./auth";
+import { requirePracticeMember } from "./practiceAccess";
 import { personalDataValidator } from "./schema";
 import { asPersonalDataInput, type PersonalDataInput } from "./typedDtos";
 import { findUserByAuthId } from "./userIdentity";
@@ -15,13 +16,25 @@ type BookingPersonalData = PersonalDataInput;
 
 async function getLatestBookingPersonalData(
   db: DatabaseReader,
-  userId: Id<"users">,
+  args: {
+    practiceId: Id<"practices">;
+    userId: Id<"users">;
+  },
 ): Promise<BookingPersonalData | null> {
-  const latestPersonalDataStep = await db
+  const personalDataSteps = await db
     .query("bookingPersonalDataSteps")
-    .withIndex("by_userId", (q) => q.eq("userId", userId))
-    .order("desc")
-    .first();
+    .withIndex("by_userId_practiceId_ruleSetId", (q) =>
+      q.eq("userId", args.userId).eq("practiceId", args.practiceId),
+    )
+    .collect();
+  const latestPersonalDataStep = personalDataSteps
+    .toSorted((left, right) => {
+      if (left.createdAt !== right.createdAt) {
+        return Number(right.createdAt - left.createdAt);
+      }
+      return right._id.localeCompare(left._id);
+    })
+    .at(0);
 
   return latestPersonalDataStep
     ? asPersonalDataInput({
@@ -89,14 +102,23 @@ export const getAuthUser = query({
  * Get a user by their Convex ID.
  */
 export const getById = query({
-  args: { id: v.id("users") },
+  args: { id: v.id("users"), practiceId: v.id("practices") },
   handler: async (ctx, args) => {
+    await requirePracticeMember(ctx, args.practiceId);
     const user = await ctx.db.get("users", args.id);
     if (!user) {
       return null;
     }
+    if (
+      !(await canReadUserDisplayForPractice(ctx.db, args.id, args.practiceId))
+    ) {
+      return null;
+    }
 
-    const personalData = await getLatestBookingPersonalData(ctx.db, args.id);
+    const personalData = await getLatestBookingPersonalData(ctx.db, {
+      practiceId: args.practiceId,
+      userId: args.id,
+    });
 
     return {
       ...user,
@@ -123,8 +145,9 @@ export const getById = query({
  * Returns only the fields we need for names and email fallbacks.
  */
 export const getUsersByIds = query({
-  args: { userIds: v.array(v.id("users")) },
+  args: { practiceId: v.id("practices"), userIds: v.array(v.id("users")) },
   handler: async (ctx, args) => {
+    await requirePracticeMember(ctx, args.practiceId);
     const users = await Promise.all(
       args.userIds.map((id) => ctx.db.get("users", id)),
     );
@@ -140,6 +163,15 @@ export const getUsersByIds = query({
 
     for (const user of users) {
       if (!user) {
+        continue;
+      }
+      if (
+        !(await canReadUserDisplayForPractice(
+          ctx.db,
+          user._id,
+          args.practiceId,
+        ))
+      ) {
         continue;
       }
 
@@ -161,3 +193,27 @@ export const getUsersByIds = query({
     }),
   ),
 });
+
+async function canReadUserDisplayForPractice(
+  db: DatabaseReader,
+  userId: Id<"users">,
+  practiceId: Id<"practices">,
+): Promise<boolean> {
+  const membership = await db
+    .query("practiceMembers")
+    .withIndex("by_practiceId_userId", (q) =>
+      q.eq("practiceId", practiceId).eq("userId", userId),
+    )
+    .first();
+  if (membership) {
+    return true;
+  }
+
+  const appointments = await db
+    .query("appointments")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .collect();
+  return appointments.some(
+    (appointment) => appointment.practiceId === practiceId,
+  );
+}

@@ -13,11 +13,22 @@ import { AuthKitProvider, useAuth } from "@workos-inc/authkit-react";
 import { ConvexProviderWithAuth } from "convex/react";
 import { err, ok, type Result } from "neverthrow";
 import * as React from "react";
-import { createContext, useCallback, useContext, useMemo } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import toast from "react-hot-toast";
 
 import type { FileRouteTypes } from "./routeTree.gen";
 
+import {
+  createDevAuthJwt,
+  getDevAuthPersonaForPath,
+} from "./auth/dev-auth-jwt";
 import { routeTree } from "./routeTree.gen";
 import { captureErrorGlobal } from "./utils/error-tracking";
 import {
@@ -224,11 +235,22 @@ function AuthProvidersInner({
   convexQueryClient: ConvexQueryClient;
   redirectUri: string;
 }) {
+  const pathname = useBrowserPathname();
+  const useRouteScopedConvexAuth = useMemo(() => {
+    return function useRouteScopedConvexAuth() {
+      return useConvexAuthFromWorkOS(pathname);
+    };
+  }, [pathname]);
+
   return (
-    <AuthKitProvider clientId={clientId} devMode redirectUri={redirectUri}>
+    <AuthKitProvider
+      clientId={clientId}
+      devMode={isWorkOSDevModeEnabled()}
+      redirectUri={redirectUri}
+    >
       <ConvexProviderWithAuth
         client={convexQueryClient.convexClient}
-        useAuth={useConvexAuthFromWorkOS}
+        useAuth={useRouteScopedConvexAuth}
       >
         {children}
       </ConvexProviderWithAuth>
@@ -245,6 +267,48 @@ function FatalConfigScreen({ error }: { error: FrontendError }) {
   );
 }
 
+function isWorkOSDevModeEnabled(): boolean {
+  const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
+  return import.meta.env.DEV || vercelEnv === "preview";
+}
+
+function useBrowserPathname(): string {
+  const [pathname, setPathname] = useState(() =>
+    import.meta.env.SSR ? "/buchung" : globalThis.location.pathname,
+  );
+
+  useEffect(() => {
+    const updatePathname = () => {
+      setPathname(globalThis.location.pathname);
+    };
+    const originalPushState = globalThis.history.pushState.bind(
+      globalThis.history,
+    );
+    const originalReplaceState = globalThis.history.replaceState.bind(
+      globalThis.history,
+    );
+
+    globalThis.history.pushState = function pushState(...args) {
+      originalPushState(...args);
+      updatePathname();
+    };
+    globalThis.history.replaceState = function replaceState(...args) {
+      originalReplaceState(...args);
+      updatePathname();
+    };
+    globalThis.addEventListener("popstate", updatePathname);
+    updatePathname();
+
+    return () => {
+      globalThis.history.pushState = originalPushState;
+      globalThis.history.replaceState = originalReplaceState;
+      globalThis.removeEventListener("popstate", updatePathname);
+    };
+  }, []);
+
+  return pathname;
+}
+
 function useConvexQueryClient(): Result<ConvexQueryClient, FrontendError> {
   const client = useContext(ConvexQueryClientContext);
   return resultFromNullable(
@@ -257,7 +321,17 @@ function useConvexQueryClient(): Result<ConvexQueryClient, FrontendError> {
  * Adapts WorkOS AuthKit's useAuth hook for Convex's ConvexProviderWithAuth.
  * This is a proper adapter that matches Convex's expected interface.
  */
-function useConvexAuthFromWorkOS() {
+function isAuthBypassEnabled(): boolean {
+  const bypassFlag = import.meta.env["VITE_AUTH_BYPASS_ENABLED"] === "true";
+  if (!bypassFlag) {
+    return false;
+  }
+
+  const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
+  return import.meta.env.DEV || vercelEnv === "preview";
+}
+
+function useConvexAuthFromWorkOS(pathname: string) {
   const { getAccessToken, isLoading, user } = useAuth();
 
   const fetchAccessToken = useCallback(
@@ -266,6 +340,9 @@ function useConvexAuthFromWorkOS() {
     }: {
       forceRefreshToken: boolean;
     }): Promise<null | string> => {
+      if (isAuthBypassEnabled()) {
+        return await createDevAuthJwt(getDevAuthPersonaForPath(pathname));
+      }
       if (isLoading) {
         return null;
       }
@@ -280,14 +357,14 @@ function useConvexAuthFromWorkOS() {
         return null;
       }
     },
-    [isLoading, user, getAccessToken],
+    [isLoading, pathname, user, getAccessToken],
   );
 
   return useMemo(
     () => ({
       fetchAccessToken,
-      isAuthenticated: !!user,
-      isLoading,
+      isAuthenticated: isAuthBypassEnabled() || !!user,
+      isLoading: isAuthBypassEnabled() ? false : isLoading,
     }),
     [isLoading, user, fetchAccessToken],
   );

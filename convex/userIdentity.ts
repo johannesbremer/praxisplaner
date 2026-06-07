@@ -20,7 +20,7 @@ type Reader = GenericDatabaseReader<DataModel>;
 export async function ensureAuthenticatedIdentity(
   ctx: AuthCtx,
 ): Promise<AuthenticatedIdentity> {
-  const identity = await getIdentityWithOptionalInsecureFallback(ctx);
+  const identity = await getConvexAuthIdentity(ctx);
   if (!identity) {
     throw new ConvexError({
       code: "UNAUTHORIZED",
@@ -62,45 +62,44 @@ export async function findUserByAuthId(
     .query("users")
     .withIndex("by_authId", (q) => q.eq("authId", authId))
     .collect();
-  return selectCanonicalUser(users);
-}
-
-export async function getAuthenticatedUserIdForQuery(
-  ctx: QueryCtx,
-): Promise<Id<"users"> | null> {
-  const identity = await getIdentityWithOptionalInsecureFallback(ctx);
-  if (!identity) {
-    return null;
-  }
-  const user = await findUserByAuthId(ctx.db, identity.subject);
-  return user?._id ?? null;
-}
-
-async function getIdentityWithOptionalInsecureFallback(
-  ctx: AuthCtx,
-): Promise<AuthenticatedIdentity | null> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (identity) {
-    return identity;
-  }
-
-  return {
-    email: "local-dev-user@users.invalid",
-    subject: "local-dev-user",
-  };
-}
-
-function selectCanonicalUser(users: Doc<"users">[]): Doc<"users"> | null {
   if (users.length === 0) {
     return null;
   }
-  const sortedUsers = users
-    .toSorted((a, b) => {
-      if (a._creationTime !== b._creationTime) {
-        return a._creationTime - b._creationTime;
-      }
-      return a._id.localeCompare(b._id);
-    })
-    .at(0);
-  return sortedUsers ?? null;
+  if (users.length > 1) {
+    throw new ConvexError({
+      code: "UNAUTHORIZED",
+      message: "Multiple app users exist for authenticated identity",
+    });
+  }
+  const user = users.at(0);
+  if (!user) {
+    return null;
+  }
+  return user;
+}
+
+export async function requireAuthenticatedUserIdForQuery(
+  ctx: QueryCtx,
+): Promise<Id<"users">> {
+  const identity = await getConvexAuthIdentity(ctx);
+  if (!identity) {
+    throw new ConvexError({
+      code: "UNAUTHORIZED",
+      message: "Authentication required",
+    });
+  }
+  const user = await findUserByAuthId(ctx.db, identity.subject);
+  if (!user) {
+    throw new ConvexError({
+      code: "UNAUTHORIZED",
+      message: "Authenticated user is not provisioned in Convex",
+    });
+  }
+  return user._id;
+}
+
+async function getConvexAuthIdentity(
+  ctx: AuthCtx,
+): Promise<AuthenticatedIdentity | null> {
+  return await ctx.auth.getUserIdentity();
 }

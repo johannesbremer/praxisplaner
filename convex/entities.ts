@@ -86,7 +86,8 @@ import { insertSelfLineageEntity } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
-  ensureRuleSetAccessForQuery,
+  requireRuleSetMember,
+  requireRuleSetMemberOrCurrentUserBookingScope,
 } from "./practiceAccess";
 import { type ConditionTreeNode, validateConditionTree } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
@@ -742,7 +743,7 @@ export const createAppointmentType = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -857,7 +858,7 @@ export const updateAppointmentType = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -958,7 +959,7 @@ export const deleteAppointmentType = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -1028,8 +1029,11 @@ export const getAppointmentTypes = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    if (args.includeDeleted === true) {
+      await requireRuleSetMember(ctx, args.ruleSetId, "admin");
+    } else {
+      await requireRuleSetMemberOrCurrentUserBookingScope(ctx, args.ruleSetId);
+    }
     const appointmentTypes = await ctx.db
       .query("appointmentTypes")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -1066,7 +1070,7 @@ export const createPractitioner = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -1150,7 +1154,7 @@ export const updatePractitioner = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -1221,7 +1225,7 @@ export const deletePractitioner = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -1292,7 +1296,7 @@ export const deletePractitionerWithDependencies = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -1554,7 +1558,7 @@ export const restorePractitionerWithDependencies = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -1795,8 +1799,11 @@ export const getPractitioners = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    if (args.includeDeleted === true) {
+      await requireRuleSetMember(ctx, args.ruleSetId, "admin");
+    } else {
+      await requireRuleSetMemberOrCurrentUserBookingScope(ctx, args.ruleSetId);
+    }
     const practitioners = await ctx.db
       .query("practitioners")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -1832,7 +1839,7 @@ export const createLocation = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -1914,7 +1921,7 @@ export const updateLocation = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -1982,7 +1989,7 @@ export const deleteLocation = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -2069,8 +2076,11 @@ export const getLocations = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    if (args.includeDeleted === true) {
+      await requireRuleSetMember(ctx, args.ruleSetId, "admin");
+    } else {
+      await requireRuleSetMemberOrCurrentUserBookingScope(ctx, args.ruleSetId);
+    }
     const locations = await ctx.db
       .query("locations")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -2106,7 +2116,7 @@ export const createBaseScheduleBatch = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const schedules = args.schedules.map((schedule) =>
       asBaseScheduleCreatePayload(schedule),
     );
@@ -2230,7 +2240,7 @@ export const updateBaseSchedule = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -2347,7 +2357,7 @@ export const updateBaseScheduleSet = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const schedules = args.schedules.map((schedule) =>
       asBaseScheduleCreatePayload(schedule),
     );
@@ -2618,7 +2628,7 @@ export const deleteBaseSchedule = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -2676,7 +2686,7 @@ export const replaceBaseScheduleSet = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const replacementSchedules = args.replacementSchedules.map((schedule) =>
       asBaseSchedulePayload(schedule),
     );
@@ -2921,8 +2931,7 @@ export const getBaseSchedules = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    await requireRuleSetMember(ctx, args.ruleSetId);
     const schedules = await ctx.db
       .query("baseSchedules")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -2962,8 +2971,7 @@ export const getBaseSchedulesByPractitioner = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    await requireRuleSetMember(ctx, args.ruleSetId);
     const practitioner = await ctx.db.get("practitioners", args.practitionerId);
     if (!practitioner) {
       throw new Error(`Behandler ${args.practitionerId} nicht gefunden.`);
@@ -3159,7 +3167,7 @@ export const createRule = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -3244,7 +3252,7 @@ export const deleteRule = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -3323,7 +3331,7 @@ export const updateRule = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -3444,8 +3452,7 @@ export const getRules = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await ensureRuleSetAccessForQuery(ctx, args.ruleSetId);
+    await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     // Get all root nodes (rules)
     const roots = await ctx.db
       .query("ruleConditions")

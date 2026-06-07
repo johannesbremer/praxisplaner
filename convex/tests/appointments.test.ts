@@ -378,7 +378,7 @@ describe("appointments self-service cancellation", () => {
 
     const visibleAppointments = await owner.query(
       api.appointments.getAppointmentsForPatient,
-      { userId: ownerUserId },
+      { practiceId: baseData.practiceId, userId: ownerUserId },
     );
     expect(visibleAppointments).toHaveLength(0);
   });
@@ -433,6 +433,49 @@ describe("appointments self-service cancellation", () => {
     ]);
   });
 
+  test("current-user booked appointment queries throw for missing auth identity", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+
+    await expect(
+      t.query(api.appointments.getBookedAppointmentsForCurrentUser, {
+        activeRuleSetId: baseData.ruleSetId,
+      }),
+    ).rejects.toThrow("Authentication required");
+  });
+
+  test("current-user booked appointment queries throw for unprovisioned auth identity", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authed = t.withIdentity({
+      email: "unprovisioned-bookings@example.com",
+      subject: "workos_unprovisioned_bookings",
+    });
+
+    await expect(
+      authed.query(api.appointments.getBookedAppointmentsForCurrentUser, {
+        activeRuleSetId: baseData.ruleSetId,
+      }),
+    ).rejects.toThrow("Authenticated user is not provisioned in Convex");
+  });
+
+  test("current-user booked appointment queries return empty results for provisioned users without bookings", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_no_bookings";
+    await createUser(t, authId, "no-bookings@example.com");
+    const authed = t.withIdentity({
+      email: "no-bookings@example.com",
+      subject: authId,
+    });
+
+    await expect(
+      authed.query(api.appointments.getBookedAppointmentsForCurrentUser, {
+        activeRuleSetId: baseData.ruleSetId,
+      }),
+    ).resolves.toEqual([]);
+  });
+
   test('getAppointmentsForPatient with scope "simulation" overlays simulation replacements', async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
@@ -479,6 +522,7 @@ describe("appointments self-service cancellation", () => {
 
     await expect(
       authed.query(api.appointments.getAppointmentsForPatient, {
+        practiceId: baseData.practiceId,
         scope: "simulation",
         selectedRuleSetId: baseData.ruleSetId,
         userId,
@@ -1159,11 +1203,6 @@ describe("appointments self-service cancellation", () => {
         practitionerId,
       };
     });
-    const userId = await createUser(
-      t,
-      "workos_staff_server_duration_user",
-      "staff-server-duration@example.com",
-    );
     const window = makeSlotWindow(4);
 
     const appointmentId = await authed.mutation(
@@ -1174,8 +1213,9 @@ describe("appointments self-service cancellation", () => {
         practiceId: baseData.practiceId,
         practitionerId: baseData.practitionerId,
         start: window.start,
+        temporaryPatientName: "Server Duration",
+        temporaryPatientPhoneNumber: "+491700000000",
         title: "Server duration",
-        userId,
       },
     );
 
@@ -1185,6 +1225,80 @@ describe("appointments self-service cancellation", () => {
 
     expect(createdAppointment).not.toBeNull();
     expect(createdAppointment?.end).toBe(window.end);
+  });
+
+  test("createAppointment rejects resource ids from another practice", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_cross_practice_write_staff",
+      "cross-practice-write-staff@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "cross-practice-write-staff@example.com",
+      subject: "workos_cross_practice_write_staff",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: foreignData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(6).start,
+        temporaryPatientName: "Foreign Resource",
+        temporaryPatientPhoneNumber: "+491700000001",
+        title: "Foreign resource",
+      }),
+    ).rejects.toThrow("Standort nicht in dieser Praxis");
+  });
+
+  test("createBlockedSlot rejects practitioner ids from another practice", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_cross_practice_block_staff",
+      "cross-practice-block-staff@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "cross-practice-block-staff@example.com",
+      subject: "workos_cross_practice_block_staff",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+    const window = makeSlotWindow(7);
+
+    await expect(
+      authed.mutation(api.appointments.createBlockedSlot, {
+        end: window.end,
+        locationId: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerId: foreignData.practitionerId,
+        },
+        practiceId: baseData.practiceId,
+        start: window.start,
+        title: "Foreign practitioner block",
+      }),
+    ).rejects.toThrow("Behandler nicht in dieser Praxis");
   });
 
   test("cancelOwnAppointment cancels all future appointments in a series when the root appointment is cancelled", async () => {
@@ -2271,6 +2385,7 @@ describe("appointments update safety", () => {
       api.appointments.getAppointments,
       {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         selectedRuleSetId: baseData.ruleSetId,
       },
     );
@@ -2359,6 +2474,7 @@ describe("appointments update safety", () => {
 
     const appointments = await authed.query(api.appointments.getAppointments, {
       activeRuleSetId: baseData.ruleSetId,
+      practiceId: baseData.practiceId,
       selectedRuleSetId: baseData.ruleSetId,
     });
 
@@ -2467,6 +2583,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getAppointments, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
       }),
     ).resolves.toEqual([]);
   });
@@ -2517,6 +2634,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getAppointments, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         scope: "real",
       }),
     ).resolves.toMatchObject([{ _id: realAppointmentId }]);
@@ -2577,6 +2695,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getAppointments, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         scope: "all",
       }),
     ).resolves.toMatchObject([
@@ -2586,6 +2705,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getAppointments, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         scope: "all",
       }),
     ).resolves.toHaveLength(2);
@@ -2644,12 +2764,10 @@ describe("appointments update safety", () => {
 
     await expect(
       authed.query(api.appointments.getAppointments, {
+        practiceId: baseData.practiceId,
         scope: "all",
       }),
-    ).resolves.toMatchObject([
-      { _id: foreignRealAppointmentId },
-      { _id: localSimulationReplacementId },
-    ]);
+    ).resolves.toMatchObject([{ _id: localSimulationReplacementId }]);
   });
 
   test("getAppointments remaps through soft-deleted entities in the displayed rule set", async () => {
@@ -2740,6 +2858,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getAppointments, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         selectedRuleSetId: savedRuleSetId,
       }),
     ).resolves.toMatchObject([
@@ -2795,6 +2914,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getAppointments, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         selectedRuleSetId: savedRuleSetId,
       }),
     ).resolves.toEqual([]);
@@ -2889,6 +3009,7 @@ describe("appointments update safety", () => {
     await expect(
       authed.query(api.appointments.getBlockedSlots, {
         activeRuleSetId: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
         scope: "real",
       }),
     ).resolves.toMatchObject([
@@ -2920,6 +3041,41 @@ describe("calendar day appointment queries", () => {
         scope: "real",
       }),
     ).rejects.toThrow();
+  });
+
+  test("getCalendarDayAppointments rejects foreign display rule sets", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_query_foreign_display",
+      "day-query-foreign-display@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-query-foreign-display@example.com",
+      subject: "workos_day_query_foreign_display",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "staff",
+        userId,
+      });
+    });
+    const range = makeDayRange(2);
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: range.dayEnd,
+        dayStart: range.dayStart,
+        practiceId: baseData.practiceId,
+        scope: "real",
+        selectedRuleSetId: foreignData.ruleSetId,
+      }),
+    ).rejects.toThrow("Rule set does not belong to this practice");
   });
 
   test("getCalendarDayAppointments returns only same-day records for the requested location and scope", async () => {
@@ -3782,6 +3938,7 @@ describe("calendar day appointment queries", () => {
       authed.query(api.appointments.getAppointmentsInRange, {
         activeRuleSetId: baseData.ruleSetId,
         end: targetRange.dayEnd,
+        practiceId: baseData.practiceId,
         scope: "real",
         start: targetRange.dayStart,
       }),
@@ -3859,6 +4016,7 @@ describe("calendar day appointment queries", () => {
     await expect(
       authed.query(api.appointments.getAppointmentsInRange, {
         end: targetRange.dayEnd,
+        practiceId: baseData.practiceId,
         scope: "real",
         start: rangeStart.toString(),
       }),
@@ -3935,6 +4093,7 @@ describe("calendar day appointment queries", () => {
             timeZone: "Europe/Berlin",
           })
           .toString(),
+        practiceId: baseData.practiceId,
         scope: "real",
         start: targetRange.date
           .toZonedDateTime({
@@ -4015,6 +4174,7 @@ describe("calendar day appointment queries", () => {
       authed.query(api.appointments.getAppointmentsInRange, {
         activeRuleSetId: baseData.ruleSetId,
         end: targetRange.dayEnd,
+        practiceId: baseData.practiceId,
         scope: "real",
         start: targetRange.dayStart,
       }),
@@ -4155,6 +4315,41 @@ describe("calendar day appointment queries", () => {
         title: "Main location block",
       },
     ]);
+  });
+
+  test("getCalendarDayBlockedSlots rejects foreign display rule sets", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_blocked_slots_foreign_display",
+      "day-blocked-slots-foreign-display@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-blocked-slots-foreign-display@example.com",
+      subject: "workos_day_blocked_slots_foreign_display",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "staff",
+        userId,
+      });
+    });
+    const range = makeDayRange(2);
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayBlockedSlots, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: range.dayEnd,
+        dayStart: range.dayStart,
+        practiceId: baseData.practiceId,
+        scope: "real",
+        selectedRuleSetId: foreignData.ruleSetId,
+      }),
+    ).rejects.toThrow("Rule set does not belong to this practice");
   });
 
   test("getCalendarDayBlockedSlots hides an in-range real block when its simulation replacement moved to another day", async () => {

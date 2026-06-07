@@ -41,6 +41,7 @@ import type {
 import { api } from "../../convex/_generated/api";
 import { parseGdtContent } from "../../convex/gdt/processing";
 import { isValidDate } from "../../convex/gdt/validation";
+import { StaffAuthGate } from "../auth/access-control";
 import { PraxisCalendar } from "../components/praxis-calendar";
 import { VacationScheduler } from "../components/vacation-scheduler";
 import {
@@ -55,7 +56,10 @@ import {
   isToday,
   parseDateDE,
 } from "../utils/date-utils";
-import { useErrorTracking } from "../utils/error-tracking";
+import {
+  buildGdtFileDiagnostics,
+  useErrorTracking,
+} from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
 import {
   NERDS_TAB_SEARCH_VALUE,
@@ -132,9 +136,17 @@ const buildSearchFromState = (
 };
 
 export const Route = createFileRoute("/praxisplaner")({
-  component: PraxisPlanerComponent,
+  component: PraxisPlanerRoute,
   validateSearch: normalizePraxisplanerSearch,
 });
+
+function PraxisPlanerRoute() {
+  return (
+    <StaffAuthGate>
+      <PraxisPlanerComponent />
+    </StaffAuthGate>
+  );
+}
 
 const IDB_GDT_HANDLE_KEY = "gdtDirectoryHandle";
 const IDB_GDT_PERMISSION_KEY = "gdtDirPermission";
@@ -686,41 +698,46 @@ function PraxisPlanerComponent() {
           procerrorMsg = `GDT parsing error in "${fileName}": ${gdtError instanceof Error ? gdtError.message : String(gdtError)}`;
           addGdtLog(`⚠️ ${procerrorMsg}`);
 
-          // Capture specific GDT parsing error with comprehensive context
-          captureError(gdtError, {
-            context: "GDT parsing error",
-            directoryName: directoryHandle.name,
-            domExceptionName: isDOMException(gdtError)
-              ? gdtError.name
-              : undefined,
-            errorType: "gdt_parsing",
-            fileContent, // Full file content as requested
-            fileLastModified: new Date(file.lastModified).toISOString(),
-            fileName,
-            fileSize: file.size,
-            fileType: fileName.endsWith(".gdt")
-              ? "gdt-file"
-              : file.type || "unknown",
-            isDOMException: isDOMException(gdtError),
-          });
+          // Capture parser diagnostics without exporting patient file contents.
+          captureError(
+            gdtError,
+            buildGdtFileDiagnostics({
+              context: "GDT parsing error",
+              directoryName: directoryHandle.name,
+              domExceptionName: isDOMException(gdtError)
+                ? gdtError.name
+                : undefined,
+              errorType: "gdt_parsing",
+              fileContentLength: fileContent.length,
+              fileLastModified: new Date(file.lastModified).toISOString(),
+              fileName,
+              fileSize: file.size,
+              fileType: fileName.endsWith(".gdt")
+                ? "gdt-file"
+                : file.type || "unknown",
+              isDOMException: isDOMException(gdtError),
+            }),
+          );
         }
 
         // File processing completed, capture any processing errors to PostHog
         if (procerrorMsg) {
-          captureError(new Error(procerrorMsg), {
-            context: "GDT file processing error",
-            directoryName: directoryHandle.name,
-            errorType: "file_processing",
-            fileContent, // Include full content for debugging
-            fileContentLength: fileContent.length,
-            fileLastModified: new Date(file.lastModified).toISOString(),
-            fileName,
-            fileSize: file.size,
-            fileType: fileName.endsWith(".gdt")
-              ? "gdt-file"
-              : file.type || "unknown",
-            operationType: "processing",
-          });
+          captureError(
+            new Error(procerrorMsg),
+            buildGdtFileDiagnostics({
+              context: "GDT file processing error",
+              directoryName: directoryHandle.name,
+              errorType: "file_processing",
+              fileContentLength: fileContent.length,
+              fileLastModified: new Date(file.lastModified).toISOString(),
+              fileName,
+              fileSize: file.size,
+              fileType: fileName.endsWith(".gdt")
+                ? "gdt-file"
+                : file.type || "unknown",
+              operationType: "processing",
+            }),
+          );
         }
 
         await directoryHandle.removeEntry(fileName);
@@ -729,27 +746,29 @@ function PraxisPlanerComponent() {
         const errorMsg = error instanceof Error ? error.message : String(error);
         addGdtLog(`❌ Error with "${fileName}": ${errorMsg}`);
 
-        // Capture error with PostHog instead of storing in IndexedDB
-        captureError(error, {
-          context: "GDT file processing error",
-          directoryName: directoryHandle.name,
-          domExceptionName: isDOMException(error) ? error.name : undefined,
-          errorType: "file_processing",
-          fileContent, // Include full content for debugging
-          fileContentLength: fileContent.length,
-          fileLastModified: file
-            ? new Date(file.lastModified).toISOString()
-            : undefined,
-          fileName,
-          fileSize: file ? file.size : undefined,
-          fileType: file
-            ? fileName.endsWith(".gdt")
-              ? "gdt-file"
-              : file.type || "unknown"
-            : "unknown",
-          isDOMException: isDOMException(error),
-          operationType: "delete",
-        });
+        // Capture file diagnostics without exporting patient file contents.
+        captureError(
+          error,
+          buildGdtFileDiagnostics({
+            context: "GDT file processing error",
+            directoryName: directoryHandle.name,
+            domExceptionName: isDOMException(error) ? error.name : undefined,
+            errorType: "file_processing",
+            fileContentLength: fileContent.length,
+            fileLastModified: file
+              ? new Date(file.lastModified).toISOString()
+              : undefined,
+            fileName,
+            fileSize: file ? file.size : undefined,
+            fileType: file
+              ? fileName.endsWith(".gdt")
+                ? "gdt-file"
+                : file.type || "unknown"
+              : "unknown",
+            isDOMException: isDOMException(error),
+            operationType: "delete",
+          }),
+        );
 
         if (
           isDOMException(error) &&

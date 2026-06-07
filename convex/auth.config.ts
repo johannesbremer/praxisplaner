@@ -7,22 +7,24 @@ if (!clientId) {
   );
 }
 
+const providers = [
+  {
+    algorithm: "RS256" as const,
+    applicationID: clientId,
+    issuer: `https://api.workos.com/`,
+    jwks: `https://api.workos.com/sso/jwks/${clientId}`,
+    type: "customJwt" as const,
+  },
+  {
+    algorithm: "RS256" as const,
+    issuer: `https://api.workos.com/user_management/${clientId}`,
+    jwks: `https://api.workos.com/sso/jwks/${clientId}`,
+    type: "customJwt" as const,
+  },
+];
+
 const authConfig = {
-  providers: [
-    {
-      algorithm: "RS256" as const,
-      applicationID: clientId,
-      issuer: `https://api.workos.com/`,
-      jwks: `https://api.workos.com/sso/jwks/${clientId}`,
-      type: "customJwt" as const,
-    },
-    {
-      algorithm: "RS256" as const,
-      issuer: `https://api.workos.com/user_management/${clientId}`,
-      jwks: `https://api.workos.com/sso/jwks/${clientId}`,
-      type: "customJwt" as const,
-    },
-  ],
+  providers,
 };
 
 export default authConfig;

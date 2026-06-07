@@ -8,10 +8,15 @@ import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
   getAccessiblePracticeIdsForQuery,
+  isConvexAuthBypassEnabled,
   practiceRoleValidator,
+  requirePracticeManager,
 } from "./practiceAccess";
 import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
-import { ensureAuthenticatedUserId } from "./userIdentity";
+import {
+  ensureAuthenticatedUserId,
+  requireAuthenticatedUserIdForQuery,
+} from "./userIdentity";
 
 /**
  * Create a new practice with the given name.
@@ -79,6 +84,29 @@ export const getAllPractices = query({
 });
 
 /**
+ * Get practices visible to authenticated patient booking flows.
+ *
+ * Patients are not practice members, so this intentionally does not use
+ * practiceMembers. Booking-specific queries still validate practice/rule-set
+ * relationships before exposing scheduling data.
+ */
+export const getBookingPractices = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAuthenticatedUserIdForQuery(ctx);
+    return await ctx.db.query("practices").collect();
+  },
+  returns: v.array(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("practices"),
+      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
+      name: v.string(),
+    }),
+  ),
+});
+
+/**
  * Get a specific practice by ID.
  */
 export const getPractice = query({
@@ -105,7 +133,7 @@ export const listPracticePhoneNumbers = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeManager(ctx, args.practiceId);
 
     const phoneNumbers = await ctx.db
       .query("practicePhoneNumbers")
@@ -201,6 +229,12 @@ export const removePracticePhoneNumber = mutation({
 export const initializeDefaultPractice = mutation({
   args: {},
   handler: async (ctx) => {
+    if (!isConvexAuthBypassEnabled()) {
+      throw new Error(
+        "Default practice bootstrap is only available in bypass mode.",
+      );
+    }
+
     const userId = await ensureAuthenticatedUserId(ctx);
     const existingMemberships = await ctx.db
       .query("practiceMembers")
@@ -294,7 +328,7 @@ export const getPracticeMembers = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeManager(ctx, args.practiceId);
 
     const members = await ctx.db
       .query("practiceMembers")

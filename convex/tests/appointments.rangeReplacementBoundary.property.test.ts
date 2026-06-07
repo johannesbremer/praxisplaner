@@ -104,6 +104,7 @@ describe("appointment range replacement boundary properties", () => {
           {
             activeRuleSetId: fixture.ruleSetId,
             end: rangeEnd,
+            practiceId: fixture.practiceId,
             scope: "real",
             selectedRuleSetId: fixture.ruleSetId,
             start: rangeStart,

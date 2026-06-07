@@ -2,7 +2,10 @@
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { captureErrorGlobal } from "../utils/error-tracking";
+import {
+  captureErrorGlobal,
+  type SafeErrorContext,
+} from "../utils/error-tracking";
 
 // Mock PostHog
 const mockCaptureException = vi.fn();
@@ -19,6 +22,7 @@ type GlobalWithPostHog = typeof globalThis & {
 describe("Error Tracking", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("VITE_ENABLE_POSTHOG_IN_DEV", "true");
     // Reset globalThis
     delete (globalThis as GlobalWithPostHog).posthog;
   });
@@ -101,11 +105,15 @@ describe("Error Tracking", () => {
         fileName: "patient123.gdt",
       };
 
-      captureErrorGlobal(error, context);
+      captureErrorGlobal(error, context as unknown as SafeErrorContext);
 
       expect(mockCaptureException).toHaveBeenCalledExactlyOnceWith(
         error,
-        context,
+        expect.objectContaining({
+          context: "GDT file processing error",
+          errorType: "gdt_parsing",
+          fileName: "patient123.gdt",
+        }),
       );
       const capturedContext = mockCaptureException.mock.calls[0]?.[1];
       expect(capturedContext).toMatchObject({
@@ -113,6 +121,7 @@ describe("Error Tracking", () => {
         errorType: "gdt_parsing",
         fileName: "patient123.gdt",
       });
+      expect(capturedContext).not.toHaveProperty("fileContent");
     });
 
     test("should handle FileSystem API context correctly", () => {

@@ -3032,15 +3032,18 @@ describe("E2E: Slot Generation with Rules", () => {
     const ruleId = await createRule(t, practiceId, ruleSetId, conditionTree);
 
     // Test: Get slots for Monday
-    const mondaySlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: generalTypeId,
-        patient: { isNew: false },
+    const mondaySlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: generalTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     // All Monday slots should be blocked
     expect(mondaySlots.slots.length).toBeGreaterThan(0);
@@ -3103,15 +3106,18 @@ describe("E2E: Slot Generation with Rules", () => {
     await createRule(t, practiceId, ruleSetId, conditionTree);
 
     // Test: Get slots for Tuesday
-    const tuesdaySlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-28", // Tuesday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: generalTypeId,
-        patient: { isNew: false },
+    const tuesdaySlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-28", // Tuesday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: generalTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     // All Tuesday slots should be available
     expect(tuesdaySlots.slots.length).toBeGreaterThan(0);
@@ -3178,15 +3184,18 @@ describe("E2E: Slot Generation with Rules", () => {
     const ruleId = await createRule(t, practiceId, ruleSetId, conditionTree);
 
     // Test: Get slots with Surgery appointment type
-    const surgerySlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: surgeryTypeId,
-        patient: { isNew: false },
+    const surgerySlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: surgeryTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     // All slots should be blocked for Surgery
     expect(surgerySlots.slots.length).toBeGreaterThan(0);
@@ -3198,15 +3207,18 @@ describe("E2E: Slot Generation with Rules", () => {
     ).toBe(true);
 
     // Test: Get slots with Checkup appointment type
-    const checkupSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: checkupTypeId,
-        patient: { isNew: false },
+    const checkupSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: checkupTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     // All slots should be available for Checkup
     expect(checkupSlots.slots.length).toBeGreaterThan(0);
@@ -3281,15 +3293,18 @@ describe("E2E: Slot Generation with Rules", () => {
     await createRule(t, practiceId, ruleSetId, conditionTree);
 
     // Test: Get all slots for Monday
-    const mondaySlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: generalTypeId,
-        patient: { isNew: false },
+    const mondaySlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: generalTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     // Should have slots from both practitioners
     expect(mondaySlots.slots.length).toBeGreaterThan(0);
@@ -3397,7 +3412,7 @@ describe("E2E: Slot Generation with Rules", () => {
       30,
     );
 
-    const slots = await t.query(api.scheduling.getSlotsForDay, {
+    const slots = await t.query(internal.scheduling.getSlotsForDayInternal, {
       date: "2025-10-27",
       practiceId,
       ruleSetId: copiedRuleSetId,
@@ -3577,6 +3592,34 @@ describe("E2E: Slot Generation with Rules", () => {
     expect(blockedSlots.slots.length).toBeGreaterThan(0);
   });
 
+  test("getBlockedSlotsWithoutAppointmentType rejects authenticated non-members", async () => {
+    const t = createTestContext();
+
+    await createPractice(t);
+    const { practiceId, ruleSetId } = await t.run(async (ctx) => {
+      const practiceId = await ctx.db.insert("practices", {
+        name: "Foreign Rule Metadata Practice",
+      });
+      const ruleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Foreign Rule Metadata Rule Set",
+        draftRevision: 0,
+        practiceId,
+        saved: true,
+        version: 1,
+      });
+      return { practiceId, ruleSetId };
+    });
+
+    await expect(
+      t.query(api.scheduling.getBlockedSlotsWithoutAppointmentType, {
+        date: "2025-10-27",
+        practiceId,
+        ruleSetId,
+      }),
+    ).rejects.toThrow("No access to this practice");
+  });
+
   test("Compound AND rule blocks slots only when both conditions match", async () => {
     const t = createTestContext();
 
@@ -3655,15 +3698,18 @@ describe("E2E: Slot Generation with Rules", () => {
     await createRule(t, practiceId, ruleSetId, conditionTree);
 
     // Test 1: Surgery on Monday - should be blocked
-    const mondaySurgerySlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: surgeryTypeId,
-        patient: { isNew: false },
+    const mondaySurgerySlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: surgeryTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     expect(mondaySurgerySlots.slots.length).toBeGreaterThan(0);
     expect(
@@ -3671,15 +3717,18 @@ describe("E2E: Slot Generation with Rules", () => {
     ).toBe(true);
 
     // Test 2: Checkup on Monday - should be available (type doesn't match)
-    const mondayCheckupSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: checkupTypeId,
-        patient: { isNew: false },
+    const mondayCheckupSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: checkupTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     expect(mondayCheckupSlots.slots.length).toBeGreaterThan(0);
     expect(
@@ -3687,15 +3736,18 @@ describe("E2E: Slot Generation with Rules", () => {
     ).toBe(true);
 
     // Test 3: Surgery on Tuesday - should be available (day doesn't match)
-    const tuesdaySurgerySlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-28", // Tuesday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: surgeryTypeId,
-        patient: { isNew: false },
+    const tuesdaySurgerySlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-28", // Tuesday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: surgeryTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     expect(tuesdaySurgerySlots.slots.length).toBeGreaterThan(0);
     expect(
@@ -3806,16 +3858,19 @@ describe("E2E: Slot Generation with Rules", () => {
     await createRule(t, practiceId, ruleSetId, conditionTree);
 
     // Test 1: Surgery with Dr. Smith at Main Office on Monday - should be BLOCKED
-    const blockedSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: surgeryTypeId,
-        locationLineageKey: mainOfficeId,
-        patient: { isNew: false },
+    const blockedSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: surgeryTypeId,
+          locationLineageKey: mainOfficeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     const smithMainOfficeSlots = blockedSlots.slots.filter(
       (s) => s.practitionerLineageKey === drSmithId,
@@ -3826,16 +3881,19 @@ describe("E2E: Slot Generation with Rules", () => {
     ).toBe(true);
 
     // Test 2: Surgery with Dr. Smith at Branch on Monday - should be AVAILABLE (location doesn't match)
-    const smithBranchSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: surgeryTypeId,
-        locationLineageKey: branchId,
-        patient: { isNew: false },
+    const smithBranchSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: surgeryTypeId,
+          locationLineageKey: branchId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     const smithBranchSurgerySlots = smithBranchSlots.slots.filter(
       (s) => s.practitionerLineageKey === drSmithId,
@@ -3846,16 +3904,19 @@ describe("E2E: Slot Generation with Rules", () => {
     ).toBe(true);
 
     // Test 3: Surgery with Dr. Jones at Main Office on Monday - should be AVAILABLE (practitioner doesn't match)
-    const jonesMainOfficeSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: surgeryTypeId,
-        locationLineageKey: mainOfficeId,
-        patient: { isNew: false },
+    const jonesMainOfficeSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: surgeryTypeId,
+          locationLineageKey: mainOfficeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     const jonesSurgerySlots = jonesMainOfficeSlots.slots.filter(
       (s) => s.practitionerLineageKey === drJonesId,
@@ -3866,16 +3927,19 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Test 4: Checkup with Dr. Smith at Main Office on Monday - should be AVAILABLE (appointment type doesn't match)
-    const smithCheckupSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: checkupTypeId,
-        locationLineageKey: mainOfficeId,
-        patient: { isNew: false },
+    const smithCheckupSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: checkupTypeId,
+          locationLineageKey: mainOfficeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     const smithMainOfficeCheckupSlots = smithCheckupSlots.slots.filter(
       (s) => s.practitionerLineageKey === drSmithId,
@@ -3954,7 +4018,7 @@ describe("E2E: Slot Generation with Rules", () => {
     await createRule(t, practiceId, ruleSetId, conditionTree);
 
     // Test 1: Slots 35 days ahead - should be blocked
-    const farSlots = await t.query(api.scheduling.getSlotsForDay, {
+    const farSlots = await t.query(internal.scheduling.getSlotsForDayInternal, {
       date: "2025-11-28", // 35 days from Oct 24
       practiceId,
       ruleSetId,
@@ -3971,16 +4035,19 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     // Test 2: Slots 20 days ahead - should be available
-    const nearSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-11-13", // 20 days from Oct 24
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: generalTypeId,
-        patient: { isNew: false },
-        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Fixed request time for consistent test
+    const nearSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-11-13", // 20 days from Oct 24
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: generalTypeId,
+          patient: { isNew: false },
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Fixed request time for consistent test
+        },
       },
-    });
+    );
 
     expect(nearSlots.slots.length).toBeGreaterThan(0);
     expect(nearSlots.slots.every((slot) => slot.status === "AVAILABLE")).toBe(
@@ -4054,15 +4121,18 @@ describe("E2E: Slot Generation with Rules", () => {
     await createRule(t, practiceId, ruleSetId, conditionTree2);
 
     // Test 1: Surgery on Tuesday - blocked by rule 1
-    const tuesdaySurgerySlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-28", // Tuesday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: surgeryTypeId,
-        patient: { isNew: false },
+    const tuesdaySurgerySlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-28", // Tuesday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: surgeryTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     expect(tuesdaySurgerySlots.slots.length).toBeGreaterThan(0);
     expect(
@@ -4070,15 +4140,18 @@ describe("E2E: Slot Generation with Rules", () => {
     ).toBe(true);
 
     // Test 2: Checkup on Monday - blocked by rule 2
-    const mondayCheckupSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: checkupTypeId,
-        patient: { isNew: false },
+    const mondayCheckupSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: checkupTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     expect(mondayCheckupSlots.slots.length).toBeGreaterThan(0);
     expect(
@@ -4086,15 +4159,18 @@ describe("E2E: Slot Generation with Rules", () => {
     ).toBe(true);
 
     // Test 3: Surgery on Monday - blocked by BOTH rules
-    const mondaySurgerySlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: surgeryTypeId,
-        patient: { isNew: false },
+    const mondaySurgerySlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: surgeryTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     expect(mondaySurgerySlots.slots.length).toBeGreaterThan(0);
     expect(
@@ -4102,15 +4178,18 @@ describe("E2E: Slot Generation with Rules", () => {
     ).toBe(true);
 
     // Test 4: Checkup on Tuesday - available (no rules match)
-    const tuesdayCheckupSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-28", // Tuesday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: checkupTypeId,
-        patient: { isNew: false },
+    const tuesdayCheckupSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-28", // Tuesday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: checkupTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     expect(tuesdayCheckupSlots.slots.length).toBeGreaterThan(0);
     expect(
@@ -4176,15 +4255,18 @@ describe("E2E: Slot Generation with Rules", () => {
     const ruleId = await createRule(t, practiceId, ruleSetId, conditionTree);
 
     // Test: Emergency appointments should be available
-    const emergencySlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: emergencyTypeId,
-        patient: { isNew: false },
+    const emergencySlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: emergencyTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     expect(emergencySlots.slots.length).toBeGreaterThan(0);
     expect(
@@ -4192,15 +4274,18 @@ describe("E2E: Slot Generation with Rules", () => {
     ).toBe(true);
 
     // Test: Non-emergency appointments should be blocked
-    const checkupSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: checkupTypeId,
-        patient: { isNew: false },
+    const checkupSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: checkupTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     expect(checkupSlots.slots.length).toBeGreaterThan(0);
     expect(checkupSlots.slots.every((slot) => slot.status === "BLOCKED")).toBe(
@@ -4306,16 +4391,19 @@ describe("E2E: Slot Generation with Rules", () => {
     const ruleId = await createRule(t, practiceId, ruleSetId, conditionTree);
 
     // Test 1: Monday + Dr. Smith + Branch Office = BLOCKED
-    const blockedSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: generalTypeId,
-        locationLineageKey: branchId,
-        patient: { isNew: false },
+    const blockedSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: generalTypeId,
+          locationLineageKey: branchId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     const smithBranchSlots = blockedSlots.slots.filter(
       (s) => s.practitionerLineageKey === drSmithId,
@@ -4329,16 +4417,19 @@ describe("E2E: Slot Generation with Rules", () => {
     ).toBe(true);
 
     // Test 2: Monday + Dr. Smith + Main Office = AVAILABLE (location IS Main Office)
-    const allowedSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: generalTypeId,
-        locationLineageKey: mainOfficeId,
-        patient: { isNew: false },
+    const allowedSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: generalTypeId,
+          locationLineageKey: mainOfficeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     const smithMainSlots = allowedSlots.slots.filter(
       (s) => s.practitionerLineageKey === drSmithId,
@@ -4461,16 +4552,19 @@ describe("E2E: Slot Generation with Rules", () => {
 
     // Test: Surgery 20 days ahead at 10:00 should be BLOCKED
     // (1 existing Surgery meets >= 1 threshold)
-    const surgerySlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-11-13", // 20 days from Oct 24 (Thursday)
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: surgeryTypeId,
-        patient: { isNew: false },
-        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
+    const surgerySlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-11-13", // 20 days from Oct 24 (Thursday)
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: surgeryTypeId,
+          patient: { isNew: false },
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
+        },
       },
-    });
+    );
 
     expect(surgerySlots.slots.length).toBeGreaterThan(0);
 
@@ -4607,16 +4701,19 @@ describe("E2E: Slot Generation with Rules", () => {
     const ruleId = await createRule(t, practiceId, ruleSetId, conditionTree);
 
     // Test 1: Surgery + Monday Nov 3 (10 days ahead) + Dr. Smith = BLOCKED
-    const blockedSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-11-03", // Monday, 10 days ahead
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: surgeryTypeId,
-        patient: { isNew: false },
-        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Reference date
+    const blockedSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-11-03", // Monday, 10 days ahead
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: surgeryTypeId,
+          patient: { isNew: false },
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Reference date
+        },
       },
-    });
+    );
 
     const smithSlots = blockedSlots.slots.filter(
       (s) => s.practitionerLineageKey === drSmithId,
@@ -4635,16 +4732,19 @@ describe("E2E: Slot Generation with Rules", () => {
     expect(jonesSlots.every((slot) => slot.status === "AVAILABLE")).toBe(true);
 
     // Test 3: Surgery + Monday Oct 27 (3 days ahead) + Dr. Smith = AVAILABLE (< 7 days)
-    const nearSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday, only 3 days ahead
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: surgeryTypeId,
-        patient: { isNew: false },
-        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Reference date
+    const nearSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday, only 3 days ahead
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: surgeryTypeId,
+          patient: { isNew: false },
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Reference date
+        },
       },
-    });
+    );
 
     const smithNearSlots = nearSlots.slots.filter(
       (s) => s.practitionerLineageKey === drSmithId,
@@ -4732,15 +4832,18 @@ describe("E2E: Slot Generation with Rules", () => {
     const ruleId = await createRule(t, practiceId, ruleSetId, conditionTree);
 
     // Test 1: Checkup on Monday = BLOCKED (NOT Emergency AND NOT Friday)
-    const mondayCheckupSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: checkupTypeId,
-        patient: { isNew: false },
+    const mondayCheckupSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: checkupTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     expect(mondayCheckupSlots.slots.length).toBeGreaterThan(0);
     expect(
@@ -4751,15 +4854,18 @@ describe("E2E: Slot Generation with Rules", () => {
     ).toBe(true);
 
     // Test 2: Emergency on Monday = AVAILABLE (IS Emergency, even though NOT Friday)
-    const mondayEmergencySlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-27", // Monday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: emergencyTypeId,
-        patient: { isNew: false },
+    const mondayEmergencySlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27", // Monday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: emergencyTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     expect(mondayEmergencySlots.slots.length).toBeGreaterThan(0);
     expect(
@@ -4767,15 +4873,18 @@ describe("E2E: Slot Generation with Rules", () => {
     ).toBe(true);
 
     // Test 3: Checkup on Friday = AVAILABLE (IS Friday, even though NOT Emergency)
-    const fridayCheckupSlots = await t.query(api.scheduling.getSlotsForDay, {
-      date: "2025-10-31", // Friday
-      practiceId,
-      ruleSetId,
-      simulatedContext: {
-        appointmentTypeLineageKey: checkupTypeId,
-        patient: { isNew: false },
+    const fridayCheckupSlots = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-31", // Friday
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: checkupTypeId,
+          patient: { isNew: false },
+        },
       },
-    });
+    );
 
     expect(fridayCheckupSlots.slots.length).toBeGreaterThan(0);
     expect(
