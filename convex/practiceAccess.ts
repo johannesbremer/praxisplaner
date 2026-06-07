@@ -358,6 +358,12 @@ export async function requirePracticeMemberOrCurrentUserBookingScope(
     args.practiceId,
     user._id,
   );
+  if (!membership) {
+    const practice = await ctx.db.get("practices", args.practiceId);
+    if (practice?.currentActiveRuleSetId !== args.ruleSetId) {
+      throw forbiddenError("No access to this practice");
+    }
+  }
   return {
     ...(membership ? { membership } : {}),
     practiceId: args.practiceId,
@@ -397,6 +403,23 @@ export async function requireRuleSetMember(
     minimumRole,
   );
   return { membership, practiceId: ruleSet.practiceId, ruleSet };
+}
+
+export async function requireRuleSetMemberOrCurrentUserBookingScope(
+  ctx: QueryCtx,
+  ruleSetId: Id<"ruleSets">,
+): Promise<{
+  membership?: Doc<"practiceMembers">;
+  practiceId: Id<"practices">;
+  ruleSet: Doc<"ruleSets">;
+  userId?: Id<"users">;
+}> {
+  const ruleSet = await requireRule(ctx, ruleSetId);
+  const scope = await requirePracticeMemberOrCurrentUserBookingScope(ctx, {
+    practiceId: ruleSet.practiceId,
+    ruleSetId,
+  });
+  return { ...scope, ruleSet };
 }
 
 export function requireSamePractice<T extends PracticeScopedResource>(

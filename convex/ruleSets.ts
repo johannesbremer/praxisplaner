@@ -5,6 +5,7 @@ import { findUnsavedRuleSet } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
   requirePracticeManager,
+  requirePracticeMember,
   requireRuleSetMember,
 } from "./practiceAccess";
 import { summarizeDraftRuleSetDiff } from "./ruleSetDiff";
@@ -166,7 +167,7 @@ export const getActiveRuleSet = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await requirePracticeManager(ctx, args.practiceId);
+    await requirePracticeMember(ctx, args.practiceId);
     const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
       return null;

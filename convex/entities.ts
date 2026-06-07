@@ -87,6 +87,7 @@ import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
   requireRuleSetMember,
+  requireRuleSetMemberOrCurrentUserBookingScope,
 } from "./practiceAccess";
 import { type ConditionTreeNode, validateConditionTree } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
@@ -1031,7 +1032,7 @@ export const getAppointmentTypes = query({
     if (args.includeDeleted === true) {
       await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     } else {
-      await requireRuleSetMember(ctx, args.ruleSetId);
+      await requireRuleSetMemberOrCurrentUserBookingScope(ctx, args.ruleSetId);
     }
     const appointmentTypes = await ctx.db
       .query("appointmentTypes")
@@ -1801,7 +1802,7 @@ export const getPractitioners = query({
     if (args.includeDeleted === true) {
       await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     } else {
-      await requireRuleSetMember(ctx, args.ruleSetId);
+      await requireRuleSetMemberOrCurrentUserBookingScope(ctx, args.ruleSetId);
     }
     const practitioners = await ctx.db
       .query("practitioners")
@@ -2078,7 +2079,7 @@ export const getLocations = query({
     if (args.includeDeleted === true) {
       await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     } else {
-      await requireRuleSetMember(ctx, args.ruleSetId);
+      await requireRuleSetMemberOrCurrentUserBookingScope(ctx, args.ruleSetId);
     }
     const locations = await ctx.db
       .query("locations")

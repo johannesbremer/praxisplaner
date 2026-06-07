@@ -67,7 +67,7 @@ export function useCalendarData(args: {
       ? api.entities.getLocations
       : api.entities.getLocationsFromActive,
     args.ruleSetId
-      ? { includeDeleted: true, ruleSetId: args.ruleSetId }
+      ? { includeDeleted: false, ruleSetId: args.ruleSetId }
       : args.practiceId
         ? { practiceId: args.practiceId }
         : "skip",
@@ -77,7 +77,7 @@ export function useCalendarData(args: {
       ? api.entities.getAppointmentTypes
       : api.entities.getAppointmentTypesFromActive,
     args.ruleSetId
-      ? { includeDeleted: true, ruleSetId: args.ruleSetId }
+      ? { includeDeleted: false, ruleSetId: args.ruleSetId }
       : args.practiceId
         ? { practiceId: args.practiceId }
         : "skip",
@@ -304,7 +304,7 @@ export function useCalendarData(args: {
       ? api.entities.getPractitioners
       : api.entities.getPractitionersFromActive,
     args.ruleSetId
-      ? { includeDeleted: true, ruleSetId: args.ruleSetId }
+      ? { includeDeleted: false, ruleSetId: args.ruleSetId }
       : args.practiceId
         ? { practiceId: args.practiceId }
         : "skip",

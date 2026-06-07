@@ -184,6 +184,9 @@ describe("Convex query authorization", () => {
     await expect(
       authed.query(api.practices.getPracticeMembers, { practiceId }),
     ).rejects.toThrow("Role staff is insufficient");
+    await expect(
+      authed.query(api.ruleSets.getActiveRuleSet, { practiceId }),
+    ).resolves.toMatchObject({ _id: expect.any(String) });
   });
 
   test("staff cannot perform manager-only rule-set lifecycle mutations", async () => {
@@ -202,7 +205,65 @@ describe("Convex query authorization", () => {
     ).rejects.toThrow("Role staff is insufficient");
   });
 
-  test("authenticated non-members cannot read foreign rule-set entities", async () => {
+  test("authenticated non-members can read active booking reference entities", async () => {
+    const t = createTestContext();
+    const patientUserId = await createUser(
+      t,
+      "workos_authz_booking_reference_patient",
+      "authz-booking-reference-patient@example.com",
+    );
+    const practice = await createPracticeForUser(
+      t,
+      "workos_authz_booking_reference_owner",
+      "authz-booking-reference-owner@example.com",
+    );
+
+    await t.run(async (ctx) => {
+      await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
+        allowedPractitionerLineageKeys: [],
+        createdAt: BigInt(Date.now()),
+        duration: 20,
+        lastModified: BigInt(Date.now()),
+        name: "Booking reference",
+        practiceId: practice.practiceId,
+        ruleSetId: practice.ruleSetId,
+      });
+      await insertSelfLineageEntity(ctx.db, "locations", {
+        name: "Booking location",
+        practiceId: practice.practiceId,
+        ruleSetId: practice.ruleSetId,
+      });
+      await insertSelfLineageEntity(ctx.db, "practitioners", {
+        name: "Dr. Booking",
+        practiceId: practice.practiceId,
+        ruleSetId: practice.ruleSetId,
+      });
+    });
+
+    const patient = t.withIdentity({
+      email: "authz-booking-reference-patient@example.com",
+      subject: "workos_authz_booking_reference_patient",
+    });
+    expect(patientUserId).toBeDefined();
+
+    await expect(
+      patient.query(api.entities.getAppointmentTypes, {
+        ruleSetId: practice.ruleSetId,
+      }),
+    ).resolves.toHaveLength(1);
+    await expect(
+      patient.query(api.entities.getLocations, {
+        ruleSetId: practice.ruleSetId,
+      }),
+    ).resolves.toHaveLength(1);
+    await expect(
+      patient.query(api.entities.getPractitioners, {
+        ruleSetId: practice.ruleSetId,
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
+  test("authenticated non-members cannot read inactive foreign rule-set entities", async () => {
     const t = createTestContext();
     const first = await createPracticeForUser(
       t,
@@ -215,17 +276,26 @@ describe("Convex query authorization", () => {
       "authz-entity-foreign-owner@example.com",
     );
 
-    await t.run(async (ctx) => {
+    const inactiveRuleSetId = await t.run(async (ctx) => {
+      const ruleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Inactive Foreign Rule Set",
+        draftRevision: 0,
+        practiceId: second.practiceId,
+        saved: false,
+        version: 2,
+      });
       await insertSelfLineageEntity(ctx.db, "practitioners", {
         name: "Dr. Foreign Entity",
         practiceId: second.practiceId,
-        ruleSetId: second.ruleSetId,
+        ruleSetId,
       });
+      return ruleSetId;
     });
 
     await expect(
       first.authed.query(api.entities.getPractitioners, {
-        ruleSetId: second.ruleSetId,
+        ruleSetId: inactiveRuleSetId,
       }),
     ).rejects.toThrow("No access to this practice");
   });
