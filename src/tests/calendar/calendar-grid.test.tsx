@@ -225,14 +225,28 @@ describe("CalendarGrid", () => {
     test("calls onAddAppointment when slot is clicked", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const slots = container.querySelectorAll(
-        String.raw`.hover\:bg-muted\/50`,
+      const hitTarget = container.querySelector(
+        '[data-calendar-column-hit-target="deterministic"]',
       );
-      expect(slots.length).toBeGreaterThan(0);
-      const firstSlot = slots[0];
-      assertElement(firstSlot);
-      fireEvent.click(firstSlot);
-      expect(mockHandlers.onAddAppointment).toHaveBeenCalled();
+      assertElement(hitTarget);
+      vi.spyOn(hitTarget, "getBoundingClientRect").mockReturnValue({
+        bottom: defaultProps.totalSlots * 16,
+        height: defaultProps.totalSlots * 16,
+        left: 0,
+        right: 100,
+        toJSON: () => ({}),
+        top: 0,
+        width: 100,
+        x: 0,
+        y: 0,
+      });
+
+      fireEvent.click(hitTarget, { clientY: 20 });
+
+      expect(mockHandlers.onAddAppointment).toHaveBeenCalledExactlyOnceWith(
+        practitionerColumn1,
+        1,
+      );
     });
 
     test("does not call onAddAppointment for appointment-type-unavailable columns", () => {
@@ -622,18 +636,23 @@ describe("CalendarGrid", () => {
       ).toHaveAttribute("tabindex", "-1");
     });
 
-    test("time slot buttons expose expanded hit targets without changing visual row height", () => {
-      render(<CalendarGrid {...defaultProps} />);
+    test("calendar exposes deterministic column hit targets without changing visual row height", () => {
+      const { container } = render(<CalendarGrid {...defaultProps} />);
 
       const firstSlot = screen.getByRole("button", {
         name: "Termin um 00:00 bei Dr. Smith erstellen",
       });
-      expect(firstSlot).toHaveClass("h-6");
+      expect(firstSlot).toHaveClass("h-4");
       expect(firstSlot).toHaveAttribute(
         "data-calendar-slot-target",
-        "expanded",
+        "keyboard",
       );
       expect(firstSlot.parentElement).toHaveClass("h-4");
+      expect(
+        container.querySelectorAll(
+          '[data-calendar-column-hit-target="deterministic"]',
+        ),
+      ).toHaveLength(mockColumns.length);
     });
 
     test("arrow keys move the roving slot focus across rows and columns", () => {

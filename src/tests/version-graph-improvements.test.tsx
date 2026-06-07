@@ -76,4 +76,12 @@ describe("VersionGraph accessibility", () => {
       expect(dot).toHaveClass("pointer-events-none");
     }
   });
+
+  test("renders static labels when no version click handler is provided", () => {
+    render(<VersionGraph versions={versions} />);
+
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.getByText("Aktuelle Regeln")).not.toHaveAttribute("tabindex");
+    expect(screen.getByText("Basis Regeln")).not.toHaveAttribute("tabindex");
+  });
 });

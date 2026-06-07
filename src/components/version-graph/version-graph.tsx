@@ -116,6 +116,7 @@ export default function VersionGraph({
           const x = style.nodeRadius * 4 + version.x * style.branchSpacing;
           const y = version.y * style.commitSpacing + style.nodeRadius * 4;
           const isSelected = selectedVersionId === version.hash;
+          const isInteractive = onVersionClick !== undefined;
 
           return (
             <g key={`label-${version.hash}`}>
@@ -126,23 +127,36 @@ export default function VersionGraph({
                 y={y - 15}
               >
                 <div
-                  aria-label={`Regelset-Version ${version.message} auswählen`}
-                  className={`inline-flex items-center gap-2 text-sm cursor-pointer p-1 rounded ${
+                  {...(isInteractive
+                    ? {
+                        "aria-label": `Regelset-Version ${version.message} auswählen`,
+                        role: "button",
+                        tabIndex: 0,
+                      }
+                    : {})}
+                  className={`inline-flex items-center gap-2 text-sm p-1 rounded ${
+                    isInteractive ? "cursor-pointer" : ""
+                  } ${
                     isSelected
                       ? "bg-primary text-primary-foreground border border-primary"
-                      : "hover:bg-background border border-border bg-background"
+                      : `${isInteractive ? "hover:bg-background" : ""} border border-border bg-background`
                   }`}
-                  onClick={() => onVersionClick?.(version)}
+                  onClick={() => {
+                    onVersionClick?.(version);
+                  }}
                   onKeyDown={(e) => {
+                    if (!isInteractive) {
+                      return;
+                    }
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      onVersionClick?.(version);
+                      onVersionClick(version);
                     } else if (e.key === "ArrowUp" && index > 0) {
                       e.preventDefault();
                       const prevVersion = versionValues[
                         index - 1
                       ] as VersionNode;
-                      onVersionClick?.(prevVersion);
+                      onVersionClick(prevVersion);
                     } else if (
                       e.key === "ArrowDown" &&
                       index < versionValues.length - 1
@@ -151,12 +165,10 @@ export default function VersionGraph({
                       const nextVersion = versionValues[
                         index + 1
                       ] as VersionNode;
-                      onVersionClick?.(nextVersion);
+                      onVersionClick(nextVersion);
                     }
                   }}
-                  role="button"
                   style={{ fontSize: "12px" }}
-                  tabIndex={0}
                 >
                   <span className="font-medium">{version.message}</span>
                   {version.isActive && (

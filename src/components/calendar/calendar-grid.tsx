@@ -422,6 +422,38 @@ export function CalendarGrid({
     }
   };
 
+  const resolvePointerSlot = (
+    element: HTMLElement,
+    clientY: number,
+  ): number => {
+    const rect = element.getBoundingClientRect();
+    const slotHeight = rect.height / totalSlots;
+    if (slotHeight <= 0) {
+      return 0;
+    }
+
+    return Math.min(
+      Math.max(Math.floor((clientY - rect.top) / slotHeight), 0),
+      totalSlots - 1,
+    );
+  };
+
+  const handleColumnPointerClick = (
+    e: React.MouseEvent<HTMLDivElement>,
+    column: CalendarColumn,
+  ) => {
+    if (isColumnInteractionDisabled(column)) {
+      return;
+    }
+
+    const slot = resolvePointerSlot(e.currentTarget, e.clientY);
+    if (isBlockingModeActive && onBlockSlot) {
+      onBlockSlot(column.id, slot);
+    } else {
+      onAddAppointment(column.id, slot);
+    }
+  };
+
   return (
     <div
       aria-label="Praxis-Kalender"
@@ -511,10 +543,10 @@ export function CalendarGrid({
                   <button
                     aria-disabled={isInteractionDisabled}
                     aria-label={actionLabel}
-                    className={`absolute inset-x-0 top-1/2 z-10 h-6 -translate-y-1/2 group bg-transparent p-0 text-left focus-visible:relative focus-visible:z-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${isInteractionDisabled ? "cursor-not-allowed" : "hover:bg-muted/50 cursor-pointer"}`}
+                    className={`pointer-events-none absolute inset-0 z-10 h-4 group bg-transparent p-0 text-left focus-visible:relative focus-visible:z-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${isInteractionDisabled ? "cursor-not-allowed" : ""}`}
                     data-calendar-slot-button={`${columnIndex}:${slot}`}
                     data-calendar-slot-row="true"
-                    data-calendar-slot-target="expanded"
+                    data-calendar-slot-target="keyboard"
                     onClick={() => {
                       if (isInteractionDisabled) {
                         return;
@@ -549,6 +581,51 @@ export function CalendarGrid({
                 </div>
               );
             })}
+          </div>
+        );
+      })}
+
+      {columns.map((column, columnIndex) => {
+        const isInteractionDisabled = isColumnInteractionDisabled(column);
+        return (
+          <div
+            aria-hidden="true"
+            className={`relative z-10 ${isInteractionDisabled ? "cursor-not-allowed" : "cursor-pointer hover:bg-muted/20"}`}
+            data-calendar-column-hit-target="deterministic"
+            key={`hit-target-${calendarColumnScopeKey(column.id)}`}
+            onClick={(e) => {
+              handleColumnPointerClick(e, column);
+            }}
+            onDragLeave={() => {
+              if (
+                dragPreview.column !== null &&
+                sameCalendarColumnScope(dragPreview.column, column.id)
+              ) {
+                // User left this column while dragging.
+              }
+            }}
+            onDragOver={(e) => {
+              if (isInteractionDisabled) {
+                return;
+              }
+              onDragOver(e, column.id);
+            }}
+            onDrop={(e) => {
+              if (isInteractionDisabled) {
+                return;
+              }
+              void onDrop(e, column.id);
+            }}
+            role="presentation"
+            style={{
+              gridColumn: columnIndex + 2,
+              gridRow: `2 / span ${totalSlots}`,
+            }}
+          >
+            <span
+              className="pointer-events-none absolute left-0 top-0 h-4 w-px"
+              data-calendar-slot-row="true"
+            />
           </div>
         );
       })}
