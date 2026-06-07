@@ -317,20 +317,48 @@ describe("CalendarGrid", () => {
     test("calls onDragOver when dragging over column", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const gridCell = container.querySelector("[role='gridcell']");
-      assertElement(gridCell);
-      fireEvent.dragOver(gridCell);
+      const columnHitTarget = container.querySelector(
+        '[data-calendar-column-hit-target="deterministic"]',
+      );
+      assertElement(columnHitTarget);
+      fireEvent.dragOver(columnHitTarget);
       expect(mockHandlers.onDragOver).toHaveBeenCalled();
     });
 
     test("calls onDrop when appointment is dropped", async () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const gridCell = container.querySelector("[role='gridcell']");
-      assertElement(gridCell);
-      fireEvent.drop(gridCell);
+      const columnHitTarget = container.querySelector(
+        '[data-calendar-column-hit-target="deterministic"]',
+      );
+      assertElement(columnHitTarget);
+      fireEvent.drop(columnHitTarget);
 
       await waitFor(() => {
+        expect(mockHandlers.onDrop).toHaveBeenCalled();
+      });
+    });
+
+    test("keeps drag and drop handlers on the full column target instead of gridcells", async () => {
+      const { container } = render(<CalendarGrid {...defaultProps} />);
+
+      const gridCell = container.querySelector("[role='gridcell']");
+      assertElement(gridCell);
+      fireEvent.dragOver(gridCell);
+      fireEvent.drop(gridCell);
+
+      expect(mockHandlers.onDragOver).not.toHaveBeenCalled();
+      expect(mockHandlers.onDrop).not.toHaveBeenCalled();
+
+      const columnHitTarget = container.querySelector(
+        '[data-calendar-column-hit-target="deterministic"]',
+      );
+      assertElement(columnHitTarget);
+      fireEvent.dragOver(columnHitTarget);
+      fireEvent.drop(columnHitTarget);
+
+      await waitFor(() => {
+        expect(mockHandlers.onDragOver).toHaveBeenCalled();
         expect(mockHandlers.onDrop).toHaveBeenCalled();
       });
     });
@@ -357,13 +385,14 @@ describe("CalendarGrid", () => {
         />,
       );
 
-      const blockedColumnCell = screen.getByRole("button", {
-        name: "Termin um 00:00 bei Dr. Jones erstellen",
-      }).parentElement;
-      assertElement(blockedColumnCell);
+      const columnHitTargets = screen
+        .getByRole("grid")
+        .querySelectorAll('[data-calendar-column-hit-target="deterministic"]');
+      const blockedColumnTarget = columnHitTargets[1];
+      assertElement(blockedColumnTarget);
 
-      fireEvent.dragOver(blockedColumnCell);
-      fireEvent.drop(blockedColumnCell);
+      fireEvent.dragOver(blockedColumnTarget);
+      fireEvent.drop(blockedColumnTarget);
 
       await waitFor(() => {
         expect(mockHandlers.onDragOver).not.toHaveBeenCalled();

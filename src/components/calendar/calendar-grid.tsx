@@ -518,26 +518,6 @@ export function CalendarGrid({
                 <div
                   className={`relative h-4 border-r border-b border-b-border/30 last:border-r-0 ${slotBorderClass} ${column.isMuted ? "bg-muted/40 opacity-60 grayscale-[0.35]" : ""}`}
                   key={`${calendarColumnScopeKey(column.id)}-${slot}`}
-                  onDragLeave={() => {
-                    if (
-                      dragPreview.column !== null &&
-                      sameCalendarColumnScope(dragPreview.column, column.id)
-                    ) {
-                      // User left this cell while dragging.
-                    }
-                  }}
-                  onDragOver={(e) => {
-                    if (isInteractionDisabled) {
-                      return;
-                    }
-                    onDragOver(e, column.id);
-                  }}
-                  onDrop={(e) => {
-                    if (isInteractionDisabled) {
-                      return;
-                    }
-                    void onDrop(e, column.id);
-                  }}
                   role="gridcell"
                 >
                   <button
