@@ -1,13 +1,40 @@
 #!/usr/bin/env sh
 set -eu
 
-auth_config_backup="$(mktemp)"
-cp convex/auth.config.ts "$auth_config_backup"
-restore_auth_config() {
-  cp "$auth_config_backup" convex/auth.config.ts
-  rm -f "$auth_config_backup"
-}
-trap restore_auth_config EXIT INT TERM
+export AUTH_BYPASS_ENABLED="${AUTH_BYPASS_ENABLED:-true}"
+if [ "$AUTH_BYPASS_ENABLED" = "true" ]; then
+  export WORKOS_API_KEY="${WORKOS_API_KEY:-sk_test_local_preview_placeholder}"
+  export WORKOS_CLIENT_ID="${WORKOS_CLIENT_ID:-client_local_preview_placeholder}"
+  export WORKOS_WEBHOOK_SECRET="${WORKOS_WEBHOOK_SECRET:-whsec_local_preview_placeholder}"
+fi
 
-cp convex/auth.preview.config.ts convex/auth.config.ts
-pnpm exec convex dev
+cleanup() {
+  if [ -n "${seed_pid:-}" ]; then
+    kill "$seed_pid" 2> /dev/null || true
+  fi
+  if [ -n "${backend_pid:-}" ]; then
+    kill "$backend_pid" 2> /dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+AUTH_BYPASS_ENABLED="$AUTH_BYPASS_ENABLED" pnpm exec convex dev &
+backend_pid="$!"
+
+(
+  until
+    pnpm exec convex env set AUTH_BYPASS_ENABLED "$AUTH_BYPASS_ENABLED" \
+      && { [ "$AUTH_BYPASS_ENABLED" != "true" ] \
+        || pnpm exec convex env set WORKOS_API_KEY "$WORKOS_API_KEY" \
+        && pnpm exec convex env set WORKOS_CLIENT_ID "$WORKOS_CLIENT_ID" \
+        && pnpm exec convex env set WORKOS_WEBHOOK_SECRET "$WORKOS_WEBHOOK_SECRET"; }
+  do
+    sleep 1
+  done
+  until pnpm exec convex run devAuth:ensurePreviewAuthPersonas; do
+    sleep 1
+  done
+) &
+seed_pid="$!"
+
+wait "$backend_pid"

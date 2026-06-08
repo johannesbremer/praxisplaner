@@ -3,8 +3,8 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 
 import { mutation, type MutationCtx } from "./_generated/server";
+import { isConvexAuthBypassEnabled } from "./authBypass";
 import { createInitialRuleSet } from "./copyOnWrite";
-import { isConvexAuthBypassEnabled } from "./practiceAccess";
 
 const DEV_AUTH_USERS = [
   {

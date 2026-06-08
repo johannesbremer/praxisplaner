@@ -173,22 +173,6 @@ export async function getAccessiblePracticeIdsForQuery(
   return memberships.map((membership) => membership.practiceId);
 }
 
-export function isConvexAuthBypassEnabled(): boolean {
-  if (process.env["NODE_ENV"] === "test" || process.env["VITEST"] === "true") {
-    return false;
-  }
-  const bypassEnabled =
-    process.env["AUTH_BYPASS_ENABLED"] === "true" ||
-    process.env["VITE_AUTH_BYPASS_ENABLED"] === "true";
-  if (!bypassEnabled) {
-    return false;
-  }
-  return (
-    process.env["VERCEL_ENV"] !== "production" &&
-    process.env["VITE_VERCEL_ENV"] !== "production"
-  );
-}
-
 export async function requireActiveBookingRuleSet(
   ctx: MutationCtx | QueryCtx,
   args: {

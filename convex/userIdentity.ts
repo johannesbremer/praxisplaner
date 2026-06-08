@@ -8,6 +8,12 @@ import { ConvexError } from "convex/values";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 
+import {
+  DEV_AUTH_BYPASS_EMAIL,
+  DEV_AUTH_BYPASS_SUBJECT,
+  isConvexAuthBypassEnabled,
+} from "./authBypass";
+
 type AuthCtx = MutationCtx | QueryCtx;
 interface AuthenticatedIdentity {
   email?: string;
@@ -101,5 +107,15 @@ export async function requireAuthenticatedUserIdForQuery(
 async function getConvexAuthIdentity(
   ctx: AuthCtx,
 ): Promise<AuthenticatedIdentity | null> {
-  return await ctx.auth.getUserIdentity();
+  const identity = await ctx.auth.getUserIdentity();
+  if (identity) {
+    return identity;
+  }
+  if (!isConvexAuthBypassEnabled()) {
+    return null;
+  }
+  return {
+    email: DEV_AUTH_BYPASS_EMAIL,
+    subject: DEV_AUTH_BYPASS_SUBJECT,
+  };
 }
