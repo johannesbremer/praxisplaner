@@ -41,6 +41,7 @@ import {
 
 // Type-safe WorkOS callback route path
 const CALLBACK_PATH = "/callback" as const satisfies FileRouteTypes["to"];
+const DEV_WORKOS_CLIENT_ID = "client_praxisplaner_dev";
 interface RouterConfig {
   convexUrl: string;
   redirectUri: string;
@@ -88,9 +89,15 @@ function getRouterConfig(): Result<RouterConfig, FrontendError> {
 }
 
 function getWorkOSClientId(): Result<string, FrontendError> {
-  const clientId = import.meta.env["VITE_WORKOS_CLIENT_ID"] as
-    | string
-    | undefined;
+  const clientId = (
+    import.meta.env["VITE_WORKOS_CLIENT_ID"] as string | undefined
+  )?.trim();
+  if (clientId) {
+    return ok(clientId);
+  }
+  if (isWorkOSDevModeEnabled()) {
+    return ok(DEV_WORKOS_CLIENT_ID);
+  }
   return resultFromNullable(
     clientId,
     configurationError(
