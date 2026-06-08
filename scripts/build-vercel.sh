@@ -51,7 +51,8 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
     --force
   pnpm exec convex import \
     --preview-name "$preview_name" \
-    --replace-all .cache/seed/preview.zip
+    --replace-all \
+    --yes .cache/seed/preview.zip
   pnpm exec convex run devAuth:ensurePreviewAuthPersonas \
     --deployment "$preview_deployment_ref"
 else
