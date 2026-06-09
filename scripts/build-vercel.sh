@@ -63,6 +63,7 @@ else
   append_auth_config_env "$deploy_env_file"
   printf 'AUTH_BYPASS_ENABLED=false\n' >> "$deploy_env_file"
 
+  pnpm exec convex env set AUTH_BYPASS_ENABLED false
   AUTH_BYPASS_ENABLED=false pnpm exec convex deploy \
     --env-file "$deploy_env_file" \
     --cmd "pnpm run build"

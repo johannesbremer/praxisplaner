@@ -20,6 +20,7 @@ Set the matching Convex environment variables:
 npx convex env set WORKOS_CLIENT_ID=<your-client-id>
 npx convex env set WORKOS_API_KEY=<your-api-key>
 npx convex env set WORKOS_WEBHOOK_SECRET=<your-webhook-secret>
+npx convex env set AUTH_BYPASS_ENABLED false
 ```
 
 After the webhook and env vars are configured, backfill any users that already
