@@ -12,8 +12,11 @@ export const Route = createFileRoute("/callback")({
 });
 
 const BOOKING_PATH = "/buchung";
+const CALLBACK_TIMEOUT_MS = 15_000;
 const CONVEX_AUTH_FAILED_MESSAGE =
   "Anmeldung bei Convex konnte nicht abgeschlossen werden. Bitte prüfen Sie die WorkOS Client-ID und Convex Auth-Konfiguration für diese Umgebung.";
+const CALLBACK_TIMEOUT_MESSAGE =
+  "Anmeldung konnte nicht innerhalb von 15 Sekunden abgeschlossen werden. Bitte prüfen Sie die WorkOS-Tokenausgabe und Convex-Authentifizierung für diese Preview.";
 
 function CallbackComponent() {
   const { getAccessToken, isLoading, signIn, user } = useAuth();
@@ -31,6 +34,9 @@ function CallbackComponent() {
     message: string;
     userId: string;
   }>(null);
+  const [callbackTimedOutUserId, setCallbackTimedOutUserId] = useState<
+    null | string
+  >(null);
   const [provisioningError, setProvisioningError] = useState<null | {
     message: string;
     userId: string;
@@ -49,6 +55,28 @@ function CallbackComponent() {
     !convexAuth.isAuthenticated
       ? CONVEX_AUTH_FAILED_MESSAGE
       : null;
+  const activeCallbackTimeoutError =
+    !isLoading &&
+    user &&
+    userId &&
+    callbackTimedOutUserId === userId &&
+    !activeAccessTokenError &&
+    !activeConvexAuthError &&
+    !activeProvisioningError
+      ? CALLBACK_TIMEOUT_MESSAGE
+      : null;
+
+  useEffect(() => {
+    if (isLoading || !userId || provisioningUserIdRef.current === userId) {
+      return;
+    }
+    const timeoutId = globalThis.setTimeout(() => {
+      setCallbackTimedOutUserId(userId);
+    }, CALLBACK_TIMEOUT_MS);
+    return () => {
+      globalThis.clearTimeout(timeoutId);
+    };
+  }, [isLoading, userId]);
 
   useEffect(() => {
     if (
@@ -87,6 +115,7 @@ function CallbackComponent() {
       accessTokenReadyUserId !== userId ||
       provisioningUserIdRef.current === userId ||
       activeAccessTokenError ||
+      activeCallbackTimeoutError ||
       activeConvexAuthError ||
       activeProvisioningError
     ) {
@@ -119,6 +148,7 @@ function CallbackComponent() {
       });
   }, [
     activeAccessTokenError,
+    activeCallbackTimeoutError,
     activeConvexAuthError,
     activeProvisioningError,
     accessTokenReadyUserId,
@@ -149,7 +179,10 @@ function CallbackComponent() {
   }
 
   const activeError =
-    activeAccessTokenError ?? activeConvexAuthError ?? activeProvisioningError;
+    activeAccessTokenError ??
+    activeConvexAuthError ??
+    activeProvisioningError ??
+    activeCallbackTimeoutError;
 
   if (activeError) {
     return (
@@ -162,6 +195,7 @@ function CallbackComponent() {
           <Button
             onClick={() => {
               setAccessTokenError(null);
+              setCallbackTimedOutUserId(null);
               setProvisioningError(null);
             }}
           >
