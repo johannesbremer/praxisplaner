@@ -308,6 +308,10 @@ function navigateToReturnPath(
 
   const fullPath = `${returnUrl.pathname}${returnUrl.search}${returnUrl.hash}`;
   switch (returnUrl.pathname) {
+    case "/account": {
+      void navigate({ replace: true, to: fullPath });
+      return;
+    }
     case "/buchung": {
       void navigate({ replace: true, to: fullPath });
       return;
