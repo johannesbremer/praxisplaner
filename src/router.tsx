@@ -409,33 +409,26 @@ function isAuthBypassEnabled(): boolean {
 function useConvexAuthFromWorkOS(authPersonaPathname: null | string) {
   const { getAccessToken, isLoading, user } = useAuth();
 
-  const fetchAccessToken = useCallback(
-    async ({
-      forceRefreshToken,
-    }: {
-      forceRefreshToken: boolean;
-    }): Promise<null | string> => {
-      if (isAuthBypassEnabled()) {
-        return await createDevAuthJwt(
-          getDevAuthPersonaForPath(authPersonaPathname ?? "/buchung"),
-        );
-      }
-      if (isLoading) {
-        return null;
-      }
-      if (!user) {
-        return null;
-      }
-      try {
-        const token = await getAccessToken({ forceRefresh: forceRefreshToken });
-        return token || null;
-      } catch (error) {
-        console.error("Error fetching access token:", error);
-        return null;
-      }
-    },
-    [authPersonaPathname, isLoading, user, getAccessToken],
-  );
+  const fetchAccessToken = useCallback(async (): Promise<null | string> => {
+    if (isAuthBypassEnabled()) {
+      return await createDevAuthJwt(
+        getDevAuthPersonaForPath(authPersonaPathname ?? "/buchung"),
+      );
+    }
+    if (isLoading) {
+      return null;
+    }
+    if (!user) {
+      return null;
+    }
+    try {
+      const token = await getAccessToken();
+      return token || null;
+    } catch (error) {
+      console.error("Error fetching access token:", error);
+      return null;
+    }
+  }, [authPersonaPathname, isLoading, user, getAccessToken]);
 
   return useMemo(
     () => ({
