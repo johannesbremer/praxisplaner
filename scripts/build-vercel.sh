@@ -108,8 +108,6 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
     --preview-name "$preview_name" \
     --replace-all \
     --yes .cache/seed/preview.zip
-  pnpm exec convex run devAuth:ensurePreviewAuthPersonas \
-    --deployment "$preview_deployment_ref"
 else
   require_real_auth_env
 
