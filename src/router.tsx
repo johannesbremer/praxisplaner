@@ -25,6 +25,7 @@ import toast from "react-hot-toast";
 
 import type { FileRouteTypes } from "./routeTree.gen";
 
+import { setAuthReturnToPath } from "./auth/auth-return-to";
 import {
   createDevAuthJwt,
   getDevAuthPersonaForPath,
@@ -43,6 +44,7 @@ import {
 const CALLBACK_PATH = "/callback" as const satisfies FileRouteTypes["to"];
 const DEV_WORKOS_CLIENT_ID = "client_praxisplaner_dev";
 interface RouterConfig {
+  apiHostname?: string;
   convexUrl: string;
   redirectUri: string;
   workosClientId: string;
@@ -79,11 +81,35 @@ function getConvexUrl(): Result<string, FrontendError> {
 function getRouterConfig(): Result<RouterConfig, FrontendError> {
   return getSiteOrigin().andThen((siteOrigin) =>
     getWorkOSClientId().andThen((workosClientId) =>
-      getConvexUrl().map((convexUrl) => ({
-        convexUrl,
-        redirectUri: new URL(CALLBACK_PATH, siteOrigin).toString(),
-        workosClientId,
-      })),
+      getWorkOSApiHostname().andThen((apiHostnameConfig) =>
+        getConvexUrl().map((convexUrl) => ({
+          ...apiHostnameConfig,
+          convexUrl,
+          redirectUri: new URL(CALLBACK_PATH, siteOrigin).toString(),
+          workosClientId,
+        })),
+      ),
+    ),
+  );
+}
+
+function getWorkOSApiHostname(): Result<
+  Pick<RouterConfig, "apiHostname">,
+  FrontendError
+> {
+  const apiHostname = (
+    import.meta.env["VITE_WORKOS_API_HOSTNAME"] as string | undefined
+  )?.trim();
+  if (apiHostname && !isInvalidWorkOSApiHostname(apiHostname)) {
+    return ok({ apiHostname });
+  }
+  if (!apiHostname) {
+    return ok({});
+  }
+  return err(
+    configurationError(
+      "VITE_WORKOS_API_HOSTNAME must be a WorkOS Authentication API hostname, not an AuthKit app URL.",
+      "getWorkOSApiHostname",
     ),
   );
 }
@@ -104,6 +130,14 @@ function getWorkOSClientId(): Result<string, FrontendError> {
       "Missing required environment variable: VITE_WORKOS_CLIENT_ID",
       "getWorkOSClientId",
     ),
+  );
+}
+
+function isInvalidWorkOSApiHostname(apiHostname: string): boolean {
+  return (
+    apiHostname.includes("://") ||
+    apiHostname.includes("/") ||
+    apiHostname.endsWith(".authkit.app")
   );
 }
 
@@ -180,8 +214,9 @@ export function getRouter() {
       Wrap: ({ children }) => (
         <ConvexQueryClientContext.Provider value={convexQueryClient}>
           {routerConfig.match(
-            ({ redirectUri, workosClientId }) => (
+            ({ apiHostname, redirectUri, workosClientId }) => (
               <AuthProviders
+                {...(apiHostname ? { apiHostname } : {})}
                 clientId={workosClientId}
                 redirectUri={redirectUri}
               >
@@ -202,10 +237,12 @@ export function getRouter() {
 }
 
 function AuthProviders({
+  apiHostname,
   children,
   clientId,
   redirectUri,
 }: {
+  apiHostname?: string;
   children: React.ReactNode;
   clientId: string;
   redirectUri: string;
@@ -213,6 +250,7 @@ function AuthProviders({
   return useConvexQueryClient().match(
     (convexQueryClient) => (
       <AuthProvidersInner
+        {...(apiHostname ? { apiHostname } : {})}
         clientId={clientId}
         convexQueryClient={convexQueryClient}
         redirectUri={redirectUri}
@@ -232,11 +270,13 @@ function AuthProviders({
 }
 
 function AuthProvidersInner({
+  apiHostname,
   children,
   clientId,
   convexQueryClient,
   redirectUri,
 }: {
+  apiHostname?: string;
   children: React.ReactNode;
   clientId: string;
   convexQueryClient: ConvexQueryClient;
@@ -251,8 +291,10 @@ function AuthProvidersInner({
 
   return (
     <AuthKitProvider
+      {...(apiHostname ? { apiHostname } : {})}
       clientId={clientId}
       devMode={isWorkOSDevModeEnabled()}
+      onRedirectCallback={storeAuthReturnTo}
       redirectUri={redirectUri}
     >
       <ConvexProviderWithAuth
@@ -274,9 +316,30 @@ function FatalConfigScreen({ error }: { error: FrontendError }) {
   );
 }
 
+function isAllowedReturnToPath(returnTo: string): boolean {
+  return returnTo.startsWith("/") && !returnTo.startsWith("//");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function isWorkOSDevModeEnabled(): boolean {
   const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
   return import.meta.env.DEV || vercelEnv === "preview";
+}
+
+function storeAuthReturnTo({ state }: { state?: unknown }) {
+  if (import.meta.env.SSR) {
+    return;
+  }
+  if (!isRecord(state)) {
+    return;
+  }
+  const returnTo = state["returnTo"];
+  if (typeof returnTo === "string" && isAllowedReturnToPath(returnTo)) {
+    setAuthReturnToPath(returnTo);
+  }
 }
 
 function useBrowserPathname(): string {

@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 
 import type { Id } from "../_generated/dataModel";
 
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
@@ -118,6 +118,78 @@ describe("Convex query authorization", () => {
     await expect(
       authed.query(api.practices.getBookingPractices, {}),
     ).rejects.toThrow("Authenticated user is not provisioned");
+  });
+
+  test("trusted current user profile insertion creates the app user", async () => {
+    const t = createTestContext();
+    const authId = "workos_provision_current_user";
+
+    const userId = await t.mutation(
+      internal.users.insertProvisionedUserFromTrustedProfile,
+      {
+        email: "provision-current-user@example.com",
+        firstName: "Provision",
+        lastName: "User",
+        workOSUserId: authId,
+      },
+    );
+    const user = await t.run(async (ctx) => await ctx.db.get("users", userId));
+
+    expect(user).toMatchObject({
+      authId,
+      email: "provision-current-user@example.com",
+      firstName: "Provision",
+      lastName: "User",
+    });
+  });
+
+  test("current user provisioning rejects a mismatched WorkOS user id", async () => {
+    const t = createTestContext();
+    const authed = t.withIdentity({
+      subject: "workos_provision_subject",
+    });
+
+    await expect(
+      authed.action(api.users.provisionCurrentUserFromAuthIdentity, {
+        workOSUserId: "workos_provision_other",
+      }),
+    ).rejects.toThrow("Authenticated identity does not match WorkOS user");
+  });
+
+  test("current user provisioning returns existing user without WorkOS lookup", async () => {
+    const t = createTestContext();
+    const authId = "workos_existing_provisioned_user";
+    const userId = await createUser(
+      t,
+      authId,
+      "existing-provisioned-user@example.com",
+    );
+    const authed = t.withIdentity({
+      subject: authId,
+    });
+
+    await expect(
+      authed.action(api.users.provisionCurrentUserFromAuthIdentity, {
+        workOSUserId: authId,
+      }),
+    ).resolves.toBe(userId);
+  });
+
+  test("booking practice discovery works after current user provisioning", async () => {
+    const t = createTestContext();
+    const authId = "workos_provisioned_booking_practices";
+    const authed = t.withIdentity({
+      subject: authId,
+    });
+
+    await t.mutation(internal.users.insertProvisionedUserFromTrustedProfile, {
+      email: "provisioned-booking-practices@example.com",
+      workOSUserId: authId,
+    });
+
+    await expect(
+      authed.query(api.practices.getBookingPractices, {}),
+    ).resolves.toEqual([]);
   });
 
   test("query access rejects duplicate app users for one auth identity", async () => {

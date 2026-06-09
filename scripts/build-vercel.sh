@@ -10,6 +10,15 @@ append_if_set() {
   fi
 }
 
+require_env() {
+  name="$1"
+  value="$(printenv "$name" 2> /dev/null || true)"
+  if [ -z "$value" ]; then
+    printf 'Missing required environment variable: %s\n' "$name" >&2
+    exit 1
+  fi
+}
+
 append_convex_deploy_selection_env() {
   file="$1"
   append_if_set CONVEX_DEPLOY_KEY "$file"
@@ -18,9 +27,54 @@ append_convex_deploy_selection_env() {
   append_if_set CONVEX_SELF_HOSTED_ADMIN_KEY "$file"
 }
 
+get_workos_client_id() {
+  workos_client_id="$(printenv WORKOS_CLIENT_ID 2> /dev/null || true)"
+  if [ -z "$workos_client_id" ]; then
+    workos_client_id="$(printenv VITE_WORKOS_CLIENT_ID 2> /dev/null || true)"
+  fi
+  printf '%s' "$workos_client_id"
+}
+
 append_auth_config_env() {
   file="$1"
-  append_if_set WORKOS_CLIENT_ID "$file"
+  append_if_set WORKOS_API_KEY "$file"
+  append_if_set WORKOS_API_HOSTNAME "$file"
+  workos_client_id="$(get_workos_client_id)"
+  if [ -n "$workos_client_id" ]; then
+    printf 'WORKOS_CLIENT_ID=%s\n' "$workos_client_id" >> "$file"
+  fi
+  append_if_set WORKOS_WEBHOOK_SECRET "$file"
+}
+
+append_vite_auth_config_env() {
+  file="$1"
+  workos_client_id="$(get_workos_client_id)"
+  if [ -n "$workos_client_id" ]; then
+    printf 'VITE_WORKOS_CLIENT_ID=%s\n' "$workos_client_id" >> "$file"
+  fi
+  workos_api_hostname="$(printenv WORKOS_API_HOSTNAME 2> /dev/null || true)"
+  if [ -n "$workos_api_hostname" ]; then
+    printf 'VITE_WORKOS_API_HOSTNAME=%s\n' "$workos_api_hostname" >> "$file"
+  fi
+}
+
+export_vite_auth_config_env() {
+  workos_client_id="$(get_workos_client_id)"
+  if [ -n "$workos_client_id" ]; then
+    export VITE_WORKOS_CLIENT_ID="$workos_client_id"
+  fi
+  if [ -n "${WORKOS_API_HOSTNAME:-}" ]; then
+    export VITE_WORKOS_API_HOSTNAME="$WORKOS_API_HOSTNAME"
+  fi
+}
+
+require_real_auth_env() {
+  require_env WORKOS_API_KEY
+  workos_client_id="$(get_workos_client_id)"
+  if [ -z "$workos_client_id" ]; then
+    printf 'Missing required environment variable: WORKOS_CLIENT_ID or VITE_WORKOS_CLIENT_ID\n' >&2
+    exit 1
+  fi
 }
 
 if [ "${VERCEL_ENV:-}" = "preview" ]; then
@@ -32,8 +86,12 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
 
   append_convex_deploy_selection_env "$deploy_env_file"
   append_auth_config_env "$deploy_env_file"
+  append_vite_auth_config_env "$deploy_env_file"
   printf 'AUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' >> "$deploy_env_file"
-  printf 'AUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' > "$runtime_env_file"
+  append_auth_config_env "$runtime_env_file"
+  append_vite_auth_config_env "$runtime_env_file"
+  printf 'AUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' >> "$runtime_env_file"
+  export_vite_auth_config_env
 
   pnpm seed:preview
   pnpm exec convex deployment create "$preview_name" --type preview --select \
@@ -56,12 +114,16 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
   pnpm exec convex run devAuth:ensurePreviewAuthPersonas \
     --deployment "$preview_deployment_ref"
 else
+  require_real_auth_env
+
   deploy_env_file="$(mktemp)"
   trap 'rm -f "$deploy_env_file"' EXIT
 
   append_convex_deploy_selection_env "$deploy_env_file"
   append_auth_config_env "$deploy_env_file"
+  append_vite_auth_config_env "$deploy_env_file"
   printf 'AUTH_BYPASS_ENABLED=false\n' >> "$deploy_env_file"
+  export_vite_auth_config_env
 
   pnpm exec convex env set AUTH_BYPASS_ENABLED false
   AUTH_BYPASS_ENABLED=false pnpm exec convex deploy \
