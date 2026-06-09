@@ -187,11 +187,7 @@ function CallbackComponent() {
       .then(() => {
         logPreviewAuthCallback("provision:success");
         const returnTo = consumeAuthReturnToPath();
-        if (returnTo === BOOKING_PATH) {
-          void navigate({ replace: true, to: "/buchung" });
-          return;
-        }
-        globalThis.location.replace(returnTo);
+        navigateToReturnPath(navigate, returnTo);
       })
       .catch((error: unknown) => {
         logPreviewAuthCallback("provision:error", {
@@ -278,6 +274,10 @@ function CallbackComponent() {
   );
 }
 
+function getReturnToPathname(returnTo: string): string {
+  return new URL(returnTo, globalThis.location.origin).pathname;
+}
+
 function logPreviewAuthCallback(
   event: string,
   details: Record<string, boolean | string> = {},
@@ -286,4 +286,27 @@ function logPreviewAuthCallback(
     return;
   }
   console.warn("[auth-callback]", event, details);
+}
+
+function navigateToReturnPath(
+  navigate: ReturnType<typeof useNavigate>,
+  returnTo: string,
+): void {
+  switch (getReturnToPathname(returnTo)) {
+    case "/buchung": {
+      void navigate({ replace: true, to: "/buchung" });
+      return;
+    }
+    case "/praxisplaner": {
+      void navigate({ replace: true, to: "/praxisplaner" });
+      return;
+    }
+    case "/regeln": {
+      void navigate({ replace: true, to: "/regeln" });
+      return;
+    }
+    default: {
+      void navigate({ replace: true, to: BOOKING_PATH });
+    }
+  }
 }
