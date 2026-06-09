@@ -43,7 +43,7 @@ import {
 const CALLBACK_PATH = "/callback" as const satisfies FileRouteTypes["to"];
 const DEV_WORKOS_CLIENT_ID = "client_praxisplaner_dev";
 interface RouterConfig {
-  apiHostname?: string;
+  apiHostname: string;
   convexUrl: string;
   redirectUri: string;
   workosClientId: string;
@@ -80,21 +80,34 @@ function getConvexUrl(): Result<string, FrontendError> {
 function getRouterConfig(): Result<RouterConfig, FrontendError> {
   return getSiteOrigin().andThen((siteOrigin) =>
     getWorkOSClientId().andThen((workosClientId) =>
-      getConvexUrl().map((convexUrl) => ({
-        ...getWorkOSApiHostname(),
-        convexUrl,
-        redirectUri: new URL(CALLBACK_PATH, siteOrigin).toString(),
-        workosClientId,
-      })),
+      getWorkOSApiHostname().andThen((apiHostname) =>
+        getConvexUrl().map((convexUrl) => ({
+          apiHostname,
+          convexUrl,
+          redirectUri: new URL(CALLBACK_PATH, siteOrigin).toString(),
+          workosClientId,
+        })),
+      ),
     ),
   );
 }
 
-function getWorkOSApiHostname(): Pick<RouterConfig, "apiHostname"> {
+function getWorkOSApiHostname(): Result<string, FrontendError> {
   const apiHostname = (
     import.meta.env["VITE_WORKOS_API_HOSTNAME"] as string | undefined
   )?.trim();
-  return apiHostname ? { apiHostname } : {};
+  if (apiHostname) {
+    return ok(apiHostname);
+  }
+  if (isWorkOSDevModeEnabled()) {
+    return ok("api.workos.com");
+  }
+  return err(
+    configurationError(
+      "Missing required environment variable: VITE_WORKOS_API_HOSTNAME",
+      "getWorkOSApiHostname",
+    ),
+  );
 }
 
 function getWorkOSClientId(): Result<string, FrontendError> {
@@ -191,7 +204,7 @@ export function getRouter() {
           {routerConfig.match(
             ({ apiHostname, redirectUri, workosClientId }) => (
               <AuthProviders
-                {...(apiHostname ? { apiHostname } : {})}
+                apiHostname={apiHostname}
                 clientId={workosClientId}
                 redirectUri={redirectUri}
               >
@@ -217,7 +230,7 @@ function AuthProviders({
   clientId,
   redirectUri,
 }: {
-  apiHostname?: string;
+  apiHostname: string;
   children: React.ReactNode;
   clientId: string;
   redirectUri: string;
@@ -225,7 +238,7 @@ function AuthProviders({
   return useConvexQueryClient().match(
     (convexQueryClient) => (
       <AuthProvidersInner
-        {...(apiHostname ? { apiHostname } : {})}
+        apiHostname={apiHostname}
         clientId={clientId}
         convexQueryClient={convexQueryClient}
         redirectUri={redirectUri}
@@ -251,7 +264,7 @@ function AuthProvidersInner({
   convexQueryClient,
   redirectUri,
 }: {
-  apiHostname?: string;
+  apiHostname: string;
   children: React.ReactNode;
   clientId: string;
   convexQueryClient: ConvexQueryClient;
@@ -266,7 +279,7 @@ function AuthProvidersInner({
 
   return (
     <AuthKitProvider
-      {...(apiHostname ? { apiHostname } : {})}
+      apiHostname={apiHostname}
       clientId={clientId}
       devMode={isWorkOSDevModeEnabled()}
       redirectUri={redirectUri}
