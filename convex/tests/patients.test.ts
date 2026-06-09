@@ -95,7 +95,7 @@ describe("patients", () => {
 
     await expect(
       t.mutation(api.patients.createTemporaryPatient, {
-        name: "   ",
+        name: " ".repeat(3),
         phoneNumber: "  +491701234567  ",
         practiceId,
       }),
@@ -104,7 +104,7 @@ describe("patients", () => {
     await expect(
       t.mutation(api.patients.createTemporaryPatient, {
         name: "Alex Beispiel",
-        phoneNumber: "   ",
+        phoneNumber: " ".repeat(3),
         practiceId,
       }),
     ).rejects.toThrow(INVALID_TEMPORARY_PATIENT_MESSAGE);

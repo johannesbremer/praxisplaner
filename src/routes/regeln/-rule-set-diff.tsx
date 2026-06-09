@@ -632,7 +632,7 @@ function getDiffItemPath(
     return getRuleSummary(parsed);
   }
 
-  return formatStructuredDiffValue(value).split("\n")[0] ?? section.title;
+  return formatStructuredDiffValue(value).split("\n", 1)[0] ?? section.title;
 }
 
 function getEntityRenames(diff: RuleSetDiff) {

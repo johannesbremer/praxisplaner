@@ -757,7 +757,7 @@ function markSlotsBlockedByAppointments(
       continue;
     }
 
-    const overlappingAppointment = args.appointments.find(
+    const overlappingAppointment = args.appointments.some(
       (appointment) =>
         !args.excludedAppointmentIds.has(appointment._id) &&
         slotOverlapsAppointment(slot, {

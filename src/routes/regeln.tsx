@@ -62,6 +62,7 @@ import {
   NEW_PATIENT_SEGMENT,
   type RegelnSearchParams,
   type RegelnTab,
+  type RegelnTabParam,
   useRegelnUrl,
 } from "../utils/regeln-url";
 import { dateToInstantStringResult } from "../utils/time-calculations";
@@ -78,11 +79,15 @@ import { SimulationControls } from "./regeln/-simulation-controls";
 
 type SimulatedContext = SchedulingSimulatedContext;
 
+const regelnTabParams = new Map<string, Exclude<RegelnTabParam, undefined>>([
+  ["debug", "debug"],
+  ["mitarbeiter", "mitarbeiter"],
+  ["urlaub", "urlaub"],
+]);
+
 function isRegelnTab(value: string): value is RegelnTab {
-  return (
-    value === "rule-management" ||
-    value === "staff-view" ||
-    value === "vacation-scheduler"
+  return ["rule-management", "staff-view", "vacation-scheduler"].includes(
+    value,
   );
 }
 
@@ -94,8 +99,10 @@ export const Route = createFileRoute("/regeln")({
     const result: RegelnSearchParams = {};
 
     const tab = params["tab"];
-    if (tab === "mitarbeiter" || tab === "debug" || tab === "urlaub") {
-      result.tab = tab;
+    const validatedTab =
+      typeof tab === "string" ? regelnTabParams.get(tab) : undefined;
+    if (validatedTab !== undefined) {
+      result.tab = validatedTab;
     }
 
     if (

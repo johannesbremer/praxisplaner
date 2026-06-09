@@ -75,7 +75,7 @@ export function CalendarDevtoolsPanel() {
       "custom-devtools:calendar-effect",
       (e) => {
         setEffects((prev) => {
-          const existing = prev.find((p) => p.name === e.payload.name);
+          const existing = prev.some((p) => p.name === e.payload.name);
           if (existing) {
             return prev.map((p) =>
               p.name === e.payload.name ? { ...p, count: e.payload.count } : p,

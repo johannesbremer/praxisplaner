@@ -266,7 +266,7 @@ describe("TelefonKI agent state helpers", () => {
 
   test("sanitizes a provided phone number", () => {
     expect(sanitizePhoneNumber("  +491701234567  ")).toBe("+491701234567");
-    expect(() => sanitizePhoneNumber("   ")).toThrow(
+    expect(() => sanitizePhoneNumber(" ".repeat(3))).toThrow(
       "Telefonnummer darf nicht leer sein.",
     );
     expect(() => sanitizePhoneNumber("01701234567")).toThrow(

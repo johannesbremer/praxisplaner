@@ -1462,7 +1462,7 @@ async function requireOfferedPatientSlot(
       },
     },
   );
-  const matchingSlot = slotsResult.slots.find(
+  const matchingSlot = slotsResult.slots.some(
     (slot) =>
       slot.status === "AVAILABLE" &&
       slot.startTime === args.startTime &&

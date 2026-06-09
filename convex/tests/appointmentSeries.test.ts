@@ -126,7 +126,7 @@ async function ensureProvisionedUser(
 ) {
   await t.run(async (ctx) => {
     const users = await ctx.db.query("users").collect();
-    const existingUser = users.find(
+    const existingUser = users.some(
       (user) => user.authId === "workos_appointment_series",
     );
 

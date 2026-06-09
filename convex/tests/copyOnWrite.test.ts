@@ -34,7 +34,7 @@ const BASE_SCHEDULE_DUPLICATE_REGEX = regex.as(
   String.raw`\[LINEAGE:BASE_SCHEDULE_DUPLICATE\]`,
 );
 const APPOINTMENT_TYPE_DELETED_REGEX = regex.as(
-  String.raw`gelöscht|deleted|APPOINTMENT_TYPE`,
+  "gelöscht|deleted|APPOINTMENT_TYPE",
 );
 
 function createAuthedTestContext() {

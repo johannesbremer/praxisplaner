@@ -849,7 +849,7 @@ export function AppointmentTypesManagement({
               return { entityId: undoResult.entityId };
             },
             validateBeforeCreate: () => {
-              const existingByName = appointmentTypesRef.current.find(
+              const existingByName = appointmentTypesRef.current.some(
                 (type) => type.name === parsedValue.name,
               );
               if (existingByName) {

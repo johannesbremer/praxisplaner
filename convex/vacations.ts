@@ -886,7 +886,7 @@ export const createVacationWithCoverageAdjustments = mutation({
           },
         },
       );
-      const matchingSlot = schedulingResult.slots.find(
+      const matchingSlot = schedulingResult.slots.some(
         (slot) =>
           slot.status === "AVAILABLE" &&
           slot.practitionerLineageKey === targetPractitionerLineageKey &&
@@ -911,7 +911,7 @@ export const createVacationWithCoverageAdjustments = mutation({
             candidate.simulationRuleSetId === ruleSetId &&
             isActivationBoundSimulation(candidate),
         );
-      const conflictingDraftSimulation = appointmentsReplacingCurrent.find(
+      const conflictingDraftSimulation = appointmentsReplacingCurrent.some(
         (candidate) =>
           candidate.isSimulation === true &&
           candidate.simulationRuleSetId === ruleSetId &&

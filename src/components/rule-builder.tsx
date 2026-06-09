@@ -791,16 +791,17 @@ function normalizeConditionTreeForComparison(
   normalizeLocationId: (id: string) => string,
 ): ConditionTreeNode {
   if (conditionTree.nodeType === "CONDITION") {
-    const normalizeId =
-      conditionTree.conditionType === "APPOINTMENT_TYPE" ||
-      conditionTree.conditionType === "CONCURRENT_COUNT" ||
-      conditionTree.conditionType === "DAILY_CAPACITY"
-        ? normalizeAppointmentTypeId
-        : conditionTree.conditionType === "PRACTITIONER"
-          ? normalizePractitionerId
-          : conditionTree.conditionType === "LOCATION"
-            ? normalizeLocationId
-            : null;
+    const normalizeId = [
+      "APPOINTMENT_TYPE",
+      "CONCURRENT_COUNT",
+      "DAILY_CAPACITY",
+    ].includes(conditionTree.conditionType)
+      ? normalizeAppointmentTypeId
+      : conditionTree.conditionType === "PRACTITIONER"
+        ? normalizePractitionerId
+        : conditionTree.conditionType === "LOCATION"
+          ? normalizeLocationId
+          : null;
 
     if (!normalizeId || !conditionTree.valueIds) {
       return conditionTree;
@@ -889,16 +890,17 @@ function remapConditionTreeReferences(
   remapLocationId: (id: string) => null | string,
 ): ConditionTreeNode {
   if (conditionTree.nodeType === "CONDITION") {
-    const remapId =
-      conditionTree.conditionType === "APPOINTMENT_TYPE" ||
-      conditionTree.conditionType === "CONCURRENT_COUNT" ||
-      conditionTree.conditionType === "DAILY_CAPACITY"
-        ? remapAppointmentTypeId
-        : conditionTree.conditionType === "PRACTITIONER"
-          ? remapPractitionerId
-          : conditionTree.conditionType === "LOCATION"
-            ? remapLocationId
-            : null;
+    const remapId = [
+      "APPOINTMENT_TYPE",
+      "CONCURRENT_COUNT",
+      "DAILY_CAPACITY",
+    ].includes(conditionTree.conditionType)
+      ? remapAppointmentTypeId
+      : conditionTree.conditionType === "PRACTITIONER"
+        ? remapPractitionerId
+        : conditionTree.conditionType === "LOCATION"
+          ? remapLocationId
+          : null;
 
     if (!remapId || !conditionTree.valueIds) {
       return conditionTree;

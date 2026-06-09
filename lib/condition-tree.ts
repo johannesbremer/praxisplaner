@@ -287,7 +287,7 @@ function isConditionType(value: unknown): value is ConditionType {
 }
 
 function isLogicalNodeType(value: unknown): value is LogicalNode["nodeType"] {
-  return value === "AND" || value === "NOT";
+  return typeof value === "string" && ["AND", "NOT"].includes(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -296,7 +296,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isScope(value: unknown): value is Scope {
   return (
-    value === "location" || value === "practice" || value === "practitioner"
+    typeof value === "string" &&
+    ["location", "practice", "practitioner"].includes(value)
   );
 }
 
