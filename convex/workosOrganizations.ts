@@ -94,6 +94,22 @@ export const syncCurrentUserOrganizationMembership = action({
   returns: v.union(v.id("practiceMembers"), v.null()),
 });
 
+export const getUsersManagementWidgetToken = action({
+  args: {
+    organizationId: v.string(),
+  },
+  handler: async (ctx, args): Promise<string> => {
+    const identity = await requireActionIdentity(ctx);
+    const token = await createWorkOSWidgetToken({
+      organizationId: args.organizationId,
+      scopes: ["widgets:users-table:manage"],
+      userId: identity.subject,
+    });
+    return token;
+  },
+  returns: v.string(),
+});
+
 export const createPracticeForWorkOSOrganization = internalMutation({
   args: {
     name: v.string(),
@@ -284,6 +300,33 @@ async function createWorkOSOrganizationMembershipRequest(args: {
       method: "POST",
     },
   );
+}
+
+async function createWorkOSWidgetToken(args: {
+  organizationId: string;
+  scopes: string[];
+  userId: string;
+}): Promise<string> {
+  const response = await fetch(`${WORKOS_API_BASE}/widgets/token`, {
+    body: JSON.stringify({
+      organization_id: args.organizationId,
+      scopes: args.scopes,
+      user_id: args.userId,
+    }),
+    headers: workOSHeaders(),
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(
+      `WorkOS widget token creation failed with status ${response.status}: ${await readWorkOSError(response)}`,
+    );
+  }
+
+  const value: unknown = await response.json();
+  if (!isRecord(value) || typeof value["token"] !== "string") {
+    throw new Error("WorkOS widget token response was invalid.");
+  }
+  return value["token"];
 }
 
 async function findPracticeByWorkOSOrganizationId(

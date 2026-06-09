@@ -154,7 +154,7 @@ function AuthenticatedGate({
     startSignIn();
   }, [isLoading, startSignIn, user]);
 
-  useEffect(() => {
+  const startOrganizationSwitch = useCallback(() => {
     if (
       isLoading ||
       !user ||
@@ -167,6 +167,7 @@ function AuthenticatedGate({
     }
 
     organizationSwitchRequestedRef.current = true;
+    setSignInError(null);
     const returnTo = getAuthReturnToPath();
     switchToOrganization({
       organizationId: configuredOrganizationId,
@@ -186,6 +187,10 @@ function AuthenticatedGate({
     switchToOrganization,
     user,
   ]);
+
+  useEffect(() => {
+    startOrganizationSwitch();
+  }, [startOrganizationSwitch]);
 
   if (isAuthBypassEnabled() && isDevPersonaActive(devPersona)) {
     return <>{children}</>;
@@ -213,8 +218,8 @@ function AuthenticatedGate({
         <OrganizationSwitchErrorScreen
           error={signInError}
           onRetry={() => {
-            setSignInError(null);
             organizationSwitchRequestedRef.current = false;
+            startOrganizationSwitch();
           }}
           onSignOut={() => {
             signOut();

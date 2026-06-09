@@ -7,7 +7,12 @@ import {
 } from "@workos-inc/widgets";
 import { useAction } from "convex/react";
 import { Building2, Loader2, UsersRound } from "lucide-react";
-import { type BaseSyntheticEvent, useEffect, useState } from "react";
+import {
+  type BaseSyntheticEvent,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -19,13 +24,8 @@ export const Route = createFileRoute("/account")({
 });
 
 function AccountPage() {
-  const {
-    getAccessToken,
-    isLoading,
-    organizationId,
-    permissions,
-    switchToOrganization,
-  } = useAuth();
+  const { getAccessToken, isLoading, organizationId, switchToOrganization } =
+    useAuth();
   const createOrganizationPractice = useAction(
     api.workosOrganizations.createOrganizationPractice,
   );
@@ -38,7 +38,6 @@ function AccountPage() {
   >(null);
   const [isCreating, setIsCreating] = useState(false);
   const [practiceName, setPracticeName] = useState("");
-  const canManageUsers = permissions.includes("widgets:users-table:manage");
 
   useEffect(() => {
     if (!organizationId) {
@@ -154,21 +153,21 @@ function AccountPage() {
                     Benutzerverwaltung
                   </div>
                   <div className="mt-1">
-                    {canManageUsers
-                      ? "WorkOS steuert Einladungen, Rollen und Entzug von Zugriffen."
-                      : "Der aktiven WorkOS-Rolle fehlt widgets:users-table:manage."}
+                    WorkOS steuert Einladungen, Rollen und Entzug von Zugriffen.
                   </div>
                 </div>
               </div>
             </aside>
 
             <div className="min-w-0 rounded-md border bg-card p-4">
-              {canManageUsers ? (
-                <UsersManagement authToken={getAccessToken} />
+              {organizationId ? (
+                <UsersManagementForOrganization
+                  organizationId={organizationId}
+                />
               ) : (
                 <div className="text-sm text-muted-foreground">
-                  Benutzerverwaltung ist erst verfügbar, wenn Ihre aktive
-                  WorkOS-Rolle die Widget-Berechtigung enthält.
+                  Wählen Sie eine WorkOS-Organisation aus, um Benutzer zu
+                  verwalten.
                 </div>
               )}
             </div>
@@ -185,4 +184,19 @@ function AccountRoute() {
       <AccountPage />
     </PatientAuthGate>
   );
+}
+
+function UsersManagementForOrganization({
+  organizationId,
+}: {
+  organizationId: string;
+}) {
+  const getUsersManagementWidgetToken = useAction(
+    api.workosOrganizations.getUsersManagementWidgetToken,
+  );
+  const getUsersManagementAuthToken = useCallback(async () => {
+    return await getUsersManagementWidgetToken({ organizationId });
+  }, [getUsersManagementWidgetToken, organizationId]);
+
+  return <UsersManagement authToken={getUsersManagementAuthToken} />;
 }
