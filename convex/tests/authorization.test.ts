@@ -156,6 +156,25 @@ describe("Convex query authorization", () => {
     ).rejects.toThrow("Authenticated identity does not match WorkOS user");
   });
 
+  test("current user provisioning returns existing user without WorkOS lookup", async () => {
+    const t = createTestContext();
+    const authId = "workos_existing_provisioned_user";
+    const userId = await createUser(
+      t,
+      authId,
+      "existing-provisioned-user@example.com",
+    );
+    const authed = t.withIdentity({
+      subject: authId,
+    });
+
+    await expect(
+      authed.action(api.users.provisionCurrentUserFromAuthIdentity, {
+        workOSUserId: authId,
+      }),
+    ).resolves.toBe(userId);
+  });
+
   test("booking practice discovery works after current user provisioning", async () => {
     const t = createTestContext();
     const authId = "workos_provisioned_booking_practices";

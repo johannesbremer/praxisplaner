@@ -5,7 +5,12 @@ import type { Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
 import { internal } from "./_generated/api";
-import { action, internalMutation, query } from "./_generated/server";
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  query,
+} from "./_generated/server";
 import { authKit } from "./auth";
 import { requirePracticeMember } from "./practiceAccess";
 import { personalDataValidator } from "./schema";
@@ -102,6 +107,14 @@ export const provisionCurrentUserFromAuthIdentity = action({
       throw new Error("Authenticated identity does not match WorkOS user.");
     }
 
+    const existingUserId = await ctx.runQuery(
+      internal.users.getProvisionedUserIdByAuthId,
+      { authId: args.workOSUserId },
+    );
+    if (existingUserId) {
+      return existingUserId;
+    }
+
     const authUser = await loadTrustedWorkOSUser(args.workOSUserId);
     return await ctx.runMutation(
       internal.users.insertProvisionedUserFromTrustedProfile,
@@ -114,6 +127,17 @@ export const provisionCurrentUserFromAuthIdentity = action({
     );
   },
   returns: v.id("users"),
+});
+
+export const getProvisionedUserIdByAuthId = internalQuery({
+  args: {
+    authId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await findUserByAuthId(ctx.db, args.authId);
+    return user?._id ?? null;
+  },
+  returns: v.union(v.id("users"), v.null()),
 });
 
 export const insertProvisionedUserFromTrustedProfile = internalMutation({
@@ -139,6 +163,23 @@ export const insertProvisionedUserFromTrustedProfile = internalMutation({
   returns: v.id("users"),
 });
 
+function getWorkOSApiHostname(): string {
+  const apiHostname = process.env["WORKOS_API_HOSTNAME"]?.trim();
+  if (!apiHostname) {
+    return "api.workos.com";
+  }
+  if (
+    apiHostname.includes("://") ||
+    apiHostname.includes("/") ||
+    apiHostname.endsWith(".authkit.app")
+  ) {
+    throw new Error(
+      "WORKOS_API_HOSTNAME must be a WorkOS Authentication API hostname, not an AuthKit app URL.",
+    );
+  }
+  return apiHostname;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -153,8 +194,9 @@ async function loadTrustedWorkOSUser(workOSUserId: string): Promise<{
   if (!apiKey) {
     throw new Error("Missing WORKOS_API_KEY environment variable.");
   }
+  const apiHostname = getWorkOSApiHostname();
   const response = await fetch(
-    `https://api.workos.com/user_management/users/${encodeURIComponent(workOSUserId)}`,
+    `https://${apiHostname}/user_management/users/${encodeURIComponent(workOSUserId)}`,
     {
       headers: {
         Authorization: `Bearer ${apiKey}`,

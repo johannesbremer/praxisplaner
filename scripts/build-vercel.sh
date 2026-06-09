@@ -38,6 +38,7 @@ get_workos_client_id() {
 append_auth_config_env() {
   file="$1"
   append_if_set WORKOS_API_KEY "$file"
+  append_if_set WORKOS_API_HOSTNAME "$file"
   workos_client_id="$(get_workos_client_id)"
   if [ -n "$workos_client_id" ]; then
     printf 'WORKOS_CLIENT_ID=%s\n' "$workos_client_id" >> "$file"
