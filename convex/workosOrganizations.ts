@@ -38,7 +38,7 @@ export const createOrganizationPractice = action({
   }> => {
     const identity = await requireActionIdentity(ctx);
     const organization = await createWorkOSOrganization(args.name);
-    const membership = await createWorkOSOrganizationMembership({
+    await createWorkOSOrganizationMembership({
       organizationId: organization.id,
       roleSlug: "owner",
       userId: identity.subject,
@@ -48,7 +48,7 @@ export const createOrganizationPractice = action({
       {
         name: args.name,
         organizationId: organization.id,
-        role: mapWorkOSRoleToPracticeRole(membership),
+        role: "owner",
         workOSUserId: identity.subject,
       },
     );
@@ -230,7 +230,7 @@ async function createWorkOSOrganization(name: string): Promise<{ id: string }> {
   });
   if (!response.ok) {
     throw new Error(
-      `WorkOS organization creation failed with status ${response.status}.`,
+      `WorkOS organization creation failed with status ${response.status}: ${await readWorkOSError(response)}`,
     );
   }
   return parseWorkOSObjectWithId(await response.json(), "organization");
@@ -241,24 +241,44 @@ async function createWorkOSOrganizationMembership(args: {
   roleSlug: PracticeRole;
   userId: string;
 }): Promise<WorkOSOrganizationMembership> {
-  const response = await fetch(
+  const response = await createWorkOSOrganizationMembershipRequest(args);
+  if (response.status === 422) {
+    const fallbackResponse = await createWorkOSOrganizationMembershipRequest({
+      organizationId: args.organizationId,
+      userId: args.userId,
+    });
+    if (fallbackResponse.ok) {
+      return parseWorkOSOrganizationMembership(await fallbackResponse.json());
+    }
+    throw new Error(
+      `WorkOS organization membership creation failed with status ${response.status}: ${await readWorkOSError(response)}; fallback without role failed with status ${fallbackResponse.status}: ${await readWorkOSError(fallbackResponse)}`,
+    );
+  }
+  if (!response.ok) {
+    throw new Error(
+      `WorkOS organization membership creation failed with status ${response.status}: ${await readWorkOSError(response)}`,
+    );
+  }
+  return parseWorkOSOrganizationMembership(await response.json());
+}
+
+async function createWorkOSOrganizationMembershipRequest(args: {
+  organizationId: string;
+  roleSlug?: PracticeRole;
+  userId: string;
+}): Promise<Response> {
+  return await fetch(
     `${WORKOS_API_BASE}/user_management/organization_memberships`,
     {
       body: JSON.stringify({
         organization_id: args.organizationId,
-        role_slug: args.roleSlug,
+        ...(args.roleSlug ? { role_slug: args.roleSlug } : {}),
         user_id: args.userId,
       }),
       headers: workOSHeaders(),
       method: "POST",
     },
   );
-  if (!response.ok) {
-    throw new Error(
-      `WorkOS organization membership creation failed with status ${response.status}.`,
-    );
-  }
-  return parseWorkOSOrganizationMembership(await response.json());
 }
 
 async function findPracticeByWorkOSOrganizationId(
@@ -327,7 +347,7 @@ async function loadActiveWorkOSOrganizationMembership(args: {
   });
   if (!response.ok) {
     throw new Error(
-      `WorkOS organization membership lookup failed with status ${response.status}.`,
+      `WorkOS organization membership lookup failed with status ${response.status}: ${await readWorkOSError(response)}`,
     );
   }
 
@@ -400,6 +420,11 @@ function parseWorkOSOrganizationMembership(
     status,
     userId,
   };
+}
+
+async function readWorkOSError(response: Response): Promise<string> {
+  const body = await response.text();
+  return body.length > 0 ? body : response.statusText;
 }
 
 async function requireActionIdentity(ctx: {
