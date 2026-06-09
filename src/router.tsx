@@ -96,11 +96,19 @@ function getWorkOSApiHostname(): Result<string, FrontendError> {
   const apiHostname = (
     import.meta.env["VITE_WORKOS_API_HOSTNAME"] as string | undefined
   )?.trim();
-  if (apiHostname) {
+  if (apiHostname && !isInvalidWorkOSApiHostname(apiHostname)) {
     return ok(apiHostname);
   }
   if (isWorkOSDevModeEnabled()) {
     return ok("api.workos.com");
+  }
+  if (apiHostname) {
+    return err(
+      configurationError(
+        "VITE_WORKOS_API_HOSTNAME must be a WorkOS Authentication API hostname, not an AuthKit app URL.",
+        "getWorkOSApiHostname",
+      ),
+    );
   }
   return err(
     configurationError(
@@ -126,6 +134,14 @@ function getWorkOSClientId(): Result<string, FrontendError> {
       "Missing required environment variable: VITE_WORKOS_CLIENT_ID",
       "getWorkOSClientId",
     ),
+  );
+}
+
+function isInvalidWorkOSApiHostname(apiHostname: string): boolean {
+  return (
+    apiHostname.includes("://") ||
+    apiHostname.includes("/") ||
+    apiHostname.endsWith(".authkit.app")
   );
 }
 
