@@ -4,12 +4,12 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
-import { query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { authKit } from "./auth";
 import { requirePracticeMember } from "./practiceAccess";
 import { personalDataValidator } from "./schema";
 import { asPersonalDataInput, type PersonalDataInput } from "./typedDtos";
-import { findUserByAuthId } from "./userIdentity";
+import { ensureAuthenticatedIdentity, findUserByAuthId } from "./userIdentity";
 import { workOSAuthUserValidator } from "./validators";
 
 type BookingPersonalData = PersonalDataInput;
@@ -83,6 +83,26 @@ export const getCurrentUser = query({
     }),
     v.null(),
   ),
+});
+
+export const provisionCurrentUserFromAuthIdentity = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ensureAuthenticatedIdentity(ctx);
+    const existingUser = await findUserByAuthId(ctx.db, identity.subject);
+    if (existingUser) {
+      return existingUser._id;
+    }
+    if (!identity.email) {
+      throw new Error("Authenticated identity is missing an email address.");
+    }
+    return await ctx.db.insert("users", {
+      authId: identity.subject,
+      createdAt: BigInt(Date.now()),
+      email: identity.email,
+    });
+  },
+  returns: v.id("users"),
 });
 
 /**

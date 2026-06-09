@@ -789,6 +789,7 @@ function AuthenticatedBookingFlow() {
 
   const isShowingBookedAppointment =
     bookedAppointments !== undefined && bookedAppointments.length > 0;
+
   // Loading state
   if (!practicesQuery) {
     return (

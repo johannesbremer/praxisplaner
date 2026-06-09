@@ -120,6 +120,39 @@ describe("Convex query authorization", () => {
     ).rejects.toThrow("Authenticated user is not provisioned");
   });
 
+  test("authenticated users can provision their app user from the current auth identity", async () => {
+    const t = createTestContext();
+    const authed = t.withIdentity({
+      email: "provision-current-user@example.com",
+      subject: "workos_provision_current_user",
+    });
+
+    const userId = await authed.mutation(
+      api.users.provisionCurrentUserFromAuthIdentity,
+      {},
+    );
+    const user = await t.run(async (ctx) => await ctx.db.get("users", userId));
+
+    expect(user).toMatchObject({
+      authId: "workos_provision_current_user",
+      email: "provision-current-user@example.com",
+    });
+  });
+
+  test("booking practice discovery works after current user provisioning", async () => {
+    const t = createTestContext();
+    const authed = t.withIdentity({
+      email: "provisioned-booking-practices@example.com",
+      subject: "workos_provisioned_booking_practices",
+    });
+
+    await authed.mutation(api.users.provisionCurrentUserFromAuthIdentity, {});
+
+    await expect(
+      authed.query(api.practices.getBookingPractices, {}),
+    ).resolves.toEqual([]);
+  });
+
   test("query access rejects duplicate app users for one auth identity", async () => {
     const t = createTestContext();
     const authId = "workos_duplicate_query_user";
