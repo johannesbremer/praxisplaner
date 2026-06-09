@@ -78,8 +78,6 @@ require_real_auth_env() {
 }
 
 if [ "${VERCEL_ENV:-}" = "preview" ]; then
-  require_real_auth_env
-
   preview_name="$(printf '%s' "${VERCEL_GIT_COMMIT_REF:-preview}" | tr '/' '-')"
   preview_deployment_ref="preview/$preview_name"
   deploy_env_file="$(mktemp)"
@@ -89,10 +87,10 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
   append_convex_deploy_selection_env "$deploy_env_file"
   append_auth_config_env "$deploy_env_file"
   append_vite_auth_config_env "$deploy_env_file"
-  printf 'AUTH_BYPASS_ENABLED=false\nVITE_AUTH_BYPASS_ENABLED=false\nVITE_VERCEL_ENV=preview\n' >> "$deploy_env_file"
+  printf 'AUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' >> "$deploy_env_file"
   append_auth_config_env "$runtime_env_file"
   append_vite_auth_config_env "$runtime_env_file"
-  printf 'AUTH_BYPASS_ENABLED=false\nVITE_AUTH_BYPASS_ENABLED=false\nVITE_VERCEL_ENV=preview\n' >> "$runtime_env_file"
+  printf 'AUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' >> "$runtime_env_file"
   export_vite_auth_config_env
 
   pnpm seed:preview
@@ -100,10 +98,10 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
     || pnpm exec convex deployment select "$preview_deployment_ref"
   pnpm exec convex env set \
     --deployment "$preview_deployment_ref" \
-    AUTH_BYPASS_ENABLED false
-  AUTH_BYPASS_ENABLED=false pnpm exec convex deploy \
+    AUTH_BYPASS_ENABLED true
+  AUTH_BYPASS_ENABLED=true pnpm exec convex deploy \
     --env-file "$deploy_env_file" \
-    --cmd "VITE_AUTH_BYPASS_ENABLED=false VITE_VERCEL_ENV=preview pnpm run build" \
+    --cmd "VITE_AUTH_BYPASS_ENABLED=true VITE_VERCEL_ENV=preview pnpm run build" \
     --preview-name "$preview_name"
   pnpm exec convex env set \
     --deployment "$preview_deployment_ref" \
@@ -113,6 +111,8 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
     --preview-name "$preview_name" \
     --replace-all \
     --yes .cache/seed/preview.zip
+  pnpm exec convex run devAuth:ensurePreviewAuthPersonas \
+    --deployment "$preview_deployment_ref"
 else
   require_real_auth_env
 
