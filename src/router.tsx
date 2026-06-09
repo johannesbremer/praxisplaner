@@ -315,7 +315,8 @@ function FatalConfigScreen({ error }: { error: FrontendError }) {
 }
 
 function isWorkOSDevModeEnabled(): boolean {
-  return import.meta.env.DEV;
+  const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
+  return import.meta.env.DEV || vercelEnv === "preview";
 }
 
 function useBrowserPathname(): string {
