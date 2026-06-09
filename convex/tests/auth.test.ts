@@ -3,6 +3,10 @@ import { describe, expect, test } from "vitest";
 
 import { internal } from "../_generated/api";
 import schema from "../schema";
+import {
+  getWorkOSOrganizationMembershipRoleSlugs,
+  mapWorkOSRoleSlugsToPracticeRole,
+} from "../workosOrganizations";
 import { modules } from "./test.setup";
 
 function createTestContext() {
@@ -38,6 +42,17 @@ async function runUserEvent(
 }
 
 describe("WorkOS AuthKit user sync", () => {
+  test("reads membership role objects from WorkOS payloads", () => {
+    expect(
+      getWorkOSOrganizationMembershipRoleSlugs({
+        role: { slug: "admin" },
+        roles: [{ slug: "owner" }, { slug: "staff" }, { slug: 123 }],
+      }),
+    ).toEqual(["admin", "owner", "staff"]);
+    expect(mapWorkOSRoleSlugsToPracticeRole(["org:owner"])).toBe("owner");
+    expect(mapWorkOSRoleSlugsToPracticeRole(["org:admin"])).toBe("admin");
+  });
+
   test("user.created inserts an app user", async () => {
     const t = createTestContext();
 
@@ -144,7 +159,7 @@ describe("WorkOS AuthKit user sync", () => {
         id: "om_member_sync",
         object: "organization_membership",
         organization_id: "org_member_sync",
-        role_slug: "admin",
+        role: { slug: "admin" },
         status: "active",
         user_id: "user_org_member",
       },
@@ -167,7 +182,7 @@ describe("WorkOS AuthKit user sync", () => {
         id: "om_member_sync",
         object: "organization_membership",
         organization_id: "org_member_sync",
-        role_slug: "staff",
+        roles: [{ slug: "staff" }],
         status: "active",
         user_id: "user_org_member",
       },
@@ -190,7 +205,7 @@ describe("WorkOS AuthKit user sync", () => {
         id: "om_member_sync",
         object: "organization_membership",
         organization_id: "org_member_sync",
-        role_slug: "staff",
+        role: { slug: "staff" },
         status: "inactive",
         user_id: "user_org_member",
       },

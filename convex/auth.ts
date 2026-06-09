@@ -5,7 +5,10 @@ import type { DataModel } from "./_generated/dataModel";
 
 import { components, internal } from "./_generated/api";
 import { findUserByAuthId } from "./userIdentity";
-import { mapWorkOSRoleSlugsToPracticeRole } from "./workosOrganizations";
+import {
+  getWorkOSOrganizationMembershipRoleSlugs,
+  mapWorkOSRoleSlugsToPracticeRole,
+} from "./workosOrganizations";
 
 // Get a typed object of internal Convex functions exported by this file
 const authFunctions: AuthFunctions = internal.auth;
@@ -194,8 +197,6 @@ function parseWorkOSOrganizationMembershipEvent(data: unknown): {
     throw new Error("WorkOS organization membership event data was invalid.");
   }
   const organizationId = data["organization_id"];
-  const roleSlug = data["role_slug"];
-  const roleSlugs = data["role_slugs"];
   const status = data["status"];
   const userId = data["user_id"];
   if (
@@ -207,12 +208,7 @@ function parseWorkOSOrganizationMembershipEvent(data: unknown): {
   }
   return {
     organizationId,
-    roleSlugs: [
-      ...(Array.isArray(roleSlugs)
-        ? roleSlugs.filter((role): role is string => typeof role === "string")
-        : []),
-      ...(typeof roleSlug === "string" ? [roleSlug] : []),
-    ],
+    roleSlugs: getWorkOSOrganizationMembershipRoleSlugs(data),
     status,
     userId,
   };

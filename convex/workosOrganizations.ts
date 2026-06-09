@@ -19,8 +19,7 @@ interface WorkOSOrganizationMembership {
   id: string;
   object: "organization_membership";
   organizationId: string;
-  roleSlug?: string;
-  roleSlugs?: string[];
+  roleSlugs: string[];
   status: WorkOSMembershipStatus;
   userId: string;
 }
@@ -201,25 +200,31 @@ export const upsertPracticeMemberByWorkOSOrganization = internalMutation({
   returns: v.union(v.id("practiceMembers"), v.null()),
 });
 
+export function getWorkOSOrganizationMembershipRoleSlugs(
+  membership: Record<string, unknown>,
+): string[] {
+  return [
+    ...getWorkOSRoleObjectSlugs(membership["role"]),
+    ...getWorkOSRoleObjectSlugs(membership["roles"]),
+  ];
+}
+
 export function mapWorkOSRoleSlugsToPracticeRole(
   roleSlugs: readonly string[],
 ): PracticeRole {
-  if (roleSlugs.includes("owner")) {
+  if (hasWorkOSRoleSlug(roleSlugs, "owner")) {
     return "owner";
   }
-  if (roleSlugs.includes("admin")) {
+  if (hasWorkOSRoleSlug(roleSlugs, "admin")) {
     return "admin";
   }
   return "staff";
 }
 
 export function mapWorkOSRoleToPracticeRole(
-  membership: Pick<WorkOSOrganizationMembership, "roleSlug" | "roleSlugs">,
+  membership: Pick<WorkOSOrganizationMembership, "roleSlugs">,
 ): PracticeRole {
-  return mapWorkOSRoleSlugsToPracticeRole([
-    ...(membership.roleSlugs ?? []),
-    ...(membership.roleSlug ? [membership.roleSlug] : []),
-  ]);
+  return mapWorkOSRoleSlugsToPracticeRole(membership.roleSlugs);
 }
 
 async function createWorkOSOrganization(name: string): Promise<{ id: string }> {
@@ -320,6 +325,26 @@ function getWorkOSApiHostname(): string {
   return apiHostname;
 }
 
+function getWorkOSRoleObjectSlugs(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => getWorkOSRoleObjectSlugs(item));
+  }
+  if (!isRecord(value)) {
+    return [];
+  }
+  const slug = value["slug"];
+  return typeof slug === "string" ? [slug] : [];
+}
+
+function hasWorkOSRoleSlug(
+  roleSlugs: readonly string[],
+  expectedSlug: PracticeRole,
+): boolean {
+  return roleSlugs.some(
+    (slug) => slug === expectedSlug || slug === `org:${expectedSlug}`,
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -362,13 +387,6 @@ async function loadActiveWorkOSOrganizationMembership(args: {
     : parseWorkOSOrganizationMembership(membership);
 }
 
-function optionalStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  return value.filter((item): item is string => typeof item === "string");
-}
-
 function parseWorkOSObjectWithId(
   value: unknown,
   expectedObject: string,
@@ -409,14 +427,11 @@ function parseWorkOSOrganizationMembership(
     throw new Error("WorkOS organization membership response was invalid.");
   }
 
-  const roleSlug = payload["role_slug"];
-  const roleSlugs = optionalStringArray(payload["role_slugs"]);
   return {
     id,
     object,
     organizationId,
-    ...(typeof roleSlug === "string" ? { roleSlug } : {}),
-    ...(roleSlugs ? { roleSlugs } : {}),
+    roleSlugs: getWorkOSOrganizationMembershipRoleSlugs(payload),
     status,
     userId,
   };
