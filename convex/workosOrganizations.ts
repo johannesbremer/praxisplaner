@@ -326,18 +326,6 @@ async function createWorkOSOrganizationMembership(args: {
   userId: string;
 }): Promise<WorkOSOrganizationMembership> {
   const response = await createWorkOSOrganizationMembershipRequest(args);
-  if (response.status === 422) {
-    const fallbackResponse = await createWorkOSOrganizationMembershipRequest({
-      organizationId: args.organizationId,
-      userId: args.userId,
-    });
-    if (fallbackResponse.ok) {
-      return parseWorkOSOrganizationMembership(await fallbackResponse.json());
-    }
-    throw new Error(
-      `WorkOS organization membership creation failed with status ${response.status}: ${await readWorkOSError(response)}; fallback without role failed with status ${fallbackResponse.status}: ${await readWorkOSError(fallbackResponse)}`,
-    );
-  }
   if (!response.ok) {
     throw new Error(
       `WorkOS organization membership creation failed with status ${response.status}: ${await readWorkOSError(response)}`,
