@@ -12,6 +12,8 @@ export const Route = createFileRoute("/callback")({
 });
 
 const BOOKING_PATH = "/buchung";
+const CONVEX_AUTH_FAILED_MESSAGE =
+  "Anmeldung bei Convex konnte nicht abgeschlossen werden. Bitte prüfen Sie die WorkOS Client-ID und Convex Auth-Konfiguration für diese Umgebung.";
 
 function CallbackComponent() {
   const { getAccessToken, isLoading, signIn, user } = useAuth();
@@ -22,6 +24,9 @@ function CallbackComponent() {
   const navigate = useNavigate();
   const accessTokenUserIdRef = useRef<null | string>(null);
   const provisioningUserIdRef = useRef<null | string>(null);
+  const [accessTokenReadyUserId, setAccessTokenReadyUserId] = useState<
+    null | string
+  >(null);
   const [accessTokenError, setAccessTokenError] = useState<null | {
     message: string;
     userId: string;
@@ -35,6 +40,15 @@ function CallbackComponent() {
     accessTokenError?.userId === userId ? accessTokenError.message : null;
   const activeProvisioningError =
     provisioningError?.userId === userId ? provisioningError.message : null;
+  const activeConvexAuthError =
+    !isLoading &&
+    user &&
+    userId &&
+    accessTokenReadyUserId === userId &&
+    !convexAuth.isLoading &&
+    !convexAuth.isAuthenticated
+      ? CONVEX_AUTH_FAILED_MESSAGE
+      : null;
 
   useEffect(() => {
     if (
@@ -49,10 +63,12 @@ function CallbackComponent() {
     accessTokenUserIdRef.current = userId;
     getAccessToken()
       .then(() => {
+        setAccessTokenReadyUserId(userId);
         setAccessTokenError(null);
       })
       .catch((error: unknown) => {
         accessTokenUserIdRef.current = null;
+        setAccessTokenReadyUserId(null);
         setAccessTokenError({
           message:
             error instanceof Error
@@ -66,15 +82,17 @@ function CallbackComponent() {
   useEffect(() => {
     if (
       isLoading ||
-      convexAuth.isLoading ||
-      !convexAuth.isAuthenticated ||
       !user ||
       !userId ||
-      accessTokenUserIdRef.current !== userId ||
+      accessTokenReadyUserId !== userId ||
       provisioningUserIdRef.current === userId ||
       activeAccessTokenError ||
+      activeConvexAuthError ||
       activeProvisioningError
     ) {
+      return;
+    }
+    if (convexAuth.isLoading) {
       return;
     }
     provisioningUserIdRef.current = userId;
@@ -101,7 +119,9 @@ function CallbackComponent() {
       });
   }, [
     activeAccessTokenError,
+    activeConvexAuthError,
     activeProvisioningError,
+    accessTokenReadyUserId,
     convexAuth.isAuthenticated,
     convexAuth.isLoading,
     isLoading,
@@ -128,7 +148,8 @@ function CallbackComponent() {
     );
   }
 
-  const activeError = activeAccessTokenError ?? activeProvisioningError;
+  const activeError =
+    activeAccessTokenError ?? activeConvexAuthError ?? activeProvisioningError;
 
   if (activeError) {
     return (

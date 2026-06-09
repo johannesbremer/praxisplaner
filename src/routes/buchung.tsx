@@ -396,7 +396,7 @@ function isServerBackTargetStep(
  * Handles authentication check before rendering the booking flow.
  */
 function BookingPage() {
-  const { user } = useAuth();
+  const { signOut, user } = useAuth();
   const { isAuthenticated: convexAuthenticated, isLoading: convexLoading } =
     useConvexAuth();
 
@@ -422,11 +422,22 @@ function BookingPage() {
       <PatientAuthGate>
         <div className="min-h-screen flex items-center justify-center">
           <Card className="w-96">
+            <CardHeader className="text-center">
+              <CardTitle>Anmeldung fehlgeschlagen</CardTitle>
+              <CardDescription>
+                Die WorkOS-Anmeldung war erfolgreich, aber Convex hat das
+                Zugriffstoken nicht akzeptiert.
+              </CardDescription>
+            </CardHeader>
             <CardContent className="py-6">
-              <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Benutzer wird vorbereitet...</span>
-              </div>
+              <Button
+                className="w-full"
+                onClick={() => {
+                  signOut();
+                }}
+              >
+                Erneut anmelden
+              </Button>
             </CardContent>
           </Card>
         </div>
