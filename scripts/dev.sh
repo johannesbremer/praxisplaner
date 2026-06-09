@@ -37,9 +37,11 @@ backend_pid="$!"
       sleep 1
     done
   fi
-  until pnpm exec convex run devAuth:ensurePreviewAuthPersonas; do
-    sleep 1
-  done
+  if [ "$AUTH_BYPASS_ENABLED" = "true" ]; then
+    until pnpm exec convex run devAuth:ensurePreviewAuthPersonas; do
+      sleep 1
+    done
+  fi
 ) &
 seed_pid="$!"
 
