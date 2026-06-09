@@ -25,15 +25,18 @@ AUTH_BYPASS_ENABLED="$AUTH_BYPASS_ENABLED" pnpm exec convex dev &
 backend_pid="$!"
 
 (
-  until
-    pnpm exec convex env set AUTH_BYPASS_ENABLED "$AUTH_BYPASS_ENABLED" \
-      && { [ "$AUTH_BYPASS_ENABLED" != "true" ] \
-        || pnpm exec convex env set WORKOS_API_KEY "$WORKOS_API_KEY" \
-        && pnpm exec convex env set WORKOS_CLIENT_ID "$WORKOS_CLIENT_ID" \
-        && pnpm exec convex env set WORKOS_WEBHOOK_SECRET "$WORKOS_WEBHOOK_SECRET"; }
-  do
+  until pnpm exec convex env set AUTH_BYPASS_ENABLED "$AUTH_BYPASS_ENABLED"; do
     sleep 1
   done
+  if [ "$AUTH_BYPASS_ENABLED" = "true" ]; then
+    until
+      pnpm exec convex env set WORKOS_API_KEY "$WORKOS_API_KEY" \
+        && pnpm exec convex env set WORKOS_CLIENT_ID "$WORKOS_CLIENT_ID" \
+        && pnpm exec convex env set WORKOS_WEBHOOK_SECRET "$WORKOS_WEBHOOK_SECRET"
+    do
+      sleep 1
+    done
+  fi
   until pnpm exec convex run devAuth:ensurePreviewAuthPersonas; do
     sleep 1
   done
