@@ -5,6 +5,7 @@ import type { DataModel } from "./_generated/dataModel";
 
 import { components, internal } from "./_generated/api";
 import { findUserByAuthId } from "./userIdentity";
+import { mapWorkOSRoleSlugsToPracticeRole } from "./workosOrganizations";
 
 // Get a typed object of internal Convex functions exported by this file
 const authFunctions: AuthFunctions = internal.auth;
@@ -21,6 +22,11 @@ const workOSWebhookSecret =
   (authBypassEnabled ? "whsec_local_preview_placeholder" : undefined);
 
 export const authKit = new AuthKit<DataModel>(components.workOSAuthKit, {
+  additionalEventTypes: [
+    "organization_membership.created",
+    "organization_membership.deleted",
+    "organization_membership.updated",
+  ],
   authFunctions,
   ...(workOSApiKey === undefined ? {} : { apiKey: workOSApiKey }),
   ...(workOSClientId === undefined ? {} : { clientId: workOSClientId }),
@@ -37,6 +43,51 @@ export const authKit = new AuthKit<DataModel>(components.workOSAuthKit, {
  * that we can query directly and extend with app-specific data.
  */
 export const { authKitEvent } = authKit.events({
+  "organization_membership.created": async (ctx, event) => {
+    const membership = parseWorkOSOrganizationMembershipEvent(event.data);
+    if (membership.status !== "active") {
+      return;
+    }
+    await ctx.runMutation(
+      internal.workosOrganizations.upsertPracticeMemberByWorkOSOrganization,
+      {
+        organizationId: membership.organizationId,
+        role: mapWorkOSRoleSlugsToPracticeRole(membership.roleSlugs),
+        workOSUserId: membership.userId,
+      },
+    );
+  },
+  "organization_membership.deleted": async (ctx, event) => {
+    const membership = parseWorkOSOrganizationMembershipEvent(event.data);
+    await ctx.runMutation(
+      internal.workosOrganizations.removePracticeMemberByWorkOSOrganization,
+      {
+        organizationId: membership.organizationId,
+        workOSUserId: membership.userId,
+      },
+    );
+  },
+  "organization_membership.updated": async (ctx, event) => {
+    const membership = parseWorkOSOrganizationMembershipEvent(event.data);
+    if (membership.status !== "active") {
+      await ctx.runMutation(
+        internal.workosOrganizations.removePracticeMemberByWorkOSOrganization,
+        {
+          organizationId: membership.organizationId,
+          workOSUserId: membership.userId,
+        },
+      );
+      return;
+    }
+    await ctx.runMutation(
+      internal.workosOrganizations.upsertPracticeMemberByWorkOSOrganization,
+      {
+        organizationId: membership.organizationId,
+        role: mapWorkOSRoleSlugsToPracticeRole(membership.roleSlugs),
+        workOSUserId: membership.userId,
+      },
+    );
+  },
   "user.created": async (ctx, event) => {
     // Check if user already exists to handle webhook retries idempotently
     const existingUsers = await ctx.db
@@ -122,3 +173,47 @@ export const { authKitEvent } = authKit.events({
 });
 
 export const { backfillUsers } = authKit.utils();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isWorkOSMembershipStatus(
+  value: unknown,
+): value is "active" | "inactive" | "pending" {
+  return ["active", "inactive", "pending"].includes(String(value));
+}
+
+function parseWorkOSOrganizationMembershipEvent(data: unknown): {
+  organizationId: string;
+  roleSlugs: string[];
+  status: "active" | "inactive" | "pending";
+  userId: string;
+} {
+  if (!isRecord(data)) {
+    throw new Error("WorkOS organization membership event data was invalid.");
+  }
+  const organizationId = data["organization_id"];
+  const roleSlug = data["role_slug"];
+  const roleSlugs = data["role_slugs"];
+  const status = data["status"];
+  const userId = data["user_id"];
+  if (
+    typeof organizationId !== "string" ||
+    !isWorkOSMembershipStatus(status) ||
+    typeof userId !== "string"
+  ) {
+    throw new Error("WorkOS organization membership event data was invalid.");
+  }
+  return {
+    organizationId,
+    roleSlugs: [
+      ...(Array.isArray(roleSlugs)
+        ? roleSlugs.filter((role): role is string => typeof role === "string")
+        : []),
+      ...(typeof roleSlug === "string" ? [roleSlug] : []),
+    ],
+    status,
+    userId,
+  };
+}

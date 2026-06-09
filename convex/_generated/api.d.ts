@@ -60,6 +60,7 @@ import type * as userIdentity from "../userIdentity.js";
 import type * as users from "../users.js";
 import type * as vacations from "../vacations.js";
 import type * as validators from "../validators.js";
+import type * as workosOrganizations from "../workosOrganizations.js";
 
 import type {
   ApiFromModules,
@@ -120,6 +121,7 @@ declare const fullApi: ApiFromModules<{
   users: typeof users;
   vacations: typeof vacations;
   validators: typeof validators;
+  workosOrganizations: typeof workosOrganizations;
 }>;
 
 /**

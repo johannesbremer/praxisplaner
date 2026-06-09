@@ -5,8 +5,13 @@ import {
   UsersManagement,
   WorkOsWidgets,
 } from "@workos-inc/widgets";
+import { useAction } from "convex/react";
 import { Building2, Loader2, UsersRound } from "lucide-react";
+import { type BaseSyntheticEvent, useEffect, useState } from "react";
 
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { api } from "../../convex/_generated/api";
 import { PatientAuthGate } from "../auth/access-control";
 
 export const Route = createFileRoute("/account")({
@@ -14,8 +19,60 @@ export const Route = createFileRoute("/account")({
 });
 
 function AccountPage() {
-  const { getAccessToken, isLoading, organizationId, switchToOrganization } =
-    useAuth();
+  const {
+    getAccessToken,
+    isLoading,
+    organizationId,
+    permissions,
+    switchToOrganization,
+  } = useAuth();
+  const createOrganizationPractice = useAction(
+    api.workosOrganizations.createOrganizationPractice,
+  );
+  const syncCurrentOrganizationMembership = useAction(
+    api.workosOrganizations.syncCurrentUserOrganizationMembership,
+  );
+  const [createError, setCreateError] = useState<null | string>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [practiceName, setPracticeName] = useState("");
+  const canManageUsers = permissions.includes("widgets:users-table:manage");
+
+  useEffect(() => {
+    if (!organizationId) {
+      return;
+    }
+    void syncCurrentOrganizationMembership({ organizationId });
+  }, [organizationId, syncCurrentOrganizationMembership]);
+
+  const handleCreateOrganization = (event: BaseSyntheticEvent) => {
+    event.preventDefault();
+    const name = practiceName.trim();
+    if (!name || isCreating) {
+      return;
+    }
+    setCreateError(null);
+    setIsCreating(true);
+    createOrganizationPractice({ name })
+      .then(({ organizationId: nextOrganizationId }) =>
+        switchToOrganization({
+          organizationId: nextOrganizationId,
+          signInOpts: { state: { returnTo: "/account" } },
+        }),
+      )
+      .then(() => {
+        setPracticeName("");
+      })
+      .catch((error: unknown) => {
+        setCreateError(
+          error instanceof Error
+            ? error.message
+            : "Organisation konnte nicht erstellt werden.",
+        );
+      })
+      .finally(() => {
+        setIsCreating(false);
+      });
+  };
 
   if (isLoading) {
     return (
@@ -60,6 +117,31 @@ function AccountPage() {
                   </div>
                 </div>
               </div>
+              <form
+                className="space-y-3 rounded-md border bg-card p-4"
+                onSubmit={handleCreateOrganization}
+              >
+                <div className="font-medium text-foreground">
+                  Neue Praxis anlegen
+                </div>
+                <Input
+                  onChange={(event) => {
+                    setPracticeName(event.target.value);
+                  }}
+                  placeholder="Praxisname"
+                  value={practiceName}
+                />
+                {createError ? (
+                  <p className="text-sm text-destructive">{createError}</p>
+                ) : null}
+                <Button
+                  className="w-full"
+                  disabled={isCreating || practiceName.trim().length === 0}
+                  type="submit"
+                >
+                  {isCreating ? "Wird angelegt..." : "Praxis erstellen"}
+                </Button>
+              </form>
               <div className="flex items-start gap-3 rounded-md border bg-card p-4">
                 <UsersRound className="mt-0.5 h-4 w-4 text-foreground" />
                 <div>
@@ -67,14 +149,23 @@ function AccountPage() {
                     Benutzerverwaltung
                   </div>
                   <div className="mt-1">
-                    WorkOS steuert Einladungen, Rollen und Entzug von Zugriffen.
+                    {canManageUsers
+                      ? "WorkOS steuert Einladungen, Rollen und Entzug von Zugriffen."
+                      : "Der aktiven WorkOS-Rolle fehlt widgets:users-table:manage."}
                   </div>
                 </div>
               </div>
             </aside>
 
             <div className="min-w-0 rounded-md border bg-card p-4">
-              <UsersManagement authToken={getAccessToken} />
+              {canManageUsers ? (
+                <UsersManagement authToken={getAccessToken} />
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  Benutzerverwaltung ist erst verfügbar, wenn Ihre aktive
+                  WorkOS-Rolle die Widget-Berechtigung enthält.
+                </div>
+              )}
             </div>
           </section>
         </div>

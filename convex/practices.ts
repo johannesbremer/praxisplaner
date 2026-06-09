@@ -62,6 +62,7 @@ export const getAllPractices = query({
       _id: Id<"practices">;
       currentActiveRuleSetId?: Id<"ruleSets">;
       name: string;
+      workOSOrganizationId?: string;
     }[] = [];
 
     for (const practice of practiceCandidates) {
@@ -79,6 +80,7 @@ export const getAllPractices = query({
       _id: v.id("practices"),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
+      workOSOrganizationId: v.optional(v.string()),
     }),
   ),
 });
@@ -102,6 +104,7 @@ export const getBookingPractices = query({
       _id: v.id("practices"),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
+      workOSOrganizationId: v.optional(v.string()),
     }),
   ),
 });
@@ -123,6 +126,7 @@ export const getPractice = query({
       _id: v.id("practices"),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
+      workOSOrganizationId: v.optional(v.string()),
     }),
     v.null(),
   ),

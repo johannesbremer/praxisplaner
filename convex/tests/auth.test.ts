@@ -122,4 +122,90 @@ describe("WorkOS AuthKit user sync", () => {
 
     await expect(getUsersByAuthId(t, "user_deleted")).resolves.toEqual([]);
   });
+
+  test("organization membership events sync practice member roles", async () => {
+    const t = createTestContext();
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        authId: "user_org_member",
+        createdAt: BigInt(Date.now()),
+        email: "org-member@example.com",
+      });
+    });
+    const practiceId = await t.run(async (ctx) => {
+      return await ctx.db.insert("practices", {
+        name: "WorkOS Practice",
+        workOSOrganizationId: "org_member_sync",
+      });
+    });
+
+    await t.mutation(internal.auth.authKitEvent, {
+      data: {
+        id: "om_member_sync",
+        object: "organization_membership",
+        organization_id: "org_member_sync",
+        role_slug: "admin",
+        status: "active",
+        user_id: "user_org_member",
+      },
+      event: "organization_membership.created",
+    });
+
+    await expect(
+      t.run(async (ctx) => {
+        return await ctx.db
+          .query("practiceMembers")
+          .withIndex("by_practiceId_userId", (q) =>
+            q.eq("practiceId", practiceId).eq("userId", userId),
+          )
+          .first();
+      }),
+    ).resolves.toMatchObject({ role: "admin" });
+
+    await t.mutation(internal.auth.authKitEvent, {
+      data: {
+        id: "om_member_sync",
+        object: "organization_membership",
+        organization_id: "org_member_sync",
+        role_slug: "staff",
+        status: "active",
+        user_id: "user_org_member",
+      },
+      event: "organization_membership.updated",
+    });
+
+    await expect(
+      t.run(async (ctx) => {
+        return await ctx.db
+          .query("practiceMembers")
+          .withIndex("by_practiceId_userId", (q) =>
+            q.eq("practiceId", practiceId).eq("userId", userId),
+          )
+          .first();
+      }),
+    ).resolves.toMatchObject({ role: "staff" });
+
+    await t.mutation(internal.auth.authKitEvent, {
+      data: {
+        id: "om_member_sync",
+        object: "organization_membership",
+        organization_id: "org_member_sync",
+        role_slug: "staff",
+        status: "inactive",
+        user_id: "user_org_member",
+      },
+      event: "organization_membership.updated",
+    });
+
+    await expect(
+      t.run(async (ctx) => {
+        return await ctx.db
+          .query("practiceMembers")
+          .withIndex("by_practiceId_userId", (q) =>
+            q.eq("practiceId", practiceId).eq("userId", userId),
+          )
+          .first();
+      }),
+    ).resolves.toBeNull();
+  });
 });

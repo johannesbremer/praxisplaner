@@ -111,8 +111,14 @@ function AuthenticatedGate({
   devPersona?: DevAuthPersona;
   requireConfiguredOrganization?: boolean;
 }): ReactElement {
-  const { isLoading, organizationId, signIn, switchToOrganization, user } =
-    useAuth();
+  const {
+    isLoading,
+    organizationId,
+    signIn,
+    signOut,
+    switchToOrganization,
+    user,
+  } = useAuth();
   const [signInError, setSignInError] = useState<null | string>(null);
   const signInRequestedRef = useRef(false);
   const organizationSwitchRequestedRef = useRef(false);
@@ -202,6 +208,20 @@ function AuthenticatedGate({
   }
 
   if (configuredOrganizationId && organizationId !== configuredOrganizationId) {
+    if (signInError) {
+      return (
+        <OrganizationSwitchErrorScreen
+          error={signInError}
+          onRetry={() => {
+            setSignInError(null);
+            organizationSwitchRequestedRef.current = false;
+          }}
+          onSignOut={() => {
+            signOut();
+          }}
+        />
+      );
+    }
     return <AuthLoadingScreen />;
   }
 
@@ -274,6 +294,41 @@ function isDevPersonaActive(persona: DevAuthPersona | undefined): boolean {
     return true;
   }
   return getDevAuthPersonaForPath(globalThis.location.pathname) === persona;
+}
+
+function OrganizationSwitchErrorScreen({
+  error,
+  onRetry,
+  onSignOut,
+}: {
+  error: string;
+  onRetry: () => void;
+  onSignOut: () => void;
+}): ReactElement {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <Card className="max-w-md">
+        <CardHeader className="text-center">
+          <CardTitle>Organisation konnte nicht gewechselt werden</CardTitle>
+          <CardDescription>
+            Ihr Konto ist nicht mit der erforderlichen Praxis-Organisation
+            verbunden.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-destructive">{error}</p>
+          <div className="grid gap-2">
+            <Button className="w-full" onClick={onRetry}>
+              Erneut versuchen
+            </Button>
+            <Button className="w-full" onClick={onSignOut} variant="outline">
+              Abmelden
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 function SignInScreen({
