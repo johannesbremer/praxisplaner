@@ -36,7 +36,7 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
   printf 'AUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' > "$runtime_env_file"
 
   pnpm seed:preview
-  pnpm exec convex deployment create "$preview_deployment_ref" --type preview --select \
+  pnpm exec convex deployment create "$preview_name" --type preview --select \
     || pnpm exec convex deployment select "$preview_deployment_ref"
   pnpm exec convex env set \
     --deployment "$preview_deployment_ref" \
