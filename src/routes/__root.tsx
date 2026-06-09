@@ -36,6 +36,16 @@ import { captureErrorGlobal } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
 import { seo } from "../utils/seo";
 
+const postHogApiKey = import.meta.env["VITE_PUBLIC_POSTHOG_KEY"] as
+  | string
+  | undefined;
+const postHogApiHost = import.meta.env["VITE_PUBLIC_POSTHOG_HOST"] as
+  | string
+  | undefined;
+const postHogOptions = {
+  ...(postHogApiHost && { api_host: postHogApiHost }),
+};
+
 function ClientDevtools() {
   const [DevtoolsComponent, setDevtoolsComponent] =
     React.useState<null | React.ComponentType>(null);
@@ -81,28 +91,17 @@ function ClientDevtools() {
 
 // Client-only PostHog wrapper component
 function PostHogWrapper({ children }: { children: React.ReactNode }) {
-  const apiKey = import.meta.env["VITE_PUBLIC_POSTHOG_KEY"] as
-    | string
-    | undefined;
-  const apiHost = import.meta.env["VITE_PUBLIC_POSTHOG_HOST"] as
-    | string
-    | undefined;
-
   // Disable PostHog in development unless explicitly enabled, or if not configured
   if (
-    !apiKey ||
+    !postHogApiKey ||
     (import.meta.env.DEV && !import.meta.env["VITE_ENABLE_POSTHOG_IN_DEV"])
   ) {
     return <>{children}</>;
   }
 
-  const options = {
-    ...(apiHost && { api_host: apiHost }),
-  };
-
   return (
     <ClientOnly fallback={<>{children}</>}>
-      <PostHogProvider apiKey={apiKey} options={options}>
+      <PostHogProvider apiKey={postHogApiKey} options={postHogOptions}>
         {children}
       </PostHogProvider>
     </ClientOnly>
@@ -140,6 +139,11 @@ export const Route = createRootRouteWithContext<{
     );
   },
   head: () => {
+    const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
+    const manifestLinks =
+      vercelEnv === "preview"
+        ? []
+        : ([{ href: "/manifest.json", rel: "manifest" }] as const);
     const seoData = seo({
       // Call seo and get the structured data
       description:
@@ -169,7 +173,7 @@ export const Route = createRootRouteWithContext<{
           sizes: "16x16",
           type: "image/png",
         },
-        { href: "/manifest.json", rel: "manifest" },
+        ...manifestLinks,
         { href: "/favicon.ico", rel: "icon" },
       ],
       meta: [

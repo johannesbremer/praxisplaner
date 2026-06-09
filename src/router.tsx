@@ -283,11 +283,13 @@ function AuthProvidersInner({
   redirectUri: string;
 }) {
   const pathname = useBrowserPathname();
+  const authBypassEnabled = isAuthBypassEnabled();
+  const authPersonaPathname = authBypassEnabled ? pathname : null;
   const useRouteScopedConvexAuth = useMemo(() => {
     return function useRouteScopedConvexAuth() {
-      return useConvexAuthFromWorkOS(pathname);
+      return useConvexAuthFromWorkOS(authPersonaPathname);
     };
-  }, [pathname]);
+  }, [authPersonaPathname]);
 
   return (
     <AuthKitProvider
@@ -405,34 +407,29 @@ function isAuthBypassEnabled(): boolean {
   return vercelEnv === "preview";
 }
 
-function useConvexAuthFromWorkOS(pathname: string) {
+function useConvexAuthFromWorkOS(authPersonaPathname: null | string) {
   const { getAccessToken, isLoading, user } = useAuth();
 
-  const fetchAccessToken = useCallback(
-    async ({
-      forceRefreshToken,
-    }: {
-      forceRefreshToken: boolean;
-    }): Promise<null | string> => {
-      if (isAuthBypassEnabled()) {
-        return await createDevAuthJwt(getDevAuthPersonaForPath(pathname));
-      }
-      if (isLoading) {
-        return null;
-      }
-      if (!user) {
-        return null;
-      }
-      try {
-        const token = await getAccessToken({ forceRefresh: forceRefreshToken });
-        return token || null;
-      } catch (error) {
-        console.error("Error fetching access token:", error);
-        return null;
-      }
-    },
-    [isLoading, pathname, user, getAccessToken],
-  );
+  const fetchAccessToken = useCallback(async (): Promise<null | string> => {
+    if (isAuthBypassEnabled()) {
+      return await createDevAuthJwt(
+        getDevAuthPersonaForPath(authPersonaPathname ?? "/buchung"),
+      );
+    }
+    if (isLoading) {
+      return null;
+    }
+    if (!user) {
+      return null;
+    }
+    try {
+      const token = await getAccessToken();
+      return token || null;
+    } catch (error) {
+      console.error("Error fetching access token:", error);
+      return null;
+    }
+  }, [authPersonaPathname, isLoading, user, getAccessToken]);
 
   return useMemo(
     () => ({
