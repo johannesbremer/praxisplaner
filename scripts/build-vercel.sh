@@ -74,7 +74,6 @@ export_vite_auth_config_env() {
 
 require_real_auth_env() {
   require_env WORKOS_API_KEY
-  require_env VITE_WORKOS_ORGANIZATION_ID
   workos_client_id="$(get_workos_client_id)"
   if [ -z "$workos_client_id" ]; then
     printf 'Missing required environment variable: WORKOS_CLIENT_ID or VITE_WORKOS_CLIENT_ID\n' >&2
