@@ -25,6 +25,14 @@ append_auth_config_env() {
   append_if_set WORKOS_WEBHOOK_SECRET "$file"
 }
 
+append_vite_auth_config_env() {
+  file="$1"
+  workos_client_id="$(printenv WORKOS_CLIENT_ID 2> /dev/null || true)"
+  if [ -n "$workos_client_id" ]; then
+    printf 'VITE_WORKOS_CLIENT_ID=%s\n' "$workos_client_id" >> "$file"
+  fi
+}
+
 if [ "${VERCEL_ENV:-}" = "preview" ]; then
   preview_name="$(printf '%s' "${VERCEL_GIT_COMMIT_REF:-preview}" | tr '/' '-')"
   preview_deployment_ref="preview/$preview_name"
@@ -34,8 +42,10 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
 
   append_convex_deploy_selection_env "$deploy_env_file"
   append_auth_config_env "$deploy_env_file"
+  append_vite_auth_config_env "$deploy_env_file"
   printf 'AUTH_BYPASS_ENABLED=false\nVITE_AUTH_BYPASS_ENABLED=false\nVITE_VERCEL_ENV=preview\n' >> "$deploy_env_file"
   append_auth_config_env "$runtime_env_file"
+  append_vite_auth_config_env "$runtime_env_file"
   printf 'AUTH_BYPASS_ENABLED=false\nVITE_AUTH_BYPASS_ENABLED=false\nVITE_VERCEL_ENV=preview\n' >> "$runtime_env_file"
 
   pnpm seed:preview
