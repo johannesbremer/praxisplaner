@@ -327,7 +327,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isWorkOSDevModeEnabled(): boolean {
-  return import.meta.env.DEV || isAuthBypassEnabled();
+  const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
+  return import.meta.env.DEV || vercelEnv === "preview";
 }
 
 function storeAuthReturnTo({ state }: { state?: unknown }) {

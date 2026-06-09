@@ -78,8 +78,6 @@ require_real_auth_env() {
 }
 
 if [ "${VERCEL_ENV:-}" = "preview" ]; then
-  require_real_auth_env
-
   preview_name="$(printf '%s' "${VERCEL_GIT_COMMIT_REF:-preview}" | tr '/' '-')"
   preview_deployment_ref="preview/$preview_name"
   deploy_env_file="$(mktemp)"
@@ -101,9 +99,6 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
   pnpm exec convex env set \
     --deployment "$preview_deployment_ref" \
     AUTH_BYPASS_ENABLED true
-  pnpm exec convex env set \
-    --deployment "$preview_deployment_ref" \
-    WORKOS_API_KEY "$WORKOS_API_KEY"
   AUTH_BYPASS_ENABLED=true pnpm exec convex deploy \
     --env-file "$deploy_env_file" \
     --cmd "VITE_AUTH_BYPASS_ENABLED=true VITE_VERCEL_ENV=preview pnpm run build" \
