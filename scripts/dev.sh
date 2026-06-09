@@ -15,14 +15,23 @@ cleanup() {
   if [ -n "${seed_pid:-}" ]; then
     kill "$seed_pid" 2> /dev/null || true
   fi
-  if [ -n "${backend_pid:-}" ]; then
+  if [ "${backend_owned:-false}" = "true" ] && [ -n "${backend_pid:-}" ]; then
     kill "$backend_pid" 2> /dev/null || true
   fi
 }
 trap cleanup EXIT INT TERM
 
-AUTH_BYPASS_ENABLED="$AUTH_BYPASS_ENABLED" pnpm exec convex dev &
-backend_pid="$!"
+convex_backend_port="${CONVEX_LOCAL_BACKEND_PORT:-3210}"
+backend_owned=false
+backend_pid=""
+
+if lsof -iTCP:"$convex_backend_port" -sTCP:LISTEN -n -P > /dev/null 2>&1; then
+  printf 'Reusing existing local Convex backend on port %s.\n' "$convex_backend_port"
+else
+  AUTH_BYPASS_ENABLED="$AUTH_BYPASS_ENABLED" pnpm exec convex dev &
+  backend_pid="$!"
+  backend_owned=true
+fi
 
 (
   until
@@ -44,7 +53,7 @@ pnpm dev:frontend &
 frontend_pid="$!"
 
 while :; do
-  if ! kill -0 "$backend_pid" 2> /dev/null; then
+  if [ "$backend_owned" = "true" ] && ! kill -0 "$backend_pid" 2> /dev/null; then
     wait "$backend_pid"
     exit "$?"
   fi
