@@ -24,6 +24,11 @@ interface WorkOSOrganizationMembership {
   userId: string;
 }
 
+interface WorkOSOrganizationSummary {
+  id: string;
+  name: string;
+}
+
 export const createOrganizationPractice = action({
   args: {
     name: v.string(),
@@ -108,6 +113,27 @@ export const getUsersManagementWidgetToken = action({
     return token;
   },
   returns: v.string(),
+});
+
+export const listCurrentUserOrganizations = action({
+  args: {},
+  handler: async (ctx): Promise<WorkOSOrganizationSummary[]> => {
+    const identity = await requireActionIdentity(ctx);
+    const memberships = await loadActiveWorkOSOrganizationMemberships({
+      userId: identity.subject,
+    });
+    return await Promise.all(
+      memberships.map(async (membership) => {
+        return await loadWorkOSOrganization(membership.organizationId);
+      }),
+    );
+  },
+  returns: v.array(
+    v.object({
+      id: v.string(),
+      name: v.string(),
+    }),
+  ),
 });
 
 export const createPracticeForWorkOSOrganization = internalMutation({
@@ -402,10 +428,21 @@ async function loadActiveWorkOSOrganizationMembership(args: {
   organizationId: string;
   userId: string;
 }): Promise<null | WorkOSOrganizationMembership> {
+  const memberships = await loadActiveWorkOSOrganizationMemberships(args);
+  const membership = memberships.at(0);
+  return membership ?? null;
+}
+
+async function loadActiveWorkOSOrganizationMemberships(args: {
+  organizationId?: string;
+  userId: string;
+}): Promise<WorkOSOrganizationMembership[]> {
   const url = new URL(
     `${WORKOS_API_BASE}/user_management/organization_memberships`,
   );
-  url.searchParams.set("organization_id", args.organizationId);
+  if (args.organizationId) {
+    url.searchParams.set("organization_id", args.organizationId);
+  }
   url.searchParams.set("user_id", args.userId);
   url.searchParams.set("statuses[]", "active");
 
@@ -424,10 +461,27 @@ async function loadActiveWorkOSOrganizationMembership(args: {
     throw new Error("WorkOS organization memberships response was invalid.");
   }
   const memberships: unknown[] = value["data"];
-  const membership = memberships.at(0);
-  return membership === undefined
-    ? null
-    : parseWorkOSOrganizationMembership(membership);
+  return memberships.map((membership) =>
+    parseWorkOSOrganizationMembership(membership),
+  );
+}
+
+async function loadWorkOSOrganization(
+  organizationId: string,
+): Promise<WorkOSOrganizationSummary> {
+  const response = await fetch(
+    `${WORKOS_API_BASE}/organizations/${organizationId}`,
+    {
+      headers: workOSHeaders(),
+      method: "GET",
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `WorkOS organization lookup failed with status ${response.status}: ${await readWorkOSError(response)}`,
+    );
+  }
+  return parseWorkOSOrganization(await response.json());
 }
 
 function parseWorkOSObjectWithId(
@@ -442,6 +496,21 @@ function parseWorkOSObjectWithId(
     throw new Error(`WorkOS ${expectedObject} response was invalid.`);
   }
   return { id: payload["id"] };
+}
+
+function parseWorkOSOrganization(value: unknown): WorkOSOrganizationSummary {
+  const payload =
+    isRecord(value) && isRecord(value["organization"])
+      ? value["organization"]
+      : value;
+  if (
+    !isRecord(payload) ||
+    typeof payload["id"] !== "string" ||
+    typeof payload["name"] !== "string"
+  ) {
+    throw new Error("WorkOS organization response was invalid.");
+  }
+  return { id: payload["id"], name: payload["name"] };
 }
 
 function parseWorkOSOrganizationMembership(

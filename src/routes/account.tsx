@@ -1,10 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
-import {
-  OrganizationSwitcher,
-  UsersManagement,
-  WorkOsWidgets,
-} from "@workos-inc/widgets";
+import { UsersManagement, WorkOsWidgets } from "@workos-inc/widgets";
 import { useAction } from "convex/react";
 import { Building2, Loader2, UsersRound } from "lucide-react";
 import {
@@ -16,6 +12,13 @@ import {
 
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
 import { api } from "../../convex/_generated/api";
 import { PatientAuthGate } from "../auth/access-control";
 
@@ -23,11 +26,18 @@ export const Route = createFileRoute("/account")({
   component: AccountRoute,
 });
 
+interface WorkOSOrganizationOption {
+  id: string;
+  name: string;
+}
+
 function AccountPage() {
-  const { getAccessToken, isLoading, organizationId, switchToOrganization } =
-    useAuth();
+  const { isLoading, organizationId, switchToOrganization } = useAuth();
   const createOrganizationPractice = useAction(
     api.workosOrganizations.createOrganizationPractice,
+  );
+  const listCurrentUserOrganizations = useAction(
+    api.workosOrganizations.listCurrentUserOrganizations,
   );
   const syncCurrentOrganizationMembership = useAction(
     api.workosOrganizations.syncCurrentUserOrganizationMembership,
@@ -37,7 +47,33 @@ function AccountPage() {
     null | string
   >(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [isSwitchingOrganization, setIsSwitchingOrganization] = useState(false);
+  const [organizationListError, setOrganizationListError] = useState<
+    null | string
+  >(null);
+  const [organizations, setOrganizations] = useState<
+    WorkOSOrganizationOption[]
+  >([]);
   const [practiceName, setPracticeName] = useState("");
+
+  const refreshOrganizations = useCallback(() => {
+    listCurrentUserOrganizations({})
+      .then((nextOrganizations) => {
+        setOrganizationListError(null);
+        setOrganizations(nextOrganizations);
+      })
+      .catch((error: unknown) => {
+        setOrganizationListError(
+          error instanceof Error
+            ? error.message
+            : "Organisationen konnten nicht geladen werden.",
+        );
+      });
+  }, [listCurrentUserOrganizations]);
+
+  useEffect(() => {
+    refreshOrganizations();
+  }, [refreshOrganizations]);
 
   useEffect(() => {
     if (!organizationId) {
@@ -59,6 +95,7 @@ function AccountPage() {
       .then(({ organizationId: nextOrganizationId }) => {
         setCreatedOrganizationId(nextOrganizationId);
         setPracticeName("");
+        refreshOrganizations();
       })
       .catch((error: unknown) => {
         setCreateError(
@@ -69,6 +106,28 @@ function AccountPage() {
       })
       .finally(() => {
         setIsCreating(false);
+      });
+  };
+
+  const handleOrganizationChange = (nextOrganizationId: string) => {
+    if (
+      nextOrganizationId === organizationId ||
+      nextOrganizationId.length === 0 ||
+      isSwitchingOrganization
+    ) {
+      return;
+    }
+    setIsSwitchingOrganization(true);
+    switchToOrganization({ organizationId: nextOrganizationId })
+      .catch((error: unknown) => {
+        setOrganizationListError(
+          error instanceof Error
+            ? error.message
+            : "Organisation konnte nicht gewechselt werden.",
+        );
+      })
+      .finally(() => {
+        setIsSwitchingOrganization(false);
       });
   };
 
@@ -94,12 +153,29 @@ function AccountPage() {
                 Organisation wechseln und Teamzugriff verwalten.
               </p>
             </div>
-            <OrganizationSwitcher
-              authToken={getAccessToken}
-              organizationLabel="Praxen"
-              switchToOrganization={switchToOrganization}
-              variant="outline"
-            />
+            <div className="flex min-w-0 flex-col gap-1 sm:w-72">
+              <Select
+                disabled={isSwitchingOrganization || organizations.length === 0}
+                onValueChange={handleOrganizationChange}
+                value={organizationId ?? ""}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Praxis wählen" />
+                </SelectTrigger>
+                <SelectContent>
+                  {organizations.map((organization) => (
+                    <SelectItem key={organization.id} value={organization.id}>
+                      {organization.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {organizationListError ? (
+                <p className="text-xs text-destructive">
+                  {organizationListError}
+                </p>
+              ) : null}
+            </div>
           </header>
 
           <section className="grid gap-4 md:grid-cols-[minmax(0,280px)_1fr]">
