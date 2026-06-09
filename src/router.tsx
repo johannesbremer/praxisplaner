@@ -25,6 +25,7 @@ import toast from "react-hot-toast";
 
 import type { FileRouteTypes } from "./routeTree.gen";
 
+import { setAuthReturnToPath } from "./auth/auth-return-to";
 import {
   createDevAuthJwt,
   getDevAuthPersonaForPath,
@@ -293,6 +294,7 @@ function AuthProvidersInner({
       {...(apiHostname ? { apiHostname } : {})}
       clientId={clientId}
       devMode={isWorkOSDevModeEnabled()}
+      onRedirectCallback={storeAuthReturnTo}
       redirectUri={redirectUri}
     >
       <ConvexProviderWithAuth
@@ -314,9 +316,30 @@ function FatalConfigScreen({ error }: { error: FrontendError }) {
   );
 }
 
+function isAllowedReturnToPath(returnTo: string): boolean {
+  return returnTo.startsWith("/") && !returnTo.startsWith("//");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function isWorkOSDevModeEnabled(): boolean {
   const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
   return import.meta.env.DEV || vercelEnv === "preview";
+}
+
+function storeAuthReturnTo({ state }: { state?: unknown }) {
+  if (import.meta.env.SSR) {
+    return;
+  }
+  if (!isRecord(state)) {
+    return;
+  }
+  const returnTo = state["returnTo"];
+  if (typeof returnTo === "string" && isAllowedReturnToPath(returnTo)) {
+    setAuthReturnToPath(returnTo);
+  }
 }
 
 function useBrowserPathname(): string {

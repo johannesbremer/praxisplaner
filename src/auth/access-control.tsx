@@ -94,7 +94,8 @@ function AuthenticatedGate({
       return;
     }
     signInRequestedRef.current = true;
-    signIn().catch((error: unknown) => {
+    const returnTo = getAuthReturnToPath();
+    signIn({ state: { returnTo } }).catch((error: unknown) => {
       signInRequestedRef.current = false;
       setSignInError(
         error instanceof Error
@@ -172,6 +173,10 @@ function AuthorizedGate({
       )}
     </AuthenticatedGate>
   );
+}
+
+function getAuthReturnToPath(): string {
+  return `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
 }
 
 function hasRequiredAccess({

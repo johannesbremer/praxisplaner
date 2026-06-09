@@ -3,16 +3,15 @@ import { useAuth } from "@workos-inc/authkit-react";
 import { useAction, useConvexAuth } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 
-import type { FileRouteTypes } from "../routeTree.gen";
-
 import { Button } from "../../components/ui/button";
 import { api } from "../../convex/_generated/api";
+import { consumeAuthReturnToPath } from "../auth/auth-return-to";
 
 export const Route = createFileRoute("/callback")({
   component: CallbackComponent,
 });
 
-const BOOKING_PATH = "/buchung" as const satisfies FileRouteTypes["to"];
+const BOOKING_PATH = "/buchung";
 
 function CallbackComponent() {
   const { getAccessToken, isLoading, signIn, user } = useAuth();
@@ -83,7 +82,12 @@ function CallbackComponent() {
       workOSUserId: user.id,
     })
       .then(() => {
-        void navigate({ replace: true, to: BOOKING_PATH });
+        const returnTo = consumeAuthReturnToPath();
+        if (returnTo === BOOKING_PATH) {
+          void navigate({ replace: true, to: "/buchung" });
+          return;
+        }
+        globalThis.location.replace(returnTo);
       })
       .catch((error: unknown) => {
         provisioningUserIdRef.current = null;
