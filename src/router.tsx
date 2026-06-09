@@ -30,6 +30,7 @@ import {
   createDevAuthJwt,
   getDevAuthPersonaForPath,
 } from "./auth/dev-auth-jwt";
+import { getConfiguredWorkOSOrganizationId } from "./auth/workos-organization";
 import { routeTree } from "./routeTree.gen";
 import { captureErrorGlobal } from "./utils/error-tracking";
 import {
@@ -283,13 +284,11 @@ function AuthProvidersInner({
   redirectUri: string;
 }) {
   const pathname = useBrowserPathname();
-  const authBypassEnabled = isAuthBypassEnabled();
-  const authPersonaPathname = authBypassEnabled ? pathname : null;
   const useRouteScopedConvexAuth = useMemo(() => {
     return function useRouteScopedConvexAuth() {
-      return useConvexAuthFromWorkOS(authPersonaPathname);
+      return useConvexAuthFromWorkOS(pathname);
     };
-  }, [authPersonaPathname]);
+  }, [pathname]);
 
   return (
     <AuthKitProvider
@@ -407,19 +406,30 @@ function isAuthBypassEnabled(): boolean {
   return vercelEnv === "preview";
 }
 
-function useConvexAuthFromWorkOS(authPersonaPathname: null | string) {
-  const { getAccessToken, isLoading, user } = useAuth();
+function isWorkOSOrganizationScopedPath(pathname: string): boolean {
+  return pathname.startsWith("/praxisplaner") || pathname.startsWith("/regeln");
+}
+
+function useConvexAuthFromWorkOS(pathname: string) {
+  const { getAccessToken, isLoading, organizationId, user } = useAuth();
+  const configuredOrganizationId = isWorkOSOrganizationScopedPath(pathname)
+    ? getConfiguredWorkOSOrganizationId()
+    : undefined;
 
   const fetchAccessToken = useCallback(async (): Promise<null | string> => {
     if (isAuthBypassEnabled()) {
-      return await createDevAuthJwt(
-        getDevAuthPersonaForPath(authPersonaPathname ?? "/buchung"),
-      );
+      return await createDevAuthJwt(getDevAuthPersonaForPath(pathname));
     }
     if (isLoading) {
       return null;
     }
     if (!user) {
+      return null;
+    }
+    if (
+      configuredOrganizationId &&
+      organizationId !== configuredOrganizationId
+    ) {
       return null;
     }
     try {
@@ -429,7 +439,14 @@ function useConvexAuthFromWorkOS(authPersonaPathname: null | string) {
       console.error("Error fetching access token:", error);
       return null;
     }
-  }, [authPersonaPathname, isLoading, user, getAccessToken]);
+  }, [
+    configuredOrganizationId,
+    getAccessToken,
+    isLoading,
+    organizationId,
+    pathname,
+    user,
+  ]);
 
   return useMemo(
     () => ({

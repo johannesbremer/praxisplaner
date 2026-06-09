@@ -52,6 +52,7 @@ append_vite_auth_config_env() {
   if [ -n "$workos_client_id" ]; then
     printf 'VITE_WORKOS_CLIENT_ID=%s\n' "$workos_client_id" >> "$file"
   fi
+  append_if_set VITE_WORKOS_ORGANIZATION_ID "$file"
   workos_api_hostname="$(printenv WORKOS_API_HOSTNAME 2> /dev/null || true)"
   if [ -n "$workos_api_hostname" ]; then
     printf 'VITE_WORKOS_API_HOSTNAME=%s\n' "$workos_api_hostname" >> "$file"
@@ -66,10 +67,14 @@ export_vite_auth_config_env() {
   if [ -n "${WORKOS_API_HOSTNAME:-}" ]; then
     export VITE_WORKOS_API_HOSTNAME="$WORKOS_API_HOSTNAME"
   fi
+  if [ -n "${VITE_WORKOS_ORGANIZATION_ID:-}" ]; then
+    export VITE_WORKOS_ORGANIZATION_ID="$VITE_WORKOS_ORGANIZATION_ID"
+  fi
 }
 
 require_real_auth_env() {
   require_env WORKOS_API_KEY
+  require_env VITE_WORKOS_ORGANIZATION_ID
   workos_client_id="$(get_workos_client_id)"
   if [ -z "$workos_client_id" ]; then
     printf 'Missing required environment variable: WORKOS_CLIENT_ID or VITE_WORKOS_CLIENT_ID\n' >&2

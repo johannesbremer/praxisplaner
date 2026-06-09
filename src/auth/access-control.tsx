@@ -24,6 +24,7 @@ import {
   getDevAuthPersonaAccess,
   getDevAuthPersonaForPath,
 } from "./dev-auth-jwt";
+import { getConfiguredWorkOSOrganizationId } from "./workos-organization";
 
 const STAFF_ROLES = ["staff", "admin", "owner"] as const;
 const PRAXISMANAGER_ROLES = ["admin", "owner"] as const;
@@ -104,13 +105,20 @@ export function StaffAuthGate({
 function AuthenticatedGate({
   children,
   devPersona,
+  requireConfiguredOrganization = false,
 }: {
   children: ReactNode;
   devPersona?: DevAuthPersona;
+  requireConfiguredOrganization?: boolean;
 }): ReactElement {
-  const { isLoading, signIn, user } = useAuth();
+  const { isLoading, organizationId, signIn, switchToOrganization, user } =
+    useAuth();
   const [signInError, setSignInError] = useState<null | string>(null);
   const signInRequestedRef = useRef(false);
+  const organizationSwitchRequestedRef = useRef(false);
+  const configuredOrganizationId = requireConfiguredOrganization
+    ? getConfiguredWorkOSOrganizationId()
+    : undefined;
 
   const startSignIn = useCallback(() => {
     if (signInRequestedRef.current) {
@@ -118,7 +126,12 @@ function AuthenticatedGate({
     }
     signInRequestedRef.current = true;
     const returnTo = getAuthReturnToPath();
-    signIn({ state: { returnTo } }).catch((error: unknown) => {
+    signIn({
+      ...(configuredOrganizationId
+        ? { organizationId: configuredOrganizationId }
+        : {}),
+      state: { returnTo },
+    }).catch((error: unknown) => {
       signInRequestedRef.current = false;
       setSignInError(
         error instanceof Error
@@ -126,7 +139,7 @@ function AuthenticatedGate({
           : "Anmeldung konnte nicht gestartet werden",
       );
     });
-  }, [signIn]);
+  }, [configuredOrganizationId, signIn]);
 
   useEffect(() => {
     if (isLoading || user || isAuthBypassEnabled()) {
@@ -134,6 +147,39 @@ function AuthenticatedGate({
     }
     startSignIn();
   }, [isLoading, startSignIn, user]);
+
+  useEffect(() => {
+    if (
+      isLoading ||
+      !user ||
+      isAuthBypassEnabled() ||
+      !configuredOrganizationId ||
+      organizationId === configuredOrganizationId ||
+      organizationSwitchRequestedRef.current
+    ) {
+      return;
+    }
+
+    organizationSwitchRequestedRef.current = true;
+    const returnTo = getAuthReturnToPath();
+    switchToOrganization({
+      organizationId: configuredOrganizationId,
+      signInOpts: { state: { returnTo } },
+    }).catch((error: unknown) => {
+      organizationSwitchRequestedRef.current = false;
+      setSignInError(
+        error instanceof Error
+          ? error.message
+          : "Organisation konnte nicht gewechselt werden",
+      );
+    });
+  }, [
+    configuredOrganizationId,
+    isLoading,
+    organizationId,
+    switchToOrganization,
+    user,
+  ]);
 
   if (isAuthBypassEnabled() && isDevPersonaActive(devPersona)) {
     return <>{children}</>;
@@ -153,6 +199,10 @@ function AuthenticatedGate({
         }}
       />
     );
+  }
+
+  if (configuredOrganizationId && organizationId !== configuredOrganizationId) {
+    return <AuthLoadingScreen />;
   }
 
   return <>{children}</>;
@@ -188,7 +238,7 @@ function AuthorizedGate({
     : { permissions, role, roles };
 
   return (
-    <AuthenticatedGate devPersona={devPersona}>
+    <AuthenticatedGate devPersona={devPersona} requireConfiguredOrganization>
       {hasRequiredAccess({ ...access, requirement }) ? (
         children
       ) : (
