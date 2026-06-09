@@ -21,13 +21,22 @@ append_convex_deploy_selection_env() {
 append_auth_config_env() {
   file="$1"
   append_if_set WORKOS_API_KEY "$file"
-  append_if_set WORKOS_CLIENT_ID "$file"
+  workos_client_id="$(printenv WORKOS_CLIENT_ID 2> /dev/null || true)"
+  if [ -z "$workos_client_id" ]; then
+    workos_client_id="$(printenv VITE_WORKOS_CLIENT_ID 2> /dev/null || true)"
+  fi
+  if [ -n "$workos_client_id" ]; then
+    printf 'WORKOS_CLIENT_ID=%s\n' "$workos_client_id" >> "$file"
+  fi
   append_if_set WORKOS_WEBHOOK_SECRET "$file"
 }
 
 append_vite_auth_config_env() {
   file="$1"
   workos_client_id="$(printenv WORKOS_CLIENT_ID 2> /dev/null || true)"
+  if [ -z "$workos_client_id" ]; then
+    workos_client_id="$(printenv VITE_WORKOS_CLIENT_ID 2> /dev/null || true)"
+  fi
   if [ -n "$workos_client_id" ]; then
     printf 'VITE_WORKOS_CLIENT_ID=%s\n' "$workos_client_id" >> "$file"
   fi
@@ -38,8 +47,9 @@ append_vite_auth_config_env() {
 }
 
 export_vite_auth_config_env() {
-  if [ -n "${WORKOS_CLIENT_ID:-}" ]; then
-    export VITE_WORKOS_CLIENT_ID="$WORKOS_CLIENT_ID"
+  workos_client_id="${WORKOS_CLIENT_ID:-${VITE_WORKOS_CLIENT_ID:-}}"
+  if [ -n "$workos_client_id" ]; then
+    export VITE_WORKOS_CLIENT_ID="$workos_client_id"
   fi
   if [ -n "${WORKOS_API_HOSTNAME:-}" ]; then
     export VITE_WORKOS_API_HOSTNAME="$WORKOS_API_HOSTNAME"
