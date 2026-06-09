@@ -31,6 +31,10 @@ append_vite_auth_config_env() {
   if [ -n "$workos_client_id" ]; then
     printf 'VITE_WORKOS_CLIENT_ID=%s\n' "$workos_client_id" >> "$file"
   fi
+  workos_api_hostname="$(printenv WORKOS_API_HOSTNAME 2> /dev/null || true)"
+  if [ -n "$workos_api_hostname" ]; then
+    printf 'VITE_WORKOS_API_HOSTNAME=%s\n' "$workos_api_hostname" >> "$file"
+  fi
 }
 
 if [ "${VERCEL_ENV:-}" = "preview" ]; then
@@ -49,6 +53,9 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
   printf 'AUTH_BYPASS_ENABLED=false\nVITE_AUTH_BYPASS_ENABLED=false\nVITE_VERCEL_ENV=preview\n' >> "$runtime_env_file"
   if [ -n "${WORKOS_CLIENT_ID:-}" ]; then
     export VITE_WORKOS_CLIENT_ID="$WORKOS_CLIENT_ID"
+  fi
+  if [ -n "${WORKOS_API_HOSTNAME:-}" ]; then
+    export VITE_WORKOS_API_HOSTNAME="$WORKOS_API_HOSTNAME"
   fi
 
   pnpm seed:preview

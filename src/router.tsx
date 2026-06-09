@@ -43,6 +43,7 @@ import {
 const CALLBACK_PATH = "/callback" as const satisfies FileRouteTypes["to"];
 const DEV_WORKOS_CLIENT_ID = "client_praxisplaner_dev";
 interface RouterConfig {
+  apiHostname?: string;
   convexUrl: string;
   redirectUri: string;
   workosClientId: string;
@@ -80,12 +81,20 @@ function getRouterConfig(): Result<RouterConfig, FrontendError> {
   return getSiteOrigin().andThen((siteOrigin) =>
     getWorkOSClientId().andThen((workosClientId) =>
       getConvexUrl().map((convexUrl) => ({
+        ...getWorkOSApiHostname(),
         convexUrl,
         redirectUri: new URL(CALLBACK_PATH, siteOrigin).toString(),
         workosClientId,
       })),
     ),
   );
+}
+
+function getWorkOSApiHostname(): Pick<RouterConfig, "apiHostname"> {
+  const apiHostname = (
+    import.meta.env["VITE_WORKOS_API_HOSTNAME"] as string | undefined
+  )?.trim();
+  return apiHostname ? { apiHostname } : {};
 }
 
 function getWorkOSClientId(): Result<string, FrontendError> {
@@ -180,8 +189,9 @@ export function getRouter() {
       Wrap: ({ children }) => (
         <ConvexQueryClientContext.Provider value={convexQueryClient}>
           {routerConfig.match(
-            ({ redirectUri, workosClientId }) => (
+            ({ apiHostname, redirectUri, workosClientId }) => (
               <AuthProviders
+                {...(apiHostname ? { apiHostname } : {})}
                 clientId={workosClientId}
                 redirectUri={redirectUri}
               >
@@ -202,10 +212,12 @@ export function getRouter() {
 }
 
 function AuthProviders({
+  apiHostname,
   children,
   clientId,
   redirectUri,
 }: {
+  apiHostname?: string;
   children: React.ReactNode;
   clientId: string;
   redirectUri: string;
@@ -213,6 +225,7 @@ function AuthProviders({
   return useConvexQueryClient().match(
     (convexQueryClient) => (
       <AuthProvidersInner
+        {...(apiHostname ? { apiHostname } : {})}
         clientId={clientId}
         convexQueryClient={convexQueryClient}
         redirectUri={redirectUri}
@@ -232,11 +245,13 @@ function AuthProviders({
 }
 
 function AuthProvidersInner({
+  apiHostname,
   children,
   clientId,
   convexQueryClient,
   redirectUri,
 }: {
+  apiHostname?: string;
   children: React.ReactNode;
   clientId: string;
   convexQueryClient: ConvexQueryClient;
@@ -251,6 +266,7 @@ function AuthProvidersInner({
 
   return (
     <AuthKitProvider
+      {...(apiHostname ? { apiHostname } : {})}
       clientId={clientId}
       devMode={isWorkOSDevModeEnabled()}
       redirectUri={redirectUri}
