@@ -864,7 +864,9 @@ export default defineSchema({
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
     name: v.string(),
     workOSOrganizationId: v.optional(v.string()),
-  }).index("by_workOSOrganizationId", ["workOSOrganizationId"]),
+  })
+    .index("by_name", ["name"])
+    .index("by_workOSOrganizationId", ["workOSOrganizationId"]),
 
   practitionerAssociations: defineTable({
     bookingIdentityId: v.optional(v.id("bookingIdentities")),

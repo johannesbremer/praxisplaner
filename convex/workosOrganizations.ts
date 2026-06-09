@@ -41,7 +41,33 @@ export const createOrganizationPractice = action({
     practiceId: Id<"practices">;
   }> => {
     const identity = await requireActionIdentity(ctx);
-    const organization = await createWorkOSOrganization(args.name);
+    const name = args.name.trim();
+    if (name.length === 0) {
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "Practice name is required",
+      });
+    }
+    const existingMemberships = await loadActiveWorkOSOrganizationMemberships({
+      userId: identity.subject,
+    });
+    if (existingMemberships.length > 0) {
+      throw new ConvexError({
+        code: "ALREADY_EXISTS",
+        message: "User already belongs to a WorkOS organization",
+      });
+    }
+    const existingPracticeId = await ctx.runQuery(
+      internal.workosOrganizations.getPracticeIdByName,
+      { name },
+    );
+    if (existingPracticeId) {
+      throw new ConvexError({
+        code: "ALREADY_EXISTS",
+        message: "Practice name already exists",
+      });
+    }
+    const organization = await createWorkOSOrganization(name);
     await createWorkOSOrganizationMembership({
       organizationId: organization.id,
       roleSlug: "owner",
@@ -50,7 +76,7 @@ export const createOrganizationPractice = action({
     const practiceId = await ctx.runMutation(
       internal.workosOrganizations.createPracticeForWorkOSOrganization,
       {
-        name: args.name,
+        name,
         organizationId: organization.id,
         role: "owner",
         workOSUserId: identity.subject,
@@ -184,6 +210,17 @@ export const getPracticeIdByWorkOSOrganizationId = internalQuery({
       ctx.db,
       args.organizationId,
     );
+    return practice?._id ?? null;
+  },
+  returns: v.union(v.id("practices"), v.null()),
+});
+
+export const getPracticeIdByName = internalQuery({
+  args: {
+    name: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const practice = await findPracticeByName(ctx.db, args.name);
     return practice?._id ?? null;
   },
   returns: v.union(v.id("practices"), v.null()),
@@ -353,6 +390,16 @@ async function createWorkOSWidgetToken(args: {
     throw new Error("WorkOS widget token response was invalid.");
   }
   return value["token"];
+}
+
+async function findPracticeByName(
+  db: DatabaseReader,
+  name: string,
+): Promise<Doc<"practices"> | null> {
+  return await db
+    .query("practices")
+    .withIndex("by_name", (q) => q.eq("name", name))
+    .first();
 }
 
 async function findPracticeByWorkOSOrganizationId(

@@ -12,13 +12,6 @@ import {
 
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../components/ui/select";
 import { api } from "../../convex/_generated/api";
 import { PatientAuthGate } from "../auth/access-control";
 
@@ -47,7 +40,6 @@ function AccountPage() {
     null | string
   >(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [isSwitchingOrganization, setIsSwitchingOrganization] = useState(false);
   const [organizationListError, setOrganizationListError] = useState<
     null | string
   >(null);
@@ -76,11 +68,31 @@ function AccountPage() {
   }, [refreshOrganizations]);
 
   useEffect(() => {
-    if (!organizationId) {
+    if (organizations.length !== 1) {
       return;
     }
-    void syncCurrentOrganizationMembership({ organizationId });
-  }, [organizationId, syncCurrentOrganizationMembership]);
+    const organization = organizations.at(0);
+    if (!organization) {
+      return;
+    }
+    void syncCurrentOrganizationMembership({ organizationId: organization.id });
+    if (organization.id !== organizationId) {
+      switchToOrganization({ organizationId: organization.id }).catch(
+        (error: unknown) => {
+          setOrganizationListError(
+            error instanceof Error
+              ? error.message
+              : "Organisation konnte nicht aktiviert werden.",
+          );
+        },
+      );
+    }
+  }, [
+    organizationId,
+    organizations,
+    switchToOrganization,
+    syncCurrentOrganizationMembership,
+  ]);
 
   const handleCreateOrganization = (event: BaseSyntheticEvent) => {
     event.preventDefault();
@@ -96,6 +108,7 @@ function AccountPage() {
         setCreatedOrganizationId(nextOrganizationId);
         setPracticeName("");
         refreshOrganizations();
+        return switchToOrganization({ organizationId: nextOrganizationId });
       })
       .catch((error: unknown) => {
         setCreateError(
@@ -106,28 +119,6 @@ function AccountPage() {
       })
       .finally(() => {
         setIsCreating(false);
-      });
-  };
-
-  const handleOrganizationChange = (nextOrganizationId: string) => {
-    if (
-      nextOrganizationId === organizationId ||
-      nextOrganizationId.length === 0 ||
-      isSwitchingOrganization
-    ) {
-      return;
-    }
-    setIsSwitchingOrganization(true);
-    switchToOrganization({ organizationId: nextOrganizationId })
-      .catch((error: unknown) => {
-        setOrganizationListError(
-          error instanceof Error
-            ? error.message
-            : "Organisation konnte nicht gewechselt werden.",
-        );
-      })
-      .finally(() => {
-        setIsSwitchingOrganization(false);
       });
   };
 
@@ -142,108 +133,104 @@ function AccountPage() {
     );
   }
 
+  const organization = organizations.at(0) ?? null;
+  const hasMultipleOrganizations = organizations.length > 1;
+
   return (
     <WorkOsWidgets>
       <main className="min-h-screen bg-background">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-          <header className="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-center sm:justify-between">
+          <header className="border-b pb-5">
             <div>
               <h1 className="text-2xl font-semibold tracking-normal">Konto</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Organisation wechseln und Teamzugriff verwalten.
+                Praxis anlegen und Teamzugriff verwalten.
               </p>
             </div>
-            <div className="flex min-w-0 flex-col gap-1 sm:w-72">
-              <Select
-                disabled={isSwitchingOrganization || organizations.length === 0}
-                onValueChange={handleOrganizationChange}
-                value={organizationId ?? ""}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Praxis wählen" />
-                </SelectTrigger>
-                <SelectContent>
-                  {organizations.map((organization) => (
-                    <SelectItem key={organization.id} value={organization.id}>
-                      {organization.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {organizationListError ? (
-                <p className="text-xs text-destructive">
-                  {organizationListError}
-                </p>
-              ) : null}
-            </div>
+            {organizationListError ? (
+              <p className="mt-2 text-sm text-destructive">
+                {organizationListError}
+              </p>
+            ) : null}
           </header>
+
+          {hasMultipleOrganizations ? (
+            <div className="rounded-md border border-destructive/40 bg-card p-4 text-sm text-destructive">
+              Ihr Konto ist mehreren WorkOS-Organisationen zugeordnet. Bitte
+              entfernen Sie die zusaetzlichen Mitgliedschaften in WorkOS, damit
+              genau eine Praxis aktiv ist.
+            </div>
+          ) : null}
 
           <section className="grid gap-4 md:grid-cols-[minmax(0,280px)_1fr]">
             <aside className="space-y-3 text-sm text-muted-foreground">
               <div className="flex items-start gap-3 rounded-md border bg-card p-4">
                 <Building2 className="mt-0.5 h-4 w-4 text-foreground" />
                 <div>
-                  <div className="font-medium text-foreground">
-                    Aktuelle Organisation
-                  </div>
+                  <div className="font-medium text-foreground">Praxis</div>
                   <div className="mt-1 break-all">
-                    {organizationId ?? "Keine Organisation aktiv"}
+                    {organization?.name ?? "Noch keine Praxis angelegt"}
                   </div>
+                  {organization && organization.id !== organizationId ? (
+                    <div className="mt-1 text-xs">
+                      AuthKit-Sitzung wird auf diese Praxis aktualisiert.
+                    </div>
+                  ) : null}
                 </div>
               </div>
-              <form
-                className="space-y-3 rounded-md border bg-card p-4"
-                onSubmit={handleCreateOrganization}
-              >
-                <div className="font-medium text-foreground">
-                  Neue Praxis anlegen
-                </div>
-                <Input
-                  onChange={(event) => {
-                    setPracticeName(event.target.value);
-                  }}
-                  placeholder="Praxisname"
-                  value={practiceName}
-                />
-                {createError ? (
-                  <p className="text-sm text-destructive">{createError}</p>
-                ) : null}
-                {createdOrganizationId ? (
-                  <p className="text-sm text-muted-foreground">
-                    Praxis wurde angelegt. Wählen Sie die neue Organisation im
-                    Umschalter aus.
-                  </p>
-                ) : null}
-                <Button
-                  className="w-full"
-                  disabled={isCreating || practiceName.trim().length === 0}
-                  type="submit"
+              {organization ? null : (
+                <form
+                  className="space-y-3 rounded-md border bg-card p-4"
+                  onSubmit={handleCreateOrganization}
                 >
-                  {isCreating ? "Wird angelegt..." : "Praxis erstellen"}
-                </Button>
-              </form>
+                  <div className="font-medium text-foreground">
+                    Neue Praxis anlegen
+                  </div>
+                  <Input
+                    onChange={(event) => {
+                      setPracticeName(event.target.value);
+                    }}
+                    placeholder="Eindeutiger Praxisname"
+                    value={practiceName}
+                  />
+                  {createError ? (
+                    <p className="text-sm text-destructive">{createError}</p>
+                  ) : null}
+                  {createdOrganizationId ? (
+                    <p className="text-sm text-muted-foreground">
+                      Praxis wurde angelegt.
+                    </p>
+                  ) : null}
+                  <Button
+                    className="w-full"
+                    disabled={isCreating || practiceName.trim().length === 0}
+                    type="submit"
+                  >
+                    {isCreating ? "Wird angelegt..." : "Praxis erstellen"}
+                  </Button>
+                </form>
+              )}
               <div className="flex items-start gap-3 rounded-md border bg-card p-4">
                 <UsersRound className="mt-0.5 h-4 w-4 text-foreground" />
                 <div>
-                  <div className="font-medium text-foreground">
-                    Benutzerverwaltung
-                  </div>
+                  <div className="font-medium text-foreground">Team</div>
                   <div className="mt-1">
-                    WorkOS steuert Einladungen, Rollen und Entzug von Zugriffen.
+                    {organization
+                      ? "WorkOS steuert Einladungen, Rollen und Entzug von Zugriffen."
+                      : "Legen Sie zuerst eine Praxis an."}
                   </div>
                 </div>
               </div>
             </aside>
 
             <div className="min-w-0 rounded-md border bg-card p-4">
-              {organizationId ? (
+              {organization && !hasMultipleOrganizations ? (
                 <UsersManagementForOrganization
-                  organizationId={organizationId}
+                  organizationId={organization.id}
                 />
               ) : (
                 <div className="text-sm text-muted-foreground">
-                  Wählen Sie eine WorkOS-Organisation aus, um Benutzer zu
-                  verwalten.
+                  Legen Sie eine Praxis an, um Teammitglieder zu verwalten.
                 </div>
               )}
             </div>
