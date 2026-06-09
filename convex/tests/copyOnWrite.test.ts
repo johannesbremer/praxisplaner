@@ -44,6 +44,13 @@ function createAuthedTestContext() {
   });
 }
 
+async function createPractice(t: ReturnType<typeof createAuthedTestContext>) {
+  await ensureSyncedUser(t);
+  return await t.mutation(api.practices.createPractice, {
+    name: "Test Practice",
+  });
+}
+
 async function createRule(
   t: ReturnType<typeof createAuthedTestContext>,
   args: {
@@ -59,6 +66,23 @@ async function createRule(
   return await t.mutation(api.entities.createRule, {
     ...args,
     conditionTree: serializeConditionTreeTransport(args.conditionTree),
+  });
+}
+
+async function ensureSyncedUser(t: ReturnType<typeof createAuthedTestContext>) {
+  await t.run(async (ctx) => {
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_authId", (q) => q.eq("authId", "workos_copyonwrite"))
+      .first();
+    if (existing) {
+      return;
+    }
+    await ctx.db.insert("users", {
+      authId: "workos_copyonwrite",
+      createdAt: BigInt(Date.now()),
+      email: "copyonwrite@example.com",
+    });
   });
 }
 
@@ -105,9 +129,7 @@ async function setupBaseScheduleEntities(
   practiceId: Id<"practices">;
   practitionerId: Id<"practitioners">;
 }> {
-  const practiceId = await t.mutation(api.practices.createPractice, {
-    name: "Test Practice",
-  });
+  const practiceId = await createPractice(t);
   const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
   const practitionerId = await t.run(async (ctx) => {
@@ -139,9 +161,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const t = createAuthedTestContext();
 
     // Create practice (this automatically creates an initial rule set)
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Test Practice",
-    });
+    const practiceId = await createPractice(t);
 
     // Get initial rule set (created by practice setup)
     const practice = await t.run(async (ctx) => {
@@ -266,9 +286,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const t = createAuthedTestContext();
 
     // Create practice (this automatically creates an initial rule set)
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Test Practice",
-    });
+    const practiceId = await createPractice(t);
 
     // Get initial rule set
     const practice = await t.run(async (ctx) => {
@@ -350,9 +368,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const t = createAuthedTestContext();
 
     // Create practice (this automatically creates an initial rule set)
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Test Practice",
-    });
+    const practiceId = await createPractice(t);
 
     // Get initial rule set
     const practice = await t.run(async (ctx) => {
@@ -516,9 +532,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const t = createAuthedTestContext();
 
     // Create practice (this automatically creates an initial rule set)
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Test Practice",
-    });
+    const practiceId = await createPractice(t);
 
     // Get initial rule set
     const practice = await t.run(async (ctx) => {
@@ -674,9 +688,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   test("should preserve DAILY_CAPACITY scope when reading rules after saving a draft", async () => {
     const t = createAuthedTestContext();
 
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Daily Capacity Scope Practice",
-    });
+    const practiceId = await createPractice(t);
     const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     const practitionerId = await t.run(async (ctx) => {
@@ -774,9 +786,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   test("should preserve scope and remap appointment type IDs for copied count-based rules", async () => {
     const t = createAuthedTestContext();
 
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Copied Count Rule Practice",
-    });
+    const practiceId = await createPractice(t);
     const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     const practitionerId = await t.run(async (ctx) => {
@@ -972,9 +982,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   test("should reject legacy rule payloads that rely on implicit scope or DAY_OF_WEEK valueIds", async () => {
     const t = createAuthedTestContext();
 
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Strict Rule Payload Practice",
-    });
+    const practiceId = await createPractice(t);
 
     const practice = await t.run(async (ctx) => {
       const practice = await ctx.db.get("practices", practiceId);
@@ -1021,9 +1029,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   test("should delete base schedules after a discarded draft when expected revision is reset", async () => {
     const t = createAuthedTestContext();
 
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Test Practice",
-    });
+    const practiceId = await createPractice(t);
 
     const practice = await t.run(async (ctx) => {
       const practice = await ctx.db.get("practices", practiceId);
@@ -1310,9 +1316,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   test("should reject stale appointment type lineage keys and only delete current lineage", async () => {
     const t = createAuthedTestContext();
 
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Test Practice",
-    });
+    const practiceId = await createPractice(t);
 
     const practice = await t.run(async (ctx) => {
       const practice = await ctx.db.get("practices", practiceId);
@@ -1413,9 +1417,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   test("should remap rule condition appointment type IDs on delete and recreate", async () => {
     const t = createAuthedTestContext();
 
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Test Practice",
-    });
+    const practiceId = await createPractice(t);
 
     const practice = await t.run(async (ctx) => {
       const practice = await ctx.db.get("practices", practiceId);
@@ -1505,9 +1507,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   test("unsaved rule diff keeps rule appointment type names after delete and recreate", async () => {
     const t = createAuthedTestContext();
 
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Test Practice",
-    });
+    const practiceId = await createPractice(t);
     const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     const practitionerId = await t.run(async (ctx) => {
@@ -1597,9 +1597,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   test("unsaved rule diff renders deleted practitioner names inside appointment type allowlists", async () => {
     const t = createAuthedTestContext();
 
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Test Practice",
-    });
+    const practiceId = await createPractice(t);
     const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     const seeded = await t.run(async (ctx) => {
@@ -1675,9 +1673,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   test("should restore practitioner schedules by resolving location through deep lineage", async () => {
     const t = createAuthedTestContext();
 
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Test Practice",
-    });
+    const practiceId = await createPractice(t);
 
     const seeded = await t.run(async (ctx) => {
       const practice = await ctx.db.get("practices", practiceId);
@@ -1863,9 +1859,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   test("restoring practitioner dependencies does not revive later-deleted appointment types", async () => {
     const t = createAuthedTestContext();
 
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Practitioner Appointment Type Delete Practice",
-    });
+    const practiceId = await createPractice(t);
     const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     const seeded = await t.run(async (ctx) => {
@@ -1941,9 +1935,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   test("creating a draft from practitioner deletion does not copy soft-deleted appointment types", async () => {
     const t = createAuthedTestContext();
 
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Draft Deleted Appointment Types Practice",
-    });
+    const practiceId = await createPractice(t);
     const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     const seeded = await t.run(async (ctx) => {
@@ -2024,9 +2016,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   test("deleteLocation ignores schedules from saved rule sets with the same lineage", async () => {
     const t = createAuthedTestContext();
 
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Delete Location Schedule Scope Practice",
-    });
+    const practiceId = await createPractice(t);
     const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
 
     const seeded = await t.run(async (ctx) => {
@@ -2115,9 +2105,7 @@ describe("Copy-on-Write Entity Reference Validation", () => {
   test("should expose stable practitioner lineageKey across deep rule-set lineage", async () => {
     const t = createAuthedTestContext();
 
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Test Practice",
-    });
+    const practiceId = await createPractice(t);
 
     const seeded = await t.run(async (ctx) => {
       const practice = await ctx.db.get("practices", practiceId);

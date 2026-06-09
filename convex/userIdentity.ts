@@ -34,24 +34,14 @@ export async function ensureAuthenticatedUserId(
   ctx: MutationCtx,
 ): Promise<Id<"users">> {
   const identity = await ensureAuthenticatedIdentity(ctx);
-  const authId = identity.subject;
-  const existing = await findUserByAuthId(ctx.db, authId);
-  if (existing) {
-    return existing._id;
+  const user = await findUserByAuthId(ctx.db, identity.subject);
+  if (!user) {
+    throw new ConvexError({
+      code: "UNAUTHORIZED",
+      message: "Authenticated user is not provisioned in Convex",
+    });
   }
-
-  const fallbackEmail =
-    "email" in identity &&
-    typeof identity.email === "string" &&
-    identity.email.length > 0
-      ? identity.email
-      : `${authId}@users.invalid`;
-
-  return await ctx.db.insert("users", {
-    authId,
-    createdAt: BigInt(Date.now()),
-    email: fallbackEmail,
-  });
+  return user._id;
 }
 
 export async function findUserByAuthId(

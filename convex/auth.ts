@@ -120,3 +120,5 @@ export const { authKitEvent } = authKit.events({
     await ctx.db.patch("users", user._id, updateData);
   },
 });
+
+export const { backfillUsers } = authKit.utils();

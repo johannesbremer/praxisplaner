@@ -46,6 +46,21 @@ async function createFlowFixture(
   t: ReturnType<typeof createAuthedTestContext>,
 ) {
   return await t.run(async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity) {
+      const existing = await ctx.db
+        .query("users")
+        .withIndex("by_authId", (q) => q.eq("authId", identity.subject))
+        .first();
+      if (!existing) {
+        await ctx.db.insert("users", {
+          authId: identity.subject,
+          createdAt: BigInt(Date.now()),
+          email: identity.email ?? `${identity.subject}@users.invalid`,
+        });
+      }
+    }
+
     const now = BigInt(Date.now());
     const practiceId = await ctx.db.insert("practices", {
       name: "Booking Flow Practice",
@@ -133,6 +148,27 @@ async function createFlowToPatientStatus(
   });
 }
 
+async function ensureSyncedUser(
+  t: ReturnType<typeof createAuthedTestContext>,
+  identitySuffix = "default",
+) {
+  await t.run(async (ctx) => {
+    const authId = `workos_${identitySuffix}`;
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_authId", (q) => q.eq("authId", authId))
+      .first();
+    if (existing) {
+      return;
+    }
+    await ctx.db.insert("users", {
+      authId,
+      createdAt: BigInt(Date.now()),
+      email: `${identitySuffix}@example.com`,
+    });
+  });
+}
+
 describe("booking flow without bookingSessions table", () => {
   test("getActiveForUser throws for missing auth identity", async () => {
     const t = convexTest(schema, modules);
@@ -204,6 +240,7 @@ describe("booking flow without bookingSessions table", () => {
   test("create, resume, and remove use flow-keyed step rows", async () => {
     const t = createAuthedTestContext("flow_resume");
     const fixture = await createFlowFixture(t);
+    await ensureSyncedUser(t, "flow_resume");
 
     await t.mutation(api.bookingSessions.create, {
       practiceId: fixture.practiceId,
@@ -259,6 +296,7 @@ describe("booking flow without bookingSessions table", () => {
   test("location selection requires accepted privacy consent", async () => {
     const t = createAuthedTestContext("location_requires_privacy");
     const fixture = await createFlowFixture(t);
+    await ensureSyncedUser(t, "location_requires_privacy");
 
     await t.mutation(api.bookingSessions.create, {
       practiceId: fixture.practiceId,
@@ -285,6 +323,7 @@ describe("booking flow without bookingSessions table", () => {
   test("patient status selection requires completed location selection", async () => {
     const t = createAuthedTestContext("patient_status_requires_location");
     const fixture = await createFlowFixture(t);
+    await ensureSyncedUser(t, "patient_status_requires_location");
 
     await t.mutation(api.bookingSessions.create, {
       practiceId: fixture.practiceId,
