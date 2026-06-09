@@ -25,8 +25,8 @@ import {
   getDevAuthPersonaForPath,
 } from "./dev-auth-jwt";
 
-const STAFF_ROLES = ["staff", "praxismanager"] as const;
-const PRAXISMANAGER_ROLES = ["praxismanager"] as const;
+const STAFF_ROLES = ["staff", "admin", "owner"] as const;
+const PRAXISMANAGER_ROLES = ["admin", "owner"] as const;
 
 const STAFF_PERMISSIONS = ["praxisplaner:read"] as const;
 const PRAXISMANAGER_PERMISSIONS = ["regeln:read"] as const;
@@ -45,6 +45,29 @@ const PRAXISMANAGER_ACCESS = {
   permissions: PRAXISMANAGER_PERMISSIONS,
   roles: PRAXISMANAGER_ROLES,
 } satisfies AccessRequirement;
+
+export function hasRequiredAccess({
+  permissions,
+  requirement,
+  role,
+  roles,
+}: {
+  permissions: readonly string[];
+  requirement: AccessRequirement;
+  role: null | string;
+  roles: null | readonly string[];
+}): boolean {
+  if (
+    requirement.permissions.some((permission) =>
+      permissions.includes(permission),
+    )
+  ) {
+    return true;
+  }
+
+  const roleSet = new Set([...(roles ?? []), ...(role ? [role] : [])]);
+  return requirement.roles.some((requiredRole) => roleSet.has(requiredRole));
+}
 
 export function PatientAuthGate({
   children,
@@ -177,29 +200,6 @@ function AuthorizedGate({
 
 function getAuthReturnToPath(): string {
   return `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
-}
-
-function hasRequiredAccess({
-  permissions,
-  requirement,
-  role,
-  roles,
-}: {
-  permissions: readonly string[];
-  requirement: AccessRequirement;
-  role: null | string;
-  roles: null | readonly string[];
-}): boolean {
-  if (
-    requirement.permissions.some((permission) =>
-      permissions.includes(permission),
-    )
-  ) {
-    return true;
-  }
-
-  const roleSet = new Set([...(roles ?? []), ...(role ? [role] : [])]);
-  return requirement.roles.some((requiredRole) => roleSet.has(requiredRole));
 }
 
 function isAuthBypassEnabled(): boolean {

@@ -9,8 +9,8 @@ const DEV_PERSONAS = {
   admin: {
     email: "admin@preview.test",
     permissions: ["regeln:read", "praxisplaner:read"],
-    role: "praxismanager",
-    roles: ["praxismanager"],
+    role: "admin",
+    roles: ["admin"],
     subject: "dev-admin",
   },
   patient: {
