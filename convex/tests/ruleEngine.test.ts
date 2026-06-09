@@ -55,6 +55,20 @@ function createTestContext() {
  * Helper to create a practice and return its ID.
  */
 async function createPractice(t: TestContext) {
+  await t.run(async (ctx) => {
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_authId", (q) => q.eq("authId", "workos_ruleengine"))
+      .first();
+    if (existing) {
+      return;
+    }
+    await ctx.db.insert("users", {
+      authId: "workos_ruleengine",
+      createdAt: BigInt(Date.now()),
+      email: "ruleengine@example.com",
+    });
+  });
   return await t.mutation(api.practices.createPractice, {
     name: "Test Practice",
   });

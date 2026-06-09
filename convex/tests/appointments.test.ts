@@ -921,6 +921,7 @@ describe("appointments self-service cancellation", () => {
 
   test("cancelOwnAppointment cancels the whole future chain from a non-root step", async () => {
     const t = createTestContext();
+    await createUser(t, "workos_series_owner", "series-owner@example.com");
     const authed = t.withIdentity({
       email: "series-owner@example.com",
       subject: "workos_series_owner",
@@ -1070,6 +1071,11 @@ describe("appointments self-service cancellation", () => {
 
   test("createAppointment rejects occupied simulation slots instead of replacing them", async () => {
     const t = createTestContext();
+    await createUser(
+      t,
+      "workos_staff_simulation_conflict",
+      "staff@example.com",
+    );
     const authed = t.withIdentity({
       email: "staff@example.com",
       subject: "workos_staff_simulation_conflict",
@@ -1151,6 +1157,7 @@ describe("appointments self-service cancellation", () => {
 
   test("createAppointment derives the booked duration from the appointment type", async () => {
     const t = createTestContext();
+    await createUser(t, "workos_staff_server_duration", "staff@example.com");
     const authed = t.withIdentity({
       email: "staff@example.com",
       subject: "workos_staff_server_duration",

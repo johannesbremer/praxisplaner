@@ -13,12 +13,30 @@ function createAuthedTestContext() {
   });
 }
 
+async function createPractice(t: ReturnType<typeof createAuthedTestContext>) {
+  await t.run(async (ctx) => {
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_authId", (q) => q.eq("authId", "workos_patients"))
+      .first();
+    if (existing) {
+      return;
+    }
+    await ctx.db.insert("users", {
+      authId: "workos_patients",
+      createdAt: BigInt(Date.now()),
+      email: "patients@example.com",
+    });
+  });
+  return await t.mutation(api.practices.createPractice, {
+    name: "Patients Test Practice",
+  });
+}
+
 describe("patients", () => {
   test("createOrUpdatePatient persists ISO birth dates unchanged", async () => {
     const t = createAuthedTestContext();
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Patients Test Practice",
-    });
+    const practiceId = await createPractice(t);
 
     const result = await t.mutation(api.patients.createOrUpdatePatient, {
       dateOfBirth: "1945-10-01",
@@ -37,9 +55,7 @@ describe("patients", () => {
 
   test("createOrUpdatePatient rejects legacy GDT birth date strings", async () => {
     const t = createAuthedTestContext();
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Patients Test Practice",
-    });
+    const practiceId = await createPractice(t);
 
     await expect(
       t.mutation(api.patients.createOrUpdatePatient, {
@@ -56,9 +72,7 @@ describe("patients", () => {
 
   test("createTemporaryPatient trims persisted values", async () => {
     const t = createAuthedTestContext();
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Patients Test Practice",
-    });
+    const practiceId = await createPractice(t);
 
     const patientId = await t.mutation(api.patients.createTemporaryPatient, {
       name: "  Alex Beispiel  ",
@@ -77,9 +91,7 @@ describe("patients", () => {
 
   test("createTemporaryPatient rejects blank values after trimming", async () => {
     const t = createAuthedTestContext();
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "Patients Test Practice",
-    });
+    const practiceId = await createPractice(t);
 
     await expect(
       t.mutation(api.patients.createTemporaryPatient, {

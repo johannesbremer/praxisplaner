@@ -13,6 +13,7 @@ async function createPracticeForUser(
   authId: string,
   email: string,
 ) {
+  await createUser(t, authId, email);
   const authed = t.withIdentity({ email, subject: authId });
   const practiceId = await authed.mutation(api.practices.createPractice, {
     name: `${authId} practice`,
@@ -30,7 +31,7 @@ async function createPracticeForUser(
       .first();
   });
   if (!user) {
-    throw new Error("Expected created practice to provision a user.");
+    throw new Error("Expected synced test user to exist.");
   }
   return {
     authed,
