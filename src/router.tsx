@@ -283,11 +283,13 @@ function AuthProvidersInner({
   redirectUri: string;
 }) {
   const pathname = useBrowserPathname();
+  const authBypassEnabled = isAuthBypassEnabled();
+  const authPersonaPathname = authBypassEnabled ? pathname : null;
   const useRouteScopedConvexAuth = useMemo(() => {
     return function useRouteScopedConvexAuth() {
-      return useConvexAuthFromWorkOS(pathname);
+      return useConvexAuthFromWorkOS(authPersonaPathname);
     };
-  }, [pathname]);
+  }, [authPersonaPathname]);
 
   return (
     <AuthKitProvider
@@ -404,7 +406,7 @@ function isAuthBypassEnabled(): boolean {
   return vercelEnv === "preview";
 }
 
-function useConvexAuthFromWorkOS(pathname: string) {
+function useConvexAuthFromWorkOS(authPersonaPathname: null | string) {
   const { getAccessToken, isLoading, user } = useAuth();
 
   const fetchAccessToken = useCallback(
@@ -414,7 +416,9 @@ function useConvexAuthFromWorkOS(pathname: string) {
       forceRefreshToken: boolean;
     }): Promise<null | string> => {
       if (isAuthBypassEnabled()) {
-        return await createDevAuthJwt(getDevAuthPersonaForPath(pathname));
+        return await createDevAuthJwt(
+          getDevAuthPersonaForPath(authPersonaPathname ?? "/buchung"),
+        );
       }
       if (isLoading) {
         return null;
@@ -430,7 +434,7 @@ function useConvexAuthFromWorkOS(pathname: string) {
         return null;
       }
     },
-    [isLoading, pathname, user, getAccessToken],
+    [authPersonaPathname, isLoading, user, getAccessToken],
   );
 
   return useMemo(

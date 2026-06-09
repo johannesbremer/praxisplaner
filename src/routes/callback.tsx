@@ -285,5 +285,5 @@ function logPreviewAuthCallback(
   if (import.meta.env["VITE_VERCEL_ENV"] !== "preview") {
     return;
   }
-  console.info("[auth-callback]", event, details);
+  console.warn("[auth-callback]", event, details);
 }
