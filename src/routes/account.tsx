@@ -33,6 +33,9 @@ function AccountPage() {
     api.workosOrganizations.syncCurrentUserOrganizationMembership,
   );
   const [createError, setCreateError] = useState<null | string>(null);
+  const [createdOrganizationId, setCreatedOrganizationId] = useState<
+    null | string
+  >(null);
   const [isCreating, setIsCreating] = useState(false);
   const [practiceName, setPracticeName] = useState("");
   const canManageUsers = permissions.includes("widgets:users-table:manage");
@@ -51,15 +54,11 @@ function AccountPage() {
       return;
     }
     setCreateError(null);
+    setCreatedOrganizationId(null);
     setIsCreating(true);
     createOrganizationPractice({ name })
-      .then(({ organizationId: nextOrganizationId }) =>
-        switchToOrganization({
-          organizationId: nextOrganizationId,
-          signInOpts: { state: { returnTo: "/account" } },
-        }),
-      )
-      .then(() => {
+      .then(({ organizationId: nextOrganizationId }) => {
+        setCreatedOrganizationId(nextOrganizationId);
         setPracticeName("");
       })
       .catch((error: unknown) => {
@@ -133,6 +132,12 @@ function AccountPage() {
                 />
                 {createError ? (
                   <p className="text-sm text-destructive">{createError}</p>
+                ) : null}
+                {createdOrganizationId ? (
+                  <p className="text-sm text-muted-foreground">
+                    Praxis wurde angelegt. Wählen Sie die neue Organisation im
+                    Umschalter aus.
+                  </p>
                 ) : null}
                 <Button
                   className="w-full"
