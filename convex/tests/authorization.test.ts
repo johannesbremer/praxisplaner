@@ -1,12 +1,75 @@
 import { convexTest } from "convex-test";
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
 import { describe, expect, test } from "vitest";
 
 import type { Id } from "../_generated/dataModel";
 
-import { api } from "../_generated/api";
+import { api, components } from "../_generated/api";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
+
+const workOSAuthKitModules = import.meta.glob(
+  "../../node_modules/@convex-dev/workos-authkit/dist/component/**/*.js",
+);
+const workOSAuthKitTestSchema = defineSchema({
+  backfillState: defineTable({
+    apiKey: v.string(),
+  }),
+  events: defineTable({
+    event: v.string(),
+    eventId: v.string(),
+    updatedAt: v.optional(v.string()),
+  }).index("eventId", ["eventId"]),
+  users: defineTable({
+    createdAt: v.string(),
+    email: v.string(),
+    emailVerified: v.boolean(),
+    externalId: v.optional(v.union(v.null(), v.string())),
+    firstName: v.optional(v.union(v.null(), v.string())),
+    id: v.string(),
+    lastName: v.optional(v.union(v.null(), v.string())),
+    lastSignInAt: v.optional(v.union(v.null(), v.string())),
+    locale: v.optional(v.union(v.null(), v.string())),
+    metadata: v.record(v.string(), v.any()),
+    profilePictureUrl: v.optional(v.union(v.null(), v.string())),
+    updatedAt: v.string(),
+  })
+    .index("externalId", ["externalId"])
+    .index("id", ["id"]),
+});
+
+async function createAuthKitComponentUser(
+  t: ReturnType<typeof createTestContext>,
+  args: {
+    authId: string;
+    email: string;
+    firstName?: string;
+    lastName?: string;
+  },
+) {
+  const now = "2026-06-09T00:00:00.000Z";
+  await t.mutation(components.workOSAuthKit.lib.onWebhookEvent, {
+    apiKey: "sk_test_convex",
+    event: {
+      createdAt: now,
+      data: {
+        createdAt: now,
+        email: args.email,
+        emailVerified: true,
+        firstName: args.firstName ?? null,
+        id: args.authId,
+        lastName: args.lastName ?? null,
+        metadata: {},
+        object: "user",
+        updatedAt: now,
+      },
+      event: "user.created",
+      id: `event_${args.authId}`,
+    },
+  });
+}
 
 async function createPracticeForUser(
   t: ReturnType<typeof createTestContext>,
@@ -42,7 +105,13 @@ async function createPracticeForUser(
 }
 
 function createTestContext() {
-  return convexTest(schema, modules);
+  const t = convexTest(schema, modules);
+  t.registerComponent(
+    "workOSAuthKit",
+    workOSAuthKitTestSchema,
+    workOSAuthKitModules,
+  );
+  return t;
 }
 
 async function createUser(
@@ -122,9 +191,15 @@ describe("Convex query authorization", () => {
 
   test("authenticated users can provision their app user from the current auth identity", async () => {
     const t = createTestContext();
-    const authed = t.withIdentity({
+    const authId = "workos_provision_current_user";
+    await createAuthKitComponentUser(t, {
+      authId,
       email: "provision-current-user@example.com",
-      subject: "workos_provision_current_user",
+      firstName: "Provision",
+      lastName: "User",
+    });
+    const authed = t.withIdentity({
+      subject: authId,
     });
 
     const userId = await authed.mutation(
@@ -134,16 +209,22 @@ describe("Convex query authorization", () => {
     const user = await t.run(async (ctx) => await ctx.db.get("users", userId));
 
     expect(user).toMatchObject({
-      authId: "workos_provision_current_user",
+      authId,
       email: "provision-current-user@example.com",
+      firstName: "Provision",
+      lastName: "User",
     });
   });
 
   test("booking practice discovery works after current user provisioning", async () => {
     const t = createTestContext();
-    const authed = t.withIdentity({
+    const authId = "workos_provisioned_booking_practices";
+    await createAuthKitComponentUser(t, {
+      authId,
       email: "provisioned-booking-practices@example.com",
-      subject: "workos_provisioned_booking_practices",
+    });
+    const authed = t.withIdentity({
+      subject: authId,
     });
 
     await authed.mutation(api.users.provisionCurrentUserFromAuthIdentity, {});

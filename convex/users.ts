@@ -9,7 +9,7 @@ import { authKit } from "./auth";
 import { requirePracticeMember } from "./practiceAccess";
 import { personalDataValidator } from "./schema";
 import { asPersonalDataInput, type PersonalDataInput } from "./typedDtos";
-import { ensureAuthenticatedIdentity, findUserByAuthId } from "./userIdentity";
+import { findUserByAuthId } from "./userIdentity";
 import { workOSAuthUserValidator } from "./validators";
 
 type BookingPersonalData = PersonalDataInput;
@@ -88,18 +88,20 @@ export const getCurrentUser = query({
 export const provisionCurrentUserFromAuthIdentity = mutation({
   args: {},
   handler: async (ctx) => {
-    const identity = await ensureAuthenticatedIdentity(ctx);
-    const existingUser = await findUserByAuthId(ctx.db, identity.subject);
+    const authUser = await authKit.getAuthUser(ctx);
+    if (!authUser) {
+      throw new Error("Authenticated WorkOS user was not found.");
+    }
+    const existingUser = await findUserByAuthId(ctx.db, authUser.id);
     if (existingUser) {
       return existingUser._id;
     }
-    if (!identity.email) {
-      throw new Error("Authenticated identity is missing an email address.");
-    }
     return await ctx.db.insert("users", {
-      authId: identity.subject,
+      authId: authUser.id,
       createdAt: BigInt(Date.now()),
-      email: identity.email,
+      email: authUser.email,
+      ...(authUser.firstName ? { firstName: authUser.firstName } : {}),
+      ...(authUser.lastName ? { lastName: authUser.lastName } : {}),
     });
   },
   returns: v.id("users"),
