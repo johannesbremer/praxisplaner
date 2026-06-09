@@ -275,8 +275,7 @@ function FatalConfigScreen({ error }: { error: FrontendError }) {
 }
 
 function isWorkOSDevModeEnabled(): boolean {
-  const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
-  return import.meta.env.DEV || vercelEnv === "preview";
+  return import.meta.env.DEV;
 }
 
 function useBrowserPathname(): string {
@@ -333,13 +332,7 @@ function isAuthBypassEnabled(): boolean {
     return true;
   }
 
-  const bypassFlag = import.meta.env["VITE_AUTH_BYPASS_ENABLED"] === "true";
-  if (!bypassFlag) {
-    return false;
-  }
-
-  const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
-  return vercelEnv === "preview";
+  return import.meta.env["VITE_AUTH_BYPASS_ENABLED"] === "true";
 }
 
 function useConvexAuthFromWorkOS(pathname: string) {

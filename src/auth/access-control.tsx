@@ -202,13 +202,7 @@ function isAuthBypassEnabled(): boolean {
     return true;
   }
 
-  const bypassFlag = import.meta.env["VITE_AUTH_BYPASS_ENABLED"] === "true";
-  if (!bypassFlag) {
-    return false;
-  }
-
-  const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
-  return vercelEnv === "preview";
+  return import.meta.env["VITE_AUTH_BYPASS_ENABLED"] === "true";
 }
 
 function isDevPersonaActive(persona: DevAuthPersona | undefined): boolean {

@@ -20,7 +20,9 @@ append_convex_deploy_selection_env() {
 
 append_auth_config_env() {
   file="$1"
+  append_if_set WORKOS_API_KEY "$file"
   append_if_set WORKOS_CLIENT_ID "$file"
+  append_if_set WORKOS_WEBHOOK_SECRET "$file"
 }
 
 if [ "${VERCEL_ENV:-}" = "preview" ]; then
@@ -32,18 +34,19 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
 
   append_convex_deploy_selection_env "$deploy_env_file"
   append_auth_config_env "$deploy_env_file"
-  printf 'AUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' >> "$deploy_env_file"
-  printf 'AUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' > "$runtime_env_file"
+  printf 'AUTH_BYPASS_ENABLED=false\nVITE_AUTH_BYPASS_ENABLED=false\nVITE_VERCEL_ENV=preview\n' >> "$deploy_env_file"
+  append_auth_config_env "$runtime_env_file"
+  printf 'AUTH_BYPASS_ENABLED=false\nVITE_AUTH_BYPASS_ENABLED=false\nVITE_VERCEL_ENV=preview\n' >> "$runtime_env_file"
 
   pnpm seed:preview
   pnpm exec convex deployment create "$preview_name" --type preview --select \
     || pnpm exec convex deployment select "$preview_deployment_ref"
   pnpm exec convex env set \
     --deployment "$preview_deployment_ref" \
-    AUTH_BYPASS_ENABLED true
-  AUTH_BYPASS_ENABLED=true pnpm exec convex deploy \
+    AUTH_BYPASS_ENABLED false
+  AUTH_BYPASS_ENABLED=false pnpm exec convex deploy \
     --env-file "$deploy_env_file" \
-    --cmd "VITE_AUTH_BYPASS_ENABLED=true VITE_VERCEL_ENV=preview pnpm run build" \
+    --cmd "VITE_AUTH_BYPASS_ENABLED=false VITE_VERCEL_ENV=preview pnpm run build" \
     --preview-name "$preview_name"
   pnpm exec convex env set \
     --deployment "$preview_deployment_ref" \
@@ -53,8 +56,6 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
     --preview-name "$preview_name" \
     --replace-all \
     --yes .cache/seed/preview.zip
-  pnpm exec convex run devAuth:ensurePreviewAuthPersonas \
-    --deployment "$preview_deployment_ref"
 else
   deploy_env_file="$(mktemp)"
   trap 'rm -f "$deploy_env_file"' EXIT
