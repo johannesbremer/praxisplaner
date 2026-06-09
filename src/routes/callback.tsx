@@ -66,6 +66,15 @@ function CallbackComponent() {
     !activeProvisioningError
       ? CALLBACK_TIMEOUT_MESSAGE
       : null;
+  const resetAuthRetryState = () => {
+    accessTokenUserIdRef.current = null;
+    convexAuthErrorLoggedUserIdRef.current = null;
+    provisioningUserIdRef.current = null;
+    setAccessTokenReadyUserId(null);
+    setAccessTokenError(null);
+    setCallbackTimedOutUserId(null);
+    setProvisioningError(null);
+  };
 
   useEffect(() => {
     if (isLoading || !userId || provisioningUserIdRef.current === userId) {
@@ -250,9 +259,7 @@ function CallbackComponent() {
           <p className="text-muted-foreground text-sm">{activeError}</p>
           <Button
             onClick={() => {
-              setAccessTokenError(null);
-              setCallbackTimedOutUserId(null);
-              setProvisioningError(null);
+              resetAuthRetryState();
             }}
           >
             Erneut versuchen
@@ -274,8 +281,9 @@ function CallbackComponent() {
   );
 }
 
-function getReturnToPathname(returnTo: string): string {
-  return new URL(returnTo, globalThis.location.origin).pathname;
+function getSameOriginReturnUrl(returnTo: string): null | URL {
+  const returnUrl = new URL(returnTo, globalThis.location.origin);
+  return returnUrl.origin === globalThis.location.origin ? returnUrl : null;
 }
 
 function logPreviewAuthCallback(
@@ -292,20 +300,31 @@ function navigateToReturnPath(
   navigate: ReturnType<typeof useNavigate>,
   returnTo: string,
 ): void {
-  switch (getReturnToPathname(returnTo)) {
+  const returnUrl = getSameOriginReturnUrl(returnTo);
+  if (!returnUrl) {
+    void navigate({ replace: true, to: BOOKING_PATH });
+    return;
+  }
+
+  const fullPath = `${returnUrl.pathname}${returnUrl.search}${returnUrl.hash}`;
+  switch (returnUrl.pathname) {
     case "/buchung": {
-      void navigate({ replace: true, to: "/buchung" });
+      void navigate({ replace: true, to: fullPath });
       return;
     }
     case "/praxisplaner": {
-      void navigate({ replace: true, to: "/praxisplaner" });
+      void navigate({ replace: true, to: fullPath });
       return;
     }
     case "/regeln": {
-      void navigate({ replace: true, to: "/regeln" });
+      void navigate({ replace: true, to: fullPath });
       return;
     }
     default: {
+      if (returnUrl.pathname.startsWith("/praxisplaner/")) {
+        void navigate({ replace: true, to: fullPath });
+        return;
+      }
       void navigate({ replace: true, to: BOOKING_PATH });
     }
   }
