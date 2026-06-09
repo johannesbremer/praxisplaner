@@ -9,7 +9,7 @@ import { authKit } from "./auth";
 import { requirePracticeMember } from "./practiceAccess";
 import { personalDataValidator } from "./schema";
 import { asPersonalDataInput, type PersonalDataInput } from "./typedDtos";
-import { findUserByAuthId } from "./userIdentity";
+import { ensureAuthenticatedIdentity, findUserByAuthId } from "./userIdentity";
 import { workOSAuthUserValidator } from "./validators";
 
 type BookingPersonalData = PersonalDataInput;
@@ -86,22 +86,27 @@ export const getCurrentUser = query({
 });
 
 export const provisionCurrentUserFromAuthIdentity = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const authUser = await authKit.getAuthUser(ctx);
-    if (!authUser) {
-      throw new Error("Authenticated WorkOS user was not found.");
+  args: {
+    email: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+    workOSUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ensureAuthenticatedIdentity(ctx);
+    if (identity.subject !== args.workOSUserId) {
+      throw new Error("Authenticated identity does not match WorkOS user.");
     }
-    const existingUser = await findUserByAuthId(ctx.db, authUser.id);
+    const existingUser = await findUserByAuthId(ctx.db, args.workOSUserId);
     if (existingUser) {
       return existingUser._id;
     }
     return await ctx.db.insert("users", {
-      authId: authUser.id,
+      authId: args.workOSUserId,
       createdAt: BigInt(Date.now()),
-      email: authUser.email,
-      ...(authUser.firstName ? { firstName: authUser.firstName } : {}),
-      ...(authUser.lastName ? { lastName: authUser.lastName } : {}),
+      email: args.email,
+      ...(args.firstName ? { firstName: args.firstName } : {}),
+      ...(args.lastName ? { lastName: args.lastName } : {}),
     });
   },
   returns: v.id("users"),

@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
-import { useConvexAuth, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 
 import type { FileRouteTypes } from "../routeTree.gen";
@@ -16,7 +16,6 @@ const BOOKING_PATH = "/buchung" as const satisfies FileRouteTypes["to"];
 
 function CallbackComponent() {
   const { isLoading, signIn, user } = useAuth();
-  const convexAuth = useConvexAuth();
   const provisionCurrentUser = useMutation(
     api.users.provisionCurrentUserFromAuthIdentity,
   );
@@ -33,8 +32,7 @@ function CallbackComponent() {
   useEffect(() => {
     if (
       isLoading ||
-      convexAuth.isLoading ||
-      !convexAuth.isAuthenticated ||
+      !user ||
       !userId ||
       provisioningUserIdRef.current === userId ||
       activeProvisioningError
@@ -42,7 +40,12 @@ function CallbackComponent() {
       return;
     }
     provisioningUserIdRef.current = userId;
-    provisionCurrentUser()
+    provisionCurrentUser({
+      email: user.email,
+      ...(user.firstName ? { firstName: user.firstName } : {}),
+      ...(user.lastName ? { lastName: user.lastName } : {}),
+      workOSUserId: user.id,
+    })
       .then(() => {
         void navigate({ replace: true, to: BOOKING_PATH });
       })
@@ -58,11 +61,10 @@ function CallbackComponent() {
       });
   }, [
     activeProvisioningError,
-    convexAuth.isAuthenticated,
-    convexAuth.isLoading,
     isLoading,
     navigate,
     provisionCurrentUser,
+    user,
     userId,
   ]);
 
