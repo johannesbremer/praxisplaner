@@ -47,6 +47,9 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
   append_auth_config_env "$runtime_env_file"
   append_vite_auth_config_env "$runtime_env_file"
   printf 'AUTH_BYPASS_ENABLED=false\nVITE_AUTH_BYPASS_ENABLED=false\nVITE_VERCEL_ENV=preview\n' >> "$runtime_env_file"
+  if [ -n "${WORKOS_CLIENT_ID:-}" ]; then
+    export VITE_WORKOS_CLIENT_ID="$WORKOS_CLIENT_ID"
+  fi
 
   pnpm seed:preview
   pnpm exec convex deployment create "$preview_name" --type preview --select \

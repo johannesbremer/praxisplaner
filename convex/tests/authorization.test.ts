@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 
 import type { Id } from "../_generated/dataModel";
 
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
@@ -120,15 +120,12 @@ describe("Convex query authorization", () => {
     ).rejects.toThrow("Authenticated user is not provisioned");
   });
 
-  test("authenticated users can provision their app user from the current auth identity", async () => {
+  test("trusted current user profile insertion creates the app user", async () => {
     const t = createTestContext();
     const authId = "workos_provision_current_user";
-    const authed = t.withIdentity({
-      subject: authId,
-    });
 
-    const userId = await authed.mutation(
-      api.users.provisionCurrentUserFromAuthIdentity,
+    const userId = await t.mutation(
+      internal.users.insertProvisionedUserFromTrustedProfile,
       {
         email: "provision-current-user@example.com",
         firstName: "Provision",
@@ -153,8 +150,7 @@ describe("Convex query authorization", () => {
     });
 
     await expect(
-      authed.mutation(api.users.provisionCurrentUserFromAuthIdentity, {
-        email: "provision-mismatch@example.com",
+      authed.action(api.users.provisionCurrentUserFromAuthIdentity, {
         workOSUserId: "workos_provision_other",
       }),
     ).rejects.toThrow("Authenticated identity does not match WorkOS user");
@@ -167,7 +163,7 @@ describe("Convex query authorization", () => {
       subject: authId,
     });
 
-    await authed.mutation(api.users.provisionCurrentUserFromAuthIdentity, {
+    await t.mutation(internal.users.insertProvisionedUserFromTrustedProfile, {
       email: "provisioned-booking-practices@example.com",
       workOSUserId: authId,
     });

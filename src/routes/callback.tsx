@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
-import { useMutation } from "convex/react";
+import { useAction, useConvexAuth } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 
 import type { FileRouteTypes } from "../routeTree.gen";
@@ -15,17 +15,25 @@ export const Route = createFileRoute("/callback")({
 const BOOKING_PATH = "/buchung" as const satisfies FileRouteTypes["to"];
 
 function CallbackComponent() {
-  const { isLoading, signIn, user } = useAuth();
-  const provisionCurrentUser = useMutation(
+  const { getAccessToken, isLoading, signIn, user } = useAuth();
+  const convexAuth = useConvexAuth();
+  const provisionCurrentUser = useAction(
     api.users.provisionCurrentUserFromAuthIdentity,
   );
   const navigate = useNavigate();
+  const accessTokenUserIdRef = useRef<null | string>(null);
   const provisioningUserIdRef = useRef<null | string>(null);
+  const [accessTokenError, setAccessTokenError] = useState<null | {
+    message: string;
+    userId: string;
+  }>(null);
   const [provisioningError, setProvisioningError] = useState<null | {
     message: string;
     userId: string;
   }>(null);
   const userId = user?.id ?? null;
+  const activeAccessTokenError =
+    accessTokenError?.userId === userId ? accessTokenError.message : null;
   const activeProvisioningError =
     provisioningError?.userId === userId ? provisioningError.message : null;
 
@@ -34,16 +42,44 @@ function CallbackComponent() {
       isLoading ||
       !user ||
       !userId ||
+      accessTokenUserIdRef.current === userId ||
+      activeAccessTokenError
+    ) {
+      return;
+    }
+    accessTokenUserIdRef.current = userId;
+    getAccessToken()
+      .then(() => {
+        setAccessTokenError(null);
+      })
+      .catch((error: unknown) => {
+        accessTokenUserIdRef.current = null;
+        setAccessTokenError({
+          message:
+            error instanceof Error
+              ? error.message
+              : "Zugriffstoken konnte nicht abgerufen werden.",
+          userId,
+        });
+      });
+  }, [activeAccessTokenError, getAccessToken, isLoading, user, userId]);
+
+  useEffect(() => {
+    if (
+      isLoading ||
+      convexAuth.isLoading ||
+      !convexAuth.isAuthenticated ||
+      !user ||
+      !userId ||
+      accessTokenUserIdRef.current !== userId ||
       provisioningUserIdRef.current === userId ||
+      activeAccessTokenError ||
       activeProvisioningError
     ) {
       return;
     }
     provisioningUserIdRef.current = userId;
     provisionCurrentUser({
-      email: user.email,
-      ...(user.firstName ? { firstName: user.firstName } : {}),
-      ...(user.lastName ? { lastName: user.lastName } : {}),
       workOSUserId: user.id,
     })
       .then(() => {
@@ -60,7 +96,10 @@ function CallbackComponent() {
         });
       });
   }, [
+    activeAccessTokenError,
     activeProvisioningError,
+    convexAuth.isAuthenticated,
+    convexAuth.isLoading,
     isLoading,
     navigate,
     provisionCurrentUser,
@@ -85,18 +124,19 @@ function CallbackComponent() {
     );
   }
 
-  if (activeProvisioningError) {
+  const activeError = activeAccessTokenError ?? activeProvisioningError;
+
+  if (activeError) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center space-y-4">
           <p className="text-destructive font-medium">
             Anmeldung fehlgeschlagen
           </p>
-          <p className="text-muted-foreground text-sm">
-            {activeProvisioningError}
-          </p>
+          <p className="text-muted-foreground text-sm">{activeError}</p>
           <Button
             onClick={() => {
+              setAccessTokenError(null);
               setProvisioningError(null);
             }}
           >

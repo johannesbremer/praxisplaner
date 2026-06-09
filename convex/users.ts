@@ -1,15 +1,16 @@
 // convex/users.ts
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
-import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { action, internalMutation, query } from "./_generated/server";
 import { authKit } from "./auth";
 import { requirePracticeMember } from "./practiceAccess";
 import { personalDataValidator } from "./schema";
 import { asPersonalDataInput, type PersonalDataInput } from "./typedDtos";
-import { ensureAuthenticatedIdentity, findUserByAuthId } from "./userIdentity";
+import { findUserByAuthId } from "./userIdentity";
 import { workOSAuthUserValidator } from "./validators";
 
 type BookingPersonalData = PersonalDataInput;
@@ -85,7 +86,37 @@ export const getCurrentUser = query({
   ),
 });
 
-export const provisionCurrentUserFromAuthIdentity = mutation({
+export const provisionCurrentUserFromAuthIdentity = action({
+  args: {
+    workOSUserId: v.string(),
+  },
+  handler: async (ctx, args): Promise<Id<"users">> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({
+        code: "UNAUTHORIZED",
+        message: "Authentication required",
+      });
+    }
+    if (identity.subject !== args.workOSUserId) {
+      throw new Error("Authenticated identity does not match WorkOS user.");
+    }
+
+    const authUser = await loadTrustedWorkOSUser(args.workOSUserId);
+    return await ctx.runMutation(
+      internal.users.insertProvisionedUserFromTrustedProfile,
+      {
+        email: authUser.email,
+        ...(authUser.firstName ? { firstName: authUser.firstName } : {}),
+        ...(authUser.lastName ? { lastName: authUser.lastName } : {}),
+        workOSUserId: authUser.id,
+      },
+    );
+  },
+  returns: v.id("users"),
+});
+
+export const insertProvisionedUserFromTrustedProfile = internalMutation({
   args: {
     email: v.string(),
     firstName: v.optional(v.string()),
@@ -93,10 +124,6 @@ export const provisionCurrentUserFromAuthIdentity = mutation({
     workOSUserId: v.string(),
   },
   handler: async (ctx, args) => {
-    const identity = await ensureAuthenticatedIdentity(ctx);
-    if (identity.subject !== args.workOSUserId) {
-      throw new Error("Authenticated identity does not match WorkOS user.");
-    }
     const existingUser = await findUserByAuthId(ctx.db, args.workOSUserId);
     if (existingUser) {
       return existingUser._id;
@@ -111,6 +138,72 @@ export const provisionCurrentUserFromAuthIdentity = mutation({
   },
   returns: v.id("users"),
 });
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function loadTrustedWorkOSUser(workOSUserId: string): Promise<{
+  email: string;
+  firstName?: string;
+  id: string;
+  lastName?: string;
+}> {
+  const apiKey = process.env["WORKOS_API_KEY"];
+  if (!apiKey) {
+    throw new Error("Missing WORKOS_API_KEY environment variable.");
+  }
+  const response = await fetch(
+    `https://api.workos.com/user_management/users/${encodeURIComponent(workOSUserId)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      method: "GET",
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `WorkOS user lookup failed with status ${response.status}.`,
+    );
+  }
+  const user = parseWorkOSUserResponse(await response.json());
+  return {
+    email: user.email,
+    id: user.id,
+    ...(user.firstName ? { firstName: user.firstName } : {}),
+    ...(user.lastName ? { lastName: user.lastName } : {}),
+  };
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function parseWorkOSUserResponse(value: unknown): {
+  email: string;
+  firstName?: string;
+  id: string;
+  lastName?: string;
+} {
+  if (!isRecord(value)) {
+    throw new Error("WorkOS user response was not an object.");
+  }
+  const id = value["id"];
+  const email = value["email"];
+  if (typeof id !== "string" || typeof email !== "string") {
+    throw new TypeError("WorkOS user response is missing required fields.");
+  }
+  const firstName = optionalString(value["first_name"]);
+  const lastName = optionalString(value["last_name"]);
+  return {
+    email,
+    id,
+    ...(firstName ? { firstName } : {}),
+    ...(lastName ? { lastName } : {}),
+  };
+}
 
 /**
  * Get the authenticated user from WorkOS (auth metadata).
