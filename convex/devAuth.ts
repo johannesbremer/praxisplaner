@@ -3,7 +3,8 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 
 import { mutation, type MutationCtx } from "./_generated/server";
-import { isConvexAuthBypassEnabled } from "./practiceAccess";
+import { isConvexAuthBypassEnabled } from "./authBypass";
+import { createInitialRuleSet } from "./copyOnWrite";
 
 const DEV_AUTH_USERS = [
   {
@@ -37,10 +38,7 @@ export const ensurePreviewAuthPersonas = mutation({
       );
     }
 
-    const practice = await ctx.db.query("practices").first();
-    if (!practice) {
-      throw new Error("Cannot seed preview auth personas without a practice");
-    }
+    const practice = await ensurePractice(ctx);
 
     const userIds: Id<"users">[] = [];
     for (const persona of DEV_AUTH_USERS) {
@@ -63,6 +61,24 @@ export const ensurePreviewAuthPersonas = mutation({
     users: v.array(v.id("users")),
   }),
 });
+
+async function ensurePractice(ctx: MutationCtx): Promise<Doc<"practices">> {
+  const existing = await ctx.db.query("practices").first();
+  if (existing) {
+    return existing;
+  }
+
+  const practiceId = await ctx.db.insert("practices", {
+    name: "Standardpraxis",
+  });
+  await createInitialRuleSet(ctx.db, practiceId);
+
+  const practice = await ctx.db.get("practices", practiceId);
+  if (!practice) {
+    throw new Error("Created practice was not found");
+  }
+  return practice;
+}
 
 async function ensurePracticeMember(
   ctx: MutationCtx,

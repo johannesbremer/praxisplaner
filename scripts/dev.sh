@@ -9,6 +9,9 @@ if [ "$AUTH_BYPASS_ENABLED" = "true" ]; then
 fi
 
 cleanup() {
+  if [ -n "${frontend_pid:-}" ]; then
+    kill "$frontend_pid" 2> /dev/null || true
+  fi
   if [ -n "${seed_pid:-}" ]; then
     kill "$seed_pid" 2> /dev/null || true
   fi
@@ -37,4 +40,17 @@ backend_pid="$!"
 ) &
 seed_pid="$!"
 
-wait "$backend_pid"
+pnpm dev:frontend &
+frontend_pid="$!"
+
+while :; do
+  if ! kill -0 "$backend_pid" 2> /dev/null; then
+    wait "$backend_pid"
+    exit "$?"
+  fi
+  if ! kill -0 "$frontend_pid" 2> /dev/null; then
+    wait "$frontend_pid"
+    exit "$?"
+  fi
+  sleep 1
+done

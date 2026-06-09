@@ -8,9 +8,25 @@ import { findUserByAuthId } from "./userIdentity";
 
 // Get a typed object of internal Convex functions exported by this file
 const authFunctions: AuthFunctions = internal.auth;
+const authBypassEnabled = process.env["AUTH_BYPASS_ENABLED"] === "true";
+
+const workOSClientId =
+  process.env["WORKOS_CLIENT_ID"] ??
+  (authBypassEnabled ? "client_local_preview_placeholder" : undefined);
+const workOSApiKey =
+  process.env["WORKOS_API_KEY"] ??
+  (authBypassEnabled ? "sk_test_local_preview_placeholder" : undefined);
+const workOSWebhookSecret =
+  process.env["WORKOS_WEBHOOK_SECRET"] ??
+  (authBypassEnabled ? "whsec_local_preview_placeholder" : undefined);
 
 export const authKit = new AuthKit<DataModel>(components.workOSAuthKit, {
   authFunctions,
+  ...(workOSApiKey === undefined ? {} : { apiKey: workOSApiKey }),
+  ...(workOSClientId === undefined ? {} : { clientId: workOSClientId }),
+  ...(workOSWebhookSecret === undefined
+    ? {}
+    : { webhookSecret: workOSWebhookSecret }),
 });
 
 /**

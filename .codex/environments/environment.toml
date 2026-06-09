@@ -61,14 +61,6 @@ PREVIEW_SLUG="$(printf '%s' "$PREVIEW_SLUG" | cut -c1-48 | sed -E 's/-+$//')"
 PREVIEW_SLUG="${PREVIEW_SLUG:-worktree}"
 PREVIEW_NAME="codex-${PREVIEW_SLUG}-${PREVIEW_HASH}"
 
-WORKOS_ID="${WORKOS_CLIENT_ID:-${VITE_WORKOS_CLIENT_ID:-}}"
-if [ -z "$WORKOS_ID" ] && [ -f .env.local ]; then
-  WORKOS_ID="$(
-    sed -n -E 's/^(WORKOS_CLIENT_ID|VITE_WORKOS_CLIENT_ID)=//p' .env.local |
-      head -n 1
-  )"
-fi
-WORKOS_ID="${WORKOS_ID:-client_local_preview_placeholder}"
 POSTHOG_HOST="${VITE_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}"
 
 if [ -f .env.local ]; then
@@ -86,8 +78,6 @@ fi
   printf 'AUTH_BYPASS_ENABLED=true\n'
   printf 'VITE_AUTH_BYPASS_ENABLED=true\n'
   printf 'VITE_VERCEL_ENV=preview\n'
-  printf 'WORKOS_CLIENT_ID=%s\n' "$WORKOS_ID"
-  printf 'VITE_WORKOS_CLIENT_ID=%s\n' "$WORKOS_ID"
   printf 'VITE_PUBLIC_POSTHOG_HOST=%s\n' "$POSTHOG_HOST"
   if [ -n "${VITE_PUBLIC_POSTHOG_KEY:-}" ]; then
     printf 'VITE_PUBLIC_POSTHOG_KEY=%s\n' "$VITE_PUBLIC_POSTHOG_KEY"
@@ -117,9 +107,10 @@ case "$CONVEX_SELECTED_DEPLOYMENT" in
     exit 1
     ;;
 esac
-pnpm exec convex deploy --preview-name "$PREVIEW_NAME" --env-file .env.local --yes
 CONVEX_IMPORT_DEPLOYMENT="$(sed -n 's/^CONVEX_DEPLOYMENT=preview:\([^ #]*\).*/\1/p' .env.local)"
 [ -n "$CONVEX_IMPORT_DEPLOYMENT" ] || { echo "Missing preview CONVEX_DEPLOYMENT in .env.local"; exit 1; }
+pnpm exec convex env set AUTH_BYPASS_ENABLED true --deployment "$CONVEX_IMPORT_DEPLOYMENT"
+AUTH_BYPASS_ENABLED=true pnpm exec convex deploy --preview-name "$PREVIEW_NAME" --env-file .env.local --yes
 pnpm exec convex env set --deployment "$CONVEX_IMPORT_DEPLOYMENT" --from-file .env.local --force
 pnpm exec convex import --deployment "$CONVEX_IMPORT_DEPLOYMENT" --replace-all --yes .cache/seed/preview.zip
 pnpm exec convex run devAuth:ensurePreviewAuthPersonas --deployment "$CONVEX_IMPORT_DEPLOYMENT"
