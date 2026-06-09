@@ -459,15 +459,15 @@ function createEmptyContact(): ContactFormValue {
 }
 
 function isContactField(value: string): value is ContactField {
-  return (
-    value === "city" ||
-    value === "dateOfBirth" ||
-    value === "firstName" ||
-    value === "gender" ||
-    value === "lastName" ||
-    value === "phoneNumber" ||
-    value === "postalCode" ||
-    value === "street" ||
-    value === "title"
-  );
+  return [
+    "city",
+    "dateOfBirth",
+    "firstName",
+    "gender",
+    "lastName",
+    "phoneNumber",
+    "postalCode",
+    "street",
+    "title",
+  ].includes(value);
 }

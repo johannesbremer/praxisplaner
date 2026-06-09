@@ -288,7 +288,7 @@ export function LocationsManagement({
               return { entityId: asLocationId(undoResult.entityId) };
             },
             validateBeforeCreate: () => {
-              const duplicate = locationsRef.current.find(
+              const duplicate = locationsRef.current.some(
                 (location) => location.name === trimmedName,
               );
               if (duplicate) {
@@ -439,7 +439,7 @@ export function LocationsManagement({
               return { status: "applied" as const };
             }
 
-            const duplicate = locationsRef.current.find(
+            const duplicate = locationsRef.current.some(
               (location) => location.name === deletedSnapshot.name,
             );
             if (duplicate) {

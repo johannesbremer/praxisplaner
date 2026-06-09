@@ -100,17 +100,17 @@ export function isBackLockedStep(step: BookingSessionStepName): boolean {
 export function isCalendarSelectionStepName(
   step: BookingSessionStepName,
 ): step is CalendarSelectionStepName {
-  return (
-    step === "existing-calendar-selection" || step === "new-calendar-selection"
+  return ["existing-calendar-selection", "new-calendar-selection"].includes(
+    step,
   );
 }
 
 export function isDataInputStepName(
   step: BookingSessionStepName,
 ): step is DataInputStepName {
-  return (
-    step === "existing-data-input" ||
-    step === "new-data-input" ||
-    step === "new-data-input-complete"
-  );
+  return [
+    "existing-data-input",
+    "new-data-input",
+    "new-data-input-complete",
+  ].includes(step);
 }

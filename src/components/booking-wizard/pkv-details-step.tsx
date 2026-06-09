@@ -109,7 +109,7 @@ export function PkvDetailsStep({
                   </FieldLabel>
                   <Select
                     onValueChange={(value) => {
-                      if (value === "" || value === "no" || value === "yes") {
+                      if (["", "no", "yes"].includes(value)) {
                         field.handleChange(value);
                       }
                     }}
@@ -142,12 +142,7 @@ export function PkvDetailsStep({
                   </FieldLabel>
                   <Select
                     onValueChange={(value) => {
-                      if (
-                        value === "" ||
-                        value === "kvb" ||
-                        value === "other" ||
-                        value === "postb"
-                      ) {
+                      if (["", "kvb", "other", "postb"].includes(value)) {
                         field.handleChange(value);
                       }
                     }}
@@ -175,10 +170,7 @@ export function PkvDetailsStep({
                   <Select
                     onValueChange={(value) => {
                       if (
-                        value === "" ||
-                        value === "basis" ||
-                        value === "premium" ||
-                        value === "standard"
+                        ["", "basis", "premium", "standard"].includes(value)
                       ) {
                         field.handleChange(value);
                       }

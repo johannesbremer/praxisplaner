@@ -667,12 +667,11 @@ function AuthenticatedBookingFlow() {
     );
   }, [signOut]);
   const effectiveDisplayStepOverride =
-    bookedAppointments !== undefined && bookedAppointments.length > 0
+    (bookedAppointments !== undefined && bookedAppointments.length > 0) ||
+    (displayStepOverride !== null &&
+      activeRuleSetSession?.state.step === displayStepOverride)
       ? null
-      : displayStepOverride !== null &&
-          activeRuleSetSession?.state.step === displayStepOverride
-        ? null
-        : displayStepOverride;
+      : displayStepOverride;
   const displayedState = activeRuleSetSession
     ? buildDisplayedBookingState(
         activeRuleSetSession.state,

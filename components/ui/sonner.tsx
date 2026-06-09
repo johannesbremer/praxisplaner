@@ -3,14 +3,18 @@ import type { ToasterProps } from "sonner";
 import { useTheme } from "next-themes";
 import { Toaster as Sonner } from "sonner";
 
+const sonnerThemes = new Map<string, NonNullable<ToasterProps["theme"]>>([
+  ["dark", "dark"],
+  ["light", "light"],
+  ["system", "system"],
+]);
+
 const Toaster = (props: ToasterProps) => {
   const { theme: nextSystemTheme } = useTheme();
   const sonnerTheme: NonNullable<ToasterProps["theme"]> =
-    nextSystemTheme === "light" ||
-    nextSystemTheme === "dark" ||
-    nextSystemTheme === "system"
-      ? nextSystemTheme
-      : "system";
+    nextSystemTheme === undefined
+      ? "system"
+      : (sonnerThemes.get(nextSystemTheme) ?? "system");
 
   return (
     <Sonner

@@ -520,7 +520,7 @@ function PractitionerDialog({
               return { entityId: asPractitionerId(undoResult.entityId) };
             },
             validateBeforeCreate: () => {
-              const duplicate = practitionersRef.current.find(
+              const duplicate = practitionersRef.current.some(
                 (entry) => entry.name === trimmedName,
               );
               if (duplicate) {

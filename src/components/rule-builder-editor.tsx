@@ -408,10 +408,12 @@ function ConditionEditor({
               const nextOperator: Condition["operator"] =
                 nextType === "HOURS_AHEAD"
                   ? "LESS_THAN"
-                  : nextType === "DAYS_AHEAD" ||
-                      nextType === "PATIENT_AGE" ||
-                      nextType === "CONCURRENT_COUNT" ||
-                      nextType === "DAILY_CAPACITY"
+                  : [
+                        "CONCURRENT_COUNT",
+                        "DAILY_CAPACITY",
+                        "DAYS_AHEAD",
+                        "PATIENT_AGE",
+                      ].includes(nextType)
                     ? "GREATER_THAN_OR_EQUAL"
                     : "IS";
               onUpdate({
@@ -435,9 +437,9 @@ function ConditionEditor({
             </SelectContent>
           </Select>
 
-          {(condition.type === "APPOINTMENT_TYPE" ||
-            condition.type === "PRACTITIONER" ||
-            condition.type === "LOCATION") && (
+          {["APPOINTMENT_TYPE", "LOCATION", "PRACTITIONER"].includes(
+            condition.type,
+          ) && (
             <SimpleValueCondition
               appointmentTypes={appointmentTypes}
               condition={condition}

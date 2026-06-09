@@ -483,9 +483,9 @@ export default function BaseScheduleManagement({
         </div>
       </CardHeader>
       <CardContent>
-        {practitionersQuery === undefined ||
-        locationsQuery === undefined ||
-        schedulesQuery === undefined ? (
+        {[locationsQuery, practitionersQuery, schedulesQuery].includes(
+          undefined,
+        ) ? (
           <div className="text-center py-8 text-muted-foreground">
             Lade Arbeitszeiten...
           </div>

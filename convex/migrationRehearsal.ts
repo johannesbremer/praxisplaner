@@ -596,7 +596,7 @@ export const importBookingIdentityAssociations = mutation({
           q.eq("bookingIdentityId", bookingIdentity._id).eq("status", "active"),
         )
         .collect();
-      const existingAssociation = activeAssociations.find(
+      const existingAssociation = activeAssociations.some(
         (row) => row.patientId === patient._id,
       );
 
