@@ -26,6 +26,7 @@ function CallbackComponent() {
   );
   const navigate = useNavigate();
   const accessTokenUserIdRef = useRef<null | string>(null);
+  const convexAuthErrorLoggedUserIdRef = useRef<null | string>(null);
   const provisioningUserIdRef = useRef<null | string>(null);
   const [accessTokenReadyUserId, setAccessTokenReadyUserId] = useState<
     null | string
@@ -71,12 +72,45 @@ function CallbackComponent() {
       return;
     }
     const timeoutId = globalThis.setTimeout(() => {
+      logPreviewAuthCallback("timeout", {
+        accessTokenReady: accessTokenReadyUserId === userId,
+        convexAuthenticated: convexAuth.isAuthenticated,
+        convexLoading: convexAuth.isLoading,
+      });
       setCallbackTimedOutUserId(userId);
     }, CALLBACK_TIMEOUT_MS);
     return () => {
       globalThis.clearTimeout(timeoutId);
     };
-  }, [isLoading, userId]);
+  }, [
+    accessTokenReadyUserId,
+    convexAuth.isAuthenticated,
+    convexAuth.isLoading,
+    isLoading,
+    userId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !activeConvexAuthError ||
+      !userId ||
+      convexAuthErrorLoggedUserIdRef.current === userId
+    ) {
+      return;
+    }
+    convexAuthErrorLoggedUserIdRef.current = userId;
+    logPreviewAuthCallback("convex-auth:error", {
+      accessTokenReady: accessTokenReadyUserId === userId,
+      convexAuthenticated: convexAuth.isAuthenticated,
+      convexLoading: convexAuth.isLoading,
+    });
+  }, [
+    accessTokenReadyUserId,
+    activeConvexAuthError,
+    convexAuth.isAuthenticated,
+    convexAuth.isLoading,
+    userId,
+  ]);
 
   useEffect(() => {
     if (
@@ -89,12 +123,23 @@ function CallbackComponent() {
       return;
     }
     accessTokenUserIdRef.current = userId;
+    logPreviewAuthCallback("access-token:start", {
+      convexAuthenticated: convexAuth.isAuthenticated,
+      convexLoading: convexAuth.isLoading,
+    });
     getAccessToken()
       .then(() => {
+        logPreviewAuthCallback("access-token:success", {
+          convexAuthenticated: convexAuth.isAuthenticated,
+          convexLoading: convexAuth.isLoading,
+        });
         setAccessTokenReadyUserId(userId);
         setAccessTokenError(null);
       })
       .catch((error: unknown) => {
+        logPreviewAuthCallback("access-token:error", {
+          error: error instanceof Error ? error.message : "unknown",
+        });
         accessTokenUserIdRef.current = null;
         setAccessTokenReadyUserId(null);
         setAccessTokenError({
@@ -105,7 +150,15 @@ function CallbackComponent() {
           userId,
         });
       });
-  }, [activeAccessTokenError, getAccessToken, isLoading, user, userId]);
+  }, [
+    activeAccessTokenError,
+    convexAuth.isAuthenticated,
+    convexAuth.isLoading,
+    getAccessToken,
+    isLoading,
+    user,
+    userId,
+  ]);
 
   useEffect(() => {
     if (
@@ -124,11 +177,15 @@ function CallbackComponent() {
     if (convexAuth.isLoading) {
       return;
     }
+    logPreviewAuthCallback("provision:start", {
+      convexAuthenticated: convexAuth.isAuthenticated,
+    });
     provisioningUserIdRef.current = userId;
     provisionCurrentUser({
       workOSUserId: user.id,
     })
       .then(() => {
+        logPreviewAuthCallback("provision:success");
         const returnTo = consumeAuthReturnToPath();
         if (returnTo === BOOKING_PATH) {
           void navigate({ replace: true, to: "/buchung" });
@@ -137,6 +194,9 @@ function CallbackComponent() {
         globalThis.location.replace(returnTo);
       })
       .catch((error: unknown) => {
+        logPreviewAuthCallback("provision:error", {
+          error: error instanceof Error ? error.message : "unknown",
+        });
         provisioningUserIdRef.current = null;
         setProvisioningError({
           message:
@@ -216,4 +276,14 @@ function CallbackComponent() {
       </div>
     </div>
   );
+}
+
+function logPreviewAuthCallback(
+  event: string,
+  details: Record<string, boolean | string> = {},
+): void {
+  if (import.meta.env["VITE_VERCEL_ENV"] !== "preview") {
+    return;
+  }
+  console.info("[auth-callback]", event, details);
 }
