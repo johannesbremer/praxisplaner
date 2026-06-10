@@ -37,6 +37,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+import { isAuthBypassEnabled } from "../auth/auth-bypass";
 import {
   UndoRedoControlsProvider,
   useGlobalUndoRedoControls,
@@ -344,6 +345,7 @@ function RootLayout() {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
+  const isAuthenticatedForLayout = user !== null || isAuthBypassEnabled();
   const controls = useGlobalUndoRedoControls().match(
     (value) => value,
     (error) => {
@@ -467,7 +469,9 @@ function RootLayout() {
     };
   }, [alreadyHandledThisKeyEvent, controls, runHistoryAction]);
 
-  const showSignOut = user ? shouldShowRootSignOut(pathname) : false;
+  const showSignOut = isAuthenticatedForLayout
+    ? shouldShowRootSignOut(pathname)
+    : false;
 
   return (
     <div className="min-h-screen">

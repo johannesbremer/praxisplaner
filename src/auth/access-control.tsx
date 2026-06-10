@@ -19,6 +19,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+import { isAuthBypassEnabled } from "./auth-bypass";
 import {
   type DevAuthPersona,
   getDevAuthPersonaAccess,
@@ -244,20 +245,6 @@ function AuthorizedGate({
 
 function getAuthReturnToPath(): string {
   return `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
-}
-
-function isAuthBypassEnabled(): boolean {
-  if (import.meta.env.DEV) {
-    return true;
-  }
-
-  const bypassFlag = import.meta.env["VITE_AUTH_BYPASS_ENABLED"] === "true";
-  if (!bypassFlag) {
-    return false;
-  }
-
-  const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
-  return vercelEnv === "preview";
 }
 
 function isDevPersonaActive(persona: DevAuthPersona | undefined): boolean {

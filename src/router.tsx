@@ -25,6 +25,7 @@ import toast from "react-hot-toast";
 
 import type { FileRouteTypes } from "./routeTree.gen";
 
+import { isAuthBypassEnabled } from "./auth/auth-bypass";
 import { setAuthReturnToPath } from "./auth/auth-return-to";
 import {
   createDevAuthJwt,
@@ -379,32 +380,6 @@ function useBrowserPathname(): string {
   return pathname;
 }
 
-function useConvexQueryClient(): Result<ConvexQueryClient, FrontendError> {
-  const client = useContext(ConvexQueryClientContext);
-  return resultFromNullable(
-    client,
-    missingContextError("useConvexQueryClient", "ConvexQueryClientContext"),
-  );
-}
-
-/**
- * Adapts WorkOS AuthKit's useAuth hook for Convex's ConvexProviderWithAuth.
- * This is a proper adapter that matches Convex's expected interface.
- */
-function isAuthBypassEnabled(): boolean {
-  if (import.meta.env.DEV) {
-    return true;
-  }
-
-  const bypassFlag = import.meta.env["VITE_AUTH_BYPASS_ENABLED"] === "true";
-  if (!bypassFlag) {
-    return false;
-  }
-
-  const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
-  return vercelEnv === "preview";
-}
-
 function useConvexAuthFromWorkOS(pathname: string) {
   const { getAccessToken, isLoading, user } = useAuth();
 
@@ -434,5 +409,13 @@ function useConvexAuthFromWorkOS(pathname: string) {
       isLoading: isAuthBypassEnabled() ? false : isLoading,
     }),
     [isLoading, user, fetchAccessToken],
+  );
+}
+
+function useConvexQueryClient(): Result<ConvexQueryClient, FrontendError> {
+  const client = useContext(ConvexQueryClientContext);
+  return resultFromNullable(
+    client,
+    missingContextError("useConvexQueryClient", "ConvexQueryClientContext"),
   );
 }
