@@ -1,4 +1,4 @@
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 
 import type { Id } from "@/convex/_generated/dataModel";
 import type { DeDateString } from "@/lib/typed-regex";
@@ -6,6 +6,7 @@ import type { DeDateString } from "@/lib/typed-regex";
 import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
 
 import { formatJSDateDE, isTodayJS, parseJSDateDE } from "./date-utils";
+import { readOrganizationSlugParam } from "./organization-route-params";
 
 export const NEW_PATIENT_SEGMENT = "neu";
 export const EXISTING_PATIENT_SEGMENT = "bestand";
@@ -93,8 +94,13 @@ export function useRegelnUrl(options: {
   unsavedRuleSet?: null | { _id: Id<"ruleSets"> };
 }) {
   const navigate = useNavigate();
+  const organizationSlug = readOrganizationSlugParam(
+    useParams({
+      from: "/$organizationSlug/regeln",
+    }),
+  );
   const routeSearch: RegelnSearchParams = useSearch({
-    from: "/regeln",
+    from: "/$organizationSlug/regeln",
   });
 
   const currentRouteState = fromSearchParams(routeSearch);
@@ -118,10 +124,11 @@ export function useRegelnUrl(options: {
       return;
     }
     void navigate({
+      params: { organizationSlug },
       replace: false,
       resetScroll: false,
       search: nextSearch,
-      to: "/regeln",
+      to: "/$organizationSlug/regeln",
     });
   }
 

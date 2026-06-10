@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 
+import { toPracticeSlug } from "../lib/practice-slug";
 import { mutation, query } from "./_generated/server";
 import { isConvexAuthBypassEnabled } from "./authBypass";
 import { createInitialRuleSet } from "./copyOnWrite";
@@ -30,6 +31,7 @@ export const createPractice = mutation({
     const userId = await ensureAuthenticatedUserId(ctx);
     const practiceId = await ctx.db.insert("practices", {
       name: args.name,
+      slug: toPracticeSlug(args.name),
     });
 
     await ctx.db.insert("practiceMembers", {
@@ -62,6 +64,7 @@ export const getAllPractices = query({
       _id: Id<"practices">;
       currentActiveRuleSetId?: Id<"ruleSets">;
       name: string;
+      slug?: string;
       workOSOrganizationId?: string;
     }[] = [];
 
@@ -80,6 +83,7 @@ export const getAllPractices = query({
       _id: v.id("practices"),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
+      slug: v.optional(v.string()),
       workOSOrganizationId: v.optional(v.string()),
     }),
   ),
@@ -104,6 +108,7 @@ export const getBookingPractices = query({
       _id: v.id("practices"),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
+      slug: v.optional(v.string()),
       workOSOrganizationId: v.optional(v.string()),
     }),
   ),
@@ -126,6 +131,70 @@ export const getPractice = query({
       _id: v.id("practices"),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
+      slug: v.optional(v.string()),
+      workOSOrganizationId: v.optional(v.string()),
+    }),
+    v.null(),
+  ),
+});
+
+export const getAccessiblePracticeBySlug = query({
+  args: {
+    slug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const practiceIds = await getAccessiblePracticeIdsForQuery(ctx);
+    const practices = await Promise.all(
+      practiceIds.map((practiceId) => ctx.db.get("practices", practiceId)),
+    );
+    return (
+      practices.find(
+        (practice) =>
+          practice &&
+          (practice.slug ?? toPracticeSlug(practice.name)) === args.slug,
+      ) ?? null
+    );
+  },
+  returns: v.union(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("practices"),
+      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
+      name: v.string(),
+      slug: v.optional(v.string()),
+      workOSOrganizationId: v.optional(v.string()),
+    }),
+    v.null(),
+  ),
+});
+
+export const getBookingPracticeBySlug = query({
+  args: {
+    slug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireAuthenticatedUserIdForQuery(ctx);
+    const practice = await ctx.db
+      .query("practices")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .unique();
+    if (practice) {
+      return practice;
+    }
+    const practices = await ctx.db.query("practices").collect();
+    return (
+      practices.find(
+        (candidate) => toPracticeSlug(candidate.name) === args.slug,
+      ) ?? null
+    );
+  },
+  returns: v.union(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("practices"),
+      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
+      name: v.string(),
+      slug: v.optional(v.string()),
       workOSOrganizationId: v.optional(v.string()),
     }),
     v.null(),
@@ -274,6 +343,7 @@ export const initializeDefaultPractice = mutation({
 
     const practiceId = await ctx.db.insert("practices", {
       name: "Standardpraxis",
+      slug: toPracticeSlug("Standardpraxis"),
     });
 
     await ctx.db.insert("practiceMembers", {

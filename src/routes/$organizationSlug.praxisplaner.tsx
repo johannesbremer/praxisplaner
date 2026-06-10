@@ -1,4 +1,4 @@
-// src/routes/praxisplaner.tsx
+// src/routes/$organizationSlug.praxisplaner.tsx
 
 import { useConvexMutation } from "@convex-dev/react-query";
 import {
@@ -61,6 +61,7 @@ import {
   useErrorTracking,
 } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
+import { readOrganizationSlugParam } from "../utils/organization-route-params";
 import {
   NERDS_TAB_SEARCH_VALUE,
   normalizePraxisplanerSearch,
@@ -135,7 +136,7 @@ const buildSearchFromState = (
   return result;
 };
 
-export const Route = createFileRoute("/praxisplaner")({
+export const Route = createFileRoute("/$organizationSlug/praxisplaner")({
   component: PraxisPlanerRoute,
   validateSearch: normalizePraxisplanerSearch,
 });
@@ -162,6 +163,7 @@ const getPermissionBadgeVariant = (permission: PermissionStatus) => {
 };
 
 function PraxisPlanerComponent() {
+  const organizationSlug = readOrganizationSlugParam(Route.useParams());
   const navigate = useNavigate({ from: Route.fullPath });
   const search: PraxisplanerSearchParams = Route.useSearch();
   const dateParam = search.datum;
@@ -169,9 +171,10 @@ function PraxisPlanerComponent() {
   const standortParam = search.standort;
 
   // Query practices to get practiceId for patient mutations
-  const practicesQuery = useQuery(api.practices.getAllPractices, {});
-  const currentPractice = practicesQuery?.[0];
-  const isPracticesLoading = practicesQuery === undefined;
+  const currentPractice = useQuery(api.practices.getAccessiblePracticeBySlug, {
+    slug: organizationSlug,
+  });
+  const isPracticesLoading = currentPractice === undefined;
 
   // Query active rule set for the practice
   const activeRuleSet = useQuery(

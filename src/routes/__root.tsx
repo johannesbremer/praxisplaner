@@ -12,6 +12,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
+import { useQuery } from "convex/react";
 import {
   CalendarPlus,
   Clock,
@@ -37,6 +38,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+import { api } from "../../convex/_generated/api";
+import { toPracticeSlug } from "../../lib/practice-slug";
 import { isAuthBypassEnabled } from "../auth/auth-bypass";
 import {
   UndoRedoControlsProvider,
@@ -217,6 +220,12 @@ export const Route = createRootRouteWithContext<{
 });
 
 export function PraxisplanerHomePageContent() {
+  const practices = useQuery(api.practices.getAllPractices, {});
+  const practice = practices?.[0];
+  const organizationSlug = practice
+    ? (practice.slug ?? toPracticeSlug(practice.name))
+    : undefined;
+
   return (
     <div className="container mx-auto p-6">
       <div className="mb-8">
@@ -227,7 +236,10 @@ export function PraxisplanerHomePageContent() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <Link to="/regeln">
+        <Link
+          params={organizationSlug ? { organizationSlug } : undefined}
+          to={organizationSlug ? "/$organizationSlug/regeln" : "/account"}
+        >
           <Card className="hover:shadow-lg transition-shadow cursor-pointer">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -247,7 +259,10 @@ export function PraxisplanerHomePageContent() {
           </Card>
         </Link>
 
-        <Link to="/praxisplaner">
+        <Link
+          params={organizationSlug ? { organizationSlug } : undefined}
+          to={organizationSlug ? "/$organizationSlug/praxisplaner" : "/account"}
+        >
           <Card className="hover:shadow-lg transition-shadow cursor-pointer">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -264,7 +279,10 @@ export function PraxisplanerHomePageContent() {
           </Card>
         </Link>
 
-        <Link to="/buchung">
+        <Link
+          params={organizationSlug ? { organizationSlug } : undefined}
+          to={organizationSlug ? "/$organizationSlug" : "/account"}
+        >
           <Card className="hover:shadow-lg transition-shadow cursor-pointer">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

@@ -322,20 +322,14 @@ function navigateToReturnPath(
       void navigate({ replace: true, to: fullPath });
       return;
     }
-    case "/buchung": {
-      void navigate({ replace: true, to: fullPath });
-      return;
-    }
-    case "/praxisplaner": {
-      void navigate({ replace: true, to: fullPath });
-      return;
-    }
-    case "/regeln": {
-      void navigate({ replace: true, to: fullPath });
-      return;
-    }
     default: {
-      if (returnUrl.pathname.startsWith("/praxisplaner/")) {
+      const segments = returnUrl.pathname.split("/").filter(Boolean);
+      if (
+        segments.length === 1 ||
+        (segments.length === 2 &&
+          (segments[1] === "praxisplaner" || segments[1] === "regeln")) ||
+        (segments.length >= 3 && segments[1] === "praxisplaner")
+      ) {
         void navigate({ replace: true, to: fullPath });
         return;
       }

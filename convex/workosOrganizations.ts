@@ -6,6 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { DataModel } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
+import { toPracticeSlug } from "../lib/practice-slug";
 import { internal } from "./_generated/api";
 import {
   action,
@@ -203,6 +204,7 @@ export const createPracticeForWorkOSOrganization = internalMutation({
 
     const practiceId = await ctx.db.insert("practices", {
       name: args.name,
+      slug: toPracticeSlug(args.name),
       workOSOrganizationId: args.organizationId,
     });
     await upsertPracticeMembership(ctx, {
