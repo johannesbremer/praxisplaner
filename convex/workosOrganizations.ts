@@ -7,7 +7,12 @@ import type { DataModel } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
 import { internal } from "./_generated/api";
-import { action, internalMutation, internalQuery } from "./_generated/server";
+import {
+  action,
+  type ActionCtx,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
 import { createInitialRuleSet } from "./copyOnWrite";
 import { type PracticeRole, practiceRoleValidator } from "./practiceAccess";
 
@@ -131,6 +136,17 @@ export const getUsersManagementWidgetToken = action({
   },
   handler: async (ctx, args): Promise<string> => {
     const identity = await requireActionIdentity(ctx);
+    await requireKnownWorkOSOrganization(ctx, args.organizationId);
+    const membership = await loadActiveWorkOSOrganizationMembership({
+      organizationId: args.organizationId,
+      userId: identity.subject,
+    });
+    if (!membership || !canManageWorkOSOrganizationUsers(membership)) {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "WorkOS organization admin or owner role required",
+      });
+    }
     const token = await createWorkOSWidgetToken({
       organizationId: args.organizationId,
       scopes: ["widgets:users-table:manage"],
@@ -226,6 +242,20 @@ export const getPracticeIdByName = internalQuery({
   returns: v.union(v.id("practices"), v.null()),
 });
 
+export const hasPracticeForWorkOSOrganization = internalQuery({
+  args: {
+    organizationId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const practice = await findPracticeByWorkOSOrganizationId(
+      ctx.db,
+      args.organizationId,
+    );
+    return practice !== null;
+  },
+  returns: v.boolean(),
+});
+
 export const removePracticeMemberByWorkOSOrganization = internalMutation({
   args: {
     organizationId: v.string(),
@@ -278,6 +308,16 @@ export const upsertPracticeMemberByWorkOSOrganization = internalMutation({
   },
   returns: v.union(v.id("practiceMembers"), v.null()),
 });
+
+export function canManageWorkOSOrganizationUsers(
+  membership: Pick<WorkOSOrganizationMembership, "roleSlugs" | "status">,
+): boolean {
+  return (
+    membership.status === "active" &&
+    (hasWorkOSRoleSlug(membership.roleSlugs, "admin") ||
+      hasWorkOSRoleSlug(membership.roleSlugs, "owner"))
+  );
+}
 
 export function getWorkOSOrganizationMembershipRoleSlugs(
   membership: Record<string, unknown>,
@@ -602,6 +642,22 @@ async function requireActionIdentity(ctx: {
     });
   }
   return identity;
+}
+
+async function requireKnownWorkOSOrganization(
+  ctx: ActionCtx,
+  organizationId: string,
+): Promise<void> {
+  const exists = await ctx.runQuery(
+    internal.workosOrganizations.hasPracticeForWorkOSOrganization,
+    { organizationId },
+  );
+  if (!exists) {
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "Organization is not managed by this application",
+    });
+  }
 }
 
 async function requireUserByAuthId(

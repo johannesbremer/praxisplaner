@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import { internal } from "../_generated/api";
 import schema from "../schema";
 import {
+  canManageWorkOSOrganizationUsers,
   getWorkOSOrganizationMembershipRoleSlugs,
   mapWorkOSRoleSlugsToPracticeRole,
 } from "../workosOrganizations";
@@ -51,6 +52,33 @@ describe("WorkOS AuthKit user sync", () => {
     ).toEqual(["admin", "owner", "staff"]);
     expect(mapWorkOSRoleSlugsToPracticeRole(["org:owner"])).toBe("owner");
     expect(mapWorkOSRoleSlugsToPracticeRole(["org:admin"])).toBe("admin");
+  });
+
+  test("limits user-management widget tokens to active WorkOS admins and owners", () => {
+    expect(
+      canManageWorkOSOrganizationUsers({
+        roleSlugs: ["staff"],
+        status: "active",
+      }),
+    ).toBe(false);
+    expect(
+      canManageWorkOSOrganizationUsers({
+        roleSlugs: ["admin"],
+        status: "active",
+      }),
+    ).toBe(true);
+    expect(
+      canManageWorkOSOrganizationUsers({
+        roleSlugs: ["org:owner"],
+        status: "active",
+      }),
+    ).toBe(true);
+    expect(
+      canManageWorkOSOrganizationUsers({
+        roleSlugs: ["owner"],
+        status: "inactive",
+      }),
+    ).toBe(false);
   });
 
   test("user.created inserts an app user", async () => {
