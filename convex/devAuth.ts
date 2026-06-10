@@ -6,7 +6,7 @@ import { mutation, type MutationCtx } from "./_generated/server";
 import { isConvexAuthBypassEnabled } from "./authBypass";
 import { createInitialRuleSet } from "./copyOnWrite";
 
-const DEV_AUTH_USERS = [
+export const DEV_AUTH_USERS = [
   {
     authId: "dev-patient",
     email: "patient@preview.test",
@@ -26,6 +26,13 @@ const DEV_AUTH_USERS = [
     firstName: "Preview",
     lastName: "Admin",
     role: "admin",
+  },
+  {
+    authId: "dev-owner",
+    email: "owner@preview.test",
+    firstName: "Preview",
+    lastName: "Owner",
+    role: "owner",
   },
 ] as const;
 

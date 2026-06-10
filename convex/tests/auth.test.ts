@@ -2,6 +2,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { internal } from "../_generated/api";
+import { DEV_AUTH_USERS } from "../devAuth";
 import schema from "../schema";
 import {
   canManageWorkOSOrganizationUsers,
@@ -43,6 +44,16 @@ async function runUserEvent(
 }
 
 describe("WorkOS AuthKit user sync", () => {
+  test("seeds the owner dev persona used by account auth bypass", () => {
+    expect(DEV_AUTH_USERS).toContainEqual({
+      authId: "dev-owner",
+      email: "owner@preview.test",
+      firstName: "Preview",
+      lastName: "Owner",
+      role: "owner",
+    });
+  });
+
   test("reads membership role objects from WorkOS payloads", () => {
     expect(
       getWorkOSOrganizationMembershipRoleSlugs({
