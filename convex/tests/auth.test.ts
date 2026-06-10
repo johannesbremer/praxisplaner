@@ -54,7 +54,7 @@ describe("WorkOS AuthKit user sync", () => {
     expect(mapWorkOSRoleSlugsToPracticeRole(["org:admin"])).toBe("admin");
   });
 
-  test("limits user-management widget tokens to active WorkOS admins and owners", () => {
+  test("limits user-management widget tokens to active WorkOS owners", () => {
     expect(
       canManageWorkOSOrganizationUsers({
         roleSlugs: ["staff"],
@@ -66,7 +66,7 @@ describe("WorkOS AuthKit user sync", () => {
         roleSlugs: ["admin"],
         status: "active",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       canManageWorkOSOrganizationUsers({
         roleSlugs: ["org:owner"],
