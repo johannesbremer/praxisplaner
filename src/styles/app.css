@@ -1,4 +1,6 @@
 @import "tailwindcss/index.css";
+@import "@radix-ui/themes/styles.css";
+@import "@workos-inc/widgets/styles.css";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));

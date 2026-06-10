@@ -19,10 +19,13 @@ const CALLBACK_TIMEOUT_MESSAGE =
   "Anmeldung konnte nicht innerhalb von 15 Sekunden abgeschlossen werden. Bitte prüfen Sie die WorkOS-Tokenausgabe und Convex-Authentifizierung für diese Preview.";
 
 function CallbackComponent() {
-  const { getAccessToken, isLoading, signIn, user } = useAuth();
+  const { getAccessToken, isLoading, organizationId, signIn, user } = useAuth();
   const convexAuth = useConvexAuth();
   const provisionCurrentUser = useAction(
     api.users.provisionCurrentUserFromAuthIdentity,
+  );
+  const syncCurrentOrganizationMembership = useAction(
+    api.workosOrganizations.syncCurrentUserOrganizationMembership,
   );
   const navigate = useNavigate();
   const accessTokenUserIdRef = useRef<null | string>(null);
@@ -195,6 +198,11 @@ function CallbackComponent() {
     })
       .then(() => {
         logPreviewAuthCallback("provision:success");
+        return organizationId
+          ? syncCurrentOrganizationMembership({ organizationId })
+          : null;
+      })
+      .then(() => {
         const returnTo = consumeAuthReturnToPath();
         navigateToReturnPath(navigate, returnTo);
       })
@@ -221,7 +229,9 @@ function CallbackComponent() {
     convexAuth.isLoading,
     isLoading,
     navigate,
+    organizationId,
     provisionCurrentUser,
+    syncCurrentOrganizationMembership,
     user,
     userId,
   ]);
@@ -308,6 +318,10 @@ function navigateToReturnPath(
 
   const fullPath = `${returnUrl.pathname}${returnUrl.search}${returnUrl.hash}`;
   switch (returnUrl.pathname) {
+    case "/account": {
+      void navigate({ replace: true, to: fullPath });
+      return;
+    }
     case "/buchung": {
       void navigate({ replace: true, to: fullPath });
       return;

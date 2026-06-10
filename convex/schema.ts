@@ -863,7 +863,10 @@ export default defineSchema({
   practices: defineTable({
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
     name: v.string(),
-  }),
+    workOSOrganizationId: v.optional(v.string()),
+  })
+    .index("by_name", ["name"])
+    .index("by_workOSOrganizationId", ["workOSOrganizationId"]),
 
   practitionerAssociations: defineTable({
     bookingIdentityId: v.optional(v.id("bookingIdentities")),

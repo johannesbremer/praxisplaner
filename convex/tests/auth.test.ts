@@ -3,6 +3,11 @@ import { describe, expect, test } from "vitest";
 
 import { internal } from "../_generated/api";
 import schema from "../schema";
+import {
+  canManageWorkOSOrganizationUsers,
+  getWorkOSOrganizationMembershipRoleSlugs,
+  mapWorkOSRoleSlugsToPracticeRole,
+} from "../workosOrganizations";
 import { modules } from "./test.setup";
 
 function createTestContext() {
@@ -38,6 +43,44 @@ async function runUserEvent(
 }
 
 describe("WorkOS AuthKit user sync", () => {
+  test("reads membership role objects from WorkOS payloads", () => {
+    expect(
+      getWorkOSOrganizationMembershipRoleSlugs({
+        role: { slug: "admin" },
+        roles: [{ slug: "owner" }, { slug: "staff" }, { slug: 123 }],
+      }),
+    ).toEqual(["admin", "owner", "staff"]);
+    expect(mapWorkOSRoleSlugsToPracticeRole(["org:owner"])).toBe("owner");
+    expect(mapWorkOSRoleSlugsToPracticeRole(["org:admin"])).toBe("admin");
+  });
+
+  test("limits user-management widget tokens to active WorkOS admins and owners", () => {
+    expect(
+      canManageWorkOSOrganizationUsers({
+        roleSlugs: ["staff"],
+        status: "active",
+      }),
+    ).toBe(false);
+    expect(
+      canManageWorkOSOrganizationUsers({
+        roleSlugs: ["admin"],
+        status: "active",
+      }),
+    ).toBe(true);
+    expect(
+      canManageWorkOSOrganizationUsers({
+        roleSlugs: ["org:owner"],
+        status: "active",
+      }),
+    ).toBe(true);
+    expect(
+      canManageWorkOSOrganizationUsers({
+        roleSlugs: ["owner"],
+        status: "inactive",
+      }),
+    ).toBe(false);
+  });
+
   test("user.created inserts an app user", async () => {
     const t = createTestContext();
 
@@ -121,5 +164,91 @@ describe("WorkOS AuthKit user sync", () => {
     });
 
     await expect(getUsersByAuthId(t, "user_deleted")).resolves.toEqual([]);
+  });
+
+  test("organization membership events sync practice member roles", async () => {
+    const t = createTestContext();
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        authId: "user_org_member",
+        createdAt: BigInt(Date.now()),
+        email: "org-member@example.com",
+      });
+    });
+    const practiceId = await t.run(async (ctx) => {
+      return await ctx.db.insert("practices", {
+        name: "WorkOS Practice",
+        workOSOrganizationId: "org_member_sync",
+      });
+    });
+
+    await t.mutation(internal.auth.authKitEvent, {
+      data: {
+        id: "om_member_sync",
+        object: "organization_membership",
+        organization_id: "org_member_sync",
+        role: { slug: "admin" },
+        status: "active",
+        user_id: "user_org_member",
+      },
+      event: "organization_membership.created",
+    });
+
+    await expect(
+      t.run(async (ctx) => {
+        return await ctx.db
+          .query("practiceMembers")
+          .withIndex("by_practiceId_userId", (q) =>
+            q.eq("practiceId", practiceId).eq("userId", userId),
+          )
+          .first();
+      }),
+    ).resolves.toMatchObject({ role: "admin" });
+
+    await t.mutation(internal.auth.authKitEvent, {
+      data: {
+        id: "om_member_sync",
+        object: "organization_membership",
+        organization_id: "org_member_sync",
+        roles: [{ slug: "staff" }],
+        status: "active",
+        user_id: "user_org_member",
+      },
+      event: "organization_membership.updated",
+    });
+
+    await expect(
+      t.run(async (ctx) => {
+        return await ctx.db
+          .query("practiceMembers")
+          .withIndex("by_practiceId_userId", (q) =>
+            q.eq("practiceId", practiceId).eq("userId", userId),
+          )
+          .first();
+      }),
+    ).resolves.toMatchObject({ role: "staff" });
+
+    await t.mutation(internal.auth.authKitEvent, {
+      data: {
+        id: "om_member_sync",
+        object: "organization_membership",
+        organization_id: "org_member_sync",
+        role: { slug: "staff" },
+        status: "inactive",
+        user_id: "user_org_member",
+      },
+      event: "organization_membership.updated",
+    });
+
+    await expect(
+      t.run(async (ctx) => {
+        return await ctx.db
+          .query("practiceMembers")
+          .withIndex("by_practiceId_userId", (q) =>
+            q.eq("practiceId", practiceId).eq("userId", userId),
+          )
+          .first();
+      }),
+    ).resolves.toBeNull();
   });
 });

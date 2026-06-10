@@ -10,7 +10,14 @@ import {
   Outlet,
   Scripts,
 } from "@tanstack/react-router";
-import { CalendarPlus, Clock, Redo2, Settings, Undo2 } from "lucide-react";
+import {
+  CalendarPlus,
+  Clock,
+  Redo2,
+  Settings,
+  Undo2,
+  UserRoundCog,
+} from "lucide-react";
 import { PostHogProvider } from "posthog-js/react";
 import * as React from "react";
 import { useEffect } from "react";
@@ -266,6 +273,26 @@ export function PraxisplanerHomePageContent() {
               <p className="text-sm text-muted-foreground">
                 Patientenportal für die Online-Terminbuchung mit
                 Anamnese-Fragebogen
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link to="/account">
+          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserRoundCog className="h-5 w-5" />
+                Konto & Team
+              </CardTitle>
+              <CardDescription>
+                Organisation und Benutzer verwalten
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Praxisorganisation wechseln, Teammitglieder einladen und Rollen
+                verwalten
               </p>
             </CardContent>
           </Card>
