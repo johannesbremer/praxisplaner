@@ -30,7 +30,6 @@ import {
   createDevAuthJwt,
   getDevAuthPersonaForPath,
 } from "./auth/dev-auth-jwt";
-import { getConfiguredWorkOSOrganizationId } from "./auth/workos-organization";
 import { routeTree } from "./routeTree.gen";
 import { captureErrorGlobal } from "./utils/error-tracking";
 import {
@@ -406,15 +405,8 @@ function isAuthBypassEnabled(): boolean {
   return vercelEnv === "preview";
 }
 
-function isWorkOSOrganizationScopedPath(pathname: string): boolean {
-  return pathname.startsWith("/praxisplaner") || pathname.startsWith("/regeln");
-}
-
 function useConvexAuthFromWorkOS(pathname: string) {
-  const { getAccessToken, isLoading, organizationId, user } = useAuth();
-  const configuredOrganizationId = isWorkOSOrganizationScopedPath(pathname)
-    ? getConfiguredWorkOSOrganizationId()
-    : undefined;
+  const { getAccessToken, isLoading, user } = useAuth();
 
   const fetchAccessToken = useCallback(async (): Promise<null | string> => {
     if (isAuthBypassEnabled()) {
@@ -426,12 +418,6 @@ function useConvexAuthFromWorkOS(pathname: string) {
     if (!user) {
       return null;
     }
-    if (
-      configuredOrganizationId &&
-      organizationId !== configuredOrganizationId
-    ) {
-      return null;
-    }
     try {
       const token = await getAccessToken();
       return token || null;
@@ -439,14 +425,7 @@ function useConvexAuthFromWorkOS(pathname: string) {
       console.error("Error fetching access token:", error);
       return null;
     }
-  }, [
-    configuredOrganizationId,
-    getAccessToken,
-    isLoading,
-    organizationId,
-    pathname,
-    user,
-  ]);
+  }, [getAccessToken, isLoading, pathname, user]);
 
   return useMemo(
     () => ({
