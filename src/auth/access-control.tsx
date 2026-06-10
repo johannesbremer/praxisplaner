@@ -27,11 +27,10 @@ import {
 
 const STAFF_ROLES = ["staff", "admin", "owner"] as const;
 const PRAXISMANAGER_ROLES = ["admin", "owner"] as const;
-const ACCOUNT_MANAGER_ROLES = ["admin", "owner"] as const;
+const ACCOUNT_MANAGER_ROLES = ["owner"] as const;
 
 const STAFF_PERMISSIONS = ["praxisplaner:read"] as const;
 const PRAXISMANAGER_PERMISSIONS = ["regeln:read"] as const;
-const ACCOUNT_MANAGER_PERMISSIONS = ["account:manage"] as const;
 
 interface AccessRequirement {
   permissions: readonly string[];
@@ -49,7 +48,7 @@ const PRAXISMANAGER_ACCESS = {
 } satisfies AccessRequirement;
 
 const ACCOUNT_MANAGER_ACCESS = {
-  permissions: ACCOUNT_MANAGER_PERMISSIONS,
+  permissions: [],
   roles: ACCOUNT_MANAGER_ROLES,
 } satisfies AccessRequirement;
 
@@ -58,10 +57,22 @@ export function AccountAuthGate({
 }: {
   children: ReactNode;
 }): ReactElement {
+  const { permissions, role, roles } = useAuth();
+  const access = isAuthBypassEnabled()
+    ? getDevAuthPersonaAccess("owner")
+    : { permissions, role, roles };
+
   return (
-    <AuthorizedGate devPersona="admin" requirement={ACCOUNT_MANAGER_ACCESS}>
-      {children}
-    </AuthorizedGate>
+    <AuthenticatedGate devPersona="owner">
+      {hasRequiredAccess({
+        ...access,
+        requirement: ACCOUNT_MANAGER_ACCESS,
+      }) || isUnaffiliatedAccountAccess(access) ? (
+        children
+      ) : (
+        <UnauthorizedScreen />
+      )}
+    </AuthenticatedGate>
   );
 }
 
@@ -86,6 +97,20 @@ export function hasRequiredAccess({
 
   const roleSet = new Set([...(roles ?? []), ...(role ? [role] : [])]);
   return requirement.roles.some((requiredRole) => roleSet.has(requiredRole));
+}
+
+export function isUnaffiliatedAccountAccess({
+  permissions,
+  role,
+  roles,
+}: {
+  permissions: readonly string[];
+  role: null | string;
+  roles: null | readonly string[];
+}): boolean {
+  return (
+    role === null && (roles?.length ?? 0) === 0 && permissions.length === 0
+  );
 }
 
 export function PatientAuthGate({
