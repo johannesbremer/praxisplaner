@@ -82,8 +82,8 @@ require_real_auth_env() {
 }
 
 if [ "${VERCEL_ENV:-}" = "preview" ]; then
-  # Keep preview deployments aligned with production auth so WorkOS RBAC is
-  # exercised before merge.
+  # TEMP PREVIEW AUTH TEST: keep this block aligned with production auth so
+  # preview deployments exercise WorkOS RBAC. Revert before merging.
   require_real_auth_env
 
   preview_name="$(printf '%s' "${VERCEL_GIT_COMMIT_REF:-preview}" | tr '/' '-')"
