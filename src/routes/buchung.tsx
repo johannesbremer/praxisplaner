@@ -457,7 +457,6 @@ function BookingPage() {
  * This separation ensures Convex hooks are only called when the user is authenticated.
  */
 function AuthenticatedBookingFlow() {
-  const { signOut } = useAuth();
   const [bookedAppointmentRefreshNonce, setBookedAppointmentRefreshNonce] =
     useState(0);
   const [sessionError, setSessionError] = useState<null | string>(null);
@@ -643,29 +642,6 @@ function AuthenticatedBookingFlow() {
     );
   }, [activeRuleSetSession, displayStepOverride, goBackToStep]);
 
-  const handleSignOut = useCallback(() => {
-    void wrapAsyncResult(
-      () => {
-        signOut();
-      },
-      (error) =>
-        frontendErrorFromUnknown(error, {
-          kind: "unknown",
-          message: "Abmeldung fehlgeschlagen.",
-          source: "BookingPage.handleSignOut",
-        }),
-    ).match(
-      () => void 0,
-      (error) => {
-        captureFrontendError(error, {
-          context: "BookingPage.handleSignOut",
-        });
-        toast.error("Abmeldung fehlgeschlagen", {
-          description: error.message || "Bitte versuchen Sie es erneut.",
-        });
-      },
-    );
-  }, [signOut]);
   const effectiveDisplayStepOverride =
     (bookedAppointments !== undefined && bookedAppointments.length > 0) ||
     (displayStepOverride !== null &&
@@ -1013,9 +989,6 @@ function AuthenticatedBookingFlow() {
                   </div>
                 ))}
               </div>
-              <Button onClick={handleSignOut} size="sm" variant="outline">
-                Abmelden
-              </Button>
             </div>
           </div>
         </div>

@@ -11,7 +11,7 @@ export const Route = createFileRoute("/callback")({
   component: CallbackComponent,
 });
 
-const BOOKING_PATH = "/buchung";
+const DEFAULT_RETURN_PATH = "/";
 const CALLBACK_TIMEOUT_MS = 15_000;
 const CONVEX_AUTH_FAILED_MESSAGE =
   "Anmeldung bei Convex konnte nicht abgeschlossen werden. Bitte prüfen Sie die WorkOS Client-ID und Convex Auth-Konfiguration für diese Umgebung.";
@@ -312,7 +312,7 @@ function navigateToReturnPath(
 ): void {
   const returnUrl = getSameOriginReturnUrl(returnTo);
   if (!returnUrl) {
-    void navigate({ replace: true, to: BOOKING_PATH });
+    void navigate({ replace: true, to: DEFAULT_RETURN_PATH });
     return;
   }
 
@@ -339,7 +339,7 @@ function navigateToReturnPath(
         void navigate({ replace: true, to: fullPath });
         return;
       }
-      void navigate({ replace: true, to: BOOKING_PATH });
+      void navigate({ replace: true, to: DEFAULT_RETURN_PATH });
     }
   }
 }

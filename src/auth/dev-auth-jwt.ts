@@ -13,6 +13,13 @@ const DEV_PERSONAS = {
     roles: ["admin"],
     subject: "dev-admin",
   },
+  owner: {
+    email: "owner@preview.test",
+    permissions: ["regeln:read", "praxisplaner:read"],
+    role: "owner",
+    roles: ["owner"],
+    subject: "dev-owner",
+  },
   patient: {
     email: "patient@preview.test",
     permissions: [],
@@ -79,6 +86,9 @@ export function getDevAuthPersonaAccess(persona: DevAuthPersona): {
 }
 
 export function getDevAuthPersonaForPath(pathname: string): DevAuthPersona {
+  if (pathname.startsWith("/account")) {
+    return "owner";
+  }
   if (pathname.startsWith("/regeln")) {
     return "admin";
   }

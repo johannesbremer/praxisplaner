@@ -144,7 +144,7 @@ export const getUsersManagementWidgetToken = action({
     if (!membership || !canManageWorkOSOrganizationUsers(membership)) {
       throw new ConvexError({
         code: "FORBIDDEN",
-        message: "WorkOS organization admin or owner role required",
+        message: "WorkOS organization owner role required",
       });
     }
     const token = await createWorkOSWidgetToken({
@@ -314,8 +314,7 @@ export function canManageWorkOSOrganizationUsers(
 ): boolean {
   return (
     membership.status === "active" &&
-    (hasWorkOSRoleSlug(membership.roleSlugs, "admin") ||
-      hasWorkOSRoleSlug(membership.roleSlugs, "owner"))
+    hasWorkOSRoleSlug(membership.roleSlugs, "owner")
   );
 }
 

@@ -19,6 +19,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+import { isAuthBypassEnabled } from "./auth-bypass";
 import {
   type DevAuthPersona,
   getDevAuthPersonaAccess,
@@ -27,6 +28,7 @@ import {
 
 const STAFF_ROLES = ["staff", "admin", "owner"] as const;
 const PRAXISMANAGER_ROLES = ["admin", "owner"] as const;
+const ACCOUNT_MANAGER_ROLES = ["owner"] as const;
 
 const STAFF_PERMISSIONS = ["praxisplaner:read"] as const;
 const PRAXISMANAGER_PERMISSIONS = ["regeln:read"] as const;
@@ -45,6 +47,35 @@ const PRAXISMANAGER_ACCESS = {
   permissions: PRAXISMANAGER_PERMISSIONS,
   roles: PRAXISMANAGER_ROLES,
 } satisfies AccessRequirement;
+
+const ACCOUNT_MANAGER_ACCESS = {
+  permissions: [],
+  roles: ACCOUNT_MANAGER_ROLES,
+} satisfies AccessRequirement;
+
+export function AccountAuthGate({
+  children,
+}: {
+  children: ReactNode;
+}): ReactElement {
+  const { permissions, role, roles } = useAuth();
+  const access = isAuthBypassEnabled()
+    ? getDevAuthPersonaAccess("owner")
+    : { permissions, role, roles };
+
+  return (
+    <AuthenticatedGate devPersona="owner">
+      {hasRequiredAccess({
+        ...access,
+        requirement: ACCOUNT_MANAGER_ACCESS,
+      }) || isUnaffiliatedAccountAccess(access) ? (
+        children
+      ) : (
+        <UnauthorizedScreen />
+      )}
+    </AuthenticatedGate>
+  );
+}
 
 export function hasRequiredAccess({
   permissions,
@@ -67,6 +98,20 @@ export function hasRequiredAccess({
 
   const roleSet = new Set([...(roles ?? []), ...(role ? [role] : [])]);
   return requirement.roles.some((requiredRole) => roleSet.has(requiredRole));
+}
+
+export function isUnaffiliatedAccountAccess({
+  permissions,
+  role,
+  roles,
+}: {
+  permissions: readonly string[];
+  role: null | string;
+  roles: null | readonly string[];
+}): boolean {
+  return (
+    role === null && (roles?.length ?? 0) === 0 && permissions.length === 0
+  );
 }
 
 export function PatientAuthGate({
@@ -200,20 +245,6 @@ function AuthorizedGate({
 
 function getAuthReturnToPath(): string {
   return `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
-}
-
-function isAuthBypassEnabled(): boolean {
-  if (import.meta.env.DEV) {
-    return true;
-  }
-
-  const bypassFlag = import.meta.env["VITE_AUTH_BYPASS_ENABLED"] === "true";
-  if (!bypassFlag) {
-    return false;
-  }
-
-  const vercelEnv = import.meta.env["VITE_VERCEL_ENV"] as string | undefined;
-  return vercelEnv === "preview";
 }
 
 function isDevPersonaActive(persona: DevAuthPersona | undefined): boolean {
