@@ -9,10 +9,13 @@ import {
   Link, // This is TanStack Router's Link
   Outlet,
   Scripts,
+  useRouterState,
 } from "@tanstack/react-router";
+import { useAuth } from "@workos-inc/authkit-react";
 import {
   CalendarPlus,
   Clock,
+  LogOut,
   Redo2,
   Settings,
   Undo2,
@@ -337,6 +340,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 }
 
 function RootLayout() {
+  const { signOut, user } = useAuth();
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   const controls = useGlobalUndoRedoControls().match(
     (value) => value,
     (error) => {
@@ -460,8 +467,24 @@ function RootLayout() {
     };
   }, [alreadyHandledThisKeyEvent, controls, runHistoryAction]);
 
+  const showSignOut = user ? shouldShowRootSignOut(pathname) : false;
+
   return (
     <div className="min-h-screen">
+      {showSignOut ? (
+        <div className="fixed right-4 top-4 z-[60]">
+          <Button
+            onClick={() => {
+              signOut();
+            }}
+            size="sm"
+            variant="outline"
+          >
+            <LogOut className="h-4 w-4" />
+            <span className="ml-2">Abmelden</span>
+          </Button>
+        </div>
+      ) : null}
       <div className="fixed bottom-4 right-4 z-[60] flex items-center gap-2">
         {controls ? (
           <>
@@ -499,5 +522,16 @@ function RootLayout() {
       </div>
       <Outlet />
     </div>
+  );
+}
+
+function shouldShowRootSignOut(pathname: string): boolean {
+  return (
+    pathname === "/" ||
+    pathname === "/account" ||
+    pathname === "/buchung" ||
+    pathname === "/regeln" ||
+    pathname === "/praxisplaner" ||
+    pathname.startsWith("/praxisplaner/")
   );
 }

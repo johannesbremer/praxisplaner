@@ -27,9 +27,11 @@ import {
 
 const STAFF_ROLES = ["staff", "admin", "owner"] as const;
 const PRAXISMANAGER_ROLES = ["admin", "owner"] as const;
+const ACCOUNT_MANAGER_ROLES = ["admin", "owner"] as const;
 
 const STAFF_PERMISSIONS = ["praxisplaner:read"] as const;
 const PRAXISMANAGER_PERMISSIONS = ["regeln:read"] as const;
+const ACCOUNT_MANAGER_PERMISSIONS = ["account:manage"] as const;
 
 interface AccessRequirement {
   permissions: readonly string[];
@@ -45,6 +47,23 @@ const PRAXISMANAGER_ACCESS = {
   permissions: PRAXISMANAGER_PERMISSIONS,
   roles: PRAXISMANAGER_ROLES,
 } satisfies AccessRequirement;
+
+const ACCOUNT_MANAGER_ACCESS = {
+  permissions: ACCOUNT_MANAGER_PERMISSIONS,
+  roles: ACCOUNT_MANAGER_ROLES,
+} satisfies AccessRequirement;
+
+export function AccountAuthGate({
+  children,
+}: {
+  children: ReactNode;
+}): ReactElement {
+  return (
+    <AuthorizedGate devPersona="admin" requirement={ACCOUNT_MANAGER_ACCESS}>
+      {children}
+    </AuthorizedGate>
+  );
+}
 
 export function hasRequiredAccess({
   permissions,

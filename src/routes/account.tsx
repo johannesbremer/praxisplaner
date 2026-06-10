@@ -13,7 +13,7 @@ import {
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { api } from "../../convex/_generated/api";
-import { PatientAuthGate } from "../auth/access-control";
+import { AccountAuthGate } from "../auth/access-control";
 
 export const Route = createFileRoute("/account")({
   component: AccountRoute,
@@ -243,9 +243,9 @@ function AccountPage() {
 
 function AccountRoute() {
   return (
-    <PatientAuthGate>
+    <AccountAuthGate>
       <AccountPage />
-    </PatientAuthGate>
+    </AccountAuthGate>
   );
 }
 

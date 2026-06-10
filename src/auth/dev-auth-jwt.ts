@@ -79,6 +79,9 @@ export function getDevAuthPersonaAccess(persona: DevAuthPersona): {
 }
 
 export function getDevAuthPersonaForPath(pathname: string): DevAuthPersona {
+  if (pathname.startsWith("/account")) {
+    return "admin";
+  }
   if (pathname.startsWith("/regeln")) {
     return "admin";
   }

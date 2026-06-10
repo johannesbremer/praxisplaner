@@ -1,4 +1,4 @@
-const BOOKING_PATH = "/buchung";
+const DEFAULT_RETURN_PATH = "/";
 
 let authReturnToPath: null | string = null;
 
@@ -7,7 +7,7 @@ export function consumeAuthReturnToPath(): string {
   authReturnToPath = null;
   return returnTo && isAllowedReturnToPath(returnTo) && returnTo !== "/callback"
     ? returnTo
-    : BOOKING_PATH;
+    : DEFAULT_RETURN_PATH;
 }
 
 export function setAuthReturnToPath(returnTo: string): void {
