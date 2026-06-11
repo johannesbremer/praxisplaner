@@ -40,6 +40,7 @@ interface WorkOSOrganizationMembership {
 interface WorkOSOrganizationSummary {
   id: string;
   name: string;
+  practiceId?: Id<"practices">;
 }
 
 export const createOrganizationPractice = action({
@@ -214,6 +215,7 @@ export const listCurrentUserOrganizations = action({
     v.object({
       id: v.string(),
       name: v.string(),
+      practiceId: v.optional(v.id("practices")),
     }),
   ),
 });
@@ -298,6 +300,7 @@ export const listBypassUserOrganizations = internalQuery({
         {
           id: practice.workOSOrganizationId,
           name: practice.name,
+          practiceId: practice._id,
         },
       ];
     });
@@ -306,6 +309,7 @@ export const listBypassUserOrganizations = internalQuery({
     v.object({
       id: v.string(),
       name: v.string(),
+      practiceId: v.optional(v.id("practices")),
     }),
   ),
 });
