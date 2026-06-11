@@ -2,7 +2,6 @@ import { v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 
-import { toPracticeSlug } from "../lib/practice-slug";
 import { mutation, query } from "./_generated/server";
 import { isConvexAuthBypassEnabled } from "./authBypass";
 import { createInitialRuleSet } from "./copyOnWrite";
@@ -150,9 +149,7 @@ export const getAccessiblePracticeBySlug = query({
       practiceIds.map((practiceId) => ctx.db.get("practices", practiceId)),
     );
     const matchingPractices = practices.filter(
-      (practice) =>
-        practice &&
-        (practice.slug ?? toPracticeSlug(practice.name)) === args.slug,
+      (practice) => practice?.slug === args.slug,
     );
     return matchingPractices.length === 1 ? matchingPractices[0] : null;
   },
@@ -182,15 +179,7 @@ export const getBookingPracticeBySlug = query({
     if (practicesBySlug.length > 0) {
       return practicesBySlug.length === 1 ? practicesBySlug[0] : null;
     }
-    const practices = await ctx.db.query("practices").collect();
-    const matchingLegacyPractices = practices.filter(
-      (candidate) =>
-        candidate.slug === undefined &&
-        toPracticeSlug(candidate.name) === args.slug,
-    );
-    return matchingLegacyPractices.length === 1
-      ? matchingLegacyPractices[0]
-      : null;
+    return null;
   },
   returns: v.union(
     v.object({
@@ -321,6 +310,11 @@ export const initializeDefaultPractice = mutation({
     for (const membership of existingMemberships) {
       const practice = await ctx.db.get("practices", membership.practiceId);
       if (practice) {
+        if (!practice.slug) {
+          await ctx.db.patch("practices", practice._id, {
+            slug: await allocateUniquePracticeSlug(ctx.db, practice.name),
+          });
+        }
         return membership.practiceId;
       }
 
@@ -333,6 +327,11 @@ export const initializeDefaultPractice = mutation({
       const firstPractice = existingPractices[0];
       if (!firstPractice) {
         throw new Error("Expected first practice to exist");
+      }
+      if (!firstPractice.slug) {
+        await ctx.db.patch("practices", firstPractice._id, {
+          slug: await allocateUniquePracticeSlug(ctx.db, firstPractice.name),
+        });
       }
 
       await ctx.db.insert("practiceMembers", {

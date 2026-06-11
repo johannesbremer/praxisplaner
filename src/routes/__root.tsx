@@ -39,7 +39,6 @@ import {
 } from "@/components/ui/card";
 
 import { api } from "../../convex/_generated/api";
-import { toPracticeSlug } from "../../lib/practice-slug";
 import { isAuthBypassEnabled } from "../auth/auth-bypass";
 import {
   UndoRedoControlsProvider,
@@ -226,9 +225,7 @@ export function PraxisplanerHomePageContent() {
     convexAuth.isAuthenticated ? {} : "skip",
   );
   const practice = practices?.[0];
-  const organizationSlug = practice
-    ? (practice.slug ?? toPracticeSlug(practice.name))
-    : undefined;
+  const organizationSlug = practice?.slug;
 
   return (
     <div className="container mx-auto p-6">

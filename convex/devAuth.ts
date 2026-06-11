@@ -76,8 +76,16 @@ export const ensurePreviewAuthPersonas = mutation({
 async function ensurePractice(ctx: MutationCtx): Promise<Doc<"practices">> {
   const existing = await ctx.db.query("practices").first();
   if (existing) {
-    if (!existing.workOSOrganizationId) {
+    if (!existing.slug || !existing.workOSOrganizationId) {
       await ctx.db.patch("practices", existing._id, {
+        ...(existing.slug
+          ? {}
+          : {
+              slug: await allocateUniquePracticeSlug(
+                ctx.db,
+                DEV_AUTH_PRACTICE_NAME,
+              ),
+            }),
         workOSOrganizationId: DEV_AUTH_ORGANIZATION_ID,
       });
       const updated = await ctx.db.get("practices", existing._id);
