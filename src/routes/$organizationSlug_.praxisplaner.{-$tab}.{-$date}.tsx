@@ -1,14 +1,14 @@
-// src/routes/$organizationSlug.praxisplaner.{-$tab}.{-$date}.tsx
+// src/routes/$organizationSlug_.praxisplaner.{-$tab}.{-$date}.tsx
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import {
   normalizePraxisplanerSearch,
   type PraxisplanerSearchParams,
 } from "../utils/praxisplaner-search";
-import { Route as PraxisplanerRoute } from "./$organizationSlug.praxisplaner";
+import { Route as PraxisplanerRoute } from "./$organizationSlug_.praxisplaner";
 
 export const Route = createFileRoute(
-  "/$organizationSlug/praxisplaner/{-$tab}/{-$date}",
+  "/$organizationSlug_/praxisplaner/{-$tab}/{-$date}",
 )({
   beforeLoad: ({ params }) => {
     // Only redirect if there are actual path params present.

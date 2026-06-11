@@ -136,7 +136,7 @@ const buildSearchFromState = (
   return result;
 };
 
-export const Route = createFileRoute("/$organizationSlug/praxisplaner")({
+export const Route = createFileRoute("/$organizationSlug_/praxisplaner")({
   component: PraxisPlanerRoute,
   validateSearch: normalizePraxisplanerSearch,
 });

@@ -92,7 +92,7 @@ function isRegelnTab(value: string): value is RegelnTab {
   );
 }
 
-export const Route = createFileRoute("/$organizationSlug/regeln")({
+export const Route = createFileRoute("/$organizationSlug_/regeln")({
   component: RegelnRoute,
   validateSearch: (search): RegelnSearchParams => {
     const params = search;
@@ -423,6 +423,8 @@ function LogicView() {
     selectedDate,
   } = useRegelnUrl({
     locationsListQuery: locationsListQuery ?? undefined,
+    organizationSlug,
+    routeSearch,
     ruleSetsQuery: ruleSetsWithActive,
     unsavedRuleSet: unsavedRuleSet ?? null,
   });
