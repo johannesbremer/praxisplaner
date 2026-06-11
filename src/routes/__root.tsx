@@ -604,12 +604,19 @@ function RootLayout() {
 }
 
 function shouldShowRootSignOut(pathname: string): boolean {
+  const segments = pathname.split("/").filter(Boolean);
+  const [firstSegment, secondSegment] = segments;
+  const isReservedTopLevelRoute =
+    firstSegment === "account" || firstSegment === "callback";
+  const isOrganizationBookingRoute =
+    segments.length === 1 && !isReservedTopLevelRoute;
+  const isOrganizationStaffRoute =
+    secondSegment === "regeln" || secondSegment === "praxisplaner";
+
   return (
     pathname === "/" ||
     pathname === "/account" ||
-    pathname === "/buchung" ||
-    pathname === "/regeln" ||
-    pathname === "/praxisplaner" ||
-    pathname.startsWith("/praxisplaner/")
+    isOrganizationBookingRoute ||
+    isOrganizationStaffRoute
   );
 }
