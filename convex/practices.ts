@@ -13,6 +13,7 @@ import {
   requirePracticeManager,
 } from "./practiceAccess";
 import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
+import { allocateUniquePracticeSlug } from "./practiceSlugs";
 import {
   ensureAuthenticatedUserId,
   requireAuthenticatedUserIdForQuery,
@@ -28,8 +29,10 @@ export const createPractice = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await ensureAuthenticatedUserId(ctx);
+    const slug = await allocateUniquePracticeSlug(ctx.db, args.name);
     const practiceId = await ctx.db.insert("practices", {
       name: args.name,
+      slug,
     });
 
     await ctx.db.insert("practiceMembers", {
@@ -62,6 +65,7 @@ export const getAllPractices = query({
       _id: Id<"practices">;
       currentActiveRuleSetId?: Id<"ruleSets">;
       name: string;
+      slug?: string;
       workOSOrganizationId?: string;
     }[] = [];
 
@@ -80,6 +84,7 @@ export const getAllPractices = query({
       _id: v.id("practices"),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
+      slug: v.optional(v.string()),
       workOSOrganizationId: v.optional(v.string()),
     }),
   ),
@@ -104,6 +109,7 @@ export const getBookingPractices = query({
       _id: v.id("practices"),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
+      slug: v.optional(v.string()),
       workOSOrganizationId: v.optional(v.string()),
     }),
   ),
@@ -126,6 +132,62 @@ export const getPractice = query({
       _id: v.id("practices"),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
+      slug: v.optional(v.string()),
+      workOSOrganizationId: v.optional(v.string()),
+    }),
+    v.null(),
+  ),
+});
+
+export const getAccessiblePracticeBySlug = query({
+  args: {
+    slug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const practiceIds = await getAccessiblePracticeIdsForQuery(ctx);
+    const practices = await Promise.all(
+      practiceIds.map((practiceId) => ctx.db.get("practices", practiceId)),
+    );
+    const matchingPractices = practices.filter(
+      (practice) => practice?.slug === args.slug,
+    );
+    return matchingPractices.length === 1 ? matchingPractices[0] : null;
+  },
+  returns: v.union(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("practices"),
+      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
+      name: v.string(),
+      slug: v.optional(v.string()),
+      workOSOrganizationId: v.optional(v.string()),
+    }),
+    v.null(),
+  ),
+});
+
+export const getBookingPracticeBySlug = query({
+  args: {
+    slug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireAuthenticatedUserIdForQuery(ctx);
+    const practicesBySlug = await ctx.db
+      .query("practices")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .collect();
+    if (practicesBySlug.length > 0) {
+      return practicesBySlug.length === 1 ? practicesBySlug[0] : null;
+    }
+    return null;
+  },
+  returns: v.union(
+    v.object({
+      _creationTime: v.number(),
+      _id: v.id("practices"),
+      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
+      name: v.string(),
+      slug: v.optional(v.string()),
       workOSOrganizationId: v.optional(v.string()),
     }),
     v.null(),
@@ -248,6 +310,11 @@ export const initializeDefaultPractice = mutation({
     for (const membership of existingMemberships) {
       const practice = await ctx.db.get("practices", membership.practiceId);
       if (practice) {
+        if (!practice.slug) {
+          await ctx.db.patch("practices", practice._id, {
+            slug: await allocateUniquePracticeSlug(ctx.db, practice.name),
+          });
+        }
         return membership.practiceId;
       }
 
@@ -261,6 +328,11 @@ export const initializeDefaultPractice = mutation({
       if (!firstPractice) {
         throw new Error("Expected first practice to exist");
       }
+      if (!firstPractice.slug) {
+        await ctx.db.patch("practices", firstPractice._id, {
+          slug: await allocateUniquePracticeSlug(ctx.db, firstPractice.name),
+        });
+      }
 
       await ctx.db.insert("practiceMembers", {
         createdAt: BigInt(Date.now()),
@@ -272,8 +344,10 @@ export const initializeDefaultPractice = mutation({
       return firstPractice._id;
     }
 
+    const defaultPracticeName = "Standardpraxis";
     const practiceId = await ctx.db.insert("practices", {
-      name: "Standardpraxis",
+      name: defaultPracticeName,
+      slug: await allocateUniquePracticeSlug(ctx.db, defaultPracticeName),
     });
 
     await ctx.db.insert("practiceMembers", {

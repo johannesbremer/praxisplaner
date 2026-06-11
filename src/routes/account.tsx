@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { UsersManagement, WorkOsWidgets } from "@workos-inc/widgets";
-import { useAction } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { Building2, Loader2, UsersRound } from "lucide-react";
 import {
   type BaseSyntheticEvent,
@@ -10,10 +10,14 @@ import {
   useState,
 } from "react";
 
+import type { Id } from "../../convex/_generated/dataModel";
+
+import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { api } from "../../convex/_generated/api";
 import { AccountAuthGate } from "../auth/access-control";
+import { isAuthBypassEnabled } from "../auth/auth-bypass";
 
 export const Route = createFileRoute("/account")({
   component: AccountRoute,
@@ -22,10 +26,12 @@ export const Route = createFileRoute("/account")({
 interface WorkOSOrganizationOption {
   id: string;
   name: string;
+  practiceId?: Id<"practices">;
 }
 
 function AccountPage() {
   const { isLoading, organizationId, switchToOrganization } = useAuth();
+  const authBypassEnabled = isAuthBypassEnabled();
   const createOrganizationPractice = useAction(
     api.workosOrganizations.createOrganizationPractice,
   );
@@ -76,7 +82,7 @@ function AccountPage() {
       return;
     }
     void syncCurrentOrganizationMembership({ organizationId: organization.id });
-    if (organization.id !== organizationId) {
+    if (!authBypassEnabled && organization.id !== organizationId) {
       switchToOrganization({ organizationId: organization.id }).catch(
         (error: unknown) => {
           setOrganizationListError(
@@ -89,6 +95,7 @@ function AccountPage() {
     }
   }, [
     organizationId,
+    authBypassEnabled,
     organizations,
     switchToOrganization,
     syncCurrentOrganizationMembership,
@@ -108,7 +115,9 @@ function AccountPage() {
         setCreatedOrganizationId(nextOrganizationId);
         setPracticeName("");
         refreshOrganizations();
-        return switchToOrganization({ organizationId: nextOrganizationId });
+        return authBypassEnabled
+          ? undefined
+          : switchToOrganization({ organizationId: nextOrganizationId });
       })
       .catch((error: unknown) => {
         setCreateError(
@@ -171,7 +180,9 @@ function AccountPage() {
                   <div className="mt-1 break-all">
                     {organization?.name ?? "Noch keine Praxis angelegt"}
                   </div>
-                  {organization && organization.id !== organizationId ? (
+                  {organization &&
+                  !authBypassEnabled &&
+                  organization.id !== organizationId ? (
                     <div className="mt-1 text-xs">
                       AuthKit-Sitzung wird auf diese Praxis aktualisiert.
                     </div>
@@ -215,16 +226,20 @@ function AccountPage() {
                 <div>
                   <div className="font-medium text-foreground">Team</div>
                   <div className="mt-1">
-                    {organization
-                      ? "WorkOS steuert Einladungen, Rollen und Entzug von Zugriffen."
-                      : "Legen Sie zuerst eine Praxis an."}
+                    {organization && authBypassEnabled
+                      ? "Lokale Entwicklungsdaten steuern Benutzer und Rollen."
+                      : organization
+                        ? "WorkOS steuert Einladungen, Rollen und Entzug von Zugriffen."
+                        : "Legen Sie zuerst eine Praxis an."}
                   </div>
                 </div>
               </div>
             </aside>
 
             <div className="min-w-0 rounded-md border bg-card p-4">
-              {organization && !hasMultipleOrganizations ? (
+              {organization && authBypassEnabled ? (
+                <BypassPracticeMembers practiceId={organization.practiceId} />
+              ) : organization && !hasMultipleOrganizations ? (
                 <UsersManagementForOrganization
                   organizationId={organization.id}
                 />
@@ -247,6 +262,93 @@ function AccountRoute() {
       <AccountPage />
     </AccountAuthGate>
   );
+}
+
+function BypassPracticeMembers({
+  practiceId,
+}: {
+  practiceId: Id<"practices"> | undefined;
+}) {
+  const members = useQuery(
+    api.practices.getPracticeMembers,
+    practiceId ? { practiceId } : "skip",
+  );
+
+  if (!practiceId) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        Keine lokale Praxis gefunden.
+      </div>
+    );
+  }
+
+  if (members === undefined) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        <span>Team wird geladen...</span>
+      </div>
+    );
+  }
+
+  if (members.length === 0) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        Keine lokalen Teammitglieder gefunden.
+      </div>
+    );
+  }
+
+  return (
+    <div className="divide-y rounded-md border">
+      {members.map((member) => (
+        <div
+          className="flex items-center justify-between gap-4 p-3"
+          key={member._id}
+        >
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">
+              {formatUsername(member.user)}
+            </div>
+            <div className="truncate text-xs text-muted-foreground">
+              {member.user?.email ?? member.userId}
+            </div>
+          </div>
+          <Badge className="shrink-0" variant="secondary">
+            {formatPracticeRole(member.role)}
+          </Badge>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatPracticeRole(role: "admin" | "owner" | "staff"): string {
+  switch (role) {
+    case "admin": {
+      return "Admin";
+    }
+    case "owner": {
+      return "Owner";
+    }
+    case "staff": {
+      return "Staff";
+    }
+  }
+}
+
+function formatUsername(
+  user: null | {
+    email: string;
+    firstName?: string;
+    lastName?: string;
+  },
+): string {
+  if (!user) {
+    return "Unbekannter Benutzer";
+  }
+  const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ");
+  return fullName || user.email;
 }
 
 function UsersManagementForOrganization({

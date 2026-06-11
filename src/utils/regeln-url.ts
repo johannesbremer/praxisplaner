@@ -1,4 +1,4 @@
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 
 import type { Id } from "@/convex/_generated/dataModel";
 import type { DeDateString } from "@/lib/typed-regex";
@@ -6,7 +6,6 @@ import type { DeDateString } from "@/lib/typed-regex";
 import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
 
 import { formatJSDateDE, isTodayJS, parseJSDateDE } from "./date-utils";
-
 export const NEW_PATIENT_SEGMENT = "neu";
 export const EXISTING_PATIENT_SEGMENT = "bestand";
 
@@ -89,13 +88,13 @@ export function tabParamToInternal(tabParam?: string): RegelnTab {
 
 export function useRegelnUrl(options: {
   locationsListQuery: LocationSummary[] | undefined;
+  organizationSlug: string;
+  routeSearch: RegelnSearchParams;
   ruleSetsQuery: RuleSetSummary[] | undefined;
   unsavedRuleSet?: null | { _id: Id<"ruleSets"> };
 }) {
   const navigate = useNavigate();
-  const routeSearch: RegelnSearchParams = useSearch({
-    from: "/regeln",
-  });
+  const { organizationSlug, routeSearch } = options;
 
   const currentRouteState = fromSearchParams(routeSearch);
   const activeTab = tabParamToInternal(currentRouteState.tabParam);
@@ -118,10 +117,11 @@ export function useRegelnUrl(options: {
       return;
     }
     void navigate({
+      params: { organizationSlug },
       replace: false,
       resetScroll: false,
       search: nextSearch,
-      to: "/regeln",
+      to: "/$organizationSlug/regeln",
     });
   }
 

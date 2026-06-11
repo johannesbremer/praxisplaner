@@ -6,6 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { DataModel } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
 
+import { toPracticeSlug } from "../lib/practice-slug";
 import { internal } from "./_generated/api";
 import {
   action,
@@ -13,8 +14,15 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
+import { isConvexAuthBypassEnabled } from "./authBypass";
 import { createInitialRuleSet } from "./copyOnWrite";
+import {
+  DEV_AUTH_ORGANIZATION_ID,
+  DEV_AUTH_PRACTICE_NAME,
+  isDevAuthUserId,
+} from "./devAuthData";
 import { type PracticeRole, practiceRoleValidator } from "./practiceAccess";
+import { allocateUniquePracticeSlug } from "./practiceSlugs";
 
 const WORKOS_API_BASE = `https://${getWorkOSApiHostname()}`;
 
@@ -32,6 +40,7 @@ interface WorkOSOrganizationMembership {
 interface WorkOSOrganizationSummary {
   id: string;
   name: string;
+  practiceId?: Id<"practices">;
 }
 
 export const createOrganizationPractice = action({
@@ -52,6 +61,15 @@ export const createOrganizationPractice = action({
         code: "BAD_REQUEST",
         message: "Practice name is required",
       });
+    }
+    if (shouldUseBypassOrganizations(identity.subject)) {
+      return await ctx.runMutation(
+        internal.workosOrganizations.createBypassOrganizationPractice,
+        {
+          name,
+          workOSUserId: identity.subject,
+        },
+      );
     }
     const existingMemberships = await loadActiveWorkOSOrganizationMemberships({
       userId: identity.subject,
@@ -102,6 +120,15 @@ export const syncCurrentUserOrganizationMembership = action({
   },
   handler: async (ctx, args): Promise<Id<"practiceMembers"> | null> => {
     const identity = await requireActionIdentity(ctx);
+    if (shouldUseBypassOrganizations(identity.subject)) {
+      return await ctx.runMutation(
+        internal.workosOrganizations.syncBypassOrganizationMembership,
+        {
+          organizationId: args.organizationId,
+          workOSUserId: identity.subject,
+        },
+      );
+    }
     const membership = await loadActiveWorkOSOrganizationMembership({
       organizationId: args.organizationId,
       userId: identity.subject,
@@ -136,6 +163,12 @@ export const getUsersManagementWidgetToken = action({
   },
   handler: async (ctx, args): Promise<string> => {
     const identity = await requireActionIdentity(ctx);
+    if (shouldUseBypassOrganizations(identity.subject)) {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "WorkOS user management is unavailable in auth bypass mode",
+      });
+    }
     await requireKnownWorkOSOrganization(ctx, args.organizationId);
     const membership = await loadActiveWorkOSOrganizationMembership({
       organizationId: args.organizationId,
@@ -161,6 +194,14 @@ export const listCurrentUserOrganizations = action({
   args: {},
   handler: async (ctx): Promise<WorkOSOrganizationSummary[]> => {
     const identity = await requireActionIdentity(ctx);
+    if (shouldUseBypassOrganizations(identity.subject)) {
+      return await ctx.runQuery(
+        internal.workosOrganizations.listBypassUserOrganizations,
+        {
+          workOSUserId: identity.subject,
+        },
+      );
+    }
     const memberships = await loadActiveWorkOSOrganizationMemberships({
       userId: identity.subject,
     });
@@ -174,8 +215,128 @@ export const listCurrentUserOrganizations = action({
     v.object({
       id: v.string(),
       name: v.string(),
+      practiceId: v.optional(v.id("practices")),
     }),
   ),
+});
+
+export const createBypassOrganizationPractice = internalMutation({
+  args: {
+    name: v.string(),
+    workOSUserId: v.string(),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    organizationId: string;
+    practiceId: Id<"practices">;
+  }> => {
+    const user = await requireUserByAuthId(ctx.db, args.workOSUserId);
+    const existingMemberships = await ctx.db
+      .query("practiceMembers")
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .collect();
+    if (existingMemberships.length > 0) {
+      throw new ConvexError({
+        code: "ALREADY_EXISTS",
+        message: "User already belongs to a WorkOS organization",
+      });
+    }
+    const existingPractice = await findPracticeByName(ctx.db, args.name);
+    if (existingPractice) {
+      throw new ConvexError({
+        code: "ALREADY_EXISTS",
+        message: "Practice name already exists",
+      });
+    }
+
+    const organizationId = await allocateBypassOrganizationId(
+      ctx.db,
+      args.name,
+    );
+    const practiceId = await ctx.db.insert("practices", {
+      name: args.name,
+      slug: await allocateUniquePracticeSlug(ctx.db, args.name),
+      workOSOrganizationId: organizationId,
+    });
+    await upsertPracticeMembership(ctx, {
+      practiceId,
+      role: "owner",
+      userId: user._id,
+    });
+    await createInitialRuleSet(ctx.db, practiceId);
+    return { organizationId, practiceId };
+  },
+  returns: v.object({
+    organizationId: v.string(),
+    practiceId: v.id("practices"),
+  }),
+});
+
+export const listBypassUserOrganizations = internalQuery({
+  args: {
+    workOSUserId: v.string(),
+  },
+  handler: async (ctx, args): Promise<WorkOSOrganizationSummary[]> => {
+    const user = await findUserByAuthId(ctx.db, args.workOSUserId);
+    if (!user) {
+      return [];
+    }
+    const memberships = await ctx.db
+      .query("practiceMembers")
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .collect();
+    const practices = await Promise.all(
+      memberships.map(async (membership) => {
+        return await ctx.db.get("practices", membership.practiceId);
+      }),
+    );
+    return practices.flatMap((practice) => {
+      if (!practice?.workOSOrganizationId) {
+        return [];
+      }
+      return [
+        {
+          id: practice.workOSOrganizationId,
+          name: practice.name,
+          practiceId: practice._id,
+        },
+      ];
+    });
+  },
+  returns: v.array(
+    v.object({
+      id: v.string(),
+      name: v.string(),
+      practiceId: v.optional(v.id("practices")),
+    }),
+  ),
+});
+
+export const syncBypassOrganizationMembership = internalMutation({
+  args: {
+    organizationId: v.string(),
+    workOSUserId: v.string(),
+  },
+  handler: async (ctx, args): Promise<Id<"practiceMembers"> | null> => {
+    const practice = await findPracticeByWorkOSOrganizationId(
+      ctx.db,
+      args.organizationId,
+    );
+    const user = await findUserByAuthId(ctx.db, args.workOSUserId);
+    if (!practice || !user) {
+      return null;
+    }
+    const membership = await ctx.db
+      .query("practiceMembers")
+      .withIndex("by_practiceId_userId", (q) =>
+        q.eq("practiceId", practice._id).eq("userId", user._id),
+      )
+      .first();
+    return membership?._id ?? null;
+  },
+  returns: v.union(v.id("practiceMembers"), v.null()),
 });
 
 export const createPracticeForWorkOSOrganization = internalMutation({
@@ -203,6 +364,7 @@ export const createPracticeForWorkOSOrganization = internalMutation({
 
     const practiceId = await ctx.db.insert("practices", {
       name: args.name,
+      slug: await allocateUniquePracticeSlug(ctx.db, args.name),
       workOSOrganizationId: args.organizationId,
     });
     await upsertPracticeMembership(ctx, {
@@ -343,6 +505,25 @@ export function mapWorkOSRoleToPracticeRole(
   membership: Pick<WorkOSOrganizationMembership, "roleSlugs">,
 ): PracticeRole {
   return mapWorkOSRoleSlugsToPracticeRole(membership.roleSlugs);
+}
+
+async function allocateBypassOrganizationId(
+  db: DatabaseReader,
+  name: string,
+): Promise<string> {
+  const baseId =
+    name === DEV_AUTH_PRACTICE_NAME
+      ? DEV_AUTH_ORGANIZATION_ID
+      : `org_dev_${toPracticeSlug(name).replaceAll("-", "_")}`;
+  let candidate = baseId;
+  let suffix = 2;
+
+  while ((await findPracticeByWorkOSOrganizationId(db, candidate)) !== null) {
+    candidate = `${baseId}_${suffix}`;
+    suffix += 1;
+  }
+
+  return candidate;
 }
 
 async function createWorkOSOrganization(name: string): Promise<{ id: string }> {
@@ -671,6 +852,10 @@ async function requireUserByAuthId(
     });
   }
   return user;
+}
+
+function shouldUseBypassOrganizations(workOSUserId: string): boolean {
+  return isConvexAuthBypassEnabled() || isDevAuthUserId(workOSUserId);
 }
 
 async function upsertPracticeMembership(

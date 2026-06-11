@@ -20,11 +20,7 @@ import {
 } from "@/components/ui/card";
 
 import { isAuthBypassEnabled } from "./auth-bypass";
-import {
-  type DevAuthPersona,
-  getDevAuthPersonaAccess,
-  getDevAuthPersonaForPath,
-} from "./dev-auth-jwt";
+import { type DevAuthPersona, getDevAuthPersonaAccess } from "./dev-auth-jwt";
 
 const STAFF_ROLES = ["staff", "admin", "owner"] as const;
 const PRAXISMANAGER_ROLES = ["admin", "owner"] as const;
@@ -64,7 +60,7 @@ export function AccountAuthGate({
     : { permissions, role, roles };
 
   return (
-    <AuthenticatedGate devPersona="owner">
+    <AuthenticatedGate>
       {hasRequiredAccess({
         ...access,
         requirement: ACCOUNT_MANAGER_ACCESS,
@@ -119,7 +115,7 @@ export function PatientAuthGate({
 }: {
   children: ReactNode;
 }): ReactElement {
-  return <AuthenticatedGate devPersona="patient">{children}</AuthenticatedGate>;
+  return <AuthenticatedGate>{children}</AuthenticatedGate>;
 }
 
 export function PraxismanagerAuthGate({
@@ -148,10 +144,8 @@ export function StaffAuthGate({
 
 function AuthenticatedGate({
   children,
-  devPersona,
 }: {
   children: ReactNode;
-  devPersona?: DevAuthPersona;
 }): ReactElement {
   const { isLoading, signIn, user } = useAuth();
   const [signInError, setSignInError] = useState<null | string>(null);
@@ -180,7 +174,7 @@ function AuthenticatedGate({
     startSignIn();
   }, [isLoading, startSignIn, user]);
 
-  if (isAuthBypassEnabled() && isDevPersonaActive(devPersona)) {
+  if (isAuthBypassEnabled()) {
     return <>{children}</>;
   }
 
@@ -233,7 +227,7 @@ function AuthorizedGate({
     : { permissions, role, roles };
 
   return (
-    <AuthenticatedGate devPersona={devPersona}>
+    <AuthenticatedGate>
       {hasRequiredAccess({ ...access, requirement }) ? (
         children
       ) : (
@@ -245,16 +239,6 @@ function AuthorizedGate({
 
 function getAuthReturnToPath(): string {
   return `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
-}
-
-function isDevPersonaActive(persona: DevAuthPersona | undefined): boolean {
-  if (!persona) {
-    return true;
-  }
-  if (import.meta.env.SSR) {
-    return true;
-  }
-  return getDevAuthPersonaForPath(globalThis.location.pathname) === persona;
 }
 
 function SignInScreen({
