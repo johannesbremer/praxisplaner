@@ -5,6 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, type MutationCtx } from "./_generated/server";
 import { isConvexAuthBypassEnabled } from "./authBypass";
 import { createInitialRuleSet } from "./copyOnWrite";
+import { allocateUniquePracticeSlug } from "./practiceSlugs";
 
 export const DEV_AUTH_USERS = [
   {
@@ -77,6 +78,7 @@ async function ensurePractice(ctx: MutationCtx): Promise<Doc<"practices">> {
 
   const practiceId = await ctx.db.insert("practices", {
     name: "Standardpraxis",
+    slug: await allocateUniquePracticeSlug(ctx.db, "Standardpraxis"),
   });
   await createInitialRuleSet(ctx.db, practiceId);
 

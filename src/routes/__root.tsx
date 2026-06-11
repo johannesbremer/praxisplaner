@@ -12,7 +12,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import {
   CalendarPlus,
   Clock,
@@ -220,7 +220,11 @@ export const Route = createRootRouteWithContext<{
 });
 
 export function PraxisplanerHomePageContent() {
-  const practices = useQuery(api.practices.getAllPractices, {});
+  const convexAuth = useConvexAuth();
+  const practices = useQuery(
+    api.practices.getAllPractices,
+    convexAuth.isAuthenticated ? {} : "skip",
+  );
   const practice = practices?.[0];
   const organizationSlug = practice
     ? (practice.slug ?? toPracticeSlug(practice.name))

@@ -39,6 +39,7 @@ import type * as patientSearch from "../patientSearch.js";
 import type * as patients from "../patients.js";
 import type * as practiceAccess from "../practiceAccess.js";
 import type * as practicePhoneNumbers from "../practicePhoneNumbers.js";
+import type * as practiceSlugs from "../practiceSlugs.js";
 import type * as practices from "../practices.js";
 import type * as practitionerAssociations from "../practitionerAssociations.js";
 import type * as publicHolidays from "../publicHolidays.js";
@@ -100,6 +101,7 @@ declare const fullApi: ApiFromModules<{
   patients: typeof patients;
   practiceAccess: typeof practiceAccess;
   practicePhoneNumbers: typeof practicePhoneNumbers;
+  practiceSlugs: typeof practiceSlugs;
   practices: typeof practices;
   practitionerAssociations: typeof practitionerAssociations;
   publicHolidays: typeof publicHolidays;

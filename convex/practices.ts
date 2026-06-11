@@ -14,6 +14,7 @@ import {
   requirePracticeManager,
 } from "./practiceAccess";
 import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
+import { allocateUniquePracticeSlug } from "./practiceSlugs";
 import {
   ensureAuthenticatedUserId,
   requireAuthenticatedUserIdForQuery,
@@ -29,9 +30,10 @@ export const createPractice = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await ensureAuthenticatedUserId(ctx);
+    const slug = await allocateUniquePracticeSlug(ctx.db, args.name);
     const practiceId = await ctx.db.insert("practices", {
       name: args.name,
-      slug: toPracticeSlug(args.name),
+      slug,
     });
 
     await ctx.db.insert("practiceMembers", {
@@ -147,13 +149,12 @@ export const getAccessiblePracticeBySlug = query({
     const practices = await Promise.all(
       practiceIds.map((practiceId) => ctx.db.get("practices", practiceId)),
     );
-    return (
-      practices.find(
-        (practice) =>
-          practice &&
-          (practice.slug ?? toPracticeSlug(practice.name)) === args.slug,
-      ) ?? null
+    const matchingPractices = practices.filter(
+      (practice) =>
+        practice &&
+        (practice.slug ?? toPracticeSlug(practice.name)) === args.slug,
     );
+    return matchingPractices.length === 1 ? matchingPractices[0] : null;
   },
   returns: v.union(
     v.object({
@@ -174,19 +175,22 @@ export const getBookingPracticeBySlug = query({
   },
   handler: async (ctx, args) => {
     await requireAuthenticatedUserIdForQuery(ctx);
-    const practice = await ctx.db
+    const practicesBySlug = await ctx.db
       .query("practices")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .unique();
-    if (practice) {
-      return practice;
+      .collect();
+    if (practicesBySlug.length > 0) {
+      return practicesBySlug.length === 1 ? practicesBySlug[0] : null;
     }
     const practices = await ctx.db.query("practices").collect();
-    return (
-      practices.find(
-        (candidate) => toPracticeSlug(candidate.name) === args.slug,
-      ) ?? null
+    const matchingLegacyPractices = practices.filter(
+      (candidate) =>
+        candidate.slug === undefined &&
+        toPracticeSlug(candidate.name) === args.slug,
     );
+    return matchingLegacyPractices.length === 1
+      ? matchingLegacyPractices[0]
+      : null;
   },
   returns: v.union(
     v.object({
@@ -341,9 +345,10 @@ export const initializeDefaultPractice = mutation({
       return firstPractice._id;
     }
 
+    const defaultPracticeName = "Standardpraxis";
     const practiceId = await ctx.db.insert("practices", {
-      name: "Standardpraxis",
-      slug: toPracticeSlug("Standardpraxis"),
+      name: defaultPracticeName,
+      slug: await allocateUniquePracticeSlug(ctx.db, defaultPracticeName),
     });
 
     await ctx.db.insert("practiceMembers", {
