@@ -240,69 +240,124 @@ export function PraxisplanerHomePageContent() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <Link
-          params={organizationSlug ? { organizationSlug } : undefined}
-          to={organizationSlug ? "/$organizationSlug/regeln" : "/account"}
-        >
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="h-5 w-5" />
-                Regelverwaltung & Simulation
-              </CardTitle>
-              <CardDescription>
-                Konfigurieren und testen Sie Verfügbarkeitsregeln
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Erstellen und verwalten Sie komplexe Regeln für die
-                Terminvergabe und testen diese in der Simulation
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
+        {organizationSlug ? (
+          <Link params={{ organizationSlug }} to="/$organizationSlug/regeln">
+            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Settings className="h-5 w-5" />
+                  Regelverwaltung & Simulation
+                </CardTitle>
+                <CardDescription>
+                  Konfigurieren und testen Sie Verfügbarkeitsregeln
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Erstellen und verwalten Sie komplexe Regeln für die
+                  Terminvergabe und testen diese in der Simulation
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+        ) : (
+          <Link to="/account">
+            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Settings className="h-5 w-5" />
+                  Regelverwaltung & Simulation
+                </CardTitle>
+                <CardDescription>
+                  Konfigurieren und testen Sie Verfügbarkeitsregeln
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Erstellen und verwalten Sie komplexe Regeln für die
+                  Terminvergabe und testen diese in der Simulation
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+        )}
 
-        <Link
-          params={organizationSlug ? { organizationSlug } : undefined}
-          to={organizationSlug ? "/$organizationSlug/praxisplaner" : "/account"}
-        >
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                GDT File Processor
-              </CardTitle>
-              <CardDescription>GDT-Dateien verarbeiten</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                GDT-Dateien aus Verzeichnis einlesen und verarbeiten
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
+        {organizationSlug ? (
+          <Link
+            params={{ organizationSlug }}
+            to="/$organizationSlug/praxisplaner"
+          >
+            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  GDT File Processor
+                </CardTitle>
+                <CardDescription>GDT-Dateien verarbeiten</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  GDT-Dateien aus Verzeichnis einlesen und verarbeiten
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+        ) : (
+          <Link to="/account">
+            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  GDT File Processor
+                </CardTitle>
+                <CardDescription>GDT-Dateien verarbeiten</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  GDT-Dateien aus Verzeichnis einlesen und verarbeiten
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+        )}
 
-        <Link
-          params={organizationSlug ? { organizationSlug } : undefined}
-          to={organizationSlug ? "/$organizationSlug" : "/account"}
-        >
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CalendarPlus className="h-5 w-5" />
-                Online-Terminbuchung
-              </CardTitle>
-              <CardDescription>Termine online buchen</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Patientenportal für die Online-Terminbuchung mit
-                Anamnese-Fragebogen
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
+        {organizationSlug ? (
+          <Link params={{ organizationSlug }} to="/$organizationSlug">
+            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CalendarPlus className="h-5 w-5" />
+                  Online-Terminbuchung
+                </CardTitle>
+                <CardDescription>Termine online buchen</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Patientenportal für die Online-Terminbuchung mit
+                  Anamnese-Fragebogen
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+        ) : (
+          <Link to="/account">
+            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CalendarPlus className="h-5 w-5" />
+                  Online-Terminbuchung
+                </CardTitle>
+                <CardDescription>Termine online buchen</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Patientenportal für die Online-Terminbuchung mit
+                  Anamnese-Fragebogen
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+        )}
 
         <Link to="/account">
           <Card className="hover:shadow-lg transition-shadow cursor-pointer">

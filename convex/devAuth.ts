@@ -7,6 +7,9 @@ import { isConvexAuthBypassEnabled } from "./authBypass";
 import { createInitialRuleSet } from "./copyOnWrite";
 import { allocateUniquePracticeSlug } from "./practiceSlugs";
 
+export const DEV_AUTH_ORGANIZATION_ID = "org_dev_preview";
+export const DEV_AUTH_PRACTICE_NAME = "Standardpraxis";
+
 export const DEV_AUTH_USERS = [
   {
     authId: "dev-patient",
@@ -73,12 +76,23 @@ export const ensurePreviewAuthPersonas = mutation({
 async function ensurePractice(ctx: MutationCtx): Promise<Doc<"practices">> {
   const existing = await ctx.db.query("practices").first();
   if (existing) {
+    if (!existing.workOSOrganizationId) {
+      await ctx.db.patch("practices", existing._id, {
+        workOSOrganizationId: DEV_AUTH_ORGANIZATION_ID,
+      });
+      const updated = await ctx.db.get("practices", existing._id);
+      if (!updated) {
+        throw new Error("Updated practice was not found");
+      }
+      return updated;
+    }
     return existing;
   }
 
   const practiceId = await ctx.db.insert("practices", {
-    name: "Standardpraxis",
-    slug: await allocateUniquePracticeSlug(ctx.db, "Standardpraxis"),
+    name: DEV_AUTH_PRACTICE_NAME,
+    slug: await allocateUniquePracticeSlug(ctx.db, DEV_AUTH_PRACTICE_NAME),
+    workOSOrganizationId: DEV_AUTH_ORGANIZATION_ID,
   });
   await createInitialRuleSet(ctx.db, practiceId);
 

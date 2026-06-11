@@ -14,6 +14,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { api } from "../../convex/_generated/api";
 import { AccountAuthGate } from "../auth/access-control";
+import { isAuthBypassEnabled } from "../auth/auth-bypass";
 
 export const Route = createFileRoute("/account")({
   component: AccountRoute,
@@ -26,6 +27,7 @@ interface WorkOSOrganizationOption {
 
 function AccountPage() {
   const { isLoading, organizationId, switchToOrganization } = useAuth();
+  const authBypassEnabled = isAuthBypassEnabled();
   const createOrganizationPractice = useAction(
     api.workosOrganizations.createOrganizationPractice,
   );
@@ -76,7 +78,7 @@ function AccountPage() {
       return;
     }
     void syncCurrentOrganizationMembership({ organizationId: organization.id });
-    if (organization.id !== organizationId) {
+    if (!authBypassEnabled && organization.id !== organizationId) {
       switchToOrganization({ organizationId: organization.id }).catch(
         (error: unknown) => {
           setOrganizationListError(
@@ -89,6 +91,7 @@ function AccountPage() {
     }
   }, [
     organizationId,
+    authBypassEnabled,
     organizations,
     switchToOrganization,
     syncCurrentOrganizationMembership,
@@ -108,7 +111,9 @@ function AccountPage() {
         setCreatedOrganizationId(nextOrganizationId);
         setPracticeName("");
         refreshOrganizations();
-        return switchToOrganization({ organizationId: nextOrganizationId });
+        return authBypassEnabled
+          ? undefined
+          : switchToOrganization({ organizationId: nextOrganizationId });
       })
       .catch((error: unknown) => {
         setCreateError(
@@ -171,7 +176,9 @@ function AccountPage() {
                   <div className="mt-1 break-all">
                     {organization?.name ?? "Noch keine Praxis angelegt"}
                   </div>
-                  {organization && organization.id !== organizationId ? (
+                  {organization &&
+                  !authBypassEnabled &&
+                  organization.id !== organizationId ? (
                     <div className="mt-1 text-xs">
                       AuthKit-Sitzung wird auf diese Praxis aktualisiert.
                     </div>
@@ -215,16 +222,23 @@ function AccountPage() {
                 <div>
                   <div className="font-medium text-foreground">Team</div>
                   <div className="mt-1">
-                    {organization
-                      ? "WorkOS steuert Einladungen, Rollen und Entzug von Zugriffen."
-                      : "Legen Sie zuerst eine Praxis an."}
+                    {organization && authBypassEnabled
+                      ? "Lokale Entwicklungsdaten steuern Benutzer und Rollen."
+                      : organization
+                        ? "WorkOS steuert Einladungen, Rollen und Entzug von Zugriffen."
+                        : "Legen Sie zuerst eine Praxis an."}
                   </div>
                 </div>
               </div>
             </aside>
 
             <div className="min-w-0 rounded-md border bg-card p-4">
-              {organization && !hasMultipleOrganizations ? (
+              {organization && authBypassEnabled ? (
+                <div className="text-sm text-muted-foreground">
+                  Im Entwicklungsmodus sind die Preview-Benutzer bereits mit
+                  lokalen Rollen seeded.
+                </div>
+              ) : organization && !hasMultipleOrganizations ? (
                 <UsersManagementForOrganization
                   organizationId={organization.id}
                 />

@@ -24,6 +24,7 @@ export const Route = createFileRoute(
     });
 
     redirect({
+      params: { organizationSlug: params.organizationSlug },
       replace: true,
       search: nextSearch,
       throw: true,
