@@ -45,8 +45,11 @@ import {
 // Type-safe WorkOS callback route path
 const CALLBACK_PATH = "/callback" as const satisfies FileRouteTypes["to"];
 const DEV_WORKOS_CLIENT_ID = "client_praxisplaner_dev";
+const DEV_AUTH_TOKEN_REFRESH_AFTER_MS = 4 * 60 * 1000;
+
 interface DevAuthTokenState {
   persona: DevAuthPersona;
+  refreshAfterMs: number;
   token: string;
 }
 
@@ -216,7 +219,7 @@ export function getRouter() {
           <p>Die von Ihnen angeforderte Seite existiert nicht.</p>
         </div>
       ),
-      defaultPreload: "intent",
+      defaultPreload: false,
       routeTree,
       Wrap: ({ children }) => (
         <ConvexQueryClientContext.Provider value={convexQueryClient}>
@@ -314,6 +317,17 @@ function AuthProvidersInner({
   );
 }
 
+async function createDevAuthTokenState(
+  persona: DevAuthPersona,
+): Promise<DevAuthTokenState> {
+  const token = await createDevAuthJwt(persona);
+  return {
+    persona,
+    refreshAfterMs: Date.now() + DEV_AUTH_TOKEN_REFRESH_AFTER_MS,
+    token,
+  };
+}
+
 function FatalConfigScreen({ error }: { error: FrontendError }) {
   return (
     <div style={{ color: "red", padding: "20px", textAlign: "center" }}>
@@ -400,10 +414,10 @@ function useConvexAuthFromWorkOS(pathname: string) {
     }
 
     let active = true;
-    void createDevAuthJwt(devPersona).then(
-      (token) => {
+    void createDevAuthTokenState(devPersona).then(
+      (tokenState) => {
         if (active) {
-          setDevAuthToken({ persona: devPersona, token });
+          setDevAuthToken(tokenState);
         }
       },
       (error: unknown) => {
@@ -421,7 +435,16 @@ function useConvexAuthFromWorkOS(pathname: string) {
 
   const fetchAccessToken = useCallback(async (): Promise<null | string> => {
     if (authBypassEnabled) {
-      return devAuthToken?.persona === devPersona ? devAuthToken.token : null;
+      if (
+        devAuthToken?.persona === devPersona &&
+        devAuthToken.refreshAfterMs > Date.now()
+      ) {
+        return devAuthToken.token;
+      }
+
+      const tokenState = await createDevAuthTokenState(devPersona);
+      setDevAuthToken(tokenState);
+      return tokenState.token;
     }
     if (isLoading) {
       return null;
