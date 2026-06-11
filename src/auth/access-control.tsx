@@ -20,7 +20,12 @@ import {
 } from "@/components/ui/card";
 
 import { isAuthBypassEnabled } from "./auth-bypass";
-import { type DevAuthPersona, getDevAuthPersonaAccess } from "./dev-auth-jwt";
+import { setAuthReturnToPath } from "./auth-return-to";
+import {
+  type DevAuthPersona,
+  getDevAuthPersonaAccess,
+  getDevAuthPersonaForPath,
+} from "./dev-auth-jwt";
 
 const STAFF_ROLES = ["staff", "admin", "owner"] as const;
 const PRAXISMANAGER_ROLES = ["admin", "owner"] as const;
@@ -60,7 +65,7 @@ export function AccountAuthGate({
     : { permissions, role, roles };
 
   return (
-    <AuthenticatedGate>
+    <AuthenticatedGate devPersona="owner">
       {hasRequiredAccess({
         ...access,
         requirement: ACCOUNT_MANAGER_ACCESS,
@@ -115,7 +120,7 @@ export function PatientAuthGate({
 }: {
   children: ReactNode;
 }): ReactElement {
-  return <AuthenticatedGate>{children}</AuthenticatedGate>;
+  return <AuthenticatedGate devPersona="patient">{children}</AuthenticatedGate>;
 }
 
 export function PraxismanagerAuthGate({
@@ -144,8 +149,10 @@ export function StaffAuthGate({
 
 function AuthenticatedGate({
   children,
+  devPersona,
 }: {
   children: ReactNode;
+  devPersona?: DevAuthPersona;
 }): ReactElement {
   const { isLoading, signIn, user } = useAuth();
   const [signInError, setSignInError] = useState<null | string>(null);
@@ -157,6 +164,7 @@ function AuthenticatedGate({
     }
     signInRequestedRef.current = true;
     const returnTo = getAuthReturnToPath();
+    setAuthReturnToPath(returnTo);
     signIn({ state: { returnTo } }).catch((error: unknown) => {
       signInRequestedRef.current = false;
       setSignInError(
@@ -174,7 +182,7 @@ function AuthenticatedGate({
     startSignIn();
   }, [isLoading, startSignIn, user]);
 
-  if (isAuthBypassEnabled()) {
+  if (isAuthBypassEnabled() && isDevPersonaActive(devPersona)) {
     return <>{children}</>;
   }
 
@@ -227,7 +235,7 @@ function AuthorizedGate({
     : { permissions, role, roles };
 
   return (
-    <AuthenticatedGate>
+    <AuthenticatedGate devPersona={devPersona}>
       {hasRequiredAccess({ ...access, requirement }) ? (
         children
       ) : (
@@ -239,6 +247,16 @@ function AuthorizedGate({
 
 function getAuthReturnToPath(): string {
   return `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
+}
+
+function isDevPersonaActive(persona: DevAuthPersona | undefined): boolean {
+  if (!persona) {
+    return true;
+  }
+  if (import.meta.env.SSR) {
+    return true;
+  }
+  return getDevAuthPersonaForPath(globalThis.location.pathname) === persona;
 }
 
 function SignInScreen({
