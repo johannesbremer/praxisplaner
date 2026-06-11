@@ -59,6 +59,29 @@ const postHogOptions = {
   ...(postHogApiHost && { api_host: postHogApiHost }),
 };
 
+type HomePracticeRouteState =
+  | { kind: "known-empty" }
+  | { kind: "known-slug"; organizationSlug: string }
+  | { kind: "unknown" };
+
+export function resolveHomePracticeRouteState({
+  isAuthenticated,
+  organizationSlug,
+  practicesLoaded,
+}: {
+  isAuthenticated: boolean;
+  organizationSlug: string | undefined;
+  practicesLoaded: boolean;
+}): HomePracticeRouteState {
+  if (organizationSlug) {
+    return { kind: "known-slug", organizationSlug };
+  }
+  if (isAuthenticated && practicesLoaded) {
+    return { kind: "known-empty" };
+  }
+  return { kind: "unknown" };
+}
+
 function ClientDevtools() {
   const [DevtoolsComponent, setDevtoolsComponent] =
     React.useState<null | React.ComponentType>(null);
@@ -226,6 +249,11 @@ export function PraxisplanerHomePageContent() {
   );
   const practice = practices?.[0];
   const organizationSlug = practice?.slug;
+  const practiceRouteState = resolveHomePracticeRouteState({
+    isAuthenticated: convexAuth.isAuthenticated,
+    organizationSlug,
+    practicesLoaded: practices !== undefined,
+  });
 
   return (
     <div className="container mx-auto p-6">
@@ -237,8 +265,11 @@ export function PraxisplanerHomePageContent() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {organizationSlug ? (
-          <Link params={{ organizationSlug }} to="/$organizationSlug/regeln">
+        {practiceRouteState.kind === "known-slug" ? (
+          <Link
+            params={{ organizationSlug: practiceRouteState.organizationSlug }}
+            to="/$organizationSlug/regeln"
+          >
             <Card className="hover:shadow-lg transition-shadow cursor-pointer">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -257,7 +288,7 @@ export function PraxisplanerHomePageContent() {
               </CardContent>
             </Card>
           </Link>
-        ) : (
+        ) : practiceRouteState.kind === "known-empty" ? (
           <Link to="/account">
             <Card className="hover:shadow-lg transition-shadow cursor-pointer">
               <CardHeader>
@@ -277,11 +308,33 @@ export function PraxisplanerHomePageContent() {
               </CardContent>
             </Card>
           </Link>
+        ) : (
+          <Card
+            aria-disabled="true"
+            className="opacity-70"
+            data-auth-route-state="unknown"
+          >
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5" />
+                Regelverwaltung & Simulation
+              </CardTitle>
+              <CardDescription>
+                Konfigurieren und testen Sie Verfügbarkeitsregeln
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Erstellen und verwalten Sie komplexe Regeln für die
+                Terminvergabe und testen diese in der Simulation
+              </p>
+            </CardContent>
+          </Card>
         )}
 
-        {organizationSlug ? (
+        {practiceRouteState.kind === "known-slug" ? (
           <Link
-            params={{ organizationSlug }}
+            params={{ organizationSlug: practiceRouteState.organizationSlug }}
             to="/$organizationSlug/praxisplaner"
           >
             <Card className="hover:shadow-lg transition-shadow cursor-pointer">
@@ -299,7 +352,7 @@ export function PraxisplanerHomePageContent() {
               </CardContent>
             </Card>
           </Link>
-        ) : (
+        ) : practiceRouteState.kind === "known-empty" ? (
           <Link to="/account">
             <Card className="hover:shadow-lg transition-shadow cursor-pointer">
               <CardHeader>
@@ -316,10 +369,32 @@ export function PraxisplanerHomePageContent() {
               </CardContent>
             </Card>
           </Link>
+        ) : (
+          <Card
+            aria-disabled="true"
+            className="opacity-70"
+            data-auth-route-state="unknown"
+          >
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                GDT File Processor
+              </CardTitle>
+              <CardDescription>GDT-Dateien verarbeiten</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                GDT-Dateien aus Verzeichnis einlesen und verarbeiten
+              </p>
+            </CardContent>
+          </Card>
         )}
 
-        {organizationSlug ? (
-          <Link params={{ organizationSlug }} to="/$organizationSlug">
+        {practiceRouteState.kind === "known-slug" ? (
+          <Link
+            params={{ organizationSlug: practiceRouteState.organizationSlug }}
+            to="/$organizationSlug"
+          >
             <Card className="hover:shadow-lg transition-shadow cursor-pointer">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -336,7 +411,7 @@ export function PraxisplanerHomePageContent() {
               </CardContent>
             </Card>
           </Link>
-        ) : (
+        ) : practiceRouteState.kind === "known-empty" ? (
           <Link to="/account">
             <Card className="hover:shadow-lg transition-shadow cursor-pointer">
               <CardHeader>
@@ -354,6 +429,26 @@ export function PraxisplanerHomePageContent() {
               </CardContent>
             </Card>
           </Link>
+        ) : (
+          <Card
+            aria-disabled="true"
+            className="opacity-70"
+            data-auth-route-state="unknown"
+          >
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarPlus className="h-5 w-5" />
+                Online-Terminbuchung
+              </CardTitle>
+              <CardDescription>Termine online buchen</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Patientenportal für die Online-Terminbuchung mit
+                Anamnese-Fragebogen
+              </p>
+            </CardContent>
+          </Card>
         )}
 
         <Link to="/account">
