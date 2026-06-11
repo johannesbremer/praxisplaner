@@ -16,7 +16,11 @@ import {
 } from "./_generated/server";
 import { isConvexAuthBypassEnabled } from "./authBypass";
 import { createInitialRuleSet } from "./copyOnWrite";
-import { DEV_AUTH_ORGANIZATION_ID, DEV_AUTH_PRACTICE_NAME } from "./devAuth";
+import {
+  DEV_AUTH_ORGANIZATION_ID,
+  DEV_AUTH_PRACTICE_NAME,
+  isDevAuthUserId,
+} from "./devAuthData";
 import { type PracticeRole, practiceRoleValidator } from "./practiceAccess";
 import { allocateUniquePracticeSlug } from "./practiceSlugs";
 
@@ -57,7 +61,7 @@ export const createOrganizationPractice = action({
         message: "Practice name is required",
       });
     }
-    if (isConvexAuthBypassEnabled()) {
+    if (shouldUseBypassOrganizations(identity.subject)) {
       return await ctx.runMutation(
         internal.workosOrganizations.createBypassOrganizationPractice,
         {
@@ -115,7 +119,7 @@ export const syncCurrentUserOrganizationMembership = action({
   },
   handler: async (ctx, args): Promise<Id<"practiceMembers"> | null> => {
     const identity = await requireActionIdentity(ctx);
-    if (isConvexAuthBypassEnabled()) {
+    if (shouldUseBypassOrganizations(identity.subject)) {
       return await ctx.runMutation(
         internal.workosOrganizations.syncBypassOrganizationMembership,
         {
@@ -158,6 +162,12 @@ export const getUsersManagementWidgetToken = action({
   },
   handler: async (ctx, args): Promise<string> => {
     const identity = await requireActionIdentity(ctx);
+    if (shouldUseBypassOrganizations(identity.subject)) {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "WorkOS user management is unavailable in auth bypass mode",
+      });
+    }
     await requireKnownWorkOSOrganization(ctx, args.organizationId);
     const membership = await loadActiveWorkOSOrganizationMembership({
       organizationId: args.organizationId,
@@ -183,7 +193,7 @@ export const listCurrentUserOrganizations = action({
   args: {},
   handler: async (ctx): Promise<WorkOSOrganizationSummary[]> => {
     const identity = await requireActionIdentity(ctx);
-    if (isConvexAuthBypassEnabled()) {
+    if (shouldUseBypassOrganizations(identity.subject)) {
       return await ctx.runQuery(
         internal.workosOrganizations.listBypassUserOrganizations,
         {
@@ -838,6 +848,10 @@ async function requireUserByAuthId(
     });
   }
   return user;
+}
+
+function shouldUseBypassOrganizations(workOSUserId: string): boolean {
+  return isConvexAuthBypassEnabled() || isDevAuthUserId(workOSUserId);
 }
 
 async function upsertPracticeMembership(

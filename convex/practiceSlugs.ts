@@ -1,6 +1,11 @@
 import type { DatabaseReader } from "./_generated/server";
 
 import { toPracticeSlug } from "../lib/practice-slug";
+import { RESERVED_TOP_LEVEL_ROUTE_SEGMENTS } from "../lib/reserved-top-level-route-segments";
+
+const RESERVED_TOP_LEVEL_ROUTE_SEGMENT_SET: ReadonlySet<string> = new Set(
+  RESERVED_TOP_LEVEL_ROUTE_SEGMENTS,
+);
 
 export async function allocateUniquePracticeSlug(
   db: DatabaseReader,
@@ -10,7 +15,10 @@ export async function allocateUniquePracticeSlug(
   let candidate = baseSlug;
   let suffix = 2;
 
-  while (await practiceSlugExists(db, candidate)) {
+  while (
+    RESERVED_TOP_LEVEL_ROUTE_SEGMENT_SET.has(candidate) ||
+    (await practiceSlugExists(db, candidate))
+  ) {
     candidate = `${baseSlug}-${suffix}`;
     suffix += 1;
   }
