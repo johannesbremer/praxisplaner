@@ -32,6 +32,7 @@ import {
 } from "./auth/auth-return-to";
 import {
   createDevAuthJwt,
+  type DevAuthPersona,
   getDevAuthPersonaForPath,
 } from "./auth/dev-auth-jwt";
 import { routeTree } from "./routeTree.gen";
@@ -48,6 +49,14 @@ import {
 // Type-safe WorkOS callback route path
 const CALLBACK_PATH = "/callback" as const satisfies FileRouteTypes["to"];
 const DEV_WORKOS_CLIENT_ID = "client_praxisplaner_dev";
+const DEV_AUTH_TOKEN_REFRESH_AFTER_MS = 4 * 60 * 1000;
+
+interface DevAuthTokenState {
+  persona: DevAuthPersona;
+  refreshAfterMs: number;
+  token: string;
+}
+
 interface RouterConfig {
   apiHostname?: string;
   convexUrl: string;
@@ -214,7 +223,7 @@ export function getRouter() {
           <p>Die von Ihnen angeforderte Seite existiert nicht.</p>
         </div>
       ),
-      defaultPreload: "viewport",
+      defaultPreload: false,
       routeTree,
       Wrap: ({ children }) => (
         <ConvexQueryClientContext.Provider value={convexQueryClient}>
@@ -312,6 +321,17 @@ function AuthProvidersInner({
   );
 }
 
+async function createDevAuthTokenState(
+  persona: DevAuthPersona,
+): Promise<DevAuthTokenState> {
+  const token = await createDevAuthJwt(persona);
+  return {
+    persona,
+    refreshAfterMs: Date.now() + DEV_AUTH_TOKEN_REFRESH_AFTER_MS,
+    token,
+  };
+}
+
 function FatalConfigScreen({ error }: { error: FrontendError }) {
   return (
     <div style={{ color: "red", padding: "20px", textAlign: "center" }}>
@@ -395,10 +415,49 @@ function useBrowserPathname(): string {
 
 function useConvexAuthFromWorkOS(pathname: string) {
   const { getAccessToken, isLoading, user } = useAuth();
+  const authBypassEnabled = isAuthBypassEnabled();
+  const devPersona = getDevAuthPersonaForPath(pathname);
+  const [devAuthToken, setDevAuthToken] = useState<DevAuthTokenState | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!authBypassEnabled) {
+      return;
+    }
+
+    let active = true;
+    void createDevAuthTokenState(devPersona).then(
+      (tokenState) => {
+        if (active) {
+          setDevAuthToken(tokenState);
+        }
+      },
+      (error: unknown) => {
+        if (active) {
+          console.error("Error creating dev auth token:", error);
+          setDevAuthToken(null);
+        }
+      },
+    );
+
+    return () => {
+      active = false;
+    };
+  }, [authBypassEnabled, devPersona]);
 
   const fetchAccessToken = useCallback(async (): Promise<null | string> => {
-    if (isAuthBypassEnabled()) {
-      return await createDevAuthJwt(getDevAuthPersonaForPath(pathname));
+    if (authBypassEnabled) {
+      if (
+        devAuthToken?.persona === devPersona &&
+        devAuthToken.refreshAfterMs > Date.now()
+      ) {
+        return devAuthToken.token;
+      }
+
+      const tokenState = await createDevAuthTokenState(devPersona);
+      setDevAuthToken(tokenState);
+      return tokenState.token;
     }
     if (isLoading) {
       return null;
@@ -413,15 +472,25 @@ function useConvexAuthFromWorkOS(pathname: string) {
       console.error("Error fetching access token:", error);
       return null;
     }
-  }, [getAccessToken, isLoading, pathname, user]);
+  }, [
+    authBypassEnabled,
+    devAuthToken,
+    devPersona,
+    getAccessToken,
+    isLoading,
+    user,
+  ]);
+
+  const devAuthReady =
+    authBypassEnabled && devAuthToken?.persona === devPersona;
 
   return useMemo(
     () => ({
       fetchAccessToken,
-      isAuthenticated: isAuthBypassEnabled() || !!user,
-      isLoading: isAuthBypassEnabled() ? false : isLoading,
+      isAuthenticated: authBypassEnabled ? devAuthReady : !!user,
+      isLoading: authBypassEnabled ? !devAuthReady : isLoading,
     }),
-    [isLoading, user, fetchAccessToken],
+    [authBypassEnabled, devAuthReady, isLoading, user, fetchAccessToken],
   );
 }
 

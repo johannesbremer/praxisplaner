@@ -1,5 +1,6 @@
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useAuth } from "@workos-inc/authkit-react";
+import { useConvexAuth } from "convex/react";
 import { Loader2 } from "lucide-react";
 import {
   type ReactElement,
@@ -153,6 +154,7 @@ function AuthenticatedGate({
   children: ReactNode;
   devPersona?: DevAuthPersona;
 }): ReactElement {
+  const convexAuth = useConvexAuth();
   const { isLoading, signIn, user } = useAuth();
   const [signInError, setSignInError] = useState<null | string>(null);
   const signInRequestedRef = useRef(false);
@@ -181,7 +183,7 @@ function AuthenticatedGate({
   }, [isLoading, startSignIn, user]);
 
   if (isAuthBypassEnabled() && isDevPersonaActive(devPersona)) {
-    return <>{children}</>;
+    return convexAuth.isAuthenticated ? <>{children}</> : <AuthLoadingScreen />;
   }
 
   if (isLoading) {
