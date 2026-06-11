@@ -78,6 +78,64 @@ export function AccountAuthGate({
   );
 }
 
+export function AuthenticatedGate({
+  children,
+  devPersona,
+}: {
+  children: ReactNode;
+  devPersona?: DevAuthPersona;
+}): ReactElement {
+  const convexAuth = useConvexAuth();
+  const { isLoading, signIn, user } = useAuth();
+  const [signInError, setSignInError] = useState<null | string>(null);
+  const signInRequestedRef = useRef(false);
+
+  const startSignIn = useCallback(() => {
+    if (signInRequestedRef.current) {
+      return;
+    }
+    signInRequestedRef.current = true;
+    const returnTo = getAuthReturnToPath();
+    signIn({ state: { returnTo } }).catch((error: unknown) => {
+      signInRequestedRef.current = false;
+      setSignInError(
+        error instanceof Error
+          ? error.message
+          : "Anmeldung konnte nicht gestartet werden",
+      );
+    });
+  }, [signIn]);
+
+  useEffect(() => {
+    if (isLoading || user || isAuthBypassEnabled()) {
+      return;
+    }
+    startSignIn();
+  }, [isLoading, startSignIn, user]);
+
+  if (isAuthBypassEnabled() && isDevPersonaActive(devPersona)) {
+    return convexAuth.isAuthenticated ? <>{children}</> : <AuthLoadingScreen />;
+  }
+
+  if (isLoading) {
+    return <AuthLoadingScreen />;
+  }
+
+  if (!user) {
+    return (
+      <SignInScreen
+        error={signInError}
+        onRetry={() => {
+          setSignInError(null);
+          startSignIn();
+        }}
+      />
+    );
+  }
+
+  return <>{children}</>;
+}
+
 export function hasRequiredAccess({
   permissions,
   requirement,
@@ -145,64 +203,6 @@ export function StaffAuthGate({
       {children}
     </AuthorizedGate>
   );
-}
-
-function AuthenticatedGate({
-  children,
-  devPersona,
-}: {
-  children: ReactNode;
-  devPersona?: DevAuthPersona;
-}): ReactElement {
-  const convexAuth = useConvexAuth();
-  const { isLoading, signIn, user } = useAuth();
-  const [signInError, setSignInError] = useState<null | string>(null);
-  const signInRequestedRef = useRef(false);
-
-  const startSignIn = useCallback(() => {
-    if (signInRequestedRef.current) {
-      return;
-    }
-    signInRequestedRef.current = true;
-    const returnTo = getAuthReturnToPath();
-    signIn({ state: { returnTo } }).catch((error: unknown) => {
-      signInRequestedRef.current = false;
-      setSignInError(
-        error instanceof Error
-          ? error.message
-          : "Anmeldung konnte nicht gestartet werden",
-      );
-    });
-  }, [signIn]);
-
-  useEffect(() => {
-    if (isLoading || user || isAuthBypassEnabled()) {
-      return;
-    }
-    startSignIn();
-  }, [isLoading, startSignIn, user]);
-
-  if (isAuthBypassEnabled() && isDevPersonaActive(devPersona)) {
-    return convexAuth.isAuthenticated ? <>{children}</> : <AuthLoadingScreen />;
-  }
-
-  if (isLoading) {
-    return <AuthLoadingScreen />;
-  }
-
-  if (!user) {
-    return (
-      <SignInScreen
-        error={signInError}
-        onRetry={() => {
-          setSignInError(null);
-          startSignIn();
-        }}
-      />
-    );
-  }
-
-  return <>{children}</>;
 }
 
 function AuthLoadingScreen(): ReactElement {
