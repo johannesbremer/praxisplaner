@@ -86,17 +86,13 @@ export function getDevAuthPersonaAccess(persona: DevAuthPersona): {
 }
 
 export function getDevAuthPersonaForPath(pathname: string): DevAuthPersona {
-  if (pathname === "/") {
-    return "owner";
-  }
   if (pathname.startsWith("/account")) {
     return "owner";
   }
-  const appSection = pathname.split("/", 3)[2];
-  if (appSection === "regeln") {
+  if (pathname.startsWith("/regeln")) {
     return "admin";
   }
-  if (appSection === "praxisplaner") {
+  if (pathname.startsWith("/praxisplaner")) {
     return "staff";
   }
   return "patient";

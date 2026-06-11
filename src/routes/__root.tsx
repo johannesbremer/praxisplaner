@@ -12,7 +12,6 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
-import { useConvexAuth, useQuery } from "convex/react";
 import {
   CalendarPlus,
   Clock,
@@ -38,7 +37,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-import { api } from "../../convex/_generated/api";
 import { isAuthBypassEnabled } from "../auth/auth-bypass";
 import {
   UndoRedoControlsProvider,
@@ -219,14 +217,6 @@ export const Route = createRootRouteWithContext<{
 });
 
 export function PraxisplanerHomePageContent() {
-  const convexAuth = useConvexAuth();
-  const practices = useQuery(
-    api.practices.getAllPractices,
-    convexAuth.isAuthenticated ? {} : "skip",
-  );
-  const practice = practices?.[0];
-  const organizationSlug = practice?.slug;
-
   return (
     <div className="container mx-auto p-6">
       <div className="mb-8">
@@ -237,124 +227,60 @@ export function PraxisplanerHomePageContent() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {organizationSlug ? (
-          <Link params={{ organizationSlug }} to="/$organizationSlug/regeln">
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-5 w-5" />
-                  Regelverwaltung & Simulation
-                </CardTitle>
-                <CardDescription>
-                  Konfigurieren und testen Sie Verfügbarkeitsregeln
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Erstellen und verwalten Sie komplexe Regeln für die
-                  Terminvergabe und testen diese in der Simulation
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        ) : (
-          <Link to="/account">
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-5 w-5" />
-                  Regelverwaltung & Simulation
-                </CardTitle>
-                <CardDescription>
-                  Konfigurieren und testen Sie Verfügbarkeitsregeln
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Erstellen und verwalten Sie komplexe Regeln für die
-                  Terminvergabe und testen diese in der Simulation
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        )}
+        <Link to="/regeln">
+          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5" />
+                Regelverwaltung & Simulation
+              </CardTitle>
+              <CardDescription>
+                Konfigurieren und testen Sie Verfügbarkeitsregeln
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Erstellen und verwalten Sie komplexe Regeln für die
+                Terminvergabe und testen diese in der Simulation
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
 
-        {organizationSlug ? (
-          <Link
-            params={{ organizationSlug }}
-            to="/$organizationSlug/praxisplaner"
-          >
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="h-5 w-5" />
-                  GDT File Processor
-                </CardTitle>
-                <CardDescription>GDT-Dateien verarbeiten</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  GDT-Dateien aus Verzeichnis einlesen und verarbeiten
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        ) : (
-          <Link to="/account">
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="h-5 w-5" />
-                  GDT File Processor
-                </CardTitle>
-                <CardDescription>GDT-Dateien verarbeiten</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  GDT-Dateien aus Verzeichnis einlesen und verarbeiten
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        )}
+        <Link to="/praxisplaner">
+          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                GDT File Processor
+              </CardTitle>
+              <CardDescription>GDT-Dateien verarbeiten</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                GDT-Dateien aus Verzeichnis einlesen und verarbeiten
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
 
-        {organizationSlug ? (
-          <Link params={{ organizationSlug }} to="/$organizationSlug">
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CalendarPlus className="h-5 w-5" />
-                  Online-Terminbuchung
-                </CardTitle>
-                <CardDescription>Termine online buchen</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Patientenportal für die Online-Terminbuchung mit
-                  Anamnese-Fragebogen
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        ) : (
-          <Link to="/account">
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CalendarPlus className="h-5 w-5" />
-                  Online-Terminbuchung
-                </CardTitle>
-                <CardDescription>Termine online buchen</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Patientenportal für die Online-Terminbuchung mit
-                  Anamnese-Fragebogen
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        )}
+        <Link to="/buchung">
+          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarPlus className="h-5 w-5" />
+                Online-Terminbuchung
+              </CardTitle>
+              <CardDescription>Termine online buchen</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Patientenportal für die Online-Terminbuchung mit
+                Anamnese-Fragebogen
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
 
         <Link to="/account">
           <Card className="hover:shadow-lg transition-shadow cursor-pointer">
@@ -604,19 +530,12 @@ function RootLayout() {
 }
 
 function shouldShowRootSignOut(pathname: string): boolean {
-  const segments = pathname.split("/").filter(Boolean);
-  const [firstSegment, secondSegment] = segments;
-  const isReservedTopLevelRoute =
-    firstSegment === "account" || firstSegment === "callback";
-  const isOrganizationBookingRoute =
-    segments.length === 1 && !isReservedTopLevelRoute;
-  const isOrganizationStaffRoute =
-    secondSegment === "regeln" || secondSegment === "praxisplaner";
-
   return (
     pathname === "/" ||
     pathname === "/account" ||
-    isOrganizationBookingRoute ||
-    isOrganizationStaffRoute
+    pathname === "/buchung" ||
+    pathname === "/regeln" ||
+    pathname === "/praxisplaner" ||
+    pathname.startsWith("/praxisplaner/")
   );
 }

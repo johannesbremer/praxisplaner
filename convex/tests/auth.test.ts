@@ -2,7 +2,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { internal } from "../_generated/api";
-import { DEV_AUTH_USERS } from "../devAuthData";
+import { DEV_AUTH_USERS } from "../devAuth";
 import schema from "../schema";
 import {
   canManageWorkOSOrganizationUsers,

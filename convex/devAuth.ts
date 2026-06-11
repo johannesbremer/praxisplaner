@@ -5,12 +5,36 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, type MutationCtx } from "./_generated/server";
 import { isConvexAuthBypassEnabled } from "./authBypass";
 import { createInitialRuleSet } from "./copyOnWrite";
-import {
-  DEV_AUTH_ORGANIZATION_ID,
-  DEV_AUTH_PRACTICE_NAME,
-  DEV_AUTH_USERS,
-} from "./devAuthData";
-import { allocateUniquePracticeSlug } from "./practiceSlugs";
+
+export const DEV_AUTH_USERS = [
+  {
+    authId: "dev-patient",
+    email: "patient@preview.test",
+    firstName: "Preview",
+    lastName: "Patient",
+  },
+  {
+    authId: "dev-staff",
+    email: "staff@preview.test",
+    firstName: "Preview",
+    lastName: "Staff",
+    role: "staff",
+  },
+  {
+    authId: "dev-admin",
+    email: "admin@preview.test",
+    firstName: "Preview",
+    lastName: "Admin",
+    role: "admin",
+  },
+  {
+    authId: "dev-owner",
+    email: "owner@preview.test",
+    firstName: "Preview",
+    lastName: "Owner",
+    role: "owner",
+  },
+] as const;
 
 export const ensurePreviewAuthPersonas = mutation({
   args: {},
@@ -48,31 +72,11 @@ export const ensurePreviewAuthPersonas = mutation({
 async function ensurePractice(ctx: MutationCtx): Promise<Doc<"practices">> {
   const existing = await ctx.db.query("practices").first();
   if (existing) {
-    if (!existing.slug || !existing.workOSOrganizationId) {
-      await ctx.db.patch("practices", existing._id, {
-        ...(existing.slug
-          ? {}
-          : {
-              slug: await allocateUniquePracticeSlug(
-                ctx.db,
-                DEV_AUTH_PRACTICE_NAME,
-              ),
-            }),
-        workOSOrganizationId: DEV_AUTH_ORGANIZATION_ID,
-      });
-      const updated = await ctx.db.get("practices", existing._id);
-      if (!updated) {
-        throw new Error("Updated practice was not found");
-      }
-      return updated;
-    }
     return existing;
   }
 
   const practiceId = await ctx.db.insert("practices", {
-    name: DEV_AUTH_PRACTICE_NAME,
-    slug: await allocateUniquePracticeSlug(ctx.db, DEV_AUTH_PRACTICE_NAME),
-    workOSOrganizationId: DEV_AUTH_ORGANIZATION_ID,
+    name: "Standardpraxis",
   });
   await createInitialRuleSet(ctx.db, practiceId);
 

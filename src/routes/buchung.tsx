@@ -51,9 +51,8 @@ import {
   invalidStateError,
   wrapAsyncResult,
 } from "../utils/frontend-errors";
-import { readOrganizationSlugParam } from "../utils/organization-route-params";
 
-export const Route = createFileRoute("/$organizationSlug")({
+export const Route = createFileRoute("/buchung")({
   component: BookingPage,
 });
 
@@ -458,7 +457,6 @@ function BookingPage() {
  * This separation ensures Convex hooks are only called when the user is authenticated.
  */
 function AuthenticatedBookingFlow() {
-  const organizationSlug = readOrganizationSlugParam(Route.useParams());
   const [bookedAppointmentRefreshNonce, setBookedAppointmentRefreshNonce] =
     useState(0);
   const [sessionError, setSessionError] = useState<null | string>(null);
@@ -467,11 +465,14 @@ function AuthenticatedBookingFlow() {
   >(null);
   const isCreatingSessionRef = useRef(false);
   const stepContainerRef = useRef<HTMLDivElement>(null);
+  const isInitializingPracticeRef = useRef(false);
 
   // Fetch practice data
-  const currentPractice = useQuery(api.practices.getBookingPracticeBySlug, {
-    slug: organizationSlug,
-  });
+  const practicesQuery = useQuery(api.practices.getBookingPractices, {});
+  const initializeDefaultPractice = useMutation(
+    api.practices.initializeDefaultPractice,
+  );
+  const currentPractice = practicesQuery?.[0];
 
   // `/buchung` always follows the currently active rule set of the practice.
   const practiceActiveRuleSetId = currentPractice?.currentActiveRuleSetId;
@@ -503,6 +504,24 @@ function AuthenticatedBookingFlow() {
   const createSession = useMutation(api.bookingSessions.create);
   const goBackToStep = useMutation(api.bookingSessions.goBackToStep);
   const removeSession = useMutation(api.bookingSessions.remove);
+
+  useEffect(() => {
+    if (
+      !practicesQuery ||
+      practicesQuery.length > 0 ||
+      isInitializingPracticeRef.current
+    ) {
+      return;
+    }
+    isInitializingPracticeRef.current = true;
+    initializeDefaultPractice()
+      .catch((error: unknown) => {
+        console.error("Failed to initialize practice membership:", error);
+      })
+      .finally(() => {
+        isInitializingPracticeRef.current = false;
+      });
+  }, [initializeDefaultPractice, practicesQuery]);
 
   useEffect(() => {
     if (
@@ -758,7 +777,7 @@ function AuthenticatedBookingFlow() {
     bookedAppointments !== undefined && bookedAppointments.length > 0;
 
   // Loading state
-  if (currentPractice === undefined) {
+  if (!practicesQuery) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="w-96">
