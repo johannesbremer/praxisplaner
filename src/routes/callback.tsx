@@ -17,6 +17,7 @@ export const Route = createFileRoute("/callback")({
 });
 
 const CALLBACK_TIMEOUT_MS = 15_000;
+const CALLBACK_RETRY_RETURN_TO = "/";
 const CONVEX_AUTH_FAILED_MESSAGE =
   "Anmeldung bei Convex konnte nicht abgeschlossen werden. Bitte prüfen Sie die WorkOS Client-ID und Convex Auth-Konfiguration für diese Umgebung.";
 const CALLBACK_TIMEOUT_MESSAGE =
@@ -263,7 +264,13 @@ function CallbackComponent() {
           <p className="text-muted-foreground text-sm">
             Die Authentifizierung konnte nicht abgeschlossen werden.
           </p>
-          <Button onClick={() => void signIn()}>Erneut anmelden</Button>
+          <Button
+            onClick={() =>
+              void signIn({ state: { returnTo: CALLBACK_RETRY_RETURN_TO } })
+            }
+          >
+            Erneut anmelden
+          </Button>
         </div>
       </div>
     );
