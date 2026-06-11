@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/card";
 
 import { isAuthBypassEnabled } from "./auth-bypass";
-import { setAuthReturnToPath } from "./auth-return-to";
 import {
   type DevAuthPersona,
   getDevAuthPersonaAccess,
@@ -164,7 +163,6 @@ function AuthenticatedGate({
     }
     signInRequestedRef.current = true;
     const returnTo = getAuthReturnToPath();
-    setAuthReturnToPath(returnTo);
     signIn({ state: { returnTo } }).catch((error: unknown) => {
       signInRequestedRef.current = false;
       setSignInError(
