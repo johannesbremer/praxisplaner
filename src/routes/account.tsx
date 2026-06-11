@@ -19,6 +19,10 @@ import { api } from "../../convex/_generated/api";
 import { AccountAuthGate } from "../auth/access-control";
 import { isAuthBypassEnabled } from "../auth/auth-bypass";
 
+function getAuthReturnToPath(): string {
+  return `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
+}
+
 export const Route = createFileRoute("/account")({
   component: AccountRoute,
 });
@@ -83,15 +87,16 @@ function AccountPage() {
     }
     void syncCurrentOrganizationMembership({ organizationId: organization.id });
     if (!authBypassEnabled && organization.id !== organizationId) {
-      switchToOrganization({ organizationId: organization.id }).catch(
-        (error: unknown) => {
-          setOrganizationListError(
-            error instanceof Error
-              ? error.message
-              : "Organisation konnte nicht aktiviert werden.",
-          );
-        },
-      );
+      switchToOrganization({
+        organizationId: organization.id,
+        signInOpts: { state: { returnTo: getAuthReturnToPath() } },
+      }).catch((error: unknown) => {
+        setOrganizationListError(
+          error instanceof Error
+            ? error.message
+            : "Organisation konnte nicht aktiviert werden.",
+        );
+      });
     }
   }, [
     organizationId,
@@ -117,7 +122,10 @@ function AccountPage() {
         refreshOrganizations();
         return authBypassEnabled
           ? undefined
-          : switchToOrganization({ organizationId: nextOrganizationId });
+          : switchToOrganization({
+              organizationId: nextOrganizationId,
+              signInOpts: { state: { returnTo: getAuthReturnToPath() } },
+            });
       })
       .catch((error: unknown) => {
         setCreateError(

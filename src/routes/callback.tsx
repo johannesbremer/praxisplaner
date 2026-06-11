@@ -1,18 +1,23 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { useAction, useConvexAuth } from "convex/react";
+import { err, ok, type Result } from "neverthrow";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "../../components/ui/button";
 import { api } from "../../convex/_generated/api";
 import { consumeAuthReturnToPath } from "../auth/auth-return-to";
+import {
+  type FrontendError,
+  invalidStateError,
+} from "../utils/frontend-errors";
 
 export const Route = createFileRoute("/callback")({
   component: CallbackComponent,
 });
 
-const DEFAULT_RETURN_PATH = "/";
 const CALLBACK_TIMEOUT_MS = 15_000;
+const CALLBACK_RETRY_RETURN_TO = "/";
 const CONVEX_AUTH_FAILED_MESSAGE =
   "Anmeldung bei Convex konnte nicht abgeschlossen werden. Bitte prüfen Sie die WorkOS Client-ID und Convex Auth-Konfiguration für diese Umgebung.";
 const CALLBACK_TIMEOUT_MESSAGE =
@@ -203,8 +208,20 @@ function CallbackComponent() {
           : null;
       })
       .then(() => {
-        const returnTo = consumeAuthReturnToPath();
-        navigateToReturnPath(navigate, returnTo);
+        const result = consumeAuthReturnToPath().andThen((returnTo) =>
+          navigateToReturnPath(navigate, returnTo),
+        );
+        result.match(
+          () => true,
+          (error) => {
+            provisioningUserIdRef.current = null;
+            setProvisioningError({
+              message: error.message,
+              userId,
+            });
+            return false;
+          },
+        );
       })
       .catch((error: unknown) => {
         logPreviewAuthCallback("provision:error", {
@@ -247,7 +264,13 @@ function CallbackComponent() {
           <p className="text-muted-foreground text-sm">
             Die Authentifizierung konnte nicht abgeschlossen werden.
           </p>
-          <Button onClick={() => void signIn()}>Erneut anmelden</Button>
+          <Button
+            onClick={() =>
+              void signIn({ state: { returnTo: CALLBACK_RETRY_RETURN_TO } })
+            }
+          >
+            Erneut anmelden
+          </Button>
         </div>
       </div>
     );
@@ -291,6 +314,10 @@ function CallbackComponent() {
   );
 }
 
+function createNavigationError(message: string): Result<void, FrontendError> {
+  return err(invalidStateError(message, "navigateToReturnPath"));
+}
+
 function getSameOriginReturnUrl(returnTo: string): null | URL {
   const returnUrl = new URL(returnTo, globalThis.location.origin);
   return returnUrl.origin === globalThis.location.origin ? returnUrl : null;
@@ -309,18 +336,19 @@ function logPreviewAuthCallback(
 function navigateToReturnPath(
   navigate: ReturnType<typeof useNavigate>,
   returnTo: string,
-): void {
+): Result<void, FrontendError> {
   const returnUrl = getSameOriginReturnUrl(returnTo);
   if (!returnUrl) {
-    void navigate({ replace: true, to: DEFAULT_RETURN_PATH });
-    return;
+    return createNavigationError(
+      `Cross-origin auth return target: ${returnTo}`,
+    );
   }
 
   const fullPath = `${returnUrl.pathname}${returnUrl.search}${returnUrl.hash}`;
   switch (returnUrl.pathname) {
     case "/account": {
       void navigate({ replace: true, to: fullPath });
-      return;
+      return ok();
     }
     default: {
       const segments = returnUrl.pathname.split("/").filter(Boolean);
@@ -331,9 +359,11 @@ function navigateToReturnPath(
         (segments.length >= 3 && segments[1] === "praxisplaner")
       ) {
         void navigate({ replace: true, to: fullPath });
-        return;
+        return ok();
       }
-      void navigate({ replace: true, to: DEFAULT_RETURN_PATH });
+      return createNavigationError(
+        `Unsupported auth return target: ${fullPath}`,
+      );
     }
   }
 }

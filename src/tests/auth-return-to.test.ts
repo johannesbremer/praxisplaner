@@ -5,31 +5,46 @@ import {
   setAuthReturnToPath,
 } from "../auth/auth-return-to";
 
-const STORAGE_KEY = "praxisplaner.auth.returnTo";
-
 describe("auth return target", () => {
-  test("consumes a route captured before sign-in", () => {
-    setAuthReturnToPath("/demo/praxisplaner/kalender?tag=heute#slot");
-
-    expect(consumeAuthReturnToPath()).toBe(
+  test("consumes a route restored from the current WorkOS callback state", () => {
+    const saved = setAuthReturnToPath(
       "/demo/praxisplaner/kalender?tag=heute#slot",
     );
-    expect(consumeAuthReturnToPath()).toBe("/");
+    expect(saved.isOk()).toBe(true);
+
+    const consumed = consumeAuthReturnToPath();
+    expect(consumed.isOk()).toBe(true);
+    const consumedValue = consumed.isOk() ? consumed.value : null;
+    expect(consumedValue).toBe("/demo/praxisplaner/kalender?tag=heute#slot");
+
+    const consumedAgain = consumeAuthReturnToPath();
+    expect(consumedAgain.isErr()).toBe(true);
+    const consumedAgainMessage = consumedAgain.isErr()
+      ? consumedAgain.error.message
+      : null;
+    expect(consumedAgainMessage).toBe("Missing WorkOS auth return target.");
   });
 
-  test("consumes a route restored after the auth callback page load", () => {
-    globalThis.localStorage.setItem(STORAGE_KEY, "/demo/regeln");
+  test("rejects missing, callback, and cross-origin-shaped paths", () => {
+    const missing = consumeAuthReturnToPath();
+    expect(missing.isErr()).toBe(true);
+    const missingMessage = missing.isErr() ? missing.error.message : null;
+    expect(missingMessage).toBe("Missing WorkOS auth return target.");
 
-    expect(consumeAuthReturnToPath()).toBe("/demo/regeln");
-    expect(globalThis.localStorage.getItem(STORAGE_KEY)).toBeNull();
-  });
+    const callback = setAuthReturnToPath("/callback");
+    expect(callback.isErr()).toBe(true);
+    const callbackMessage = callback.isErr() ? callback.error.message : null;
+    expect(callbackMessage).toBe(
+      "Invalid WorkOS auth return target: /callback",
+    );
 
-  test("falls back for callback and cross-origin-shaped paths", () => {
-    setAuthReturnToPath("/callback");
-    expect(consumeAuthReturnToPath()).toBe("/");
-
-    globalThis.localStorage.setItem(STORAGE_KEY, "//attacker.example/path");
-    expect(consumeAuthReturnToPath()).toBe("/");
-    expect(globalThis.localStorage.getItem(STORAGE_KEY)).toBeNull();
+    const crossOrigin = setAuthReturnToPath("//attacker.example/path");
+    expect(crossOrigin.isErr()).toBe(true);
+    const crossOriginMessage = crossOrigin.isErr()
+      ? crossOrigin.error.message
+      : null;
+    expect(crossOriginMessage).toBe(
+      "Invalid WorkOS auth return target: //attacker.example/path",
+    );
   });
 });

@@ -26,7 +26,10 @@ import toast from "react-hot-toast";
 import type { FileRouteTypes } from "./routeTree.gen";
 
 import { isAuthBypassEnabled } from "./auth/auth-bypass";
-import { setAuthReturnToPath } from "./auth/auth-return-to";
+import {
+  setAuthReturnToError,
+  setAuthReturnToPath,
+} from "./auth/auth-return-to";
 import {
   createDevAuthJwt,
   getDevAuthPersonaForPath,
@@ -37,6 +40,7 @@ import {
   captureFrontendError,
   configurationError,
   type FrontendError,
+  invalidStateError,
   missingContextError,
   resultFromNullable,
 } from "./utils/frontend-errors";
@@ -317,10 +321,6 @@ function FatalConfigScreen({ error }: { error: FrontendError }) {
   );
 }
 
-function isAllowedReturnToPath(returnTo: string): boolean {
-  return returnTo.startsWith("/") && !returnTo.startsWith("//");
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -335,12 +335,25 @@ function storeAuthReturnTo({ state }: { state?: unknown }) {
     return;
   }
   if (!isRecord(state)) {
+    setAuthReturnToError(
+      invalidStateError("WorkOS callback state is missing.", "router"),
+    );
     return;
   }
   const returnTo = state["returnTo"];
-  if (typeof returnTo === "string" && isAllowedReturnToPath(returnTo)) {
-    setAuthReturnToPath(returnTo);
+  if (typeof returnTo !== "string") {
+    setAuthReturnToError(
+      invalidStateError("WorkOS callback state is missing returnTo.", "router"),
+    );
+    return;
   }
+  setAuthReturnToPath(returnTo).match(
+    () => true,
+    (error) => {
+      setAuthReturnToError(error);
+      return false;
+    },
+  );
 }
 
 function useBrowserPathname(): string {

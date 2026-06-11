@@ -1,57 +1,61 @@
-const DEFAULT_RETURN_PATH = "/";
-const STORAGE_KEY = "praxisplaner.auth.returnTo";
+import { err, ok, type Result } from "neverthrow";
+
+import {
+  type FrontendError,
+  invalidStateError,
+} from "../utils/frontend-errors";
 
 let authReturnToPath: null | string = null;
+let authReturnToError: FrontendError | null = null;
 
-export function consumeAuthReturnToPath(): string {
-  const returnTo = authReturnToPath ?? readStoredAuthReturnToPath();
+export function consumeAuthReturnToPath(): Result<string, FrontendError> {
+  const savedError = authReturnToError;
+  const returnTo = authReturnToPath;
+  authReturnToError = null;
   authReturnToPath = null;
-  clearStoredAuthReturnToPath();
-  return returnTo && isAllowedReturnToPath(returnTo) && returnTo !== "/callback"
-    ? returnTo
-    : DEFAULT_RETURN_PATH;
+
+  if (savedError) {
+    return err(savedError);
+  }
+  if (!returnTo) {
+    return err(
+      invalidStateError(
+        "Missing WorkOS auth return target.",
+        "consumeAuthReturnToPath",
+      ),
+    );
+  }
+  if (!isAllowedReturnToPath(returnTo) || returnTo === "/callback") {
+    return err(createInvalidReturnTargetError(returnTo));
+  }
+
+  return ok(returnTo);
 }
 
-export function setAuthReturnToPath(returnTo: string): void {
-  if (isAllowedReturnToPath(returnTo)) {
-    authReturnToPath = returnTo;
-    writeStoredAuthReturnToPath(returnTo);
-  }
+export function setAuthReturnToError(error: FrontendError): void {
+  authReturnToError = error;
+  authReturnToPath = null;
 }
 
-function clearStoredAuthReturnToPath(): void {
-  if (import.meta.env.SSR) {
-    return;
+export function setAuthReturnToPath(
+  returnTo: string,
+): Result<void, FrontendError> {
+  if (!isAllowedReturnToPath(returnTo) || returnTo === "/callback") {
+    return err(createInvalidReturnTargetError(returnTo));
   }
-  try {
-    globalThis.localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Browser storage access can be denied by privacy settings.
-  }
+
+  authReturnToError = null;
+  authReturnToPath = returnTo;
+  return ok();
+}
+
+function createInvalidReturnTargetError(returnTo: string): FrontendError {
+  return invalidStateError(
+    `Invalid WorkOS auth return target: ${returnTo}`,
+    "auth-return-to",
+  );
 }
 
 function isAllowedReturnToPath(returnTo: string): boolean {
   return returnTo.startsWith("/") && !returnTo.startsWith("//");
-}
-
-function readStoredAuthReturnToPath(): null | string {
-  if (import.meta.env.SSR) {
-    return null;
-  }
-  try {
-    return globalThis.localStorage.getItem(STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredAuthReturnToPath(returnTo: string): void {
-  if (import.meta.env.SSR) {
-    return;
-  }
-  try {
-    globalThis.localStorage.setItem(STORAGE_KEY, returnTo);
-  } catch {
-    // AuthKit state still carries returnTo when storage persistence is blocked.
-  }
 }
