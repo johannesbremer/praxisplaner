@@ -345,7 +345,7 @@ function storeAuthReturnTo({ state }: { state?: unknown }) {
 
 function useBrowserPathname(): string {
   const [pathname, setPathname] = useState(() =>
-    import.meta.env.SSR ? "/buchung" : globalThis.location.pathname,
+    import.meta.env.SSR ? "/" : globalThis.location.pathname,
   );
 
   useEffect(() => {

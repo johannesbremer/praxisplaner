@@ -1,6 +1,6 @@
-// src/routes/regeln.tsx
+// src/routes/$organizationSlug.regeln.tsx
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { ClientOnly } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { RefreshCw, Save, Undo2 } from "lucide-react";
@@ -57,6 +57,7 @@ import {
   frontendErrorFromUnknown,
   wrapAsyncResult,
 } from "../utils/frontend-errors";
+import { readOrganizationSlugParam } from "../utils/organization-route-params";
 import {
   EXISTING_PATIENT_SEGMENT,
   NEW_PATIENT_SEGMENT,
@@ -91,7 +92,7 @@ function isRegelnTab(value: string): value is RegelnTab {
   );
 }
 
-export const Route = createFileRoute("/regeln")({
+export const Route = createFileRoute("/$organizationSlug_/regeln")({
   component: RegelnRoute,
   validateSearch: (search): RegelnSearchParams => {
     const params = search;
@@ -134,14 +135,14 @@ export const Route = createFileRoute("/regeln")({
 });
 
 function LogicView() {
+  const organizationSlug = readOrganizationSlugParam(Route.useParams());
   // URL helpers: central source of truth for parsing and navigation
   // URL is the source of truth. No local tab/date/patientType/ruleSet state.
 
   // Practices and initialization
-  const practicesQuery = useQuery(api.practices.getAllPractices, {});
-  const initializePracticeMutation = useMutation(
-    api.practices.initializeDefaultPractice,
-  );
+  const currentPractice = useQuery(api.practices.getAccessiblePracticeBySlug, {
+    slug: organizationSlug,
+  });
 
   // pushParams will be defined after data queries and derived state
   const { captureError } = useErrorTracking();
@@ -155,7 +156,6 @@ function LogicView() {
   const [isDraftEquivalentToParent, setIsDraftEquivalentToParent] =
     useState(false);
   const [isDiscardDialogOpen, setIsDiscardDialogOpen] = useState(false);
-  const [isInitializingPractice, setIsInitializingPractice] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [pendingRuleSetId, setPendingRuleSetId] = useState<
     Id<"ruleSets"> | undefined
@@ -165,7 +165,6 @@ function LogicView() {
     useState(false);
   const [isResettingSimulation, setIsResettingSimulation] = useState(false);
   const discardingUnsavedRuleSetIdRef = useRef<Id<"ruleSets"> | null>(null);
-  const hasTriggeredInitializePracticeRef = useRef(false);
   const pendingDraftRuleSetNavigationIdRef = useRef<Id<"ruleSets"> | null>(
     null,
   );
@@ -204,52 +203,7 @@ function LogicView() {
   });
   // URL will be parsed after queries and unsaved draft are known
 
-  // Use the first available practice or initialize one
-  const currentPractice = practicesQuery?.[0];
   const routeSearch: RegelnSearchParams = Route.useSearch();
-
-  // Initialize practice if none exists
-  const handleInitializePractice = useCallback(async () => {
-    try {
-      setIsInitializingPractice(true);
-      await initializePracticeMutation();
-    } catch (error: unknown) {
-      captureError(error, {
-        context: "practice_initialization",
-      });
-
-      toast.error("Fehler beim Initialisieren der Praxis", {
-        description:
-          error instanceof Error ? error.message : "Unbekannter Fehler",
-      });
-    } finally {
-      setIsInitializingPractice(false);
-    }
-  }, [initializePracticeMutation, captureError]);
-
-  // If no practice exists and we haven't tried to initialize, do it automatically
-  const shouldInitialize = practicesQuery?.length === 0;
-
-  React.useEffect(() => {
-    if (
-      !shouldInitialize ||
-      isInitializingPractice ||
-      hasTriggeredInitializePracticeRef.current
-    ) {
-      return;
-    }
-
-    hasTriggeredInitializePracticeRef.current = true;
-    queueMicrotask(() => {
-      void handleInitializePractice();
-    });
-  }, [shouldInitialize, isInitializingPractice, handleInitializePractice]);
-
-  React.useEffect(() => {
-    if (!shouldInitialize) {
-      hasTriggeredInitializePracticeRef.current = false;
-    }
-  }, [shouldInitialize]);
 
   const performClearSimulatedAppointments = useCallback(
     (options: { silent?: boolean }) =>
@@ -469,6 +423,8 @@ function LogicView() {
     selectedDate,
   } = useRegelnUrl({
     locationsListQuery: locationsListQuery ?? undefined,
+    organizationSlug,
+    routeSearch,
     ruleSetsQuery: ruleSetsWithActive,
     unsavedRuleSet: unsavedRuleSet ?? null,
   });
@@ -916,15 +872,11 @@ function LogicView() {
   );
 
   // Show loading state if practice is being initialized
-  if (practicesQuery === undefined || isInitializingPractice) {
+  if (currentPractice === undefined) {
     return (
       <div className="container mx-auto p-6">
         <div className="text-center py-8">
-          <div className="text-lg text-muted-foreground">
-            {isInitializingPractice
-              ? "Initialisiere Praxis..."
-              : "Lade Daten..."}
-          </div>
+          <div className="text-lg text-muted-foreground">Lade Daten...</div>
         </div>
       </div>
     );
@@ -938,11 +890,8 @@ function LogicView() {
           <div className="text-lg text-destructive">
             Fehler beim Laden der Praxis
           </div>
-          <Button
-            className="mt-4"
-            onClick={() => void handleInitializePractice()}
-          >
-            Praxis initialisieren
+          <Button asChild className="mt-4">
+            <Link to="/account">Konto öffnen</Link>
           </Button>
         </div>
       </div>
