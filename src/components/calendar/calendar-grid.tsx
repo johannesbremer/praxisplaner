@@ -531,7 +531,7 @@ export function CalendarGrid({
                   <button
                     aria-disabled={isInteractionDisabled}
                     aria-label={actionLabel}
-                    className={`pointer-events-none absolute inset-0 z-10 h-4 group bg-transparent p-0 text-left focus-visible:relative focus-visible:z-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${isInteractionDisabled ? "cursor-not-allowed" : ""}`}
+                    className={`pointer-events-none absolute inset-0 z-10 h-4 group bg-transparent p-0 text-left focus-visible:relative focus-visible:z-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 before:absolute before:inset-x-0 before:top-1/2 before:min-h-6 before:-translate-y-1/2 before:content-[''] ${isInteractionDisabled ? "cursor-not-allowed" : ""}`}
                     data-calendar-slot-button={`${columnIndex}:${slot}`}
                     data-calendar-slot-row="true"
                     data-calendar-slot-target="keyboard"
