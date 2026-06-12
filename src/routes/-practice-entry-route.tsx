@@ -1,14 +1,20 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useConvexAuth, useQuery } from "convex/react";
-import { Loader2 } from "lucide-react";
 import { type ReactElement, useEffect } from "react";
 
 import { Card, CardContent } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/convex/_generated/api";
 
 import { AuthenticatedGate } from "../auth/access-control";
 
 export type PracticeEntryTarget = "booking" | "praxisplaner" | "regeln";
+
+const PRACTICE_ENTRY_LOADING_TEXT = {
+  booking: "Terminbuchung wird vorbereitet...",
+  praxisplaner: "Praxisplaner wird geöffnet...",
+  regeln: "Regelverwaltung wird geöffnet...",
+} satisfies Record<PracticeEntryTarget, string>;
 
 export function PracticeEntryRoute({
   target,
@@ -84,8 +90,8 @@ function PracticeEntryRedirect({
       <Card className="w-96">
         <CardContent className="py-6">
           <div className="flex items-center justify-center gap-2 text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Praxis wird geladen...</span>
+            <Spinner />
+            <span>{PRACTICE_ENTRY_LOADING_TEXT[target]}</span>
           </div>
         </CardContent>
       </Card>

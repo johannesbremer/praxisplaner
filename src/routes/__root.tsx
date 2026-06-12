@@ -16,7 +16,6 @@ import { useConvexAuth, useQuery } from "convex/react";
 import {
   CalendarPlus,
   Clock,
-  Loader2,
   LogOut,
   Redo2,
   Settings,
@@ -38,6 +37,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 
 import { api } from "../../convex/_generated/api";
 import { isAuthBypassEnabled } from "../auth/auth-bypass";
@@ -278,7 +278,7 @@ export function PraxisplanerHomePageContent() {
         <Card className="max-w-md">
           <CardContent className="py-6">
             <div className="flex items-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Spinner />
               <span>Praxis wird geladen...</span>
             </div>
           </CardContent>

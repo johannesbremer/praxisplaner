@@ -1,7 +1,6 @@
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth } from "convex/react";
-import { Loader2 } from "lucide-react";
 import {
   type ReactElement,
   type ReactNode,
@@ -19,6 +18,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 
 import { isAuthBypassEnabled } from "./auth-bypass";
 import {
@@ -211,8 +211,8 @@ function AuthLoadingScreen(): ReactElement {
       <Card className="w-96">
         <CardContent className="py-6">
           <div className="flex items-center justify-center gap-2 text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Laden...</span>
+            <Spinner />
+            <span>Anmeldung wird geprüft...</span>
           </div>
         </CardContent>
       </Card>
@@ -288,7 +288,7 @@ function SignInScreen({
             </div>
           ) : (
             <div className="flex items-center justify-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Spinner />
               <span>Anmeldung wird geöffnet...</span>
             </div>
           )}
