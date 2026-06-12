@@ -245,13 +245,10 @@ export const Route = createRootRouteWithContext<{
 export function PraxisplanerHomePageContent() {
   const convexAuth = useConvexAuth();
   const workosAuth = useAuth();
-  const practices = useQuery(
-    api.practices.getAllPractices,
-    convexAuth.isAuthenticated ? {} : "skip",
-  );
+  const practices = useQuery(api.practices.getAllPracticesIfAuthenticated, {});
   const bookingPractices = useQuery(
-    api.practices.getBookingPractices,
-    convexAuth.isAuthenticated ? {} : "skip",
+    api.practices.getBookingPracticesIfAuthenticated,
+    {},
   );
   const practice = practices?.[0];
   const organizationSlug = practice?.slug;

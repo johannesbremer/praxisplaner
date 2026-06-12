@@ -16,8 +16,18 @@ import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
 import { allocateUniquePracticeSlug } from "./practiceSlugs";
 import {
   ensureAuthenticatedUserId,
+  getAuthenticatedUserIdForQueryOrNull,
   requireAuthenticatedUserIdForQuery,
 } from "./userIdentity";
+
+const practiceListItemValidator = v.object({
+  _creationTime: v.number(),
+  _id: v.id("practices"),
+  currentActiveRuleSetId: v.optional(v.id("ruleSets")),
+  name: v.string(),
+  slug: v.optional(v.string()),
+  workOSOrganizationId: v.optional(v.string()),
+});
 
 /**
  * Create a new practice with the given name.
@@ -90,6 +100,29 @@ export const getAllPractices = query({
   ),
 });
 
+export const getAllPracticesIfAuthenticated = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthenticatedUserIdForQueryOrNull(ctx);
+    if (!userId) {
+      return [];
+    }
+
+    const memberships = await ctx.db
+      .query("practiceMembers")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+    const practiceCandidates = await Promise.all(
+      memberships.map((membership) =>
+        ctx.db.get("practices", membership.practiceId),
+      ),
+    );
+
+    return practiceCandidates.filter((practice) => practice !== null);
+  },
+  returns: v.array(practiceListItemValidator),
+});
+
 /**
  * Get practices visible to authenticated patient booking flows.
  *
@@ -113,6 +146,18 @@ export const getBookingPractices = query({
       workOSOrganizationId: v.optional(v.string()),
     }),
   ),
+});
+
+export const getBookingPracticesIfAuthenticated = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthenticatedUserIdForQueryOrNull(ctx);
+    if (!userId) {
+      return [];
+    }
+    return await ctx.db.query("practices").collect();
+  },
+  returns: v.array(practiceListItemValidator),
 });
 
 /**

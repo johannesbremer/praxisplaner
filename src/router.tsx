@@ -417,6 +417,10 @@ function useConvexAuthFromWorkOS(pathname: string) {
   const { getAccessToken, isLoading, user } = useAuth();
   const authBypassEnabled = isAuthBypassEnabled();
   const devPersona = getDevAuthPersonaForPath(pathname);
+  const userId = user?.id ?? null;
+  const [accessTokenReadyUserId, setAccessTokenReadyUserId] = useState<
+    null | string
+  >(null);
   const [devAuthToken, setDevAuthToken] = useState<DevAuthTokenState | null>(
     null,
   );
@@ -445,6 +449,34 @@ function useConvexAuthFromWorkOS(pathname: string) {
       active = false;
     };
   }, [authBypassEnabled, devPersona]);
+
+  useEffect(() => {
+    if (authBypassEnabled) {
+      return;
+    }
+    if (isLoading || !userId) {
+      return;
+    }
+
+    let active = true;
+    void getAccessToken().then(
+      (token) => {
+        if (active) {
+          setAccessTokenReadyUserId(token ? userId : null);
+        }
+      },
+      (error: unknown) => {
+        if (active) {
+          console.error("Error preparing access token:", error);
+          setAccessTokenReadyUserId(null);
+        }
+      },
+    );
+
+    return () => {
+      active = false;
+    };
+  }, [authBypassEnabled, getAccessToken, isLoading, userId]);
 
   const fetchAccessToken = useCallback(async (): Promise<null | string> => {
     if (authBypassEnabled) {
@@ -483,14 +515,24 @@ function useConvexAuthFromWorkOS(pathname: string) {
 
   const devAuthReady =
     authBypassEnabled && devAuthToken?.persona === devPersona;
+  const accessTokenReady = userId !== null && accessTokenReadyUserId === userId;
 
   return useMemo(
     () => ({
       fetchAccessToken,
-      isAuthenticated: authBypassEnabled ? devAuthReady : !!user,
-      isLoading: authBypassEnabled ? !devAuthReady : isLoading,
+      isAuthenticated: authBypassEnabled ? devAuthReady : accessTokenReady,
+      isLoading: authBypassEnabled
+        ? !devAuthReady
+        : isLoading || (userId !== null && !accessTokenReady),
     }),
-    [authBypassEnabled, devAuthReady, isLoading, user, fetchAccessToken],
+    [
+      accessTokenReady,
+      authBypassEnabled,
+      devAuthReady,
+      fetchAccessToken,
+      isLoading,
+      userId,
+    ],
   );
 }
 
