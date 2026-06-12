@@ -7,28 +7,21 @@ import type { BranchPathType, Version, VersionNode } from "./types";
 
 export const defaultStyle = {
   branchColors: [
-    "#8F00FF",
-    "#FC42C9",
-    "#3D91F0",
-    "#29E3C1",
-    "#C5A15A",
-    "#FA7978",
-    "#5D6280",
-    "#5AC58D",
-    "#5C5AC5",
-    "#EB7340",
+    "var(--version-graph-branch-1)",
+    "var(--version-graph-branch-2)",
+    "var(--version-graph-branch-3)",
+    "var(--version-graph-branch-4)",
+    "var(--version-graph-branch-5)",
+    "var(--version-graph-branch-6)",
+    "var(--version-graph-branch-7)",
+    "var(--version-graph-branch-8)",
+    "var(--version-graph-branch-9)",
+    "var(--version-graph-branch-10)",
   ],
   branchSpacing: 20,
   commitSpacing: 50,
   nodeRadius: 2,
 };
-
-export function convertColorToMatrixVariant(color: string): string {
-  if (color.startsWith("#")) {
-    return hexToColorMatrixVariant(color);
-  }
-  return rgbColorToMatrixVariant(color);
-}
 
 export function formatVersions(versions: Version[]): VersionNode[] {
   const childrenMap = new Map<string, string[]>();
@@ -106,24 +99,4 @@ export function setBranchAndVersionColor(
       }
     }
   }
-}
-
-function hexToColorMatrixVariant(hex?: string): string {
-  if (!hex) {
-    return "";
-  }
-  const r = Number.parseInt(hex.slice(1, 3), 16) / 255;
-  const g = Number.parseInt(hex.slice(3, 5), 16) / 255;
-  const b = Number.parseInt(hex.slice(5, 7), 16) / 255;
-  return `0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 0 0 0 0.5 0`;
-}
-
-function rgbColorToMatrixVariant(rgb: string): string {
-  const [r, g, b] = rgb
-    .toLowerCase()
-    .replace("rgb(", "")
-    .replace(")", "")
-    .split(",")
-    .map((x) => Number.parseInt(x) / 255);
-  return `0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 0 0 0 0.5 0`;
 }

@@ -41,19 +41,27 @@ export function CalendarAppointment({
   const height = (appointment.layout.duration / slotDuration) * 16;
   const top = startSlot * 16;
   const slotCount = appointment.layout.duration / slotDuration;
+  const appointmentLabel = [
+    `Termin ${appointment.layout.record.title}`,
+    appointment.layout.startTime,
+    appointment.patientName,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   // Determine border styling based on selection state
   const borderClass = isSelected
-    ? "ring-2 ring-blue-400 ring-offset-1 ring-offset-white"
+    ? "ring-2 ring-info ring-offset-1 ring-offset-background"
     : isRelatedToSelectedPatient
-      ? "ring-2 ring-blue-300/70 ring-offset-1 ring-offset-white"
+      ? "ring-2 ring-info/70 ring-offset-1 ring-offset-background"
       : "";
 
   return (
-    <div
-      className={`absolute left-1 right-1 ${appointment.color} text-white text-xs rounded shadow-sm hover:shadow-md transition-all z-10 cursor-move ${
+    <button
+      aria-label={`${appointmentLabel}. Bearbeiten`}
+      className={`pointer-events-auto absolute left-1 right-1 ${appointment.color} border-0 p-0 text-left text-white text-xs rounded shadow-sm hover:shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background transition-[opacity,box-shadow] z-10 cursor-move ${
         isDragging ? "opacity-0" : "opacity-100"
-      } ${borderClass} h-(--calendar-appointment-height) min-h-4 top-(--calendar-appointment-top)`}
+      } ${borderClass} h-(--calendar-appointment-height) min-h-4 before:absolute before:inset-x-0 before:top-1/2 before:min-h-6 before:-translate-y-1/2 before:content-[''] top-(--calendar-appointment-top)`}
       draggable
       onClick={() => {
         onSelect?.(appointment);
@@ -67,12 +75,23 @@ export function CalendarAppointment({
       onDragStart={(e) => {
         onDragStart(e, appointment.layout.id);
       }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect?.(appointment);
+          onEdit(appointment.layout.id);
+        } else if (e.key === "Delete" || e.key === "Backspace") {
+          e.preventDefault();
+          onDelete(appointment.layout.id);
+        }
+      }}
       style={
         {
           "--calendar-appointment-height": `${height}px`,
           "--calendar-appointment-top": `${top}px`,
         } as React.CSSProperties
       }
+      type="button"
     >
       <CalendarItemContent
         appointmentTypeTitle={appointment.layout.record.appointmentTypeTitle}
@@ -91,6 +110,6 @@ export function CalendarAppointment({
       >
         <div className="w-8 h-0.5 bg-white/60 rounded" />
       </div>
-    </div>
+    </button>
   );
 }

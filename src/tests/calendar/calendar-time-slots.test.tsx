@@ -76,7 +76,7 @@ describe("CalendarTimeSlots", () => {
       <CalendarTimeSlots {...defaultProps} currentTimeSlot={24} />,
     );
 
-    const indicator = container.querySelector(".border-red-500");
+    const indicator = container.querySelector(".border-calendar-current-time");
     expect(indicator).toBeInTheDocument();
     expect(indicator).toHaveClass("border-t-2");
   });
@@ -86,7 +86,7 @@ describe("CalendarTimeSlots", () => {
       <CalendarTimeSlots {...defaultProps} currentTimeSlot={-1} />,
     );
 
-    const indicator = container.querySelector(".border-red-500");
+    const indicator = container.querySelector(".border-calendar-current-time");
     expect(indicator).not.toBeInTheDocument();
   });
 
@@ -96,7 +96,7 @@ describe("CalendarTimeSlots", () => {
       <CalendarTimeSlots {...defaultProps} currentTimeSlot={currentTimeSlot} />,
     );
 
-    const indicator = container.querySelector(".border-red-500");
+    const indicator = container.querySelector(".border-calendar-current-time");
     assertElement(indicator);
 
     // Check CSS custom property
@@ -112,7 +112,9 @@ describe("CalendarTimeSlots", () => {
       <CalendarTimeSlots {...defaultProps} currentTimeSlot={24} />,
     );
 
-    const redDot = container.querySelector(".bg-red-500.rounded-full");
+    const redDot = container.querySelector(
+      ".bg-calendar-current-time.rounded-full",
+    );
     expect(redDot).toBeInTheDocument();
   });
 
@@ -174,7 +176,7 @@ describe("CalendarTimeSlots", () => {
     expect(header).toBeInTheDocument();
 
     // Current time indicator should be z-30
-    const indicator = container.querySelector(".border-red-500");
+    const indicator = container.querySelector(".border-calendar-current-time");
     expect(indicator).toHaveClass("z-30");
   });
 });

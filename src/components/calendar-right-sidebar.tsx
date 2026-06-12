@@ -467,9 +467,9 @@ function RightSidebarContent({
                           <button
                             className={cn(
                               "w-full text-left p-2 rounded-md text-sm transition-colors",
-                              "hover:bg-muted/50",
+                              "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                               isSelected &&
-                                "bg-blue-50 ring-2 ring-blue-400 dark:bg-blue-950/30",
+                                "bg-info-muted text-info-foreground ring-2 ring-info",
                             )}
                             key={appointment._id}
                             onClick={() => onSelectAppointment?.(appointment)}

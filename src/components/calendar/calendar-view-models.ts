@@ -17,7 +17,10 @@ import {
 } from "../../../convex/identity";
 import { calendarColumnScopeFromAppointmentOccupancy } from "../../../lib/calendar-occupancy";
 import { formatTime, safeParseISOToZoned } from "../../utils/time-calculations";
-import { APPOINTMENT_COLORS } from "./types";
+import {
+  APPOINTMENT_COLORS,
+  CALENDAR_APPOINTMENT_COLOR_CLASSES,
+} from "./types";
 
 export function buildCalendarAppointmentLayouts(args: {
   appointments: readonly CalendarAppointmentRecord[];
@@ -88,7 +91,7 @@ export function buildCalendarAppointmentViews(args: {
       return {
         color:
           APPOINTMENT_COLORS[index % APPOINTMENT_COLORS.length] ??
-          "bg-gray-500",
+          CALENDAR_APPOINTMENT_COLOR_CLASSES.slate,
         layout: appointment,
         ...(patientName && { patientName }),
       };

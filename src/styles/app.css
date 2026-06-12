@@ -22,7 +22,27 @@
   --accent-foreground: oklch(0 0 0);
   --destructive: oklch(0.63 0.19 23.03);
   --destructive-foreground: oklch(1 0 0);
+  --success: oklch(0.56 0.14 150);
+  --success-foreground: oklch(0.16 0.04 150);
+  --success-muted: oklch(0.94 0.05 150);
+  --warning: oklch(0.72 0.15 75);
+  --warning-foreground: oklch(0.27 0.07 65);
+  --warning-muted: oklch(0.95 0.06 80);
+  --info: oklch(0.58 0.17 255);
+  --info-foreground: oklch(0.2 0.07 255);
+  --info-muted: oklch(0.94 0.04 255);
+  --calendar-current-time: oklch(0.63 0.19 23.03);
+  --diff-added: oklch(0.94 0.05 150);
+  --diff-added-foreground: oklch(0.16 0.04 150);
+  --diff-removed: oklch(0.94 0.05 23);
+  --diff-removed-foreground: oklch(0.22 0.08 23);
   --border: oklch(0.92 0 0);
+  --calendar-grid-line: color-mix(in oklch, var(--border) 45%, transparent);
+  --calendar-grid-line-strong: color-mix(
+    in oklch,
+    var(--border) 90%,
+    transparent
+  );
   --input: oklch(0.94 0 0);
   --ring: oklch(0 0 0);
   --chart-1: oklch(0.81 0.17 75.35);
@@ -30,14 +50,18 @@
   --chart-3: oklch(0.72 0 0);
   --chart-4: oklch(0.92 0 0);
   --chart-5: oklch(0.56 0 0);
-  --sidebar: oklch(0.99 0 0);
-  --sidebar-foreground: oklch(0 0 0);
-  --sidebar-primary: oklch(0 0 0);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.94 0 0);
-  --sidebar-accent-foreground: oklch(0 0 0);
-  --sidebar-border: oklch(0.94 0 0);
-  --sidebar-ring: oklch(0 0 0);
+  --version-graph-branch-1: var(--chart-2);
+  --version-graph-branch-2: oklch(0.62 0.22 330);
+  --version-graph-branch-3: oklch(0.63 0.17 250);
+  --version-graph-branch-4: oklch(0.68 0.16 185);
+  --version-graph-branch-5: var(--chart-1);
+  --version-graph-branch-6: oklch(0.69 0.18 25);
+  --version-graph-branch-7: oklch(0.49 0.04 270);
+  --version-graph-branch-8: oklch(0.68 0.16 150);
+  --version-graph-branch-9: oklch(0.57 0.19 285);
+  --version-graph-branch-10: oklch(0.68 0.16 45);
+  --version-graph-branch-fallback: var(--foreground);
+  --version-graph-connection-fallback: var(--muted-foreground);
   --font-sans: Geist, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Geist Mono, monospace;
@@ -99,7 +123,27 @@
   --accent-foreground: oklch(1 0 0);
   --destructive: oklch(0.69 0.2 23.91);
   --destructive-foreground: oklch(0 0 0);
+  --success: oklch(0.74 0.13 150);
+  --success-foreground: oklch(0.95 0.03 150);
+  --success-muted: oklch(0.24 0.05 150);
+  --warning: oklch(0.8 0.14 75);
+  --warning-foreground: oklch(0.96 0.04 80);
+  --warning-muted: oklch(0.27 0.07 65);
+  --info: oklch(0.72 0.14 255);
+  --info-foreground: oklch(0.95 0.03 255);
+  --info-muted: oklch(0.25 0.06 255);
+  --calendar-current-time: oklch(0.69 0.2 23.91);
+  --diff-added: oklch(0.24 0.05 150);
+  --diff-added-foreground: oklch(0.95 0.03 150);
+  --diff-removed: oklch(0.24 0.07 23);
+  --diff-removed-foreground: oklch(0.96 0.04 23);
   --border: oklch(0.26 0 0);
+  --calendar-grid-line: color-mix(in oklch, var(--border) 45%, transparent);
+  --calendar-grid-line-strong: color-mix(
+    in oklch,
+    var(--border) 90%,
+    transparent
+  );
   --input: oklch(0.32 0 0);
   --ring: oklch(0.72 0 0);
   --chart-1: oklch(0.81 0.17 75.35);
@@ -107,14 +151,18 @@
   --chart-3: oklch(0.56 0 0);
   --chart-4: oklch(0.44 0 0);
   --chart-5: oklch(0.92 0 0);
-  --sidebar: oklch(0.18 0 0);
-  --sidebar-foreground: oklch(1 0 0);
-  --sidebar-primary: oklch(1 0 0);
-  --sidebar-primary-foreground: oklch(0 0 0);
-  --sidebar-accent: oklch(0.32 0 0);
-  --sidebar-accent-foreground: oklch(1 0 0);
-  --sidebar-border: oklch(0.32 0 0);
-  --sidebar-ring: oklch(0.72 0 0);
+  --version-graph-branch-1: var(--chart-2);
+  --version-graph-branch-2: oklch(0.74 0.18 330);
+  --version-graph-branch-3: oklch(0.72 0.14 250);
+  --version-graph-branch-4: oklch(0.76 0.14 185);
+  --version-graph-branch-5: var(--chart-1);
+  --version-graph-branch-6: oklch(0.76 0.17 25);
+  --version-graph-branch-7: oklch(0.69 0.05 270);
+  --version-graph-branch-8: oklch(0.75 0.14 150);
+  --version-graph-branch-9: oklch(0.72 0.15 285);
+  --version-graph-branch-10: oklch(0.76 0.14 45);
+  --version-graph-branch-fallback: var(--foreground);
+  --version-graph-connection-fallback: var(--muted-foreground);
   --font-sans: Geist, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Geist Mono, monospace;
@@ -175,7 +223,23 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-muted: var(--success-muted);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-muted: var(--warning-muted);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-muted: var(--info-muted);
+  --color-calendar-current-time: var(--calendar-current-time);
+  --color-diff-added: var(--diff-added);
+  --color-diff-added-foreground: var(--diff-added-foreground);
+  --color-diff-removed: var(--diff-removed);
+  --color-diff-removed-foreground: var(--diff-removed-foreground);
   --color-border: var(--border);
+  --color-calendar-grid-line: var(--calendar-grid-line);
+  --color-calendar-grid-line-strong: var(--calendar-grid-line-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
@@ -226,6 +290,31 @@
   --color-shadow-color: var(--shadow-color);
 }
 
+.calendar-column-grid-lines {
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 15px,
+      var(--calendar-grid-line) 15px,
+      var(--calendar-grid-line) 16px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      var(--calendar-grid-line-strong) 0,
+      var(--calendar-grid-line-strong) 2px,
+      transparent 2px,
+      transparent 192px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      var(--calendar-grid-line-strong) 0,
+      var(--calendar-grid-line-strong) 1px,
+      transparent 1px,
+      transparent 96px
+    );
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -265,6 +354,27 @@ https://github.com/picturepan2/devices.css/blob/11846244977a4905a4fb9ac12bb2121e
   width: 390px;
   overflow: hidden;
   background: var(--device-iphone-screen);
+}
+
+@media (max-width: 480px) {
+  .device-iphone-14-pro {
+    aspect-ratio: 428 / 868;
+    height: auto;
+    width: 100%;
+  }
+
+  .device-iphone-14-pro .device-frame {
+    aspect-ratio: 428 / 868;
+    box-sizing: border-box;
+    height: auto;
+    width: 100%;
+  }
+
+  .device-iphone-14-pro .device-screen {
+    aspect-ratio: 390 / 830;
+    height: auto;
+    width: 100%;
+  }
 }
 
 .device-iphone-14-pro .device-stripe::after,

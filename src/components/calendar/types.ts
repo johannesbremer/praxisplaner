@@ -152,15 +152,19 @@ export interface NewCalendarProps {
 
 export const SLOT_DURATION = 5; // minutes
 
-export const APPOINTMENT_COLORS = [
-  "bg-blue-500",
-  "bg-green-500",
-  "bg-purple-500",
-  "bg-orange-500",
-  "bg-pink-500",
-  "bg-teal-500",
-  "bg-red-500",
-  "bg-yellow-500",
-  "bg-indigo-500",
-  "bg-gray-500",
-];
+export const CALENDAR_APPOINTMENT_COLOR_CLASSES = {
+  amber: "bg-amber-500",
+  blue: "bg-blue-500",
+  cyan: "bg-cyan-500",
+  emerald: "bg-emerald-500",
+  fuchsia: "bg-fuchsia-500",
+  indigo: "bg-indigo-500",
+  rose: "bg-rose-500",
+  slate: "bg-slate-500",
+  teal: "bg-teal-500",
+  violet: "bg-violet-500",
+} as const;
+
+export const APPOINTMENT_COLORS = Object.values(
+  CALENDAR_APPOINTMENT_COLOR_CLASSES,
+);

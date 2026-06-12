@@ -38,7 +38,9 @@ export default function Branches({
         return column.map((c) => {
           const end = c.end === Infinity ? currentLastCommitY : c.end;
           const color =
-            c.color ?? branchColors[i % branchColors.length] ?? "#000000";
+            c.color ??
+            branchColors[i % branchColors.length] ??
+            "var(--version-graph-branch-fallback)";
           return (
             <BranchPath
               branchColor={color}

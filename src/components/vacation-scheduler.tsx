@@ -1144,7 +1144,7 @@ export function VacationScheduler({
         <div className="flex min-h-12 items-center justify-center">
           {displayedPortion ? (
             <Button
-              className="h-7 px-2 text-[10px]"
+              className="min-h-11 w-full px-2 text-xs"
               onClick={() => {
                 void openConflictDialogIfNeeded(staff, date, displayedPortion);
               }}
@@ -1165,7 +1165,7 @@ export function VacationScheduler({
         return (
           <div className="flex min-h-12 items-center justify-center">
             <Button
-              className="h-7 px-2 text-[10px]"
+              className="min-h-11 w-full px-2 text-xs"
               onClick={() => {
                 void openConflictDialogIfNeeded(staff, date, displayedPortion);
               }}
@@ -1189,7 +1189,7 @@ export function VacationScheduler({
       <div className="flex min-h-12 items-center justify-center">
         {displayedPortion ? (
           <Button
-            className="h-7 px-3 text-[10px]"
+            className="min-h-11 w-full px-3 text-xs"
             onClick={() => {
               void openConflictDialogIfNeeded(staff, date, displayedPortion);
             }}
@@ -1200,7 +1200,7 @@ export function VacationScheduler({
           </Button>
         ) : (
           <Button
-            className="h-7 px-3 text-[10px]"
+            className="min-h-11 w-full px-3 text-xs"
             onClick={() => {
               void toggleVacation(staff, date, "full");
             }}

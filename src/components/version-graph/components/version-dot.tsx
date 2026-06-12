@@ -5,14 +5,12 @@ https://github.com/liuliu-dev/CommitGraph/tree/0f89c35fa53003ed8b66b409230566a45
 
 import type { VersionNode } from "../types";
 
-import { convertColorToMatrixVariant } from "../utils";
 import { getVersionDotPosition } from "./version-dot-utils";
 
 interface Props {
   branchSpacing: number;
   commitSpacing: number;
   nodeRadius: number;
-  onClick?: (version: VersionNode) => void;
   version: VersionNode;
 }
 
@@ -20,7 +18,6 @@ export default function VersionDot({
   branchSpacing,
   commitSpacing,
   nodeRadius,
-  onClick,
   version,
 }: Props) {
   const { x, y } = getVersionDotPosition(
@@ -34,10 +31,10 @@ export default function VersionDot({
   return (
     <>
       <g
+        aria-hidden="true"
+        className="pointer-events-none"
         fill={version.commitColor}
         filter={`url(#${filterId})`}
-        onClick={() => onClick?.(version)}
-        style={{ cursor: onClick ? "pointer" : "default" }}
       >
         <circle
           cx={x}
@@ -67,30 +64,12 @@ export default function VersionDot({
           x={x - nodeRadius * 4}
           y={y - nodeRadius * 4}
         >
-          <feFlood floodOpacity="0" result="BackgroundImageFix" />
-          <feColorMatrix
-            in="SourceAlpha"
-            result="hardAlpha"
-            type="matrix"
-            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
-          />
-          <feOffset />
-          <feGaussianBlur stdDeviation="1" />
-          <feComposite in2="hardAlpha" operator="out" />
-          <feColorMatrix
-            type="matrix"
-            values={convertColorToMatrixVariant(version.commitColor)}
-          />
-          <feBlend
-            in2="BackgroundImageFix"
-            mode="normal"
-            result="effect1_dropShadow_46_47"
-          />
-          <feBlend
-            in="SourceGraphic"
-            in2="effect1_dropShadow_46_47"
-            mode="normal"
-            result="shape"
+          <feDropShadow
+            dx="0"
+            dy="0"
+            floodColor={version.commitColor}
+            floodOpacity="0.5"
+            stdDeviation="1"
           />
         </filter>
       </defs>

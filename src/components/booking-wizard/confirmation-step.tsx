@@ -56,8 +56,8 @@ export function BookedAppointmentsSummary({
   return (
     <Card className="max-w-3xl mx-auto">
       <CardHeader className="text-center">
-        <div className="mx-auto mb-4 w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-          <CalendarCheck className="w-8 h-8 text-green-600 dark:text-green-400" />
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-lg bg-success-muted">
+          <CalendarCheck className="h-8 w-8 text-success-foreground" />
         </div>
         <CardTitle className="text-2xl">Ihre zukünftigen Termine</CardTitle>
         <CardDescription>
@@ -135,8 +135,8 @@ function AppointmentConfirmationCard({
   return (
     <Card className="max-w-2xl mx-auto">
       <CardHeader className="text-center">
-        <div className="mx-auto mb-4 w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-          <CalendarCheck className="w-8 h-8 text-green-600 dark:text-green-400" />
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-lg bg-success-muted">
+          <CalendarCheck className="h-8 w-8 text-success-foreground" />
         </div>
         <CardTitle className="text-2xl">{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
@@ -397,7 +397,7 @@ function LegacyUnmatchedFutureBookingHoldSummaryItem({
             Behandler/in: {hold.practitionerName ?? "Behandlungsteam"}
           </p>
         </div>
-        <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+        <span className="rounded-md bg-warning-muted px-2 py-1 text-xs text-warning-foreground">
           Importierter Altfall
         </span>
       </div>

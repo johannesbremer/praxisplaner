@@ -44,12 +44,14 @@ export function CalendarBlockedSlot({
 }: CalendarBlockedSlotProps) {
   const height = slotCount * 16;
   const top = blockedSlot.slot * 16;
+  const blockedSlotTitle = blockedSlot.title || "Gesperrt";
 
   return (
-    <div
-      className={`absolute left-1 right-1 bg-gray-400 text-white text-xs rounded shadow-sm hover:shadow-md transition-all z-10 cursor-move ${
+    <button
+      aria-label={`Gesperrter Zeitraum ${blockedSlotTitle}, ${slotToTime(blockedSlot.slot)}. Bearbeiten`}
+      className={`pointer-events-auto absolute left-1 right-1 bg-muted-foreground text-background border-0 p-0 text-left text-xs rounded shadow-sm hover:shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background transition-[opacity,box-shadow] z-10 cursor-move ${
         isDragging ? "opacity-0" : "opacity-100"
-      } h-(--blocked-height) min-h-4 top-(--blocked-top)`}
+      } h-(--blocked-height) min-h-4 before:absolute before:inset-x-0 before:top-1/2 before:min-h-6 before:-translate-y-1/2 before:content-[''] top-(--blocked-top)`}
       draggable
       onClick={() => {
         onEdit(blockedSlot.id);
@@ -62,17 +64,27 @@ export function CalendarBlockedSlot({
       onDragStart={(e) => {
         onDragStart(e, blockedSlot.id);
       }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onEdit(blockedSlot.id);
+        } else if (e.key === "Delete" || e.key === "Backspace") {
+          e.preventDefault();
+          onDelete(blockedSlot.id);
+        }
+      }}
       style={
         {
           "--blocked-height": `${height}px`,
           "--blocked-top": `${top}px`,
         } as React.CSSProperties
       }
+      type="button"
     >
       <CalendarItemContent
         slotCount={slotCount}
         startTime={slotToTime(blockedSlot.slot)}
-        title={blockedSlot.title || "Gesperrt"}
+        title={blockedSlotTitle}
       />
 
       <div
@@ -84,6 +96,6 @@ export function CalendarBlockedSlot({
       >
         <div className="w-8 h-0.5 bg-white/60 rounded" />
       </div>
-    </div>
+    </button>
   );
 }

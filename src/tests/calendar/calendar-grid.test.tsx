@@ -1,3 +1,5 @@
+import type { DragEvent } from "react";
+
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -163,11 +165,12 @@ describe("CalendarGrid", () => {
     });
 
     test("renders appointments in correct columns", () => {
-      const { container } = render(<CalendarGrid {...defaultProps} />);
+      render(<CalendarGrid {...defaultProps} />);
 
-      // Should render appointments only in their respective columns
-      const columns = container.querySelectorAll(".border-r");
-      expect(columns.length).toBeGreaterThan(0);
+      const gridCells = screen.getAllByRole("gridcell");
+      expect(gridCells).toHaveLength(
+        defaultProps.totalSlots * mockColumns.length,
+      );
     });
 
     test("renders all time slots for each column", () => {
@@ -224,14 +227,28 @@ describe("CalendarGrid", () => {
     test("calls onAddAppointment when slot is clicked", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const slots = container.querySelectorAll(
-        String.raw`.hover\:bg-muted\/50`,
+      const hitTarget = container.querySelector(
+        '[data-calendar-column-hit-target="deterministic"]',
       );
-      expect(slots.length).toBeGreaterThan(0);
-      const firstSlot = slots[0];
-      assertElement(firstSlot);
-      fireEvent.click(firstSlot);
-      expect(mockHandlers.onAddAppointment).toHaveBeenCalled();
+      assertElement(hitTarget);
+      vi.spyOn(hitTarget, "getBoundingClientRect").mockReturnValue({
+        bottom: defaultProps.totalSlots * 16,
+        height: defaultProps.totalSlots * 16,
+        left: 0,
+        right: 100,
+        toJSON: () => ({}),
+        top: 0,
+        width: 100,
+        x: 0,
+        y: 0,
+      });
+
+      fireEvent.click(hitTarget, { clientY: 20 });
+
+      expect(mockHandlers.onAddAppointment).toHaveBeenCalledExactlyOnceWith(
+        practitionerColumn1,
+        1,
+      );
     });
 
     test("does not call onAddAppointment for appointment-type-unavailable columns", () => {
@@ -302,22 +319,83 @@ describe("CalendarGrid", () => {
     test("calls onDragOver when dragging over column", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const column = container.querySelector(".relative.min-h-full");
-      assertElement(column);
-      fireEvent.dragOver(column);
+      const columnHitTarget = container.querySelector(
+        '[data-calendar-column-hit-target="deterministic"]',
+      );
+      assertElement(columnHitTarget);
+      fireEvent.dragOver(columnHitTarget);
       expect(mockHandlers.onDragOver).toHaveBeenCalled();
     });
 
     test("calls onDrop when appointment is dropped", async () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const column = container.querySelector(".relative.min-h-full");
-      assertElement(column);
-      fireEvent.drop(column);
+      const columnHitTarget = container.querySelector(
+        '[data-calendar-column-hit-target="deterministic"]',
+      );
+      assertElement(columnHitTarget);
+      fireEvent.drop(columnHitTarget);
 
       await waitFor(() => {
         expect(mockHandlers.onDrop).toHaveBeenCalled();
       });
+    });
+
+    test("keeps drag and drop handlers on the full column target instead of gridcells", async () => {
+      const { container } = render(<CalendarGrid {...defaultProps} />);
+
+      const gridCell = container.querySelector("[role='gridcell']");
+      assertElement(gridCell);
+      fireEvent.dragOver(gridCell);
+      fireEvent.drop(gridCell);
+
+      expect(mockHandlers.onDragOver).not.toHaveBeenCalled();
+      expect(mockHandlers.onDrop).not.toHaveBeenCalled();
+
+      const columnHitTarget = container.querySelector(
+        '[data-calendar-column-hit-target="deterministic"]',
+      );
+      assertElement(columnHitTarget);
+      fireEvent.dragOver(columnHitTarget);
+      fireEvent.drop(columnHitTarget);
+
+      await waitFor(() => {
+        expect(mockHandlers.onDragOver).toHaveBeenCalled();
+        expect(mockHandlers.onDrop).toHaveBeenCalled();
+      });
+    });
+
+    test("keeps column drag handlers reachable while dragging over occupied appointments", async () => {
+      let dragCurrentTarget: HTMLElement | null = null;
+      mockHandlers.onDragOver.mockImplementationOnce(
+        (event: DragEvent<HTMLElement>) => {
+          dragCurrentTarget = event.currentTarget;
+        },
+      );
+
+      const { container } = render(<CalendarGrid {...defaultProps} />);
+
+      const overlayTarget = container.querySelector(
+        '[data-calendar-column-overlay-target="occupied-ranges"]',
+      );
+      assertElement(overlayTarget);
+      const appointment = container.querySelector("[draggable=true]");
+      assertElement(appointment);
+      fireEvent.dragOver(appointment);
+      fireEvent.drop(appointment);
+
+      await waitFor(() => {
+        expect(mockHandlers.onDragOver).toHaveBeenCalled();
+        expect(mockHandlers.onDrop).toHaveBeenCalled();
+      });
+      expect(dragCurrentTarget).toHaveAttribute(
+        "data-calendar-column-overlay-target",
+        "occupied-ranges",
+      );
+      expect(dragCurrentTarget).toBe(overlayTarget);
+      expect(
+        overlayTarget.querySelector('[data-calendar-slot-row="true"]'),
+      ).toBeInTheDocument();
     });
 
     test("does not allow dropping an appointment onto a drag-disabled column", async () => {
@@ -326,7 +404,7 @@ describe("CalendarGrid", () => {
         return;
       }
 
-      const { container } = render(
+      render(
         <CalendarGrid
           {...defaultProps}
           columns={[
@@ -342,12 +420,14 @@ describe("CalendarGrid", () => {
         />,
       );
 
-      const columns = container.querySelectorAll(".relative.min-h-full");
-      const blockedColumn = columns[1];
-      assertElement(blockedColumn);
+      const columnHitTargets = screen
+        .getByRole("grid")
+        .querySelectorAll('[data-calendar-column-hit-target="deterministic"]');
+      const blockedColumnTarget = columnHitTargets[1];
+      assertElement(blockedColumnTarget);
 
-      fireEvent.dragOver(blockedColumn);
-      fireEvent.drop(blockedColumn);
+      fireEvent.dragOver(blockedColumnTarget);
+      fireEvent.drop(blockedColumnTarget);
 
       await waitFor(() => {
         expect(mockHandlers.onDragOver).not.toHaveBeenCalled();
@@ -448,7 +528,9 @@ describe("CalendarGrid", () => {
         <CalendarGrid {...defaultProps} currentTimeSlot={24} />,
       );
 
-      const indicators = container.querySelectorAll(".border-red-500");
+      const indicators = container.querySelectorAll(
+        ".border-calendar-current-time",
+      );
       expect(indicators.length).toBeGreaterThan(0);
     });
 
@@ -457,7 +539,9 @@ describe("CalendarGrid", () => {
         <CalendarGrid {...defaultProps} currentTimeSlot={24} />,
       );
 
-      const indicators = container.querySelectorAll(".bg-red-500");
+      const indicators = container.querySelectorAll(
+        ".bg-calendar-current-time",
+      );
       // Should have indicator in time column + each calendar column
       expect(indicators.length).toBeGreaterThanOrEqual(mockColumns.length);
     });
@@ -468,12 +552,13 @@ describe("CalendarGrid", () => {
         <CalendarGrid {...defaultProps} currentTimeSlot={currentTimeSlot} />,
       );
 
-      const indicator = container.querySelector(".border-red-500");
+      const indicator = container.querySelector(
+        ".border-calendar-current-time",
+      );
       expect(indicator).toBeInTheDocument();
 
       const style = indicator?.getAttribute("style");
-      const expectedTop = `${currentTimeSlot * 16}px`;
-      expect(style).toContain(expectedTop);
+      expect(style).toContain(`grid-row: ${currentTimeSlot + 2}`);
     });
 
     test("does not render indicator when currentTimeSlot is negative", () => {
@@ -574,6 +659,23 @@ describe("CalendarGrid", () => {
   });
 
   describe("Accessibility", () => {
+    test("calendar exposes grid semantics", () => {
+      render(<CalendarGrid {...defaultProps} />);
+
+      expect(
+        screen.getByRole("grid", { name: "Praxis-Kalender" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("columnheader", { name: "Dr. Smith" }),
+      ).toBeInTheDocument();
+      expect(screen.getAllByRole("row")).toHaveLength(
+        defaultProps.totalSlots + 1,
+      );
+      expect(screen.getAllByRole("gridcell")).toHaveLength(
+        defaultProps.totalSlots * mockColumns.length,
+      );
+    });
+
     test("column headers have proper structure", () => {
       render(<CalendarGrid {...defaultProps} />);
 
@@ -584,10 +686,139 @@ describe("CalendarGrid", () => {
     });
 
     test("time slots are keyboard accessible", () => {
+      render(<CalendarGrid {...defaultProps} />);
+
+      expect(
+        screen.getByRole("button", {
+          name: "Termin um 00:00 bei Dr. Smith erstellen",
+        }),
+      ).toHaveAttribute("tabindex", "0");
+      expect(
+        screen.getByRole("button", {
+          name: "Termin um 00:00 bei Dr. Jones erstellen",
+        }),
+      ).toHaveAttribute("tabindex", "-1");
+    });
+
+    test("calendar exposes deterministic column hit targets without changing visual row height", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const slots = container.querySelectorAll(".cursor-pointer");
-      expect(slots.length).toBeGreaterThan(0);
+      const firstSlot = screen.getByRole("button", {
+        name: "Termin um 00:00 bei Dr. Smith erstellen",
+      });
+      expect(firstSlot).toHaveClass("h-4");
+      expect(firstSlot).toHaveAttribute(
+        "data-calendar-slot-target",
+        "keyboard",
+      );
+      expect(firstSlot.parentElement).toHaveClass("h-4");
+      expect(firstSlot.parentElement).toHaveClass("pointer-events-none");
+      expect(firstSlot.parentElement).toHaveClass("z-20");
+      expect(
+        container.querySelectorAll(
+          '[data-calendar-column-hit-target="deterministic"]',
+        ),
+      ).toHaveLength(mockColumns.length);
+      expect(
+        container.querySelector(
+          '[data-calendar-column-hit-target="deterministic"]',
+        ),
+      ).toHaveClass("z-10");
+      const visualGridLines = container.querySelector(
+        '[data-calendar-column-grid-lines="true"]',
+      );
+      assertElement(visualGridLines);
+      expect(visualGridLines).toHaveClass("calendar-column-grid-lines");
+      expect(visualGridLines).toHaveClass("pointer-events-none");
+      expect(visualGridLines).toHaveClass("z-0");
+    });
+
+    test("places semantic rows and cells on the visual calendar grid", () => {
+      render(<CalendarGrid {...defaultProps} />);
+
+      const firstSlot = screen.getByRole("button", {
+        name: "Termin um 00:00 bei Dr. Smith erstellen",
+      });
+      const secondColumnSlot = screen.getByRole("button", {
+        name: "Termin um 00:00 bei Dr. Jones erstellen",
+      });
+      const nextRowSlot = screen.getByRole("button", {
+        name: "Termin um 00:05 bei Dr. Smith erstellen",
+      });
+
+      expect(firstSlot.parentElement).toHaveStyle({
+        gridColumn: "2",
+        gridRow: "2",
+      });
+      expect(secondColumnSlot.parentElement).toHaveStyle({
+        gridColumn: "3",
+        gridRow: "2",
+      });
+      expect(nextRowSlot.parentElement).toHaveStyle({
+        gridColumn: "2",
+        gridRow: "3",
+      });
+    });
+
+    test("arrow keys move the roving slot focus across rows and columns", () => {
+      render(<CalendarGrid {...defaultProps} />);
+
+      const firstSlot = screen.getByRole("button", {
+        name: "Termin um 00:00 bei Dr. Smith erstellen",
+      });
+      firstSlot.focus();
+      fireEvent.keyDown(firstSlot, { key: "ArrowDown" });
+
+      expect(
+        screen.getByRole("button", {
+          name: "Termin um 00:05 bei Dr. Smith erstellen",
+        }),
+      ).toHaveFocus();
+
+      const activeSlot = document.activeElement;
+      assertElement(activeSlot);
+      fireEvent.keyDown(activeSlot, { key: "ArrowRight" });
+
+      expect(
+        screen.getByRole("button", {
+          name: "Termin um 00:05 bei Dr. Jones erstellen",
+        }),
+      ).toHaveFocus();
+    });
+
+    test("enter creates an appointment from the focused slot", () => {
+      render(<CalendarGrid {...defaultProps} />);
+      const firstSlot = screen.getByRole("button", {
+        name: "Termin um 00:00 bei Dr. Smith erstellen",
+      });
+
+      fireEvent.keyDown(firstSlot, { key: "Enter" });
+
+      expect(mockHandlers.onAddAppointment).toHaveBeenCalledExactlyOnceWith(
+        practitionerColumn1,
+        0,
+      );
+    });
+
+    test("enter creates a blocked slot in blocking mode", () => {
+      const onBlockSlot = vi.fn();
+      render(
+        <CalendarGrid
+          {...defaultProps}
+          isBlockingModeActive={true}
+          onBlockSlot={onBlockSlot}
+        />,
+      );
+      const firstSlot = screen.getByRole("button", {
+        name: "Zeitraum um 00:00 bei Dr. Smith sperren",
+      });
+
+      fireEvent.keyDown(firstSlot, { key: "Enter" });
+
+      expect(onBlockSlot).toHaveBeenCalledExactlyOnceWith(
+        practitionerColumn1,
+        0,
+      );
     });
 
     test("appointments are keyboard accessible", () => {

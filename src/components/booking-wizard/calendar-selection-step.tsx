@@ -38,6 +38,10 @@ import {
 import { isCalendarSelectionState } from "./types";
 
 const TIMEZONE = "Europe/Berlin";
+const APPOINTMENT_TYPE_SELECT_ID = "booking-appointment-type";
+const APPOINTMENT_TYPE_ERROR_ID = "booking-appointment-type-error";
+const REASON_DESCRIPTION_ID = "reason-description";
+const REASON_DESCRIPTION_ERROR_ID = "reason-description-error";
 
 // Helper to format ISO date string from Date
 function formatDateISO(date: Temporal.PlainDate): string {
@@ -82,6 +86,12 @@ export function CalendarSelectionStep({
     useState(false);
   const [hasTouchedReasonDescription, setHasTouchedReasonDescription] =
     useState(false);
+  const isAppointmentTypeInvalid =
+    (hasAttemptedSubmit || hasTouchedAppointmentType) &&
+    !selectedAppointmentTypeLineageKey;
+  const isReasonDescriptionInvalid =
+    (hasAttemptedSubmit || hasTouchedReasonDescription) &&
+    reasonDescription.trim().length === 0;
 
   // Selected slot state
   const [selectedSlot, setSelectedSlot] = useState<null | SlotInfo>(null);
@@ -292,13 +302,10 @@ export function CalendarSelectionStep({
           <div className="space-y-4">
             <div className="space-y-3 rounded-lg border p-3">
               <p className="text-sm font-medium">Termindetails</p>
-              <Field
-                data-invalid={
-                  (hasAttemptedSubmit || hasTouchedAppointmentType) &&
-                  !selectedAppointmentTypeLineageKey
-                }
-              >
-                <FieldLabel>Terminart *</FieldLabel>
+              <Field data-invalid={isAppointmentTypeInvalid}>
+                <FieldLabel htmlFor={APPOINTMENT_TYPE_SELECT_ID}>
+                  Terminart *
+                </FieldLabel>
                 <Select
                   onValueChange={(value) => {
                     setHasTouchedAppointmentType(true);
@@ -314,7 +321,15 @@ export function CalendarSelectionStep({
                     ? { value: selectedAppointmentTypeLineageKey }
                     : {})}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger
+                    aria-describedby={
+                      isAppointmentTypeInvalid
+                        ? APPOINTMENT_TYPE_ERROR_ID
+                        : undefined
+                    }
+                    aria-invalid={isAppointmentTypeInvalid}
+                    id={APPOINTMENT_TYPE_SELECT_ID}
+                  >
                     <SelectValue placeholder="Bitte auswählen" />
                   </SelectTrigger>
                   <SelectContent>
@@ -325,24 +340,25 @@ export function CalendarSelectionStep({
                     ))}
                   </SelectContent>
                 </Select>
-                {(hasAttemptedSubmit || hasTouchedAppointmentType) &&
-                  !selectedAppointmentTypeLineageKey && (
-                    <FieldError
-                      errors={[{ message: "Bitte wählen Sie eine Terminart." }]}
-                    />
-                  )}
+                {isAppointmentTypeInvalid && (
+                  <FieldError
+                    errors={[{ message: "Bitte wählen Sie eine Terminart." }]}
+                    id={APPOINTMENT_TYPE_ERROR_ID}
+                  />
+                )}
               </Field>
-              <Field
-                data-invalid={
-                  (hasAttemptedSubmit || hasTouchedReasonDescription) &&
-                  reasonDescription.trim().length === 0
-                }
-              >
-                <FieldLabel htmlFor="reason-description">
+              <Field data-invalid={isReasonDescriptionInvalid}>
+                <FieldLabel htmlFor={REASON_DESCRIPTION_ID}>
                   Termingrund *
                 </FieldLabel>
                 <Input
-                  id="reason-description"
+                  aria-describedby={
+                    isReasonDescriptionInvalid
+                      ? REASON_DESCRIPTION_ERROR_ID
+                      : undefined
+                  }
+                  aria-invalid={isReasonDescriptionInvalid}
+                  id={REASON_DESCRIPTION_ID}
                   onBlur={() => {
                     setHasTouchedReasonDescription(true);
                   }}
@@ -353,14 +369,14 @@ export function CalendarSelectionStep({
                   placeholder="z.B. Erkältungssymptome seit 3 Tagen"
                   value={reasonDescription}
                 />
-                {(hasAttemptedSubmit || hasTouchedReasonDescription) &&
-                  reasonDescription.trim().length === 0 && (
-                    <FieldError
-                      errors={[
-                        { message: "Bitte geben Sie einen Termingrund ein." },
-                      ]}
-                    />
-                  )}
+                {isReasonDescriptionInvalid && (
+                  <FieldError
+                    errors={[
+                      { message: "Bitte geben Sie einen Termingrund ein." },
+                    ]}
+                    id={REASON_DESCRIPTION_ERROR_ID}
+                  />
+                )}
               </Field>
             </div>
 

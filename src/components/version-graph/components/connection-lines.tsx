@@ -47,7 +47,9 @@ export default function ConnectionLines({
       // Use child's color for the connection when it's a new branch, otherwise use parent's color
       // This ensures that when a new branch starts, the connection line matches the branch color
       const strokeColor =
-        version.commitColor || parent.commitColor || "#666666";
+        version.commitColor ||
+        parent.commitColor ||
+        "var(--version-graph-connection-fallback)";
 
       connectionDataList.push({
         childX: version.x,
