@@ -33,6 +33,22 @@ export default function VersionGraph({
   versions,
 }: Props) {
   const style = { ...defaultStyle, ...graphStyle };
+  const versionControlRefs = React.useRef(new Map<string, SVGGElement>());
+
+  const setVersionControlRef = React.useCallback(
+    (versionHash: string, node: null | SVGGElement) => {
+      if (node === null) {
+        versionControlRefs.current.delete(versionHash);
+      } else {
+        versionControlRefs.current.set(versionHash, node);
+      }
+    },
+    [],
+  );
+
+  const focusVersionControl = React.useCallback((versionHash: string) => {
+    versionControlRefs.current.get(versionHash)?.focus();
+  }, []);
 
   // Sort versions by creation time (newest first)
   const sortedVersions = React.useMemo(() => {
@@ -133,6 +149,7 @@ export default function VersionGraph({
                   e.preventDefault();
                   const prevVersion = versionValues[index - 1] as VersionNode;
                   onVersionClick(prevVersion);
+                  focusVersionControl(prevVersion.hash);
                 } else if (
                   e.key === "ArrowDown" &&
                   index < versionValues.length - 1
@@ -140,7 +157,11 @@ export default function VersionGraph({
                   e.preventDefault();
                   const nextVersion = versionValues[index + 1] as VersionNode;
                   onVersionClick(nextVersion);
+                  focusVersionControl(nextVersion.hash);
                 }
+              }}
+              ref={(node) => {
+                setVersionControlRef(version.hash, node);
               }}
             >
               <VersionDot

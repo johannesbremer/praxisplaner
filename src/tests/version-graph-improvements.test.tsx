@@ -24,6 +24,15 @@ describe("VersionGraph accessibility", () => {
       parents: [],
     },
   ];
+  const threeVersions: Version[] = [
+    {
+      createdAt: 1_777_683_600_000,
+      id: toTableId<"ruleSets">("rule-set-3"),
+      message: "Neue Regeln",
+      parents: [toTableId<"ruleSets">("rule-set-2")],
+    },
+    ...versions,
+  ];
 
   test("exposes one keyboard-accessible version control per version", () => {
     const onVersionClick = vi.fn();
@@ -65,6 +74,45 @@ describe("VersionGraph accessibility", () => {
     expect(onVersionClick).toHaveBeenNthCalledWith(
       3,
       expect.objectContaining({ message: "Basis Regeln" }),
+    );
+  });
+
+  test("moves focus with arrow navigation so repeated arrows continue through versions", () => {
+    const onVersionClick = vi.fn();
+    render(
+      <VersionGraph onVersionClick={onVersionClick} versions={threeVersions} />,
+    );
+    const firstVersion = screen.getByRole("button", {
+      name: "Regelset-Version Neue Regeln auswählen",
+    });
+    const secondVersion = screen.getByRole("button", {
+      name: "Regelset-Version Aktuelle Regeln auswählen",
+    });
+    const thirdVersion = screen.getByRole("button", {
+      name: "Regelset-Version Basis Regeln auswählen",
+    });
+
+    firstVersion.focus();
+    fireEvent.keyDown(firstVersion, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(secondVersion);
+
+    fireEvent.keyDown(secondVersion, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(thirdVersion);
+
+    fireEvent.keyDown(thirdVersion, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(secondVersion);
+    expect(onVersionClick).toHaveBeenCalledTimes(3);
+    expect(onVersionClick).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ message: "Aktuelle Regeln" }),
+    );
+    expect(onVersionClick).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ message: "Basis Regeln" }),
+    );
+    expect(onVersionClick).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ message: "Aktuelle Regeln" }),
     );
   });
 
