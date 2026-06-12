@@ -101,17 +101,7 @@ export default function VersionGraph({
           nodeRadius={style.nodeRadius}
           versionsMap={versionsMap}
         />
-        {versionValues.map((version: VersionNode) => (
-          <VersionDot
-            branchSpacing={style.branchSpacing}
-            commitSpacing={style.commitSpacing}
-            key={version.hash}
-            nodeRadius={style.nodeRadius}
-            version={version}
-          />
-        ))}
-
-        {/* Inline version labels next to each node */}
+        {/* Version node and label share one logical interactive target. */}
         {versionValues.map((version: VersionNode, index: number) => {
           const x = style.nodeRadius * 4 + version.x * style.branchSpacing;
           const y = version.y * style.commitSpacing + style.nodeRadius * 4;
@@ -119,7 +109,55 @@ export default function VersionGraph({
           const isInteractive = onVersionClick !== undefined;
 
           return (
-            <g key={`label-${version.hash}`}>
+            <g
+              {...(isInteractive
+                ? {
+                    "aria-label": `Regelset-Version ${version.message} auswählen`,
+                    role: "button",
+                    tabIndex: 0,
+                  }
+                : {})}
+              className={isInteractive ? "cursor-pointer" : undefined}
+              key={`version-${version.hash}`}
+              onClick={() => {
+                onVersionClick?.(version);
+              }}
+              onKeyDown={(e) => {
+                if (!isInteractive) {
+                  return;
+                }
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onVersionClick(version);
+                } else if (e.key === "ArrowUp" && index > 0) {
+                  e.preventDefault();
+                  const prevVersion = versionValues[index - 1] as VersionNode;
+                  onVersionClick(prevVersion);
+                } else if (
+                  e.key === "ArrowDown" &&
+                  index < versionValues.length - 1
+                ) {
+                  e.preventDefault();
+                  const nextVersion = versionValues[index + 1] as VersionNode;
+                  onVersionClick(nextVersion);
+                }
+              }}
+            >
+              <VersionDot
+                branchSpacing={style.branchSpacing}
+                commitSpacing={style.commitSpacing}
+                nodeRadius={style.nodeRadius}
+                version={version}
+              />
+              {isInteractive && (
+                <circle
+                  aria-hidden="true"
+                  cx={x}
+                  cy={y}
+                  fill="transparent"
+                  r={style.nodeRadius * 4}
+                />
+              )}
               <foreignObject
                 height={30}
                 width={300}
@@ -127,13 +165,6 @@ export default function VersionGraph({
                 y={y - 15}
               >
                 <div
-                  {...(isInteractive
-                    ? {
-                        "aria-label": `Regelset-Version ${version.message} auswählen`,
-                        role: "button",
-                        tabIndex: 0,
-                      }
-                    : {})}
                   className={`inline-flex items-center gap-2 text-sm p-1 rounded ${
                     isInteractive ? "cursor-pointer" : ""
                   } ${
@@ -141,33 +172,6 @@ export default function VersionGraph({
                       ? "bg-primary text-primary-foreground border border-primary"
                       : `${isInteractive ? "hover:bg-background" : ""} border border-border bg-background`
                   }`}
-                  onClick={() => {
-                    onVersionClick?.(version);
-                  }}
-                  onKeyDown={(e) => {
-                    if (!isInteractive) {
-                      return;
-                    }
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onVersionClick(version);
-                    } else if (e.key === "ArrowUp" && index > 0) {
-                      e.preventDefault();
-                      const prevVersion = versionValues[
-                        index - 1
-                      ] as VersionNode;
-                      onVersionClick(prevVersion);
-                    } else if (
-                      e.key === "ArrowDown" &&
-                      index < versionValues.length - 1
-                    ) {
-                      e.preventDefault();
-                      const nextVersion = versionValues[
-                        index + 1
-                      ] as VersionNode;
-                      onVersionClick(nextVersion);
-                    }
-                  }}
                   style={{ fontSize: "12px" }}
                 >
                   <span className="font-medium">{version.message}</span>

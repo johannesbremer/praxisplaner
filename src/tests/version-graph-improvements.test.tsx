@@ -6,6 +6,7 @@ import { toTableId } from "@/convex/identity";
 import type { Version } from "../components/version-graph/types";
 
 import VersionGraph from "../components/version-graph/version-graph";
+import { assertElement } from "./test-utils";
 
 describe("VersionGraph accessibility", () => {
   const versions: Version[] = [
@@ -65,6 +66,26 @@ describe("VersionGraph accessibility", () => {
       3,
       expect.objectContaining({ message: "Basis Regeln" }),
     );
+  });
+
+  test("selects a version when clicking the visible graph node", () => {
+    const onVersionClick = vi.fn();
+    const { container } = render(
+      <VersionGraph onVersionClick={onVersionClick} versions={versions} />,
+    );
+
+    const dotHitTargets = container.querySelectorAll(
+      "circle[fill='transparent']",
+    );
+    expect(dotHitTargets).toHaveLength(versions.length);
+    const firstDotHitTarget = dotHitTargets[0];
+    assertElement(firstDotHitTarget);
+    fireEvent.click(firstDotHitTarget);
+
+    expect(onVersionClick).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ message: "Aktuelle Regeln" }),
+    );
+    expect(screen.getAllByRole("button")).toHaveLength(2);
   });
 
   test("treats visual graph dots as decorative", () => {
