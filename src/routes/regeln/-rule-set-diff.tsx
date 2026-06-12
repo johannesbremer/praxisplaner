@@ -1,10 +1,5 @@
-import type {
-  ChangeContent,
-  ContextContent,
-  FileDiffMetadata,
-} from "@pierre/diffs";
-
 import { parseDiffFromFile } from "@pierre/diffs";
+import { FileDiff } from "@pierre/diffs/react";
 import { useForm } from "@tanstack/react-form";
 import { err, ok } from "neverthrow";
 import React from "react";
@@ -95,13 +90,6 @@ interface StructuredDiffRow {
   id: string;
   kind: "added" | "modified" | "removed";
   path: string;
-}
-
-interface StructuredValueDiffLine {
-  after: string;
-  before: string;
-  id: string;
-  kind: "changed" | "context";
 }
 
 const UNSAVED_RULE_SET_DESCRIPTION = "Ungespeicherte Änderungen";
@@ -303,11 +291,11 @@ function buildStructuredValueDiff(row: StructuredDiffRow) {
     return parseDiffFromFile(
       {
         contents: `${row.before}\n`,
-        name: `${row.path}.before.txt`,
+        name: `${row.path}.txt`,
       },
       {
         contents: `${row.after}\n`,
-        name: `${row.path}.after.txt`,
+        name: `${row.path}.txt`,
       },
       { context: Number.MAX_SAFE_INTEGER },
     );
@@ -596,36 +584,6 @@ function formatValue(value: unknown): string {
   return formatPrimitiveValue(value);
 }
 
-function getChangedDiffLines(
-  diff: FileDiffMetadata,
-  content: ChangeContent,
-  hunkIndex: number,
-  contentIndex: number,
-): StructuredValueDiffLine[] {
-  const lineCount = Math.max(content.deletions, content.additions);
-
-  return Array.from({ length: lineCount }, (_, lineIndex) => ({
-    after: diff.additionLines[content.additionLineIndex + lineIndex] ?? "",
-    before: diff.deletionLines[content.deletionLineIndex + lineIndex] ?? "",
-    id: `${hunkIndex}:${contentIndex}:${lineIndex}`,
-    kind: "changed",
-  }));
-}
-
-function getContextDiffLines(
-  diff: FileDiffMetadata,
-  content: ContextContent,
-  hunkIndex: number,
-  contentIndex: number,
-): StructuredValueDiffLine[] {
-  return Array.from({ length: content.lines }, (_, lineIndex) => ({
-    after: diff.additionLines[content.additionLineIndex + lineIndex] ?? "",
-    before: diff.deletionLines[content.deletionLineIndex + lineIndex] ?? "",
-    id: `${hunkIndex}:${contentIndex}:${lineIndex}`,
-    kind: "context",
-  }));
-}
-
 function getDiffItemMatchKey(section: RuleSetDiffSection, value: string) {
   return resolveDiffItemMatchKey(section, value)
     .mapErr((error) => {
@@ -826,18 +784,6 @@ function getSectionNameRenames(
   }
 
   return renames;
-}
-
-function getStructuredValueDiffLines(
-  diff: FileDiffMetadata,
-): StructuredValueDiffLine[] {
-  return diff.hunks.flatMap((hunk, hunkIndex) =>
-    hunk.hunkContent.flatMap((content, contentIndex) =>
-      content.type === "change"
-        ? getChangedDiffLines(diff, content, hunkIndex, contentIndex)
-        : getContextDiffLines(diff, content, hunkIndex, contentIndex),
-    ),
-  );
 }
 
 function isDiffMetadataKey(key: string) {
@@ -1380,9 +1326,8 @@ function stringValue(value: unknown) {
 
 function StructuredValueDiffView({ row }: { row: StructuredDiffRow }) {
   const diff = buildStructuredValueDiff(row);
-  const lines = diff ? getStructuredValueDiffLines(diff) : [];
 
-  if (lines.length === 0) {
+  if (!diff) {
     return (
       <div className="grid grid-cols-2">
         <div className="bg-diff-removed px-3 py-2 text-diff-removed-foreground">
@@ -1400,36 +1345,18 @@ function StructuredValueDiffView({ row }: { row: StructuredDiffRow }) {
   }
 
   return (
-    <table className="w-full table-fixed border-collapse text-xs">
-      <tbody>
-        {lines.map((line) => (
-          <tr className="border-b last:border-b-0" key={line.id}>
-            <td
-              className={
-                line.kind === "changed"
-                  ? "bg-diff-removed px-3 py-1.5 text-diff-removed-foreground"
-                  : "bg-muted/10 px-3 py-1.5 text-muted-foreground"
-              }
-            >
-              <pre className="whitespace-pre-wrap font-sans leading-relaxed">
-                {line.before}
-              </pre>
-            </td>
-            <td
-              className={
-                line.kind === "changed"
-                  ? "border-l bg-diff-added px-3 py-1.5 text-diff-added-foreground"
-                  : "border-l bg-muted/10 px-3 py-1.5 text-muted-foreground"
-              }
-            >
-              <pre className="whitespace-pre-wrap font-sans leading-relaxed">
-                {line.after}
-              </pre>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="min-w-[40rem] overflow-hidden bg-background text-xs">
+      <FileDiff
+        disableWorkerPool
+        fileDiff={diff}
+        options={{
+          diffStyle: "split",
+          disableFileHeader: true,
+          disableLineNumbers: true,
+          overflow: "wrap",
+        }}
+      />
+    </div>
   );
 }
 

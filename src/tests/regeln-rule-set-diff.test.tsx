@@ -48,14 +48,7 @@ describe("RuleSetDiffView", () => {
     const { container } = render(<RuleSetDiffView diff={diff} />);
 
     expect(screen.getByText("Geändert")).toBeInTheDocument();
-    expect(screen.getByText("Dauer: 30")).toHaveClass("whitespace-pre-wrap");
-    expect(screen.getByText("Dauer: 45")).toHaveClass("whitespace-pre-wrap");
-    expect(container.querySelector(".bg-diff-removed")).toHaveTextContent(
-      "Dauer: 30",
-    );
-    expect(container.querySelector(".bg-diff-added")).toHaveTextContent(
-      "Dauer: 45",
-    );
+    expect(container.querySelector("diffs-container")).toBeInTheDocument();
   });
 
   test("uses semantic diff color tokens for added and removed rows", () => {
