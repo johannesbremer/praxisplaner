@@ -7,11 +7,35 @@ import { normalizeImportedPractitionerName } from "./practitioner-name-normaliza
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const seedRoot = join(workspaceRoot, "seed_data_preview");
 const fallbackDurationMinutes = 5;
+const localDeploymentConfigPath = join(
+  workspaceRoot,
+  ".convex/local/default/config.json",
+);
+function localConvexCliEnv() {
+  const config = JSON.parse(readFileSync(localDeploymentConfigPath, "utf8"));
+  const env = {
+    ...process.env,
+    CONVEX_SELF_HOSTED_ADMIN_KEY: config.adminKey,
+    CONVEX_SELF_HOSTED_URL: "http://127.0.0.1:3210",
+  };
+  delete env.CONVEX_DEPLOYMENT;
+  delete env.CONVEX_DEPLOY_KEY;
+  delete env.CONVEX_DEPLOYMENT_TOKEN;
+  return env;
+}
 const convexCliEnv = {
-  ...process.env,
+  ...localConvexCliEnv(),
   CI: "1",
 };
 const practiceLocations = ["Bad Iburg", "Dissen a.T.W."];
+const adminIdentityArgs = [
+  "--identity",
+  JSON.stringify({
+    email: "admin@preview.test",
+    issuer: "https://praxisplaner.local/dev-auth",
+    subject: "dev-admin",
+  }),
+] as const;
 const resourceDoctorNames = new Set([
   "Labor Dissen",
   "Labor Iburg",
@@ -197,8 +221,7 @@ const result = execFileSync(
       practitioners,
       ruleSetId: practice.currentActiveRuleSetId,
     }),
-    "--deployment",
-    "local",
+    ...adminIdentityArgs,
     "--push",
     "--typecheck",
     "disable",

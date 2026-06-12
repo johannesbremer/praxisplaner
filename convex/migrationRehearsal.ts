@@ -30,6 +30,8 @@ import {
   setPractitionerAssociation,
 } from "./practitionerAssociations";
 
+const legacyMissingOnlineBookingPractitionerName = "Dr. Verena Meyer zu Hörste";
+
 function assertMigrationRehearsalEnabled(): void {
   if (process.env["MIGRATION_REHEARSAL_ENABLED"] !== "true") {
     throw new Error(
@@ -849,6 +851,7 @@ export const importLegacyBookingStepReplay = mutation({
     let insertedUsers = 0;
     let reusedUsers = 0;
     let associatedPractitioners = 0;
+    let rejectedBaumdiagramPractitionerOverwrites = 0;
     const skippedRows: Infer<typeof replayImportSkipRowValidator>[] = [];
     const practitionerAssociationDivergences: Infer<
       typeof practitionerAssociationDivergenceRowValidator
@@ -917,6 +920,7 @@ export const importLegacyBookingStepReplay = mutation({
                 bookingIdentityId,
               )) ?? undefined;
         if (bookingIdentityId !== undefined || patientId !== undefined) {
+          let precedencePolicy: "import" | "runtime" = "import";
           if (patientId !== undefined) {
             const existingAssociation =
               await resolvePreferredPractitionerAssociation(ctx.db, {
@@ -929,18 +933,29 @@ export const importLegacyBookingStepReplay = mutation({
               existingAssociation.practitionerLineageKey !==
                 resolvedReplayContext.context.practitionerLineageKey
             ) {
-              practitionerAssociationDivergences.push({
-                appointmentHistoryPractitionerLineageKey:
-                  existingAssociation.practitionerLineageKey,
-                ...(bookingIdentityId === undefined
-                  ? {}
-                  : { bookingIdentityId }),
-                patientId,
-                sourceSessionKey: replayRow.sourceSessionKey,
-                userAuthId: replayRow.userAuthId,
-                winningPractitionerLineageKey:
-                  resolvedReplayContext.context.practitionerLineageKey,
-              });
+              const existingPractitioner = await ctx.db.get(
+                "practitioners",
+                existingAssociation.practitionerLineageKey,
+              );
+              if (
+                existingPractitioner?.name ===
+                legacyMissingOnlineBookingPractitionerName
+              ) {
+                practitionerAssociationDivergences.push({
+                  appointmentHistoryPractitionerLineageKey:
+                    existingAssociation.practitionerLineageKey,
+                  ...(bookingIdentityId === undefined
+                    ? {}
+                    : { bookingIdentityId }),
+                  patientId,
+                  sourceSessionKey: replayRow.sourceSessionKey,
+                  userAuthId: replayRow.userAuthId,
+                  winningPractitionerLineageKey:
+                    resolvedReplayContext.context.practitionerLineageKey,
+                });
+                precedencePolicy = "runtime";
+                rejectedBaumdiagramPractitionerOverwrites += 1;
+              }
             }
           }
           const result = await setPractitionerAssociation(ctx.db, {
@@ -950,7 +965,7 @@ export const importLegacyBookingStepReplay = mutation({
             practiceId: args.practiceId,
             practitionerLineageKey:
               resolvedReplayContext.context.practitionerLineageKey,
-            precedencePolicy: "import",
+            precedencePolicy,
             source: "legacy-baumdiagramm",
           });
           if (result.kind !== "rejected") {
@@ -986,6 +1001,7 @@ export const importLegacyBookingStepReplay = mutation({
       insertedSessions,
       insertedUsers,
       practitionerAssociationDivergences,
+      rejectedBaumdiagramPractitionerOverwrites,
       reusedSessions,
       reusedUsers,
       skippedRows,
@@ -998,6 +1014,7 @@ export const importLegacyBookingStepReplay = mutation({
     practitionerAssociationDivergences: v.array(
       practitionerAssociationDivergenceRowValidator,
     ),
+    rejectedBaumdiagramPractitionerOverwrites: v.number(),
     reusedSessions: v.number(),
     reusedUsers: v.number(),
     skippedRows: v.array(replayImportSkipRowValidator),

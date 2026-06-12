@@ -1,8 +1,26 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
+const localDeploymentConfigPath = join(
+  workspaceRoot,
+  ".convex/local/default/config.json",
+);
+function localConvexCliEnv() {
+  const config = JSON.parse(readFileSync(localDeploymentConfigPath, "utf8"));
+  const env = {
+    ...process.env,
+    CONVEX_SELF_HOSTED_ADMIN_KEY: config.adminKey,
+    CONVEX_SELF_HOSTED_URL: "http://127.0.0.1:3210",
+  };
+  delete env.CONVEX_DEPLOYMENT;
+  delete env.CONVEX_DEPLOY_KEY;
+  delete env.CONVEX_DEPLOYMENT_TOKEN;
+  return env;
+}
 const convexCliEnv = {
-  ...process.env,
+  ...localConvexCliEnv(),
   CI: "1",
 };
 const tables = [
@@ -32,8 +50,6 @@ function pushFunctions() {
       "run",
       "migrationRehearsal:countBookingIdentityAssociationImport",
       "{}",
-      "--deployment",
-      "local",
       "--push",
       "--typecheck",
       "disable",
@@ -70,8 +86,6 @@ function countTable(tableName) {
       "run",
       "migrationRehearsal:countRehearsalTable",
       JSON.stringify({ tableName }),
-      "--deployment",
-      "local",
       "--typecheck",
       "disable",
     ],

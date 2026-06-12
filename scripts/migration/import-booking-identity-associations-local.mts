@@ -34,14 +34,26 @@ const identityChunkSize = 500;
 const pvsPractitionerAssociationChunkSize = 500;
 const replayChunkSize = 20;
 const userChunkSize = 2_000;
-const convexCliEnv = {
-  ...process.env,
-  CI: "1",
-};
 const localDeploymentConfigPath = join(
   workspaceRoot,
   ".convex/local/default/config.json",
 );
+function localConvexCliEnv() {
+  const config = JSON.parse(readFileSync(localDeploymentConfigPath, "utf8"));
+  const env = {
+    ...process.env,
+    CONVEX_SELF_HOSTED_ADMIN_KEY: config.adminKey,
+    CONVEX_SELF_HOSTED_URL: "http://127.0.0.1:3210",
+  };
+  delete env.CONVEX_DEPLOYMENT;
+  delete env.CONVEX_DEPLOY_KEY;
+  delete env.CONVEX_DEPLOYMENT_TOKEN;
+  return env;
+}
+const convexCliEnv = {
+  ...localConvexCliEnv(),
+  CI: "1",
+};
 const migrationFunctionReferences = {
   importBookingIdentities: makeFunctionReference<
     "mutation",
@@ -90,11 +102,11 @@ function readJsonl(path) {
 
 function assertLocalConvexDeployment() {
   const envLocal = readFileSync(join(workspaceRoot, ".env.local"), "utf8");
-  if (!/^CONVEX_DEPLOYMENT=local:/mu.test(envLocal)) {
-    throw new Error("Refusing import: CONVEX_DEPLOYMENT is not local.");
-  }
   if (!/^VITE_CONVEX_URL=http:\/\/127\.0\.0\.1:3210$/mu.test(envLocal)) {
     throw new Error("Refusing import: VITE_CONVEX_URL is not local.");
+  }
+  if (/^CONVEX_DEPLOYMENT=(?!local:)/mu.test(envLocal)) {
+    throw new Error("Refusing import: CONVEX_DEPLOYMENT is not local.");
   }
 }
 
@@ -108,7 +120,11 @@ function getLocalAdminKey() {
 
 function createLocalConvexClient() {
   const client = new ConvexHttpClient("http://127.0.0.1:3210");
-  client.setAdminAuth(getLocalAdminKey());
+  client.setAdminAuth(getLocalAdminKey(), {
+    email: "admin@preview.test",
+    issuer: "https://praxisplaner.local/dev-auth",
+    subject: "dev-admin",
+  });
   return client;
 }
 
@@ -153,8 +169,6 @@ function pushFunctions() {
       "run",
       "migrationRehearsal:countBookingIdentityAssociationImport",
       "{}",
-      "--deployment",
-      "local",
       "--push",
       "--typecheck",
       "disable",
@@ -209,16 +223,17 @@ async function main() {
 
   execFileSync(
     "pnpm",
-    [
-      "exec",
-      "convex",
-      "env",
-      "set",
-      "MIGRATION_REHEARSAL_ENABLED",
-      "true",
-      "--deployment",
-      "local",
-    ],
+    ["exec", "convex", "env", "set", "MIGRATION_REHEARSAL_ENABLED", "true"],
+    {
+      cwd: workspaceRoot,
+      env: convexCliEnv,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  execFileSync(
+    "pnpm",
+    ["exec", "convex", "env", "set", "AUTH_BYPASS_ENABLED", "true"],
     {
       cwd: workspaceRoot,
       env: convexCliEnv,
@@ -257,6 +272,7 @@ async function main() {
   const replayTotals = {
     associatedPractitionersFromReplay: 0,
     insertedSessions: 0,
+    rejectedBaumdiagramPractitionerOverwrites: 0,
     reusedSessions: 0,
   };
   const unmatchedFutureHoldTotals = {
@@ -363,6 +379,10 @@ async function main() {
     replayTotals.associatedPractitionersFromReplay += numberResult(
       result,
       "associatedPractitioners",
+    );
+    replayTotals.rejectedBaumdiagramPractitionerOverwrites += numberResult(
+      result,
+      "rejectedBaumdiagramPractitionerOverwrites",
     );
     if (Array.isArray(result.skippedRows)) {
       skippedReplayRows.push(...result.skippedRows);
