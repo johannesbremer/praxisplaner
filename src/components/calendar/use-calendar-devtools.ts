@@ -1,15 +1,13 @@
+import { areObjectsEqual } from "@pierre/diffs";
 import { useEffect, useRef } from "react";
 
 import type { CalendarAppointmentLayout, CalendarColumnId } from "./types";
 
-import {
-  calendarColumnScopeKey,
-  sameCalendarColumnScope,
-} from "../../../lib/calendar-occupancy";
+import { calendarColumnScopeKey } from "../../../lib/calendar-occupancy";
 import { emitCalendarEvent } from "../../devtools/event-client";
 
 export interface CalendarAppointmentSnapshot {
-  column: CalendarColumnId;
+  column: string;
   duration: number;
   id: string;
   startTime: string;
@@ -39,12 +37,7 @@ export function diffCalendarAppointments(
   const updated = nextAppointments
     .filter((appointment) => {
       const previous = previousById.get(appointment.id);
-      return (
-        previous !== undefined &&
-        (previous.startTime !== appointment.startTime ||
-          previous.duration !== appointment.duration ||
-          !sameCalendarColumnScope(previous.column, appointment.column))
-      );
+      return previous !== undefined && !areObjectsEqual(previous, appointment);
     })
     .map((appointment) => appointment.id);
 
@@ -143,7 +136,7 @@ function toAppointmentSnapshot(
   appointment: CalendarAppointmentLayout,
 ): CalendarAppointmentSnapshot {
   return {
-    column: appointment.column,
+    column: calendarColumnScopeKey(appointment.column),
     duration: appointment.duration,
     id: appointment.id,
     startTime: appointment.startTime,
