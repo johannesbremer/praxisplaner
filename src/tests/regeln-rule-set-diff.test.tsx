@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
 import type { RuleSetDiff } from "../routes/regeln/-rule-set-diff";
@@ -6,7 +6,7 @@ import type { RuleSetDiff } from "../routes/regeln/-rule-set-diff";
 import { RuleSetDiffView } from "../routes/regeln/-rule-set-diff";
 
 describe("RuleSetDiffView", () => {
-  test("renders modified save diff rows with the package diff viewer", () => {
+  test("renders modified save diff rows with the package diff viewer", async () => {
     const diff = {
       draftRuleSet: {
         _id: "draft-rule-set",
@@ -47,11 +47,13 @@ describe("RuleSetDiffView", () => {
 
     const { container } = render(<RuleSetDiffView diff={diff} />);
 
-    expect(container.querySelector("diffs-container")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelector("diffs-container")).toBeInTheDocument();
+    });
     expect(screen.queryByText("Geändert")).not.toBeInTheDocument();
   });
 
-  test("uses the package diff viewer for added and removed rows", () => {
+  test("uses the package diff viewer for added and removed rows", async () => {
     const diff = {
       draftRuleSet: {
         _id: "draft-rule-set",
@@ -90,7 +92,9 @@ describe("RuleSetDiffView", () => {
 
     const { container } = render(<RuleSetDiffView diff={diff} />);
 
-    expect(container.querySelectorAll("diffs-container")).toHaveLength(2);
+    await waitFor(() => {
+      expect(container.querySelectorAll("diffs-container")).toHaveLength(2);
+    });
     expect(screen.queryByText("Hinzugefügt")).not.toBeInTheDocument();
     expect(screen.queryByText("Entfernt")).not.toBeInTheDocument();
     expect(container.querySelector(".bg-diff-added")).not.toBeInTheDocument();

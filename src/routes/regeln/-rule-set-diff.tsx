@@ -1,5 +1,3 @@
-import { parseDiffFromFile } from "@pierre/diffs";
-import { FileDiff } from "@pierre/diffs/react";
 import { useForm } from "@tanstack/react-form";
 import { err, ok } from "neverthrow";
 import React from "react";
@@ -92,6 +90,12 @@ interface StructuredDiffRow {
 }
 
 const UNSAVED_RULE_SET_DESCRIPTION = "Ungespeicherte Änderungen";
+
+const StructuredValueDiffView = React.lazy(() =>
+  import("./-rule-set-diff-viewer").then((module) => ({
+    default: module.StructuredValueDiffView,
+  })),
+);
 
 function buildRuleNameContextFromTree(
   tree: ConditionTreeNode,
@@ -283,28 +287,6 @@ function buildStructuredDiffRows(
   return [...rows, ...remainingRows].toSorted((a, b) =>
     a.path.localeCompare(b.path),
   );
-}
-
-function buildStructuredValueDiff(
-  row: StructuredDiffRow,
-  sectionTitle: string,
-) {
-  const fileName = `${sectionTitle}/${row.path}`;
-  try {
-    return parseDiffFromFile(
-      {
-        contents: toDiffFileContents(row.before),
-        name: fileName,
-      },
-      {
-        contents: toDiffFileContents(row.after),
-        name: fileName,
-      },
-      { context: Number.MAX_SAFE_INTEGER },
-    );
-  } catch {
-    return null;
-  }
 }
 
 function dayOfWeekLabel(value: unknown) {
@@ -1079,11 +1061,23 @@ function RuleSetDiffView({ diff }: { diff?: null | RuleSetDiff | undefined }) {
           Keine sichtbaren Änderungen zum übergeordneten Regelset.
         </div>
       ) : (
-        <div className="flex min-w-0 flex-col gap-3">
-          {rows.map(({ row, section }) => (
-            <StructuredValueDiffView key={row.id} row={row} section={section} />
-          ))}
-        </div>
+        <React.Suspense
+          fallback={
+            <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              Änderungen werden geladen...
+            </div>
+          }
+        >
+          <div className="flex min-w-0 flex-col gap-3">
+            {rows.map(({ row, section }) => (
+              <StructuredValueDiffView
+                key={row.id}
+                row={row}
+                section={section}
+              />
+            ))}
+          </div>
+        </React.Suspense>
       )}
     </div>
   );
@@ -1208,44 +1202,6 @@ function stringValue(value: unknown) {
   return typeof value === "string" || typeof value === "number"
     ? String(value)
     : "";
-}
-
-function StructuredValueDiffView({
-  row,
-  section,
-}: {
-  row: StructuredDiffRow;
-  section: RuleSetDiffSection;
-}) {
-  const diff = buildStructuredValueDiff(row, section.title);
-
-  if (!diff) {
-    return (
-      <div className="min-w-0 overflow-hidden bg-background text-xs">
-        <pre className="whitespace-pre-wrap font-sans leading-relaxed">
-          {[row.before, row.after].filter(Boolean).join("\n")}
-        </pre>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-w-0 overflow-hidden bg-background text-xs">
-      <FileDiff
-        disableWorkerPool
-        fileDiff={diff}
-        options={{
-          diffStyle: "unified",
-          disableLineNumbers: true,
-          overflow: "wrap",
-        }}
-      />
-    </div>
-  );
-}
-
-function toDiffFileContents(value: string) {
-  return value.trim() ? `${value}\n` : "";
 }
 
 // Simulation Controls Component - Extracted from SimulationPanel
