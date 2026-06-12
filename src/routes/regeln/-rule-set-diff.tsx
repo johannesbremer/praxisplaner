@@ -1092,19 +1092,6 @@ function SaveDialogForm({
   ruleSetDiff,
   setActivationName,
 }: SaveDialogFormProps) {
-  const form = useForm({
-    defaultValues: {
-      name: activationName,
-    },
-    onSubmit: async () => {
-      // This will be handled by individual button clicks
-    },
-  });
-
-  React.useEffect(() => {
-    form.setFieldValue("name", activationName);
-  }, [activationName, form]);
-
   // Use activationName directly since it's kept in sync via setActivationName
   const trimmedName = activationName.trim();
 
@@ -1120,15 +1107,28 @@ function SaveDialogForm({
     };
   }, [trimmedName, existingSavedDescriptions]);
 
+  const form = useForm({
+    defaultValues: {
+      name: activationName,
+    },
+  });
+
+  React.useEffect(() => {
+    form.setFieldValue("name", activationName);
+  }, [activationName, form]);
+
   return (
-    <form
-      className="flex min-h-0 flex-col"
-      onSubmit={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-      }}
-    >
-      <div className="flex min-h-0 flex-col gap-4">
+    <>
+      <form
+        className="flex min-h-0 flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (isValidName && trimmedName) {
+            onSaveOnly(trimmedName);
+          }
+        }}
+      >
         <form.Field
           name="name"
           validators={{
@@ -1149,6 +1149,17 @@ function SaveDialogForm({
                   field.handleChange(e.target.value);
                   setActivationName(e.target.value);
                 }}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === "Enter" &&
+                    !e.nativeEvent.isComposing &&
+                    isValidName &&
+                    trimmedName
+                  ) {
+                    e.preventDefault();
+                    onSaveOnly(trimmedName);
+                  }
+                }}
                 placeholder="z.B. Wintersprechzeiten 2024"
                 required
                 value={field.state.value}
@@ -1161,9 +1172,10 @@ function SaveDialogForm({
             </div>
           )}
         </form.Field>
-        <RuleSetDiffView diff={ruleSetDiff} />
-      </div>
-      <DialogFooter className="mt-4 flex shrink-0 flex-wrap items-center justify-end gap-2">
+        <button className="hidden" disabled={!isValidName} type="submit" />
+      </form>
+      <RuleSetDiffView diff={ruleSetDiff} />
+      <DialogFooter className="mt-2 flex shrink-0 flex-wrap items-center justify-end gap-2">
         {onDiscard && (
           <Button onClick={onDiscard} type="button" variant="outline">
             Änderungen verwerfen
@@ -1194,7 +1206,7 @@ function SaveDialogForm({
           Speichern & Aktivieren
         </Button>
       </DialogFooter>
-    </form>
+    </>
   );
 }
 
