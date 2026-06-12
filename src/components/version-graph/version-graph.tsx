@@ -5,7 +5,7 @@ https://github.com/liuliu-dev/CommitGraph/tree/0f89c35fa53003ed8b66b409230566a45
 
 import React from "react";
 
-import type { GraphStyle, Version, VersionNode } from "./types";
+import type { BranchPathType, GraphStyle, Version, VersionNode } from "./types";
 
 import Branches from "./components/branches";
 import ConnectionLines from "./components/connection-lines";
@@ -62,9 +62,12 @@ export default function VersionGraph({
   // Compute positions and colors in a single, memoized step.
   // This ensures that the data is fully prepared for rendering and that
   // colors are stable across re-renders.
-  const { columns, versionsMap } = React.useMemo(() => {
+  const { columns, versionsMap } = React.useMemo<{
+    columns: BranchPathType[][];
+    versionsMap: Map<string, VersionNode>;
+  }>(() => {
     if (formattedVersions.length === 0) {
-      return { columns: [], versionsMap: new Map() };
+      return { columns: [], versionsMap: new Map<string, VersionNode>() };
     }
     // 1. Compute the layout (positions)
     const positionData = computePosition(formattedVersions);
@@ -147,7 +150,10 @@ export default function VersionGraph({
                   onVersionClick(version);
                 } else if (e.key === "ArrowUp" && index > 0) {
                   e.preventDefault();
-                  const prevVersion = versionValues[index - 1] as VersionNode;
+                  const prevVersion = versionValues[index - 1];
+                  if (prevVersion === undefined) {
+                    return;
+                  }
                   onVersionClick(prevVersion);
                   focusVersionControl(prevVersion.hash);
                 } else if (
@@ -155,7 +161,10 @@ export default function VersionGraph({
                   index < versionValues.length - 1
                 ) {
                   e.preventDefault();
-                  const nextVersion = versionValues[index + 1] as VersionNode;
+                  const nextVersion = versionValues[index + 1];
+                  if (nextVersion === undefined) {
+                    return;
+                  }
                   onVersionClick(nextVersion);
                   focusVersionControl(nextVersion.hash);
                 }
