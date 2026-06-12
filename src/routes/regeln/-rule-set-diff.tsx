@@ -1185,25 +1185,25 @@ function SaveDialogForm({
           disabled={!isValidName}
           onClick={() => {
             if (isValidName && trimmedName) {
-              onSaveOnly(trimmedName);
+              onSaveAndActivate(trimmedName);
             }
           }}
           type="button"
           variant="secondary"
         >
-          Speichern
+          Speichern & Aktivieren
         </Button>
         <Button
           disabled={!isValidName}
           onClick={() => {
             if (isValidName && trimmedName) {
-              onSaveAndActivate(trimmedName);
+              onSaveOnly(trimmedName);
             }
           }}
           type="button"
           variant="default"
         >
-          Speichern & Aktivieren
+          Speichern
         </Button>
       </DialogFooter>
     </>
