@@ -249,17 +249,26 @@ export function PraxisplanerHomePageContent() {
     api.practices.getAllPractices,
     convexAuth.isAuthenticated ? {} : "skip",
   );
+  const bookingPractices = useQuery(
+    api.practices.getBookingPractices,
+    convexAuth.isAuthenticated ? {} : "skip",
+  );
   const practice = practices?.[0];
   const organizationSlug = practice?.slug;
+  const bookingOrganizationSlug = bookingPractices?.[0]?.slug;
   const practiceRouteState = resolveHomePracticeRouteState({
     isAuthenticated: convexAuth.isAuthenticated,
     organizationSlug,
     practicesLoaded: practices !== undefined,
   });
+  const authenticatedHomeDestinationsLoading =
+    convexAuth.isAuthenticated &&
+    (practices === undefined || bookingPractices === undefined);
 
   if (
-    practiceRouteState.kind === "unknown" &&
-    (workosAuth.isLoading || workosAuth.user || convexAuth.isLoading)
+    authenticatedHomeDestinationsLoading ||
+    (practiceRouteState.kind === "unknown" &&
+      (workosAuth.isLoading || workosAuth.user || convexAuth.isLoading))
   ) {
     return (
       <div className="container mx-auto p-6">
@@ -347,10 +356,10 @@ export function PraxisplanerHomePageContent() {
         </Link>
 
         <Link
-          {...(practiceRouteState.kind === "known-slug"
+          {...(bookingOrganizationSlug
             ? ({
                 params: {
-                  organizationSlug: practiceRouteState.organizationSlug,
+                  organizationSlug: bookingOrganizationSlug,
                 },
                 to: "/$organizationSlug",
               } as const)
