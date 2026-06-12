@@ -6,7 +6,7 @@ import type { RuleSetDiff } from "../routes/regeln/-rule-set-diff";
 import { RuleSetDiffView } from "../routes/regeln/-rule-set-diff";
 
 describe("RuleSetDiffView", () => {
-  test("renders modified save diff rows with split changed lines", () => {
+  test("renders modified save diff rows with the package diff viewer", () => {
     const diff = {
       draftRuleSet: {
         _id: "draft-rule-set",
@@ -47,11 +47,11 @@ describe("RuleSetDiffView", () => {
 
     const { container } = render(<RuleSetDiffView diff={diff} />);
 
-    expect(screen.getByText("Geändert")).toBeInTheDocument();
     expect(container.querySelector("diffs-container")).toBeInTheDocument();
+    expect(screen.queryByText("Geändert")).not.toBeInTheDocument();
   });
 
-  test("uses semantic diff color tokens for added and removed rows", () => {
+  test("uses the package diff viewer for added and removed rows", () => {
     const diff = {
       draftRuleSet: {
         _id: "draft-rule-set",
@@ -90,15 +90,10 @@ describe("RuleSetDiffView", () => {
 
     const { container } = render(<RuleSetDiffView diff={diff} />);
 
-    expect(screen.getByText("Hinzugefügt")).toHaveClass(
-      "bg-diff-added",
-      "text-diff-added-foreground",
-    );
-    expect(screen.getByText("Entfernt")).toHaveClass(
-      "bg-diff-removed",
-      "text-diff-removed-foreground",
-    );
-    expect(container.querySelector(".bg-diff-added")).toBeInTheDocument();
-    expect(container.querySelector(".bg-diff-removed")).toBeInTheDocument();
+    expect(container.querySelectorAll("diffs-container")).toHaveLength(2);
+    expect(screen.queryByText("Hinzugefügt")).not.toBeInTheDocument();
+    expect(screen.queryByText("Entfernt")).not.toBeInTheDocument();
+    expect(container.querySelector(".bg-diff-added")).not.toBeInTheDocument();
+    expect(container.querySelector(".bg-diff-removed")).not.toBeInTheDocument();
   });
 });
