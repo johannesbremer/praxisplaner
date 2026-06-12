@@ -724,6 +724,40 @@ describe("CalendarGrid", () => {
           '[data-calendar-column-hit-target="deterministic"]',
         ),
       ).toHaveClass("z-10");
+      const visualGridLines = container.querySelector(
+        '[data-calendar-column-grid-lines="true"]',
+      );
+      assertElement(visualGridLines);
+      expect(visualGridLines).toHaveClass("calendar-column-grid-lines");
+      expect(visualGridLines).toHaveClass("pointer-events-none");
+      expect(visualGridLines).toHaveClass("z-0");
+    });
+
+    test("places semantic rows and cells on the visual calendar grid", () => {
+      render(<CalendarGrid {...defaultProps} />);
+
+      const firstSlot = screen.getByRole("button", {
+        name: "Termin um 00:00 bei Dr. Smith erstellen",
+      });
+      const secondColumnSlot = screen.getByRole("button", {
+        name: "Termin um 00:00 bei Dr. Jones erstellen",
+      });
+      const nextRowSlot = screen.getByRole("button", {
+        name: "Termin um 00:05 bei Dr. Smith erstellen",
+      });
+
+      expect(firstSlot.parentElement).toHaveStyle({
+        gridColumn: "2",
+        gridRow: "2",
+      });
+      expect(secondColumnSlot.parentElement).toHaveStyle({
+        gridColumn: "3",
+        gridRow: "2",
+      });
+      expect(nextRowSlot.parentElement).toHaveStyle({
+        gridColumn: "2",
+        gridRow: "3",
+      });
     });
 
     test("arrow keys move the roving slot focus across rows and columns", () => {

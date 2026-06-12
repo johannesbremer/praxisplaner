@@ -37,6 +37,12 @@
   --diff-removed: oklch(0.94 0.05 23);
   --diff-removed-foreground: oklch(0.22 0.08 23);
   --border: oklch(0.92 0 0);
+  --calendar-grid-line: color-mix(in oklch, var(--border) 45%, transparent);
+  --calendar-grid-line-strong: color-mix(
+    in oklch,
+    var(--border) 90%,
+    transparent
+  );
   --input: oklch(0.94 0 0);
   --ring: oklch(0 0 0);
   --chart-1: oklch(0.81 0.17 75.35);
@@ -128,6 +134,12 @@
   --diff-removed: oklch(0.24 0.07 23);
   --diff-removed-foreground: oklch(0.96 0.04 23);
   --border: oklch(0.26 0 0);
+  --calendar-grid-line: color-mix(in oklch, var(--border) 45%, transparent);
+  --calendar-grid-line-strong: color-mix(
+    in oklch,
+    var(--border) 90%,
+    transparent
+  );
   --input: oklch(0.32 0 0);
   --ring: oklch(0.72 0 0);
   --chart-1: oklch(0.81 0.17 75.35);
@@ -218,6 +230,8 @@
   --color-diff-removed: var(--diff-removed);
   --color-diff-removed-foreground: var(--diff-removed-foreground);
   --color-border: var(--border);
+  --color-calendar-grid-line: var(--calendar-grid-line);
+  --color-calendar-grid-line-strong: var(--calendar-grid-line-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
@@ -266,6 +280,31 @@
   --shadow-blur: var(--shadow-blur);
   --shadow-opacity: var(--shadow-opacity);
   --color-shadow-color: var(--shadow-color);
+}
+
+.calendar-column-grid-lines {
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 15px,
+      var(--calendar-grid-line) 15px,
+      var(--calendar-grid-line) 16px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      var(--calendar-grid-line-strong) 0,
+      var(--calendar-grid-line-strong) 2px,
+      transparent 2px,
+      transparent 192px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      var(--calendar-grid-line-strong) 0,
+      var(--calendar-grid-line-strong) 1px,
+      transparent 1px,
+      transparent 96px
+    );
 }
 
 @layer base {

@@ -497,6 +497,10 @@ export function CalendarGrid({
             <div
               className={`sticky left-0 z-10 flex h-4 items-center border-r border-b border-b-border/30 bg-muted/30 ${slotBorderClass}`}
               role="rowheader"
+              style={{
+                gridColumn: 1,
+                gridRow: slot + 2,
+              }}
             >
               {hourTime && (
                 <span className="w-16 pr-2 text-right text-xs text-muted-foreground">
@@ -519,6 +523,10 @@ export function CalendarGrid({
                   className={`pointer-events-none relative z-20 h-4 border-r border-b border-b-border/30 last:border-r-0 ${slotBorderClass} ${column.isMuted ? "bg-muted/40 opacity-60 grayscale-[0.35]" : ""}`}
                   key={`${calendarColumnScopeKey(column.id)}-${slot}`}
                   role="gridcell"
+                  style={{
+                    gridColumn: columnIndex + 2,
+                    gridRow: slot + 2,
+                  }}
                 >
                   <button
                     aria-disabled={isInteractionDisabled}
@@ -602,6 +610,11 @@ export function CalendarGrid({
               gridRow: `2 / span ${totalSlots}`,
             }}
           >
+            <div
+              aria-hidden="true"
+              className="calendar-column-grid-lines pointer-events-none absolute inset-0 z-0"
+              data-calendar-column-grid-lines="true"
+            />
             <span
               className="pointer-events-none absolute left-0 top-0 h-4 w-px"
               data-calendar-slot-row="true"
