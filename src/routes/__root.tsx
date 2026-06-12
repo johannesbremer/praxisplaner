@@ -14,7 +14,6 @@ import {
 import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth, useQuery } from "convex/react";
 import {
-  CalendarPlus,
   Clock,
   LogOut,
   Redo2,
@@ -246,26 +245,15 @@ export function PraxisplanerHomePageContent() {
   const convexAuth = useConvexAuth();
   const workosAuth = useAuth();
   const practices = useQuery(api.practices.getAllPracticesIfAuthenticated, {});
-  const bookingPractices = useQuery(
-    api.practices.getBookingPracticesIfAuthenticated,
-    {
-      ...(workosAuth.organizationId
-        ? { organizationId: workosAuth.organizationId }
-        : {}),
-    },
-  );
   const practice = practices?.[0];
   const organizationSlug = practice?.slug;
-  const bookingOrganizationSlug =
-    organizationSlug ?? bookingPractices?.[0]?.slug;
   const practiceRouteState = resolveHomePracticeRouteState({
     isAuthenticated: convexAuth.isAuthenticated,
     organizationSlug,
     practicesLoaded: practices !== undefined,
   });
   const authenticatedHomeDestinationsLoading =
-    convexAuth.isAuthenticated &&
-    (practices === undefined || bookingPractices === undefined);
+    convexAuth.isAuthenticated && practices === undefined;
 
   if (
     authenticatedHomeDestinationsLoading ||
@@ -352,33 +340,6 @@ export function PraxisplanerHomePageContent() {
             <CardContent>
               <p className="text-sm text-muted-foreground">
                 GDT-Dateien aus Verzeichnis einlesen und verarbeiten
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link
-          {...(bookingOrganizationSlug
-            ? ({
-                params: {
-                  organizationSlug: bookingOrganizationSlug,
-                },
-                to: "/$organizationSlug",
-              } as const)
-            : ({ to: "/buchung" } as const))}
-        >
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CalendarPlus className="h-5 w-5" />
-                Online-Terminbuchung
-              </CardTitle>
-              <CardDescription>Termine online buchen</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Patientenportal für die Online-Terminbuchung mit
-                Anamnese-Fragebogen
               </p>
             </CardContent>
           </Card>

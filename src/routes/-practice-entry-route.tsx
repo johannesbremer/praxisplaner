@@ -1,5 +1,4 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth, useQuery } from "convex/react";
 import { type ReactElement, useEffect } from "react";
 
@@ -9,10 +8,9 @@ import { api } from "@/convex/_generated/api";
 
 import { AuthenticatedGate } from "../auth/access-control";
 
-export type PracticeEntryTarget = "booking" | "praxisplaner" | "regeln";
+export type PracticeEntryTarget = "praxisplaner" | "regeln";
 
 const PRACTICE_ENTRY_LOADING_TEXT = {
-  booking: "Terminbuchung wird vorbereitet...",
   praxisplaner: "Praxisplaner wird geöffnet...",
   regeln: "Regelverwaltung wird geöffnet...",
 } satisfies Record<PracticeEntryTarget, string>;
@@ -35,37 +33,16 @@ function PracticeEntryRedirect({
   target: PracticeEntryTarget;
 }): ReactElement {
   const convexAuth = useConvexAuth();
-  const workosAuth = useAuth();
   const navigate = useNavigate();
   const accessiblePractices = useQuery(
     api.practices.getAllPractices,
-    convexAuth.isAuthenticated && target !== "booking" ? {} : "skip",
+    convexAuth.isAuthenticated ? {} : "skip",
   );
-  const bookingPractices = useQuery(
-    api.practices.getBookingPracticesIfAuthenticated,
-    convexAuth.isAuthenticated && target === "booking"
-      ? {
-          ...(workosAuth.organizationId
-            ? { organizationId: workosAuth.organizationId }
-            : {}),
-        }
-      : "skip",
-  );
-  const practices =
-    target === "booking" ? bookingPractices : accessiblePractices;
+  const practices = accessiblePractices;
   const organizationSlug = practices?.[0]?.slug;
 
   useEffect(() => {
     if (!organizationSlug) {
-      return;
-    }
-
-    if (target === "booking") {
-      void navigate({
-        params: { organizationSlug },
-        replace: true,
-        to: "/$organizationSlug",
-      });
       return;
     }
 

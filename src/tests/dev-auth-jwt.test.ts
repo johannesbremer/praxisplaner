@@ -11,7 +11,6 @@ describe("dev auth persona routing", () => {
     expect(getDevAuthPersonaForPath("/")).toBe("owner");
     expect(getDevAuthPersonaForPath("/account")).toBe("owner");
     expect(getDevAuthPersonaForPath("/account?tab=team")).toBe("owner");
-    expect(getDevAuthPersonaForPath("/buchung")).toBe("patient");
     expect(getDevAuthPersonaForPath("/praxisplaner")).toBe("staff");
     expect(getDevAuthPersonaForPath("/regeln")).toBe("admin");
     expect(getDevAuthPersonaForPath("/accounting")).toBe("patient");
