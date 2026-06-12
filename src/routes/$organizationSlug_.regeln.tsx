@@ -67,11 +67,7 @@ import {
   useRegelnUrl,
 } from "../utils/regeln-url";
 import { dateToInstantStringResult } from "../utils/time-calculations";
-import {
-  RuleSetDiffChangeCount,
-  RuleSetDiffView,
-  SaveDialogForm,
-} from "./regeln/-rule-set-diff";
+import { RuleSetDiffView, SaveDialogForm } from "./regeln/-rule-set-diff";
 import {
   selectRuleSetLifecycle,
   summarizeRuleSets,
@@ -1505,9 +1501,6 @@ function LogicView() {
             </VisuallyHidden>
           </DialogHeader>
           <RuleSetDiffView
-            diff={unsavedRuleSet?.parentVersion ? ruleSetDiff : null}
-          />
-          <RuleSetDiffChangeCount
             diff={unsavedRuleSet?.parentVersion ? ruleSetDiff : null}
           />
           <DialogFooter className="mt-2 flex shrink-0 flex-wrap items-center justify-end gap-2">

@@ -4,7 +4,6 @@ import React from "react";
 
 import type { ConditionTreeNode } from "@/lib/condition-tree";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -91,6 +90,12 @@ interface StructuredDiffRow {
 }
 
 const UNSAVED_RULE_SET_DESCRIPTION = "Ungespeicherte Änderungen";
+
+const StructuredValueDiffView = React.lazy(() =>
+  import("./-rule-set-diff-viewer").then((module) => ({
+    default: module.StructuredValueDiffView,
+  })),
+);
 
 function buildRuleNameContextFromTree(
   tree: ConditionTreeNode,
@@ -1028,143 +1033,6 @@ function resolveDiffItemMatchKey(section: RuleSetDiffSection, value: string) {
   );
 }
 
-function RuleSetDiffChangeCount({
-  diff,
-}: {
-  diff?: null | RuleSetDiff | undefined;
-}) {
-  if (!diff) {
-    return null;
-  }
-
-  const projectedSections = getProjectedRuleSetDiffSections(diff);
-  const changeCount = projectedSections.flatMap(
-    (projectedSection) => projectedSection.rows,
-  ).length;
-
-  return (
-    <div className="mt-2 flex shrink-0 justify-end">
-      <Badge variant="secondary">{changeCount} Änderungen</Badge>
-    </div>
-  );
-}
-
-function RuleSetDiffSectionView({
-  projectedSection,
-}: {
-  projectedSection: ProjectedRuleSetDiffSection;
-}) {
-  const { rows, section } = projectedSection;
-  const isAppointmentCoverageSection = section.key === "appointmentCoverage";
-  const isRuleSection = section.key === "rules";
-  const modifiedRows = rows.filter((row) => row.kind === "modified");
-  const singleValueRows = rows.filter((row) => row.kind !== "modified");
-  return (
-    <div className="w-max overflow-hidden rounded-lg border">
-      <div className="border-b bg-muted/40 px-3 py-2">
-        <div className="text-sm font-medium">{section.title}</div>
-      </div>
-      <div className="overflow-x-auto">
-        <div className="w-max">
-          {modifiedRows.length > 0 && (
-            <table className="w-auto table-auto border-collapse text-left text-xs">
-              <tbody>
-                {modifiedRows.map((row) => (
-                  <tr className="border-b" key={row.id}>
-                    <td className="border-l px-3 py-2">
-                      <Badge variant="secondary">Geändert</Badge>
-                    </td>
-                    {isRuleSection ? (
-                      <td className="px-0 py-0">
-                        <div className="flex">
-                          <div className="bg-diff-removed px-3 py-2 text-diff-removed-foreground">
-                            <pre className="whitespace-pre-wrap font-sans leading-relaxed">
-                              {row.before}
-                            </pre>
-                          </div>
-                          <div className="border-l bg-diff-added px-3 py-2 text-diff-added-foreground">
-                            <pre className="whitespace-pre-wrap font-sans leading-relaxed">
-                              {row.after}
-                            </pre>
-                          </div>
-                        </div>
-                      </td>
-                    ) : isAppointmentCoverageSection ? (
-                      <>
-                        <td className="bg-muted/10 px-3 py-2 font-medium text-foreground">
-                          {row.path}
-                        </td>
-                        <td className="border-l px-3 py-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-diff-removed-foreground">
-                              {row.before}
-                            </span>
-                            <span className="text-muted-foreground">-&gt;</span>
-                            <span className="text-diff-added-foreground">
-                              {row.after}
-                            </span>
-                          </div>
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="bg-muted/10 px-3 py-2 font-medium text-foreground">
-                          {row.path}
-                        </td>
-                        <td className="border-l bg-diff-removed px-3 py-2 text-diff-removed-foreground">
-                          <pre className="whitespace-pre-wrap font-sans leading-relaxed">
-                            {row.before}
-                          </pre>
-                        </td>
-                        <td className="border-l bg-diff-added px-3 py-2 text-diff-added-foreground">
-                          <pre className="whitespace-pre-wrap font-sans leading-relaxed">
-                            {row.after}
-                          </pre>
-                        </td>
-                      </>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          {singleValueRows.length > 0 && (
-            <table className="w-auto table-auto border-collapse text-left text-xs">
-              <tbody>
-                {singleValueRows.map((row) => (
-                  <tr className="border-b last:border-b-0" key={row.id}>
-                    <td
-                      className={
-                        row.kind === "added"
-                          ? "bg-diff-added px-3 py-2 font-medium text-diff-added-foreground"
-                          : "bg-diff-removed px-3 py-2 font-medium text-diff-removed-foreground"
-                      }
-                    >
-                      {row.path}
-                    </td>
-                    <td className="border-l px-3 py-2">
-                      <Badge
-                        className={
-                          row.kind === "added"
-                            ? "bg-diff-added text-diff-added-foreground"
-                            : "bg-diff-removed text-diff-removed-foreground"
-                        }
-                        variant="outline"
-                      >
-                        {row.kind === "added" ? "Hinzugefügt" : "Entfernt"}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function RuleSetDiffView({ diff }: { diff?: null | RuleSetDiff | undefined }) {
   if (diff === null) {
     return null;
@@ -1179,22 +1047,37 @@ function RuleSetDiffView({ diff }: { diff?: null | RuleSetDiff | undefined }) {
   }
 
   const projectedSections = getProjectedRuleSetDiffSections(diff);
+  const rows = projectedSections.flatMap((projectedSection) =>
+    projectedSection.rows.map((row) => ({
+      row,
+      section: projectedSection.section,
+    })),
+  );
 
   return (
-    <div className="w-max">
-      {projectedSections.length === 0 ? (
+    <div className="min-w-0">
+      {rows.length === 0 ? (
         <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
           Keine sichtbaren Änderungen zum übergeordneten Regelset.
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
-          {projectedSections.map((projectedSection) => (
-            <RuleSetDiffSectionView
-              key={projectedSection.section.key}
-              projectedSection={projectedSection}
-            />
-          ))}
-        </div>
+        <React.Suspense
+          fallback={
+            <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              Änderungen werden geladen...
+            </div>
+          }
+        >
+          <div className="flex min-w-0 flex-col gap-3">
+            {rows.map(({ row, section }) => (
+              <StructuredValueDiffView
+                key={row.id}
+                row={row}
+                section={section}
+              />
+            ))}
+          </div>
+        </React.Suspense>
       )}
     </div>
   );
@@ -1280,7 +1163,6 @@ function SaveDialogForm({
         </form.Field>
         <RuleSetDiffView diff={ruleSetDiff} />
       </div>
-      <RuleSetDiffChangeCount diff={ruleSetDiff} />
       <DialogFooter className="mt-4 flex shrink-0 flex-wrap items-center justify-end gap-2">
         {onDiscard && (
           <Button onClick={onDiscard} type="button" variant="outline">
@@ -1325,9 +1207,4 @@ function stringValue(value: unknown) {
 // Simulation Controls Component - Extracted from SimulationPanel
 
 export type { RuleSetDiff };
-export {
-  RuleSetDiffChangeCount,
-  RuleSetDiffView,
-  SaveDialogForm,
-  UNSAVED_RULE_SET_DESCRIPTION,
-};
+export { RuleSetDiffView, SaveDialogForm, UNSAVED_RULE_SET_DESCRIPTION };
