@@ -6,31 +6,54 @@ import { join } from "node:path";
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const envLocalPath = join(workspaceRoot, ".env.local");
 const localConvexDeploymentPath = join(workspaceRoot, ".convex/local/default");
+const localConvexConfigPath = join(localConvexDeploymentPath, "config.json");
 const localConvexCloudPort = 3210;
+const localConvexUrl = `http://127.0.0.1:${localConvexCloudPort}`;
 const localConvexReadyUrl = `http://127.0.0.1:${localConvexCloudPort}/instance_name`;
 const localConvexDataPaths = [
   join(localConvexDeploymentPath, "convex_local_backend.sqlite3"),
   join(localConvexDeploymentPath, "convex_local_storage"),
 ];
 const localRehearsalWorkosEnv = {
+  AUTH_BYPASS_ENABLED: "true",
   MIGRATION_REHEARSAL_ENABLED: "true",
   WORKOS_API_KEY: "sk_test_local_migration_rehearsal",
   WORKOS_CLIENT_ID: "client_local_migration_rehearsal",
   WORKOS_WEBHOOK_SECRET: "whsec_local_migration_rehearsal",
 };
+function localConvexCliEnv() {
+  const config = JSON.parse(readFileSync(localConvexConfigPath, "utf8"));
+  const env = {
+    ...process.env,
+    CONVEX_SELF_HOSTED_ADMIN_KEY: config.adminKey,
+    CONVEX_SELF_HOSTED_URL: localConvexUrl,
+    CONVEX_DEPLOYMENT: undefined,
+    CONVEX_DEPLOY_KEY: undefined,
+    CONVEX_DEPLOYMENT_TOKEN: undefined,
+  };
+  delete env.CONVEX_DEPLOYMENT;
+  delete env.CONVEX_DEPLOY_KEY;
+  delete env.CONVEX_DEPLOYMENT_TOKEN;
+  return {
+    ...env,
+    CI: "1",
+    ...localRehearsalWorkosEnv,
+  };
+}
+
 const convexCliEnv = {
-  ...process.env,
+  ...localConvexCliEnv(),
   CI: "1",
   ...localRehearsalWorkosEnv,
 };
 
 function assertLocalConvexDeployment() {
   const envLocal = readFileSync(envLocalPath, "utf8");
-  if (!/^CONVEX_DEPLOYMENT=local:/mu.test(envLocal)) {
-    throw new Error("Refusing import: CONVEX_DEPLOYMENT is not local.");
-  }
   if (!/^VITE_CONVEX_URL=http:\/\/127\.0\.0\.1:3210$/mu.test(envLocal)) {
     throw new Error("Refusing import: VITE_CONVEX_URL is not local.");
+  }
+  if (/^CONVEX_DEPLOYMENT=(?!local:)/mu.test(envLocal)) {
+    throw new Error("Refusing import: CONVEX_DEPLOYMENT is not local.");
   }
 }
 
@@ -41,13 +64,19 @@ function withLocalRehearsalEnv<T>(fn: () => Promise<T>): Promise<T> {
     .replace(/^WORKOS_API_KEY=.*$/gmu, "")
     .replace(/^WORKOS_CLIENT_ID=.*$/gmu, "")
     .replace(/^WORKOS_WEBHOOK_SECRET=.*$/gmu, "")
+    .replace(/^CONVEX_DEPLOYMENT=.*$/gmu, "")
+    .replace(/^CONVEX_SELF_HOSTED_ADMIN_KEY=.*$/gmu, "")
+    .replace(/^CONVEX_SELF_HOSTED_URL=.*$/gmu, "")
     .replace(/\n{3,}/gmu, "\n\n")
     .trimEnd();
+  const config = JSON.parse(readFileSync(localConvexConfigPath, "utf8"));
   const rehearsalEnvBlock = [
     "# Local migration rehearsal auth",
     ...Object.entries(localRehearsalWorkosEnv).map(
       ([key, value]) => `${key}=${value}`,
     ),
+    "CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210",
+    `CONVEX_SELF_HOSTED_ADMIN_KEY=${config.adminKey}`,
   ].join("\n");
   const nextEnvLocal = `${sanitizedEnvLocal}\n\n${rehearsalEnvBlock}\n`;
 
@@ -230,8 +259,6 @@ function pushFunctions() {
     "run",
     "migrationRehearsal:countBookingIdentityAssociationImport",
     "{}",
-    "--deployment",
-    "local",
     "--push",
     "--typecheck",
     "disable",
@@ -252,8 +279,6 @@ async function main() {
         "set",
         "WORKOS_CLIENT_ID",
         "client_local_migration_rehearsal",
-        "--deployment",
-        "local",
       ]);
       runWithRetry("pnpm", [
         "exec",
@@ -262,8 +287,6 @@ async function main() {
         "set",
         "WORKOS_API_KEY",
         "sk_test_local_migration_rehearsal",
-        "--deployment",
-        "local",
       ]);
       runWithRetry("pnpm", [
         "exec",
@@ -272,8 +295,6 @@ async function main() {
         "set",
         "WORKOS_WEBHOOK_SECRET",
         "whsec_local_migration_rehearsal",
-        "--deployment",
-        "local",
       ]);
       runWithRetry("pnpm", [
         "exec",
@@ -282,8 +303,14 @@ async function main() {
         "set",
         "MIGRATION_REHEARSAL_ENABLED",
         "true",
-        "--deployment",
-        "local",
+      ]);
+      runWithRetry("pnpm", [
+        "exec",
+        "convex",
+        "env",
+        "set",
+        "AUTH_BYPASS_ENABLED",
+        "true",
       ]);
       pushFunctions();
       run("pnpm", ["seed:preview"]);
@@ -291,11 +318,18 @@ async function main() {
         "exec",
         "convex",
         "import",
-        "--deployment",
-        "local",
         "--replace-all",
         "--yes",
         ".cache/seed/preview.zip",
+      ]);
+      run("pnpm", [
+        "exec",
+        "convex",
+        "run",
+        "devAuth:ensurePreviewAuthPersonas",
+        "{}",
+        "--typecheck",
+        "disable",
       ]);
       run("node", ["scripts/migration/import-local-reference-rehearsal.mts"]);
       run("node", [
@@ -307,8 +341,6 @@ async function main() {
         "exec",
         "convex",
         "import",
-        "--deployment",
-        "local",
         "--replace",
         "--yes",
         ".cache/migration/rehearsal/patients-rehearsal.zip",
@@ -322,8 +354,6 @@ async function main() {
         "exec",
         "convex",
         "import",
-        "--deployment",
-        "local",
         "--replace",
         "--yes",
         ".cache/migration/rehearsal/appointments-rehearsal.zip",
