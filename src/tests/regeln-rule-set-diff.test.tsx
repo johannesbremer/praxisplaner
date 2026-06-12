@@ -6,6 +6,58 @@ import type { RuleSetDiff } from "../routes/regeln/-rule-set-diff";
 import { RuleSetDiffView } from "../routes/regeln/-rule-set-diff";
 
 describe("RuleSetDiffView", () => {
+  test("renders modified save diff rows with split changed lines", () => {
+    const diff = {
+      draftRuleSet: {
+        _id: "draft-rule-set",
+        description: "Draft",
+        version: 2,
+      },
+      parentRuleSet: {
+        _id: "parent-rule-set",
+        description: "Parent",
+        version: 1,
+      },
+      sections: [
+        {
+          added: [
+            JSON.stringify({
+              __diffKey: "appointment-type",
+              duration: 45,
+              name: "Kontrolle",
+            }),
+          ],
+          key: "appointmentTypes",
+          removed: [
+            JSON.stringify({
+              __diffKey: "appointment-type",
+              duration: 30,
+              name: "Kontrolle",
+            }),
+          ],
+          title: "Terminarten",
+        },
+      ],
+      totals: {
+        added: 1,
+        changed: 2,
+        removed: 1,
+      },
+    } satisfies RuleSetDiff;
+
+    const { container } = render(<RuleSetDiffView diff={diff} />);
+
+    expect(screen.getByText("Geändert")).toBeInTheDocument();
+    expect(screen.getByText("Dauer: 30")).toHaveClass("whitespace-pre-wrap");
+    expect(screen.getByText("Dauer: 45")).toHaveClass("whitespace-pre-wrap");
+    expect(container.querySelector(".bg-diff-removed")).toHaveTextContent(
+      "Dauer: 30",
+    );
+    expect(container.querySelector(".bg-diff-added")).toHaveTextContent(
+      "Dauer: 45",
+    );
+  });
+
   test("uses semantic diff color tokens for added and removed rows", () => {
     const diff = {
       draftRuleSet: {
