@@ -361,7 +361,7 @@ export function CalendarGrid({
     const focusNextSlot = () => {
       document
         .querySelector<HTMLButtonElement>(
-          `[data-calendar-slot-button="${nextColumnIndex}:${nextSlot}"]`,
+          `[data-calendar-slot-button="${CSS.escape(String(nextColumnIndex))}:${CSS.escape(String(nextSlot))}"]`,
         )
         ?.focus();
     };
@@ -622,33 +622,61 @@ export function CalendarGrid({
         </div>
       )}
 
-      {columns.map((column, columnIndex) => (
-        <div
-          className="pointer-events-none relative z-20"
-          key={`overlay-${calendarColumnScopeKey(column.id)}`}
-          role="presentation"
-          style={{
-            gridColumn: columnIndex + 2,
-            gridRow: `2 / span ${totalSlots}`,
-          }}
-        >
-          {currentTimeSlot >= 0 && (
-            <div
-              className="pointer-events-none absolute left-0 right-0 z-20 h-0.5 bg-calendar-current-time top-(--calendar-current-time-top)"
-              style={
-                {
-                  "--calendar-current-time-top": `${currentTimeSlot * 16}px`,
-                } as React.CSSProperties
+      {columns.map((column, columnIndex) => {
+        const isInteractionDisabled = isColumnInteractionDisabled(column);
+        return (
+          <div
+            className="pointer-events-none relative z-20"
+            data-calendar-column-overlay-target="occupied-ranges"
+            key={`overlay-${calendarColumnScopeKey(column.id)}`}
+            onDragLeave={() => {
+              if (
+                dragPreview.column !== null &&
+                sameCalendarColumnScope(dragPreview.column, column.id)
+              ) {
+                // User left this occupied overlay while dragging.
               }
-            >
-              <div className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-calendar-current-time" />
-            </div>
-          )}
-          {renderBlockedSlots(column.id)}
-          {renderDragPreview(column.id)}
-          {renderAppointments(column.id)}
-        </div>
-      ))}
+            }}
+            onDragOver={(e) => {
+              if (isInteractionDisabled) {
+                return;
+              }
+              onDragOver(e, column.id);
+            }}
+            onDrop={(e) => {
+              if (isInteractionDisabled) {
+                return;
+              }
+              void onDrop(e, column.id);
+            }}
+            role="presentation"
+            style={{
+              gridColumn: columnIndex + 2,
+              gridRow: `2 / span ${totalSlots}`,
+            }}
+          >
+            <span
+              className="pointer-events-none absolute left-0 top-0 h-4 w-px"
+              data-calendar-slot-row="true"
+            />
+            {currentTimeSlot >= 0 && (
+              <div
+                className="pointer-events-none absolute left-0 right-0 z-20 h-0.5 bg-calendar-current-time top-(--calendar-current-time-top)"
+                style={
+                  {
+                    "--calendar-current-time-top": `${currentTimeSlot * 16}px`,
+                  } as React.CSSProperties
+                }
+              >
+                <div className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-calendar-current-time" />
+              </div>
+            )}
+            {renderBlockedSlots(column.id)}
+            {renderDragPreview(column.id)}
+            {renderAppointments(column.id)}
+          </div>
+        );
+      })}
     </div>
   );
 }

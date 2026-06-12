@@ -1,3 +1,5 @@
+import type { DragEvent } from "react";
+
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -361,6 +363,39 @@ describe("CalendarGrid", () => {
         expect(mockHandlers.onDragOver).toHaveBeenCalled();
         expect(mockHandlers.onDrop).toHaveBeenCalled();
       });
+    });
+
+    test("keeps column drag handlers reachable while dragging over occupied appointments", async () => {
+      let dragCurrentTarget: HTMLElement | null = null;
+      mockHandlers.onDragOver.mockImplementationOnce(
+        (event: DragEvent<HTMLElement>) => {
+          dragCurrentTarget = event.currentTarget;
+        },
+      );
+
+      const { container } = render(<CalendarGrid {...defaultProps} />);
+
+      const overlayTarget = container.querySelector(
+        '[data-calendar-column-overlay-target="occupied-ranges"]',
+      );
+      assertElement(overlayTarget);
+      const appointment = container.querySelector("[draggable=true]");
+      assertElement(appointment);
+      fireEvent.dragOver(appointment);
+      fireEvent.drop(appointment);
+
+      await waitFor(() => {
+        expect(mockHandlers.onDragOver).toHaveBeenCalled();
+        expect(mockHandlers.onDrop).toHaveBeenCalled();
+      });
+      expect(dragCurrentTarget).toHaveAttribute(
+        "data-calendar-column-overlay-target",
+        "occupied-ranges",
+      );
+      expect(dragCurrentTarget).toBe(overlayTarget);
+      expect(
+        overlayTarget.querySelector('[data-calendar-slot-row="true"]'),
+      ).toBeInTheDocument();
     });
 
     test("does not allow dropping an appointment onto a drag-disabled column", async () => {
