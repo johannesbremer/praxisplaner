@@ -67,24 +67,12 @@ import {
   useRegelnUrl,
 } from "../utils/regeln-url";
 import { dateToInstantStringResult } from "../utils/time-calculations";
-import {
-  preloadRuleSetDiffViewer,
-  RuleSetDiffView,
-  SaveDialogForm,
-} from "./regeln/-rule-set-diff";
+import { RuleSetDiffView, SaveDialogForm } from "./regeln/-rule-set-diff";
 import {
   selectRuleSetLifecycle,
   summarizeRuleSets,
 } from "./regeln/-rule-set-lifecycle";
 import { SimulationControls } from "./regeln/-simulation-controls";
-
-interface IdlePreloadWindow {
-  cancelIdleCallback?: (handle: number) => void;
-  requestIdleCallback?: (
-    callback: () => void,
-    options?: { timeout: number },
-  ) => number;
-}
 
 type SimulatedContext = SchedulingSimulatedContext;
 
@@ -176,29 +164,6 @@ function LogicView() {
   const pendingDraftRuleSetNavigationIdRef = useRef<Id<"ruleSets"> | null>(
     null,
   );
-
-  React.useEffect(() => {
-    const idlePreloadWindow: IdlePreloadWindow = globalThis;
-
-    if (
-      idlePreloadWindow.requestIdleCallback &&
-      idlePreloadWindow.cancelIdleCallback
-    ) {
-      const idleCallbackId = idlePreloadWindow.requestIdleCallback(
-        preloadRuleSetDiffViewer,
-        { timeout: 4_000 },
-      );
-      return () => {
-        idlePreloadWindow.cancelIdleCallback?.(idleCallbackId);
-      };
-    }
-
-    const timeoutId = globalThis.setTimeout(preloadRuleSetDiffViewer, 1_000);
-    return () => {
-      globalThis.clearTimeout(timeoutId);
-    };
-  }, []);
-
   const {
     canRedo: canRedoRegelnHistoryAction,
     canUndo: canUndoRegelnHistoryAction,

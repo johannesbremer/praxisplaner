@@ -91,21 +91,8 @@ interface StructuredDiffRow {
 
 const UNSAVED_RULE_SET_DESCRIPTION = "Ungespeicherte Änderungen";
 
-let structuredValueDiffViewerPromise:
-  | Promise<typeof import("./-rule-set-diff-viewer")>
-  | undefined;
-
-function loadStructuredValueDiffViewer() {
-  structuredValueDiffViewerPromise ??= import("./-rule-set-diff-viewer");
-  return structuredValueDiffViewerPromise;
-}
-
-function preloadRuleSetDiffViewer() {
-  void loadStructuredValueDiffViewer();
-}
-
 const StructuredValueDiffView = React.lazy(() =>
-  loadStructuredValueDiffViewer().then((module) => ({
+  import("./-rule-set-diff-viewer").then((module) => ({
     default: module.StructuredValueDiffView,
   })),
 );
@@ -1220,9 +1207,4 @@ function stringValue(value: unknown) {
 // Simulation Controls Component - Extracted from SimulationPanel
 
 export type { RuleSetDiff };
-export {
-  preloadRuleSetDiffViewer,
-  RuleSetDiffView,
-  SaveDialogForm,
-  UNSAVED_RULE_SET_DESCRIPTION,
-};
+export { RuleSetDiffView, SaveDialogForm, UNSAVED_RULE_SET_DESCRIPTION };
