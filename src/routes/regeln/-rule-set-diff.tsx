@@ -289,7 +289,7 @@ function buildStructuredValueDiff(
   row: StructuredDiffRow,
   sectionTitle: string,
 ) {
-  const fileName = `${sectionTitle}/${row.path}.txt`;
+  const fileName = `${sectionTitle}/${row.path}`;
   try {
     return parseDiffFromFile(
       {
