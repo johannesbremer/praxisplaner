@@ -5,6 +5,7 @@ import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { isConvexAuthBypassEnabled } from "./authBypass";
 import { createInitialRuleSet } from "./copyOnWrite";
+import { DEV_AUTH_ORGANIZATION_ID } from "./devAuthData";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
@@ -152,13 +153,19 @@ export const getBookingPracticesIfAuthenticated = query({
   args: { organizationId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const userId = await getAuthenticatedUserIdForQueryOrNull(ctx);
-    if (!userId || !args.organizationId) {
+    if (!userId) {
+      return [];
+    }
+    const organizationId =
+      args.organizationId ??
+      (isConvexAuthBypassEnabled() ? DEV_AUTH_ORGANIZATION_ID : null);
+    if (!organizationId) {
       return [];
     }
     const practice = await ctx.db
       .query("practices")
       .withIndex("by_workOSOrganizationId", (q) =>
-        q.eq("workOSOrganizationId", args.organizationId),
+        q.eq("workOSOrganizationId", organizationId),
       )
       .unique();
     return practice ? [practice] : [];
