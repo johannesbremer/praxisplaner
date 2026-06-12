@@ -1,5 +1,6 @@
 import { parseDiffFromFile } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
+import React from "react";
 
 interface RuleSetDiffViewerRow {
   after: string;
@@ -12,18 +13,20 @@ interface RuleSetDiffViewerSection {
 }
 
 function buildStructuredValueDiff(
-  row: RuleSetDiffViewerRow,
+  after: string,
+  before: string,
+  path: string,
   sectionTitle: string,
 ) {
-  const fileName = `${sectionTitle}/${row.path}`;
+  const fileName = `${sectionTitle}/${path}`;
   try {
     return parseDiffFromFile(
       {
-        contents: toDiffFileContents(row.before),
+        contents: toDiffFileContents(before),
         name: fileName,
       },
       {
-        contents: toDiffFileContents(row.after),
+        contents: toDiffFileContents(after),
         name: fileName,
       },
       { context: Number.MAX_SAFE_INTEGER },
@@ -40,7 +43,11 @@ function StructuredValueDiffView({
   row: RuleSetDiffViewerRow;
   section: RuleSetDiffViewerSection;
 }) {
-  const diff = buildStructuredValueDiff(row, section.title);
+  const diff = React.useMemo(
+    () =>
+      buildStructuredValueDiff(row.after, row.before, row.path, section.title),
+    [row.after, row.before, row.path, section.title],
+  );
 
   if (!diff) {
     return (
