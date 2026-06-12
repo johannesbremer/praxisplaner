@@ -29,10 +29,16 @@ function PracticeEntryRedirect({
 }): ReactElement {
   const convexAuth = useConvexAuth();
   const navigate = useNavigate();
-  const practices = useQuery(
+  const accessiblePractices = useQuery(
     api.practices.getAllPractices,
-    convexAuth.isAuthenticated ? {} : "skip",
+    convexAuth.isAuthenticated && target !== "booking" ? {} : "skip",
   );
+  const bookingPractices = useQuery(
+    api.practices.getBookingPractices,
+    convexAuth.isAuthenticated && target === "booking" ? {} : "skip",
+  );
+  const practices =
+    target === "booking" ? bookingPractices : accessiblePractices;
   const organizationSlug = practices?.[0]?.slug;
 
   useEffect(() => {

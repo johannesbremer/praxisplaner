@@ -94,6 +94,15 @@ export function getDevAuthPersonaForPath(pathname: string): DevAuthPersona {
   if (firstSegment === "account") {
     return "owner";
   }
+  if (firstSegment === "regeln") {
+    return "admin";
+  }
+  if (firstSegment === "praxisplaner") {
+    return "staff";
+  }
+  if (firstSegment === "buchung") {
+    return "patient";
+  }
   if (appSection === "regeln") {
     return "admin";
   }
