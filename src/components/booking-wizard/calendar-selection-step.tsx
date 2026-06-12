@@ -220,7 +220,7 @@ export function CalendarSelectionStep({
     : availableSlots;
 
   // Sort slots by time and keep only the first free slot for the selected day.
-  // This behavior is specific to /buchung.
+  // This behavior is specific to the patient booking route.
   const sortedSlots = filteredSlots.toSorted(
     (a, b) =>
       getSlotStartEpochMilliseconds(a.startTime) -

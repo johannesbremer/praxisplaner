@@ -68,6 +68,17 @@ export async function findUserByAuthId(
   return user;
 }
 
+export async function getAuthenticatedUserIdForQueryOrNull(
+  ctx: QueryCtx,
+): Promise<Id<"users"> | null> {
+  const identity = await getConvexAuthIdentity(ctx);
+  if (!identity) {
+    return null;
+  }
+  const user = await findUserByAuthId(ctx.db, identity.subject);
+  return user?._id ?? null;
+}
+
 export async function requireAuthenticatedUserIdForQuery(
   ctx: QueryCtx,
 ): Promise<Id<"users">> {

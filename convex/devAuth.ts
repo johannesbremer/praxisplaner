@@ -105,6 +105,17 @@ async function ensurePracticeMember(
     return;
   }
 
+  const existingUserMembership = await ctx.db
+    .query("practiceMembers")
+    .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+    .first();
+  if (
+    existingUserMembership &&
+    existingUserMembership.practiceId !== args.practiceId
+  ) {
+    throw new Error("Preview auth user already belongs to another practice.");
+  }
+
   await ctx.db.insert("practiceMembers", {
     createdAt: BigInt(Date.now()),
     practiceId: args.practiceId,

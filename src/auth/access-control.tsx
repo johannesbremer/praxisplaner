@@ -1,7 +1,6 @@
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth } from "convex/react";
-import { Loader2 } from "lucide-react";
 import {
   type ReactElement,
   type ReactNode,
@@ -19,6 +18,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 
 import { isAuthBypassEnabled } from "./auth-bypass";
 import {
@@ -76,6 +76,64 @@ export function AccountAuthGate({
       )}
     </AuthenticatedGate>
   );
+}
+
+export function AuthenticatedGate({
+  children,
+  devPersona,
+}: {
+  children: ReactNode;
+  devPersona?: DevAuthPersona;
+}): ReactElement {
+  const convexAuth = useConvexAuth();
+  const { isLoading, signIn, user } = useAuth();
+  const [signInError, setSignInError] = useState<null | string>(null);
+  const signInRequestedRef = useRef(false);
+
+  const startSignIn = useCallback(() => {
+    if (signInRequestedRef.current) {
+      return;
+    }
+    signInRequestedRef.current = true;
+    const returnTo = getAuthReturnToPath();
+    signIn({ state: { returnTo } }).catch((error: unknown) => {
+      signInRequestedRef.current = false;
+      setSignInError(
+        error instanceof Error
+          ? error.message
+          : "Anmeldung konnte nicht gestartet werden",
+      );
+    });
+  }, [signIn]);
+
+  useEffect(() => {
+    if (isLoading || user || isAuthBypassEnabled()) {
+      return;
+    }
+    startSignIn();
+  }, [isLoading, startSignIn, user]);
+
+  if (isAuthBypassEnabled() && isDevPersonaActive(devPersona)) {
+    return convexAuth.isAuthenticated ? <>{children}</> : <AuthLoadingScreen />;
+  }
+
+  if (isLoading) {
+    return <AuthLoadingScreen />;
+  }
+
+  if (!user) {
+    return (
+      <SignInScreen
+        error={signInError}
+        onRetry={() => {
+          setSignInError(null);
+          startSignIn();
+        }}
+      />
+    );
+  }
+
+  return <>{children}</>;
 }
 
 export function hasRequiredAccess({
@@ -147,72 +205,14 @@ export function StaffAuthGate({
   );
 }
 
-function AuthenticatedGate({
-  children,
-  devPersona,
-}: {
-  children: ReactNode;
-  devPersona?: DevAuthPersona;
-}): ReactElement {
-  const convexAuth = useConvexAuth();
-  const { isLoading, signIn, user } = useAuth();
-  const [signInError, setSignInError] = useState<null | string>(null);
-  const signInRequestedRef = useRef(false);
-
-  const startSignIn = useCallback(() => {
-    if (signInRequestedRef.current) {
-      return;
-    }
-    signInRequestedRef.current = true;
-    const returnTo = getAuthReturnToPath();
-    signIn({ state: { returnTo } }).catch((error: unknown) => {
-      signInRequestedRef.current = false;
-      setSignInError(
-        error instanceof Error
-          ? error.message
-          : "Anmeldung konnte nicht gestartet werden",
-      );
-    });
-  }, [signIn]);
-
-  useEffect(() => {
-    if (isLoading || user || isAuthBypassEnabled()) {
-      return;
-    }
-    startSignIn();
-  }, [isLoading, startSignIn, user]);
-
-  if (isAuthBypassEnabled() && isDevPersonaActive(devPersona)) {
-    return convexAuth.isAuthenticated ? <>{children}</> : <AuthLoadingScreen />;
-  }
-
-  if (isLoading) {
-    return <AuthLoadingScreen />;
-  }
-
-  if (!user) {
-    return (
-      <SignInScreen
-        error={signInError}
-        onRetry={() => {
-          setSignInError(null);
-          startSignIn();
-        }}
-      />
-    );
-  }
-
-  return <>{children}</>;
-}
-
 function AuthLoadingScreen(): ReactElement {
   return (
     <div className="min-h-screen flex items-center justify-center">
       <Card className="w-96">
         <CardContent className="py-6">
           <div className="flex items-center justify-center gap-2 text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Laden...</span>
+            <Spinner />
+            <span>Anmeldung wird geprüft...</span>
           </div>
         </CardContent>
       </Card>
@@ -288,7 +288,7 @@ function SignInScreen({
             </div>
           ) : (
             <div className="flex items-center justify-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Spinner />
               <span>Anmeldung wird geöffnet...</span>
             </div>
           )}

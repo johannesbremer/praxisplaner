@@ -16,8 +16,18 @@ import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
 import { allocateUniquePracticeSlug } from "./practiceSlugs";
 import {
   ensureAuthenticatedUserId,
+  getAuthenticatedUserIdForQueryOrNull,
   requireAuthenticatedUserIdForQuery,
 } from "./userIdentity";
+
+const practiceListItemValidator = v.object({
+  _creationTime: v.number(),
+  _id: v.id("practices"),
+  currentActiveRuleSetId: v.optional(v.id("ruleSets")),
+  name: v.string(),
+  slug: v.optional(v.string()),
+  workOSOrganizationId: v.optional(v.string()),
+});
 
 /**
  * Create a new practice with the given name.
@@ -88,6 +98,29 @@ export const getAllPractices = query({
       workOSOrganizationId: v.optional(v.string()),
     }),
   ),
+});
+
+export const getAllPracticesIfAuthenticated = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthenticatedUserIdForQueryOrNull(ctx);
+    if (!userId) {
+      return [];
+    }
+
+    const memberships = await ctx.db
+      .query("practiceMembers")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+    const practiceCandidates = await Promise.all(
+      memberships.map((membership) =>
+        ctx.db.get("practices", membership.practiceId),
+      ),
+    );
+
+    return practiceCandidates.filter((practice) => practice !== null);
+  },
+  returns: v.array(practiceListItemValidator),
 });
 
 /**
@@ -386,6 +419,17 @@ export const upsertPracticeMember = mutation({
     if (existing) {
       await ctx.db.patch("practiceMembers", existing._id, { role: args.role });
       return existing._id;
+    }
+
+    const existingUserMembership = await ctx.db
+      .query("practiceMembers")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+    if (
+      existingUserMembership &&
+      existingUserMembership.practiceId !== args.practiceId
+    ) {
+      throw new Error("User already belongs to another practice.");
     }
 
     return await ctx.db.insert("practiceMembers", {

@@ -473,7 +473,7 @@ function AuthenticatedBookingFlow() {
     slug: organizationSlug,
   });
 
-  // `/buchung` always follows the currently active rule set of the practice.
+  // The booking route always follows the currently active rule set of the practice.
   const practiceActiveRuleSetId = currentPractice?.currentActiveRuleSetId;
 
   const activeRuleSetSession = useQuery(

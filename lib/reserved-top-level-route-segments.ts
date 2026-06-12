@@ -2,4 +2,6 @@
 export const RESERVED_TOP_LEVEL_ROUTE_SEGMENTS = [
   "account",
   "callback",
+  "praxisplaner",
+  "regeln",
 ] as const;

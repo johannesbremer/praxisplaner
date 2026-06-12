@@ -5781,8 +5781,8 @@ packages:
   oxc-resolver@11.20.0:
     resolution: {integrity: sha512-CblytBiV/a/ZXY34dsVU2NxhIOxMXst8CvDCtyBelVITgd7PLrKzbEbA6oKLdPjvDKDzCiW48qzmzZ+mYaqn+g==}
 
-  oxlint-plugin-react-doctor@0.5.0:
-    resolution: {integrity: sha512-2oXQZKc3N2XPGmKQ0+GtZ4TSlNb4Jm1DKDrxhBE1zBK01PIjz9lXSUQm0hFCXFmlGmjVF7/GE11U9p2Oe0o9Nw==}
+  oxlint-plugin-react-doctor@0.5.1:
+    resolution: {integrity: sha512-gGx0NCPA7s8z8UYCulfhX4CiXwBI4QdQve7zaVXglakWzzdgcXMZv6pedmbKUtefegzlfzkKDcYO4lOg8vqnJw==}
     engines: {node: ^20.19.0 || >=22.12.0}
 
   oxlint@1.69.0:
@@ -6033,8 +6033,8 @@ packages:
       '@types/react':
         optional: true
 
-  react-doctor@0.5.0:
-    resolution: {integrity: sha512-MEx7RgRv2kXp6HoPMzc7fFz5Mm3vCqS3Z7clkjmDbsPamjCz7TrDDWQarfaPr7woWA6FOAaWHt1bGhQ88cfEEw==}
+  react-doctor@0.5.1:
+    resolution: {integrity: sha512-2LSJ/iYtUugr9xj01XTyU2tRtfjmGjiwyDotrnxL0raP+q4Uhp10VaiY7BqfDhBpj4HtCsC+//G1xVupTTBDoA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
@@ -12661,7 +12661,7 @@ snapshots:
       '@oxc-resolver/binding-win32-arm64-msvc': 11.20.0
       '@oxc-resolver/binding-win32-x64-msvc': 11.20.0
 
-  oxlint-plugin-react-doctor@0.5.0:
+  oxlint-plugin-react-doctor@0.5.1:
     dependencies:
       '@typescript-eslint/types': 8.61.0
       eslint-scope: 9.1.2
@@ -13011,7 +13011,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.17
 
-  react-doctor@0.5.0(eslint@9.39.4(jiti@2.7.0)):
+  react-doctor@0.5.1(eslint@9.39.4(jiti@2.7.0)):
     dependencies:
       '@babel/code-frame': 7.29.7
       '@effect/platform-node-shared': 4.0.0-beta.70(effect@4.0.0-beta.70)
@@ -13025,7 +13025,7 @@ snapshots:
       jiti: 2.7.0
       magicast: 0.5.3
       oxlint: 1.69.0
-      oxlint-plugin-react-doctor: 0.5.0
+      oxlint-plugin-react-doctor: 0.5.1
       prompts: 2.4.2
       typescript: 6.0.3
       vscode-languageserver: 9.0.1
@@ -13104,7 +13104,7 @@ snapshots:
       preact: 10.29.2
       prompts: 2.4.2
       react: 19.2.7
-      react-doctor: 0.5.0(eslint@9.39.4(jiti@2.7.0))
+      react-doctor: 0.5.1(eslint@9.39.4(jiti@2.7.0))
       react-dom: 19.2.7(react@19.2.7)
       react-grab: 0.1.44(react@19.2.7)
     optionalDependencies:

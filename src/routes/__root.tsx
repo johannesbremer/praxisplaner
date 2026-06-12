@@ -14,7 +14,6 @@ import {
 import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth, useQuery } from "convex/react";
 import {
-  CalendarPlus,
   Clock,
   LogOut,
   Redo2,
@@ -37,6 +36,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 
 import { api } from "../../convex/_generated/api";
 import { isAuthBypassEnabled } from "../auth/auth-bypass";
@@ -243,10 +243,8 @@ export const Route = createRootRouteWithContext<{
 
 export function PraxisplanerHomePageContent() {
   const convexAuth = useConvexAuth();
-  const practices = useQuery(
-    api.practices.getAllPractices,
-    convexAuth.isAuthenticated ? {} : "skip",
-  );
+  const workosAuth = useAuth();
+  const practices = useQuery(api.practices.getAllPracticesIfAuthenticated, {});
   const practice = practices?.[0];
   const organizationSlug = practice?.slug;
   const practiceRouteState = resolveHomePracticeRouteState({
@@ -254,6 +252,33 @@ export function PraxisplanerHomePageContent() {
     organizationSlug,
     practicesLoaded: practices !== undefined,
   });
+  const authenticatedHomeDestinationsLoading =
+    convexAuth.isAuthenticated && practices === undefined;
+
+  if (
+    authenticatedHomeDestinationsLoading ||
+    (practiceRouteState.kind === "unknown" &&
+      (workosAuth.isLoading || workosAuth.user || convexAuth.isLoading))
+  ) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold mb-2">Praxis Terminverwaltung</h1>
+          <p className="text-muted-foreground">
+            Dynamisches Terminmanagement mit regelbasierter Verfügbarkeit
+          </p>
+        </div>
+        <Card className="max-w-md">
+          <CardContent className="py-6">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Spinner />
+              <span>Praxis wird geladen...</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-6">
@@ -265,55 +290,17 @@ export function PraxisplanerHomePageContent() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {practiceRouteState.kind === "known-slug" ? (
-          <Link
-            params={{ organizationSlug: practiceRouteState.organizationSlug }}
-            to="/$organizationSlug/regeln"
-          >
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-5 w-5" />
-                  Regelverwaltung & Simulation
-                </CardTitle>
-                <CardDescription>
-                  Konfigurieren und testen Sie Verfügbarkeitsregeln
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Erstellen und verwalten Sie komplexe Regeln für die
-                  Terminvergabe und testen diese in der Simulation
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        ) : practiceRouteState.kind === "known-empty" ? (
-          <Link to="/account">
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-5 w-5" />
-                  Regelverwaltung & Simulation
-                </CardTitle>
-                <CardDescription>
-                  Konfigurieren und testen Sie Verfügbarkeitsregeln
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Erstellen und verwalten Sie komplexe Regeln für die
-                  Terminvergabe und testen diese in der Simulation
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        ) : (
-          <Card
-            aria-disabled="true"
-            className="opacity-70"
-            data-auth-route-state="unknown"
-          >
+        <Link
+          {...(practiceRouteState.kind === "known-slug"
+            ? ({
+                params: {
+                  organizationSlug: practiceRouteState.organizationSlug,
+                },
+                to: "/$organizationSlug/regeln",
+              } as const)
+            : ({ to: "/regeln" } as const))}
+        >
+          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Settings className="h-5 w-5" />
@@ -330,51 +317,19 @@ export function PraxisplanerHomePageContent() {
               </p>
             </CardContent>
           </Card>
-        )}
+        </Link>
 
-        {practiceRouteState.kind === "known-slug" ? (
-          <Link
-            params={{ organizationSlug: practiceRouteState.organizationSlug }}
-            to="/$organizationSlug/praxisplaner"
-          >
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="h-5 w-5" />
-                  GDT File Processor
-                </CardTitle>
-                <CardDescription>GDT-Dateien verarbeiten</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  GDT-Dateien aus Verzeichnis einlesen und verarbeiten
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        ) : practiceRouteState.kind === "known-empty" ? (
-          <Link to="/account">
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="h-5 w-5" />
-                  GDT File Processor
-                </CardTitle>
-                <CardDescription>GDT-Dateien verarbeiten</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  GDT-Dateien aus Verzeichnis einlesen und verarbeiten
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        ) : (
-          <Card
-            aria-disabled="true"
-            className="opacity-70"
-            data-auth-route-state="unknown"
-          >
+        <Link
+          {...(practiceRouteState.kind === "known-slug"
+            ? ({
+                params: {
+                  organizationSlug: practiceRouteState.organizationSlug,
+                },
+                to: "/$organizationSlug/praxisplaner",
+              } as const)
+            : ({ to: "/praxisplaner" } as const))}
+        >
+          <Card className="hover:shadow-lg transition-shadow cursor-pointer">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Clock className="h-5 w-5" />
@@ -388,68 +343,7 @@ export function PraxisplanerHomePageContent() {
               </p>
             </CardContent>
           </Card>
-        )}
-
-        {practiceRouteState.kind === "known-slug" ? (
-          <Link
-            params={{ organizationSlug: practiceRouteState.organizationSlug }}
-            to="/$organizationSlug"
-          >
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CalendarPlus className="h-5 w-5" />
-                  Online-Terminbuchung
-                </CardTitle>
-                <CardDescription>Termine online buchen</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Patientenportal für die Online-Terminbuchung mit
-                  Anamnese-Fragebogen
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        ) : practiceRouteState.kind === "known-empty" ? (
-          <Link to="/account">
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CalendarPlus className="h-5 w-5" />
-                  Online-Terminbuchung
-                </CardTitle>
-                <CardDescription>Termine online buchen</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Patientenportal für die Online-Terminbuchung mit
-                  Anamnese-Fragebogen
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        ) : (
-          <Card
-            aria-disabled="true"
-            className="opacity-70"
-            data-auth-route-state="unknown"
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CalendarPlus className="h-5 w-5" />
-                Online-Terminbuchung
-              </CardTitle>
-              <CardDescription>Termine online buchen</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Patientenportal für die Online-Terminbuchung mit
-                Anamnese-Fragebogen
-              </p>
-            </CardContent>
-          </Card>
-        )}
+        </Link>
 
         <Link to="/account">
           <Card className="hover:shadow-lg transition-shadow cursor-pointer">
