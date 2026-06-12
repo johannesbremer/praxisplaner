@@ -1350,7 +1350,7 @@ function StructuredValueDiffView({ row }: { row: StructuredDiffRow }) {
         disableWorkerPool
         fileDiff={diff}
         options={{
-          diffStyle: "split",
+          diffStyle: "unified",
           disableFileHeader: true,
           disableLineNumbers: true,
           overflow: "wrap",
