@@ -712,11 +712,18 @@ describe("CalendarGrid", () => {
         "keyboard",
       );
       expect(firstSlot.parentElement).toHaveClass("h-4");
+      expect(firstSlot.parentElement).toHaveClass("pointer-events-none");
+      expect(firstSlot.parentElement).toHaveClass("z-20");
       expect(
         container.querySelectorAll(
           '[data-calendar-column-hit-target="deterministic"]',
         ),
       ).toHaveLength(mockColumns.length);
+      expect(
+        container.querySelector(
+          '[data-calendar-column-hit-target="deterministic"]',
+        ),
+      ).toHaveClass("z-10");
     });
 
     test("arrow keys move the roving slot focus across rows and columns", () => {

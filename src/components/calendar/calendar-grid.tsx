@@ -516,7 +516,7 @@ export function CalendarGrid({
 
               return (
                 <div
-                  className={`relative h-4 border-r border-b border-b-border/30 last:border-r-0 ${slotBorderClass} ${column.isMuted ? "bg-muted/40 opacity-60 grayscale-[0.35]" : ""}`}
+                  className={`pointer-events-none relative z-20 h-4 border-r border-b border-b-border/30 last:border-r-0 ${slotBorderClass} ${column.isMuted ? "bg-muted/40 opacity-60 grayscale-[0.35]" : ""}`}
                   key={`${calendarColumnScopeKey(column.id)}-${slot}`}
                   role="gridcell"
                 >
