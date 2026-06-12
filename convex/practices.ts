@@ -149,13 +149,19 @@ export const getBookingPractices = query({
 });
 
 export const getBookingPracticesIfAuthenticated = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { organizationId: v.optional(v.string()) },
+  handler: async (ctx, args) => {
     const userId = await getAuthenticatedUserIdForQueryOrNull(ctx);
-    if (!userId) {
+    if (!userId || !args.organizationId) {
       return [];
     }
-    return await ctx.db.query("practices").collect();
+    const practice = await ctx.db
+      .query("practices")
+      .withIndex("by_workOSOrganizationId", (q) =>
+        q.eq("workOSOrganizationId", args.organizationId),
+      )
+      .unique();
+    return practice ? [practice] : [];
   },
   returns: v.array(practiceListItemValidator),
 });
@@ -431,6 +437,17 @@ export const upsertPracticeMember = mutation({
     if (existing) {
       await ctx.db.patch("practiceMembers", existing._id, { role: args.role });
       return existing._id;
+    }
+
+    const existingUserMembership = await ctx.db
+      .query("practiceMembers")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+    if (
+      existingUserMembership &&
+      existingUserMembership.practiceId !== args.practiceId
+    ) {
+      throw new Error("User already belongs to another practice.");
     }
 
     return await ctx.db.insert("practiceMembers", {

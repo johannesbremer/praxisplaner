@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
+import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth, useQuery } from "convex/react";
 import { type ReactElement, useEffect } from "react";
 
@@ -34,14 +35,21 @@ function PracticeEntryRedirect({
   target: PracticeEntryTarget;
 }): ReactElement {
   const convexAuth = useConvexAuth();
+  const workosAuth = useAuth();
   const navigate = useNavigate();
   const accessiblePractices = useQuery(
     api.practices.getAllPractices,
     convexAuth.isAuthenticated && target !== "booking" ? {} : "skip",
   );
   const bookingPractices = useQuery(
-    api.practices.getBookingPractices,
-    convexAuth.isAuthenticated && target === "booking" ? {} : "skip",
+    api.practices.getBookingPracticesIfAuthenticated,
+    convexAuth.isAuthenticated && target === "booking"
+      ? {
+          ...(workosAuth.organizationId
+            ? { organizationId: workosAuth.organizationId }
+            : {}),
+        }
+      : "skip",
   );
   const practices =
     target === "booking" ? bookingPractices : accessiblePractices;

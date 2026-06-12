@@ -876,6 +876,19 @@ async function upsertPracticeMembership(
     await ctx.db.patch("practiceMembers", existing._id, { role: args.role });
     return existing._id;
   }
+  const existingUserMembership = await ctx.db
+    .query("practiceMembers")
+    .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+    .first();
+  if (
+    existingUserMembership &&
+    existingUserMembership.practiceId !== args.practiceId
+  ) {
+    throw new ConvexError({
+      code: "ALREADY_EXISTS",
+      message: "User already belongs to another WorkOS organization",
+    });
+  }
   return await ctx.db.insert("practiceMembers", {
     createdAt: BigInt(Date.now()),
     practiceId: args.practiceId,

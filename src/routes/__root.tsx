@@ -248,11 +248,16 @@ export function PraxisplanerHomePageContent() {
   const practices = useQuery(api.practices.getAllPracticesIfAuthenticated, {});
   const bookingPractices = useQuery(
     api.practices.getBookingPracticesIfAuthenticated,
-    {},
+    {
+      ...(workosAuth.organizationId
+        ? { organizationId: workosAuth.organizationId }
+        : {}),
+    },
   );
   const practice = practices?.[0];
   const organizationSlug = practice?.slug;
-  const bookingOrganizationSlug = bookingPractices?.[0]?.slug;
+  const bookingOrganizationSlug =
+    organizationSlug ?? bookingPractices?.[0]?.slug;
   const practiceRouteState = resolveHomePracticeRouteState({
     isAuthenticated: convexAuth.isAuthenticated,
     organizationSlug,
