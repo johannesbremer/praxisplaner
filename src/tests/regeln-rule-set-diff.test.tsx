@@ -1,9 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import type { RuleSetDiff } from "../routes/regeln/-rule-set-diff";
 
-import { RuleSetDiffView } from "../routes/regeln/-rule-set-diff";
+import {
+  RuleSetDiffView,
+  SaveDialogForm,
+} from "../routes/regeln/-rule-set-diff";
 
 describe("RuleSetDiffView", () => {
   test("renders modified save diff rows with the package diff viewer", async () => {
@@ -99,5 +102,55 @@ describe("RuleSetDiffView", () => {
     expect(screen.queryByText("Entfernt")).not.toBeInTheDocument();
     expect(container.querySelector(".bg-diff-added")).not.toBeInTheDocument();
     expect(container.querySelector(".bg-diff-removed")).not.toBeInTheDocument();
+  });
+});
+
+describe("SaveDialogForm", () => {
+  test("places the ruleset name field after the diff review", () => {
+    const diff = {
+      draftRuleSet: {
+        _id: "draft-rule-set",
+        description: "Draft",
+        version: 2,
+      },
+      parentRuleSet: {
+        _id: "parent-rule-set",
+        description: "Parent",
+        version: 1,
+      },
+      sections: [],
+      totals: {
+        added: 0,
+        changed: 0,
+        removed: 0,
+      },
+    } satisfies RuleSetDiff;
+
+    render(
+      <SaveDialogForm
+        activationName="Wintersprechzeiten 2024"
+        existingSavedDescriptions={[]}
+        onDiscard={null}
+        onSaveAndActivate={vi.fn()}
+        onSaveOnly={vi.fn()}
+        ruleSetDiff={diff}
+        setActivationName={vi.fn()}
+      />,
+    );
+
+    const diffMessage = screen.getByText(
+      "Keine sichtbaren Änderungen zum übergeordneten Regelset.",
+    );
+    const nameInput = screen.getByLabelText("Name für das Regelset");
+    const saveButton = screen.getByRole("button", { name: "Speichern" });
+
+    expect(
+      diffMessage.compareDocumentPosition(nameInput) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      nameInput.compareDocumentPosition(saveButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });

@@ -1118,63 +1118,58 @@ function SaveDialogForm({
   }, [activationName, form]);
 
   return (
-    <>
-      <form
-        className="flex min-h-0 flex-col gap-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (isValidName && trimmedName) {
-            onSaveOnly(trimmedName);
-          }
+    <form
+      className="flex min-h-0 flex-col gap-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isValidName && trimmedName) {
+          onSaveOnly(trimmedName);
+        }
+      }}
+    >
+      <RuleSetDiffView diff={ruleSetDiff} />
+      <form.Field
+        name="name"
+        validators={{
+          onSubmit: ({ value }: { value: string }) =>
+            value.trim() ? undefined : "Name ist erforderlich",
         }}
       >
-        <form.Field
-          name="name"
-          validators={{
-            onSubmit: ({ value }: { value: string }) =>
-              value.trim() ? undefined : "Name ist erforderlich",
-          }}
-        >
-          {(field: {
-            handleChange: (value: string) => void;
-            name: string;
-            state: { value: string };
-          }) => (
-            <div className="space-y-2">
-              <Label htmlFor={field.name}>Name für das Regelset</Label>
-              <Input
-                id={field.name}
-                onChange={(e) => {
-                  field.handleChange(e.target.value);
-                  setActivationName(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === "Enter" &&
-                    !e.nativeEvent.isComposing &&
-                    isValidName &&
-                    trimmedName
-                  ) {
-                    e.preventDefault();
-                    onSaveOnly(trimmedName);
-                  }
-                }}
-                placeholder="z.B. Wintersprechzeiten 2024"
-                required
-                value={field.state.value}
-              />
-              {validationError && (
-                <div className="text-sm text-destructive">
-                  {validationError}
-                </div>
-              )}
-            </div>
-          )}
-        </form.Field>
-        <button className="hidden" disabled={!isValidName} type="submit" />
-      </form>
-      <RuleSetDiffView diff={ruleSetDiff} />
+        {(field: {
+          handleChange: (value: string) => void;
+          name: string;
+          state: { value: string };
+        }) => (
+          <div className="space-y-2">
+            <Label htmlFor={field.name}>Name für das Regelset</Label>
+            <Input
+              id={field.name}
+              onChange={(e) => {
+                field.handleChange(e.target.value);
+                setActivationName(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (
+                  e.key === "Enter" &&
+                  !e.nativeEvent.isComposing &&
+                  isValidName &&
+                  trimmedName
+                ) {
+                  e.preventDefault();
+                  onSaveOnly(trimmedName);
+                }
+              }}
+              placeholder="z.B. Wintersprechzeiten 2024"
+              required
+              value={field.state.value}
+            />
+            {validationError && (
+              <div className="text-sm text-destructive">{validationError}</div>
+            )}
+          </div>
+        )}
+      </form.Field>
       <DialogFooter className="mt-2 flex shrink-0 flex-wrap items-center justify-end gap-2">
         {onDiscard && (
           <Button onClick={onDiscard} type="button" variant="outline">
@@ -1206,7 +1201,7 @@ function SaveDialogForm({
           Speichern
         </Button>
       </DialogFooter>
-    </>
+    </form>
   );
 }
 

@@ -956,7 +956,6 @@ function LogicView() {
 
   // Save dialog handlers
   const handleSaveOnly = (name: string) => {
-    void name;
     if (!currentWorkingRuleSet) {
       return;
     }
@@ -965,11 +964,12 @@ function LogicView() {
       try {
         const isUnsavedRuleSet =
           currentWorkingRuleSet._id === unsavedRuleSet?._id;
+        const trimmedName = name.trim();
 
         if (isUnsavedRuleSet) {
           // Save the unsaved rule set WITHOUT activating
           await saveUnsavedRuleSetMutation({
-            description: activationName || "Ungespeicherte Änderungen",
+            description: trimmedName,
             practiceId: currentPractice._id,
             setAsActive: false, // Key difference: don't activate
           });
@@ -986,8 +986,11 @@ function LogicView() {
 
         // Navigate to pending rule set if there was one, otherwise stay on current
         if (pendingRuleSetId === undefined) {
-          // Stay on the saved rule set (don't navigate away)
-          pushUrl({ ruleSetId: currentWorkingRuleSet._id });
+          pushUrl(
+            isUnsavedRuleSet
+              ? { ruleSetDescription: trimmedName }
+              : { ruleSetId: currentWorkingRuleSet._id },
+          );
         } else {
           pushUrl({ ruleSetId: pendingRuleSetId });
         }
