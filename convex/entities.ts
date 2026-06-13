@@ -21,7 +21,7 @@ import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 import { parseConditionTreeTransport } from "../lib/condition-tree.js";
 import { mutation, query } from "./_generated/server";
@@ -125,6 +125,13 @@ async function resolveDraftRuleSetForMutation(
     selectedRuleSetId,
   });
   return resolved.ruleSetId;
+}
+
+async function ruleSetExists(
+  ctx: QueryCtx,
+  ruleSetId: Id<"ruleSets">,
+): Promise<boolean> {
+  return (await ctx.db.get("ruleSets", ruleSetId)) !== null;
 }
 
 // ================================
@@ -1171,6 +1178,9 @@ export const getAppointmentTypes = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    if (!(await ruleSetExists(ctx, args.ruleSetId))) {
+      return [];
+    }
     if (args.includeDeleted === true) {
       await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     } else {
@@ -1199,6 +1209,9 @@ export const getAppointmentTypeFolders = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    if (!(await ruleSetExists(ctx, args.ruleSetId))) {
+      return [];
+    }
     await requireRuleSetMember(ctx, args.ruleSetId, "admin");
 
     const folders = await ctx.db
@@ -2200,6 +2213,9 @@ export const getPractitioners = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    if (!(await ruleSetExists(ctx, args.ruleSetId))) {
+      return [];
+    }
     if (args.includeDeleted === true) {
       await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     } else {
@@ -2477,6 +2493,9 @@ export const getLocations = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    if (!(await ruleSetExists(ctx, args.ruleSetId))) {
+      return [];
+    }
     if (args.includeDeleted === true) {
       await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     } else {
@@ -3332,6 +3351,9 @@ export const getBaseSchedules = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    if (!(await ruleSetExists(ctx, args.ruleSetId))) {
+      return [];
+    }
     await requireRuleSetMember(ctx, args.ruleSetId);
     const schedules = await ctx.db
       .query("baseSchedules")
@@ -3853,6 +3875,9 @@ export const getRules = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
+    if (!(await ruleSetExists(ctx, args.ruleSetId))) {
+      return [];
+    }
     await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     // Get all root nodes (rules)
     const roots = await ctx.db
