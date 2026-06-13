@@ -149,6 +149,7 @@ function LogicView() {
   const [draftRevisionOverride, setDraftRevisionOverride] = useState<
     null | number
   >(null);
+  const justSavedRuleSetDescriptionRef = useRef<null | string>(null);
   const [isDraftEquivalentToParent, setIsDraftEquivalentToParent] =
     useState(false);
   const [isDiscardDialogOpen, setIsDiscardDialogOpen] = useState(false);
@@ -328,7 +329,64 @@ function LogicView() {
   const activateRuleSetMutation = useMutation(api.ruleSets.setActiveRuleSet);
   const saveUnsavedRuleSetMutation = useMutation(
     api.ruleSets.saveUnsavedRuleSet,
-  );
+  ).withOptimisticUpdate((localStore, args) => {
+    const queryArgs = { practiceId: args.practiceId };
+
+    const patchSavedRuleSet = <TRuleSet extends { saved: boolean }>(
+      ruleSet: TRuleSet,
+    ): TRuleSet =>
+      ruleSet.saved
+        ? ruleSet
+        : {
+            ...ruleSet,
+            description: args.description.trim(),
+            draftRevision: 0,
+            saved: true,
+          };
+
+    const allRuleSets = localStore.getQuery(
+      api.ruleSets.getAllRuleSets,
+      queryArgs,
+    );
+    if (allRuleSets !== undefined) {
+      localStore.setQuery(
+        api.ruleSets.getAllRuleSets,
+        queryArgs,
+        allRuleSets.map((ruleSet) => patchSavedRuleSet(ruleSet)),
+      );
+    }
+
+    const unsavedRuleSet = localStore.getQuery(
+      api.ruleSets.getUnsavedRuleSet,
+      queryArgs,
+    );
+    if (unsavedRuleSet) {
+      localStore.setQuery(api.ruleSets.getUnsavedRuleSet, queryArgs, null);
+    }
+
+    const versionHistory = localStore.getQuery(
+      api.ruleSets.getVersionHistory,
+      queryArgs,
+    );
+    if (versionHistory !== undefined && unsavedRuleSet) {
+      localStore.setQuery(
+        api.ruleSets.getVersionHistory,
+        queryArgs,
+        versionHistory.map((version) =>
+          version.id === unsavedRuleSet._id
+            ? {
+                ...version,
+                isActive: args.setAsActive ? true : version.isActive,
+                message: args.description.trim(),
+              }
+            : {
+                ...version,
+                isActive: args.setAsActive ? false : version.isActive,
+              },
+        ),
+      );
+    }
+  });
   const deleteUnsavedRuleSetMutation = useMutation(
     api.ruleSets.deleteUnsavedRuleSet,
   ).withOptimisticUpdate((localStore, args) => {
@@ -499,6 +557,20 @@ function LogicView() {
       : "skip",
   );
   React.useEffect(() => {
+    if (raw.ruleSet && raw.ruleSet === justSavedRuleSetDescriptionRef.current) {
+      if (resolvedRuleSetIdFromUrl) {
+        justSavedRuleSetDescriptionRef.current = null;
+      }
+      return;
+    }
+
+    if (
+      justSavedRuleSetDescriptionRef.current &&
+      raw.ruleSet !== justSavedRuleSetDescriptionRef.current
+    ) {
+      justSavedRuleSetDescriptionRef.current = null;
+    }
+
     if (
       !raw.ruleSet ||
       raw.ruleSet === RESERVED_UNSAVED_DESCRIPTION ||
@@ -986,6 +1058,9 @@ function LogicView() {
 
         // Navigate to pending rule set if there was one, otherwise stay on current
         if (pendingRuleSetId === undefined) {
+          if (isUnsavedRuleSet) {
+            justSavedRuleSetDescriptionRef.current = trimmedName;
+          }
           pushUrl(
             isUnsavedRuleSet
               ? { ruleSetDescription: trimmedName }
