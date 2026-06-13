@@ -179,6 +179,7 @@ export function useRegelnUrl(options: {
     date?: Date;
     isNewPatient?: boolean;
     locationId?: Id<"locations"> | undefined;
+    ruleSetDescription?: string | undefined;
     ruleSetId?: Id<"ruleSets"> | undefined;
     tab?: RegelnTab;
   }) {
@@ -187,9 +188,11 @@ export function useRegelnUrl(options: {
     // Only convert to description if we have an explicit override
     // Otherwise preserve the current value directly to avoid query dependency issues
     const targetRuleSetDescription =
-      overrides.ruleSetId === undefined
-        ? currentRouteState.ruleSetDescription
-        : toUrlRuleSetDescription(overrides.ruleSetId);
+      "ruleSetDescription" in overrides
+        ? overrides.ruleSetDescription
+        : overrides.ruleSetId === undefined
+          ? currentRouteState.ruleSetDescription
+          : toUrlRuleSetDescription(overrides.ruleSetId);
 
     const targetIsNew = overrides.isNewPatient ?? isNewPatient;
     const patientTypeSegment = targetIsNew
