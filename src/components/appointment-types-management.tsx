@@ -1,4 +1,5 @@
 import type { ContextMenuItem, FileTreeDropResult } from "@pierre/trees";
+import type { CSSProperties } from "react";
 
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { useForm } from "@tanstack/react-form";
@@ -52,6 +53,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { api } from "@/convex/_generated/api";
 import {
   asAppointmentTypeId,
@@ -95,10 +101,13 @@ type AppointmentTreeItem =
       kind: "folder";
     };
 interface AppointmentTreeModel {
+  expandedPaths: string[];
   itemByPath: ReadonlyMap<string, AppointmentTreeItem>;
   paths: string[];
   rootPath: string;
 }
+
+type AppointmentTreeStyle = CSSProperties & Record<`--trees-${string}`, string>;
 type AppointmentType = FrontendLineageEntity<
   "appointmentTypes",
   AppointmentTypeQueryResult[number]
@@ -453,6 +462,28 @@ const createParentFolderMoveArg = (
   folderId: Id<"appointmentTypeFolders"> | undefined,
 ) => ({ parentFolderId: folderId ?? null });
 
+const appointmentTreeStyle: AppointmentTreeStyle = {
+  "--trees-accent-override": "var(--primary)",
+  "--trees-bg-muted-override": "var(--accent)",
+  "--trees-bg-override": "var(--card)",
+  "--trees-border-color-override": "var(--border)",
+  "--trees-border-radius-override": "6px",
+  "--trees-fg-muted-override": "var(--muted-foreground)",
+  "--trees-fg-override": "var(--card-foreground)",
+  "--trees-focus-ring-color-override": "var(--ring)",
+  "--trees-font-family-override": "var(--font-sans)",
+  "--trees-font-size-override": "14px",
+  "--trees-input-bg-override": "var(--background)",
+  "--trees-item-margin-x-override": "4px",
+  "--trees-item-padding-x-override": "8px",
+  "--trees-padding-inline-override": "4px",
+  "--trees-search-bg-override": "var(--background)",
+  "--trees-search-fg-override": "var(--foreground)",
+  "--trees-selected-bg-override": "var(--accent)",
+  "--trees-selected-fg-override": "var(--accent-foreground)",
+  "--trees-selected-focused-border-color-override": "var(--ring)",
+};
+
 export function AppointmentTypesManagement({
   onDraftMutation,
   onRegisterHistoryAction,
@@ -563,6 +594,11 @@ export function AppointmentTypesManagement({
     paths: treeModel.paths,
     search: true,
   });
+  useEffect(() => {
+    fileTree.model.resetPaths(treeModel.paths, {
+      initialExpandedPaths: treeModel.expandedPaths,
+    });
+  }, [fileTree.model, treeModel.expandedPaths, treeModel.paths]);
   const formSchema = useMemo(
     () =>
       createAppointmentTypeFormSchema({
@@ -1264,502 +1300,523 @@ export function AppointmentTypesManagement({
               <CardTitle>Terminarten</CardTitle>
             </div>
           </div>
-          <Button
-            onClick={() => {
-              openCreateFolderDialog();
-            }}
-            size="sm"
-            variant="outline"
-          >
-            <FolderPlus className="h-4 w-4 mr-2" />
-            Ordner hinzufügen
-          </Button>
-          <Dialog onOpenChange={setIsDialogOpen} open={isDialogOpen}>
-            <DialogTrigger asChild>
-              <Button
-                onClick={() => {
-                  openCreateDialog();
-                }}
-                size="sm"
-                variant="outline"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Terminart hinzufügen
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-hidden">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingAppointmentType
-                    ? "Terminart bearbeiten"
-                    : "Neue Terminart hinzufügen"}
-                </DialogTitle>
-                <DialogDescription>
-                  {editingAppointmentType
-                    ? "Bearbeiten Sie die Terminart."
-                    : "Erstellen Sie eine neue Terminart mit Namen und Dauer."}
-                </DialogDescription>
-              </DialogHeader>
-              <form
-                className="flex max-h-full flex-col overflow-hidden"
-                noValidate
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  void form.handleSubmit();
-                }}
-              >
-                <div className="flex-1 overflow-y-auto pr-2">
-                  <FieldGroup>
-                    <form.Field name="name">
-                      {(field) => {
-                        const isInvalid =
-                          field.state.meta.isTouched &&
-                          !field.state.meta.isValid;
+          <div className="flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  aria-label="Ordner hinzufügen"
+                  onClick={() => {
+                    openCreateFolderDialog();
+                  }}
+                  size="icon"
+                  variant="outline"
+                >
+                  <FolderPlus className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Ordner hinzufügen</TooltipContent>
+            </Tooltip>
+            <Dialog onOpenChange={setIsDialogOpen} open={isDialogOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  aria-label="Terminart hinzufügen"
+                  onClick={() => {
+                    openCreateDialog();
+                  }}
+                  size="icon"
+                  variant="outline"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-hidden">
+                <DialogHeader>
+                  <DialogTitle>
+                    {editingAppointmentType
+                      ? "Terminart bearbeiten"
+                      : "Neue Terminart hinzufügen"}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {editingAppointmentType
+                      ? "Bearbeiten Sie die Terminart."
+                      : "Erstellen Sie eine neue Terminart mit Namen und Dauer."}
+                  </DialogDescription>
+                </DialogHeader>
+                <form
+                  className="flex max-h-full flex-col overflow-hidden"
+                  noValidate
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void form.handleSubmit();
+                  }}
+                >
+                  <div className="flex-1 overflow-y-auto pr-2">
+                    <FieldGroup>
+                      <form.Field name="name">
+                        {(field) => {
+                          const isInvalid =
+                            field.state.meta.isTouched &&
+                            !field.state.meta.isValid;
 
-                        return (
-                          <Field data-invalid={isInvalid}>
-                            <FieldLabel htmlFor="appointment-type-name">
-                              Name der Terminart
-                            </FieldLabel>
-                            <Input
-                              aria-invalid={isInvalid}
-                              id="appointment-type-name"
-                              onBlur={field.handleBlur}
-                              onChange={(e) => {
-                                field.handleChange(e.target.value);
-                              }}
-                              placeholder="z.B. Erstgespräch, Kontrolltermin"
-                              value={field.state.value}
-                            />
-                            <FieldError errors={field.state.meta.errors} />
-                          </Field>
-                        );
-                      }}
-                    </form.Field>
+                          return (
+                            <Field data-invalid={isInvalid}>
+                              <FieldLabel htmlFor="appointment-type-name">
+                                Name der Terminart
+                              </FieldLabel>
+                              <Input
+                                aria-invalid={isInvalid}
+                                id="appointment-type-name"
+                                onBlur={field.handleBlur}
+                                onChange={(e) => {
+                                  field.handleChange(e.target.value);
+                                }}
+                                placeholder="z.B. Erstgespräch, Kontrolltermin"
+                                value={field.state.value}
+                              />
+                              <FieldError errors={field.state.meta.errors} />
+                            </Field>
+                          );
+                        }}
+                      </form.Field>
 
-                    <form.Field name="duration">
-                      {(field) => {
-                        const isInvalid =
-                          field.state.meta.isTouched &&
-                          !field.state.meta.isValid;
+                      <form.Field name="duration">
+                        {(field) => {
+                          const isInvalid =
+                            field.state.meta.isTouched &&
+                            !field.state.meta.isValid;
 
-                        return (
-                          <Field data-invalid={isInvalid}>
-                            <FieldLabel htmlFor="appointment-type-duration">
-                              Dauer (in Minuten)
-                            </FieldLabel>
-                            <Input
-                              aria-invalid={isInvalid}
-                              id="appointment-type-duration"
-                              max={480}
-                              min={5}
-                              onBlur={field.handleBlur}
-                              onChange={(e) => {
-                                field.handleChange(
-                                  parseNumberInput(
-                                    e.target.valueAsNumber,
-                                    field.state.value,
-                                  ),
-                                );
-                              }}
-                              placeholder="30"
-                              step={5}
-                              type="number"
-                              value={field.state.value}
-                            />
-                            <FieldError errors={field.state.meta.errors} />
-                          </Field>
-                        );
-                      }}
-                    </form.Field>
+                          return (
+                            <Field data-invalid={isInvalid}>
+                              <FieldLabel htmlFor="appointment-type-duration">
+                                Dauer (in Minuten)
+                              </FieldLabel>
+                              <Input
+                                aria-invalid={isInvalid}
+                                id="appointment-type-duration"
+                                max={480}
+                                min={5}
+                                onBlur={field.handleBlur}
+                                onChange={(e) => {
+                                  field.handleChange(
+                                    parseNumberInput(
+                                      e.target.valueAsNumber,
+                                      field.state.value,
+                                    ),
+                                  );
+                                }}
+                                placeholder="30"
+                                step={5}
+                                type="number"
+                                value={field.state.value}
+                              />
+                              <FieldError errors={field.state.meta.errors} />
+                            </Field>
+                          );
+                        }}
+                      </form.Field>
 
-                    <form.Field mode="array" name="followUpPlan">
-                      {(field) => {
-                        const availableTargets = appointmentTypes.filter(
-                          (appointmentType) =>
-                            appointmentType.lineageKey !==
-                            editingAppointmentType?.lineageKey,
-                        );
+                      <form.Field mode="array" name="followUpPlan">
+                        {(field) => {
+                          const availableTargets = appointmentTypes.filter(
+                            (appointmentType) =>
+                              appointmentType.lineageKey !==
+                              editingAppointmentType?.lineageKey,
+                          );
 
-                        return (
-                          <FieldSet>
-                            <FieldLegend variant="label">
-                              Kettentermine
-                            </FieldLegend>
-                            <div className="space-y-3">
-                              {field.state.value.length === 0 ? (
-                                <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                                  Keine Kettentermine konfiguriert.
-                                </div>
-                              ) : (
-                                field.state.value.map((step, index) => {
-                                  const selectedTargetExists =
-                                    availableTargets.some(
-                                      (appointmentType) =>
-                                        appointmentType.lineageKey ===
-                                        step.appointmentTypeLineageKey,
-                                    );
+                          return (
+                            <FieldSet>
+                              <FieldLegend variant="label">
+                                Kettentermine
+                              </FieldLegend>
+                              <div className="space-y-3">
+                                {field.state.value.length === 0 ? (
+                                  <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                                    Keine Kettentermine konfiguriert.
+                                  </div>
+                                ) : (
+                                  field.state.value.map((step, index) => {
+                                    const selectedTargetExists =
+                                      availableTargets.some(
+                                        (appointmentType) =>
+                                          appointmentType.lineageKey ===
+                                          step.appointmentTypeLineageKey,
+                                      );
 
-                                  return (
-                                    <form.Field
-                                      key={`${index}-${step.appointmentTypeLineageKey}`}
-                                      name={`followUpPlan[${index}]` as const}
-                                    >
-                                      {(itemField) => (
-                                        <div className="rounded-lg border p-4 space-y-4">
-                                          <div className="flex items-center justify-between gap-2">
-                                            <div className="text-sm font-medium">
-                                              Schritt {index + 1}
-                                            </div>
-                                            <div className="flex gap-1">
-                                              <Button
-                                                disabled={index === 0}
-                                                onClick={() => {
-                                                  if (index === 0) {
-                                                    return;
-                                                  }
-                                                  const current =
-                                                    itemField.state.value;
-                                                  const previous =
-                                                    field.state.value[
-                                                      index - 1
-                                                    ];
-                                                  if (!previous) {
-                                                    return;
-                                                  }
-                                                  itemField.handleChange(
-                                                    previous,
-                                                  );
-                                                  field.replaceValue(
-                                                    index - 1,
-                                                    current,
-                                                  );
-                                                }}
-                                                size="icon"
-                                                type="button"
-                                                variant="ghost"
-                                              >
-                                                <ArrowUp className="h-4 w-4" />
-                                              </Button>
-                                              <Button
-                                                disabled={
-                                                  index ===
-                                                  field.state.value.length - 1
-                                                }
-                                                onClick={() => {
-                                                  const current =
-                                                    itemField.state.value;
-                                                  const next =
-                                                    field.state.value[
-                                                      index + 1
-                                                    ];
-                                                  if (!next) {
-                                                    return;
-                                                  }
-                                                  itemField.handleChange(next);
-                                                  field.replaceValue(
-                                                    index + 1,
-                                                    current,
-                                                  );
-                                                }}
-                                                size="icon"
-                                                type="button"
-                                                variant="ghost"
-                                              >
-                                                <ArrowDown className="h-4 w-4" />
-                                              </Button>
-                                              <Button
-                                                onClick={() => {
-                                                  field.removeValue(index);
-                                                }}
-                                                size="icon"
-                                                type="button"
-                                                variant="ghost"
-                                              >
-                                                <Trash2 className="h-4 w-4 text-destructive" />
-                                              </Button>
-                                            </div>
-                                          </div>
-
-                                          <div className="grid gap-4 md:grid-cols-3">
-                                            <Field>
-                                              <FieldLabel>Terminart</FieldLabel>
-                                              <Select
-                                                onValueChange={(value) => {
-                                                  const selectedAppointmentType =
-                                                    availableTargets.find(
-                                                      (appointmentType) =>
-                                                        appointmentType.lineageKey ===
-                                                        value,
-                                                    );
-                                                  itemField.handleChange({
-                                                    ...itemField.state.value,
-                                                    appointmentTypeLineageKey:
-                                                      selectedAppointmentType?.lineageKey ??
-                                                      "",
-                                                  });
-                                                }}
-                                                {...(selectedTargetExists
-                                                  ? {
-                                                      value:
-                                                        itemField.state.value
-                                                          .appointmentTypeLineageKey,
+                                    return (
+                                      <form.Field
+                                        key={`${index}-${step.appointmentTypeLineageKey}`}
+                                        name={`followUpPlan[${index}]` as const}
+                                      >
+                                        {(itemField) => (
+                                          <div className="rounded-lg border p-4 space-y-4">
+                                            <div className="flex items-center justify-between gap-2">
+                                              <div className="text-sm font-medium">
+                                                Schritt {index + 1}
+                                              </div>
+                                              <div className="flex gap-1">
+                                                <Button
+                                                  disabled={index === 0}
+                                                  onClick={() => {
+                                                    if (index === 0) {
+                                                      return;
                                                     }
-                                                  : {})}
-                                              >
-                                                <SelectTrigger>
-                                                  <SelectValue placeholder="Terminart wählen" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                  {availableTargets.map(
-                                                    (appointmentType) => (
-                                                      <SelectItem
-                                                        key={
-                                                          appointmentType.lineageKey
-                                                        }
-                                                        value={
-                                                          appointmentType.lineageKey
-                                                        }
-                                                      >
-                                                        {appointmentType.name}
-                                                      </SelectItem>
-                                                    ),
-                                                  )}
-                                                </SelectContent>
-                                              </Select>
-                                            </Field>
+                                                    const current =
+                                                      itemField.state.value;
+                                                    const previous =
+                                                      field.state.value[
+                                                        index - 1
+                                                      ];
+                                                    if (!previous) {
+                                                      return;
+                                                    }
+                                                    itemField.handleChange(
+                                                      previous,
+                                                    );
+                                                    field.replaceValue(
+                                                      index - 1,
+                                                      current,
+                                                    );
+                                                  }}
+                                                  size="icon"
+                                                  type="button"
+                                                  variant="ghost"
+                                                >
+                                                  <ArrowUp className="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                  disabled={
+                                                    index ===
+                                                    field.state.value.length - 1
+                                                  }
+                                                  onClick={() => {
+                                                    const current =
+                                                      itemField.state.value;
+                                                    const next =
+                                                      field.state.value[
+                                                        index + 1
+                                                      ];
+                                                    if (!next) {
+                                                      return;
+                                                    }
+                                                    itemField.handleChange(
+                                                      next,
+                                                    );
+                                                    field.replaceValue(
+                                                      index + 1,
+                                                      current,
+                                                    );
+                                                  }}
+                                                  size="icon"
+                                                  type="button"
+                                                  variant="ghost"
+                                                >
+                                                  <ArrowDown className="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                  onClick={() => {
+                                                    field.removeValue(index);
+                                                  }}
+                                                  size="icon"
+                                                  type="button"
+                                                  variant="ghost"
+                                                >
+                                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                                </Button>
+                                              </div>
+                                            </div>
 
-                                            <Field>
-                                              <FieldLabel>Versatz</FieldLabel>
-                                              <Input
-                                                min={
-                                                  itemField.state.value
-                                                    .offsetUnit === "minutes"
-                                                    ? 0
-                                                    : 1
-                                                }
-                                                onBlur={(e) => {
-                                                  const normalizedOffsetValue =
-                                                    normalizeFollowUpOffsetValue(
+                                            <div className="grid gap-4 md:grid-cols-3">
+                                              <Field>
+                                                <FieldLabel>
+                                                  Terminart
+                                                </FieldLabel>
+                                                <Select
+                                                  onValueChange={(value) => {
+                                                    const selectedAppointmentType =
+                                                      availableTargets.find(
+                                                        (appointmentType) =>
+                                                          appointmentType.lineageKey ===
+                                                          value,
+                                                      );
+                                                    itemField.handleChange({
+                                                      ...itemField.state.value,
+                                                      appointmentTypeLineageKey:
+                                                        selectedAppointmentType?.lineageKey ??
+                                                        "",
+                                                    });
+                                                  }}
+                                                  {...(selectedTargetExists
+                                                    ? {
+                                                        value:
+                                                          itemField.state.value
+                                                            .appointmentTypeLineageKey,
+                                                      }
+                                                    : {})}
+                                                >
+                                                  <SelectTrigger>
+                                                    <SelectValue placeholder="Terminart wählen" />
+                                                  </SelectTrigger>
+                                                  <SelectContent>
+                                                    {availableTargets.map(
+                                                      (appointmentType) => (
+                                                        <SelectItem
+                                                          key={
+                                                            appointmentType.lineageKey
+                                                          }
+                                                          value={
+                                                            appointmentType.lineageKey
+                                                          }
+                                                        >
+                                                          {appointmentType.name}
+                                                        </SelectItem>
+                                                      ),
+                                                    )}
+                                                  </SelectContent>
+                                                </Select>
+                                              </Field>
+
+                                              <Field>
+                                                <FieldLabel>Versatz</FieldLabel>
+                                                <Input
+                                                  min={
+                                                    itemField.state.value
+                                                      .offsetUnit === "minutes"
+                                                      ? 0
+                                                      : 1
+                                                  }
+                                                  onBlur={(e) => {
+                                                    const normalizedOffsetValue =
+                                                      normalizeFollowUpOffsetValue(
+                                                        itemField.state.value
+                                                          .offsetUnit,
+                                                        parseNumberInput(
+                                                          e.target
+                                                            .valueAsNumber,
+                                                          itemField.state.value
+                                                            .offsetValue,
+                                                        ),
+                                                      );
+
+                                                    if (
+                                                      normalizedOffsetValue !==
                                                       itemField.state.value
-                                                        .offsetUnit,
+                                                        .offsetValue
+                                                    ) {
+                                                      itemField.handleChange({
+                                                        ...itemField.state
+                                                          .value,
+                                                        offsetValue:
+                                                          normalizedOffsetValue,
+                                                      });
+                                                    }
+                                                  }}
+                                                  onChange={(e) => {
+                                                    const rawValue =
                                                       parseNumberInput(
                                                         e.target.valueAsNumber,
                                                         itemField.state.value
                                                           .offsetValue,
-                                                      ),
-                                                    );
-
-                                                  if (
-                                                    normalizedOffsetValue !==
-                                                    itemField.state.value
-                                                      .offsetValue
-                                                  ) {
+                                                      );
                                                     itemField.handleChange({
                                                       ...itemField.state.value,
-                                                      offsetValue:
-                                                        normalizedOffsetValue,
+                                                      offsetValue: rawValue,
                                                     });
+                                                  }}
+                                                  step={
+                                                    itemField.state.value
+                                                      .offsetUnit === "minutes"
+                                                      ? 5
+                                                      : 1
                                                   }
-                                                }}
-                                                onChange={(e) => {
-                                                  const rawValue =
-                                                    parseNumberInput(
-                                                      e.target.valueAsNumber,
-                                                      itemField.state.value
-                                                        .offsetValue,
-                                                    );
-                                                  itemField.handleChange({
-                                                    ...itemField.state.value,
-                                                    offsetValue: rawValue,
-                                                  });
-                                                }}
-                                                step={
-                                                  itemField.state.value
-                                                    .offsetUnit === "minutes"
-                                                    ? 5
-                                                    : 1
-                                                }
-                                                type="number"
-                                                value={
-                                                  itemField.state.value
-                                                    .offsetValue
-                                                }
-                                              />
-                                            </Field>
+                                                  type="number"
+                                                  value={
+                                                    itemField.state.value
+                                                      .offsetValue
+                                                  }
+                                                />
+                                              </Field>
 
-                                            <Field>
-                                              <FieldLabel>Einheit</FieldLabel>
-                                              <Select
-                                                onValueChange={(value) => {
-                                                  const nextOffsetUnit =
-                                                    parseFollowUpOffsetUnit(
-                                                      value,
-                                                    );
-                                                  if (!nextOffsetUnit) {
-                                                    return;
-                                                  }
-                                                  itemField.handleChange({
-                                                    ...itemField.state.value,
-                                                    offsetUnit: nextOffsetUnit,
-                                                    offsetValue:
-                                                      normalizeFollowUpOffsetValue(
+                                              <Field>
+                                                <FieldLabel>Einheit</FieldLabel>
+                                                <Select
+                                                  onValueChange={(value) => {
+                                                    const nextOffsetUnit =
+                                                      parseFollowUpOffsetUnit(
+                                                        value,
+                                                      );
+                                                    if (!nextOffsetUnit) {
+                                                      return;
+                                                    }
+                                                    itemField.handleChange({
+                                                      ...itemField.state.value,
+                                                      offsetUnit:
                                                         nextOffsetUnit,
-                                                        itemField.state.value
-                                                          .offsetValue,
-                                                      ),
-                                                  });
-                                                }}
-                                                value={
-                                                  itemField.state.value
-                                                    .offsetUnit
-                                                }
-                                              >
-                                                <SelectTrigger>
-                                                  <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                  <SelectItem value="minutes">
-                                                    Minuten
-                                                  </SelectItem>
-                                                  <SelectItem value="days">
-                                                    Tage
-                                                  </SelectItem>
-                                                  <SelectItem value="weeks">
-                                                    Wochen
-                                                  </SelectItem>
-                                                  <SelectItem value="months">
-                                                    Monate
-                                                  </SelectItem>
-                                                </SelectContent>
-                                              </Select>
-                                            </Field>
+                                                      offsetValue:
+                                                        normalizeFollowUpOffsetValue(
+                                                          nextOffsetUnit,
+                                                          itemField.state.value
+                                                            .offsetValue,
+                                                        ),
+                                                    });
+                                                  }}
+                                                  value={
+                                                    itemField.state.value
+                                                      .offsetUnit
+                                                  }
+                                                >
+                                                  <SelectTrigger>
+                                                    <SelectValue />
+                                                  </SelectTrigger>
+                                                  <SelectContent>
+                                                    <SelectItem value="minutes">
+                                                      Minuten
+                                                    </SelectItem>
+                                                    <SelectItem value="days">
+                                                      Tage
+                                                    </SelectItem>
+                                                    <SelectItem value="weeks">
+                                                      Wochen
+                                                    </SelectItem>
+                                                    <SelectItem value="months">
+                                                      Monate
+                                                    </SelectItem>
+                                                  </SelectContent>
+                                                </Select>
+                                              </Field>
+                                            </div>
                                           </div>
-                                        </div>
-                                      )}
-                                    </form.Field>
-                                  );
-                                })
-                              )}
+                                        )}
+                                      </form.Field>
+                                    );
+                                  })
+                                )}
 
-                              <Button
-                                onClick={() => {
-                                  field.pushValue(createEmptyFollowUpStep());
-                                }}
-                                size="sm"
-                                type="button"
-                                variant="outline"
+                                <Button
+                                  onClick={() => {
+                                    field.pushValue(createEmptyFollowUpStep());
+                                  }}
+                                  size="sm"
+                                  type="button"
+                                  variant="outline"
+                                >
+                                  <Plus className="h-4 w-4 mr-2" />
+                                  Kettentermin hinzufügen
+                                </Button>
+                              </div>
+                              <FieldError errors={field.state.meta.errors} />
+                            </FieldSet>
+                          );
+                        }}
+                      </form.Field>
+
+                      <form.Field mode="array" name="practitionerIds">
+                        {(field) => {
+                          const isInvalid =
+                            field.state.meta.isTouched &&
+                            !field.state.meta.isValid;
+
+                          return (
+                            <FieldSet>
+                              <FieldLegend variant="label">
+                                Behandler auswählen
+                              </FieldLegend>
+                              <FieldDescription>
+                                Wählen Sie die Behandler aus, die diese
+                                Terminart anbieten.
+                              </FieldDescription>
+                              <FieldGroup
+                                className="gap-3"
+                                data-invalid={isInvalid}
                               >
-                                <Plus className="h-4 w-4 mr-2" />
-                                Kettentermin hinzufügen
-                              </Button>
-                            </div>
-                            <FieldError errors={field.state.meta.errors} />
-                          </FieldSet>
-                        );
-                      }}
-                    </form.Field>
-
-                    <form.Field mode="array" name="practitionerIds">
-                      {(field) => {
-                        const isInvalid =
-                          field.state.meta.isTouched &&
-                          !field.state.meta.isValid;
-
-                        return (
-                          <FieldSet>
-                            <FieldLegend variant="label">
-                              Behandler auswählen
-                            </FieldLegend>
-                            <FieldDescription>
-                              Wählen Sie die Behandler aus, die diese Terminart
-                              anbieten.
-                            </FieldDescription>
-                            <FieldGroup
-                              className="gap-3"
-                              data-invalid={isInvalid}
-                            >
-                              {practitionersQuery === undefined ? (
-                                <div className="text-sm text-muted-foreground">
-                                  Lade Behandler...
-                                </div>
-                              ) : practitioners.length === 0 ? (
-                                <div className="text-sm text-muted-foreground">
-                                  Keine Behandler verfügbar. Bitte erstellen Sie
-                                  zuerst Behandler.
-                                </div>
-                              ) : (
-                                practitioners.map((practitioner) => (
-                                  <Field
-                                    key={practitioner._id}
-                                    orientation="horizontal"
-                                  >
-                                    <Checkbox
-                                      aria-invalid={isInvalid}
-                                      checked={field.state.value.includes(
-                                        practitioner._id,
-                                      )}
-                                      id={`practitioner-${practitioner._id}`}
-                                      onBlur={field.handleBlur}
-                                      onCheckedChange={(checked) => {
-                                        if (checked) {
-                                          field.pushValue(practitioner._id);
-                                        } else {
-                                          const index =
-                                            field.state.value.indexOf(
-                                              practitioner._id,
-                                            );
-                                          if (index !== -1) {
-                                            field.removeValue(index);
-                                          }
-                                        }
-                                      }}
-                                    />
-                                    <FieldLabel
-                                      className="font-normal"
-                                      htmlFor={`practitioner-${practitioner._id}`}
+                                {practitionersQuery === undefined ? (
+                                  <div className="text-sm text-muted-foreground">
+                                    Lade Behandler...
+                                  </div>
+                                ) : practitioners.length === 0 ? (
+                                  <div className="text-sm text-muted-foreground">
+                                    Keine Behandler verfügbar. Bitte erstellen
+                                    Sie zuerst Behandler.
+                                  </div>
+                                ) : (
+                                  practitioners.map((practitioner) => (
+                                    <Field
+                                      key={practitioner._id}
+                                      orientation="horizontal"
                                     >
-                                      {practitioner.name}
-                                    </FieldLabel>
-                                  </Field>
-                                ))
-                              )}
-                            </FieldGroup>
-                            <FieldError errors={field.state.meta.errors} />
-                          </FieldSet>
-                        );
-                      }}
-                    </form.Field>
-                  </FieldGroup>
-                </div>
+                                      <Checkbox
+                                        aria-invalid={isInvalid}
+                                        checked={field.state.value.includes(
+                                          practitioner._id,
+                                        )}
+                                        id={`practitioner-${practitioner._id}`}
+                                        onBlur={field.handleBlur}
+                                        onCheckedChange={(checked) => {
+                                          if (checked) {
+                                            field.pushValue(practitioner._id);
+                                          } else {
+                                            const index =
+                                              field.state.value.indexOf(
+                                                practitioner._id,
+                                              );
+                                            if (index !== -1) {
+                                              field.removeValue(index);
+                                            }
+                                          }
+                                        }}
+                                      />
+                                      <FieldLabel
+                                        className="font-normal"
+                                        htmlFor={`practitioner-${practitioner._id}`}
+                                      >
+                                        {practitioner.name}
+                                      </FieldLabel>
+                                    </Field>
+                                  ))
+                                )}
+                              </FieldGroup>
+                              <FieldError errors={field.state.meta.errors} />
+                            </FieldSet>
+                          );
+                        }}
+                      </form.Field>
+                    </FieldGroup>
+                  </div>
 
-                <DialogFooter className="mt-6">
-                  <Button onClick={closeDialog} type="button" variant="outline">
-                    Abbrechen
-                  </Button>
-                  <form.Subscribe
-                    selector={(state) => [state.canSubmit, state.isSubmitting]}
-                  >
-                    {([canSubmit, isSubmitting]) => (
-                      <Button
-                        disabled={!canSubmit || isSubmitting}
-                        type="submit"
-                      >
-                        {isSubmitting
-                          ? editingAppointmentType
-                            ? "Aktualisiere..."
-                            : "Erstelle..."
-                          : editingAppointmentType
-                            ? "Aktualisieren"
-                            : "Erstellen"}
-                      </Button>
-                    )}
-                  </form.Subscribe>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
+                  <DialogFooter className="mt-6">
+                    <Button
+                      onClick={closeDialog}
+                      type="button"
+                      variant="outline"
+                    >
+                      Abbrechen
+                    </Button>
+                    <form.Subscribe
+                      selector={(state) => [
+                        state.canSubmit,
+                        state.isSubmitting,
+                      ]}
+                    >
+                      {([canSubmit, isSubmitting]) => (
+                        <Button
+                          disabled={!canSubmit || isSubmitting}
+                          type="submit"
+                        >
+                          {isSubmitting
+                            ? editingAppointmentType
+                              ? "Aktualisiere..."
+                              : "Erstelle..."
+                            : editingAppointmentType
+                              ? "Aktualisieren"
+                              : "Erstellen"}
+                        </Button>
+                      )}
+                    </form.Subscribe>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
           <Dialog
             onOpenChange={setIsFolderDialogOpen}
             open={isFolderDialogOpen}
@@ -1829,7 +1886,7 @@ export function AppointmentTypesManagement({
 
             <div className="rounded-md border">
               <FileTree
-                className="h-[420px]"
+                className="h-[420px] bg-card text-card-foreground"
                 model={fileTree.model}
                 renderContextMenu={(item: ContextMenuItem) => {
                   const treeItem = treeModel.itemByPath.get(item.path);
@@ -1921,6 +1978,7 @@ export function AppointmentTypesManagement({
                     </div>
                   );
                 }}
+                style={appointmentTreeStyle}
               />
             </div>
           </div>
@@ -1966,10 +2024,12 @@ function buildAppointmentTreeModel(
     return path;
   };
 
+  const expandedPaths = [rootPath];
   const paths = [`${rootPath}/`];
 
   for (const folder of folders) {
     const path = resolveFolderPath(folder);
+    expandedPaths.push(path);
     paths.push(`${path}/`);
     itemByPath.set(path, {
       folder,
@@ -1992,5 +2052,10 @@ function buildAppointmentTreeModel(
     });
   }
 
-  return { itemByPath, paths: paths.toSorted(), rootPath };
+  return {
+    expandedPaths,
+    itemByPath,
+    paths: paths.toSorted(),
+    rootPath,
+  };
 }
