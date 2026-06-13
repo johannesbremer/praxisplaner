@@ -628,14 +628,23 @@ export function AppointmentTypesManagement({
   }, [treeModel]);
   const fileTree = useFileTree({
     dragAndDrop: {
-      canDrop: ({ draggedPaths, target }) =>
-        draggedPaths.length === 1 &&
-        (target.kind === "root" ||
-          treeModelRef.current.itemByPath.get(
-            normalizeTreeLookupPath(
-              target.directoryPath ?? target.hoveredPath,
-            ) ?? "",
-          )?.kind === "folder"),
+      canDrop: ({ draggedPaths, target }) => {
+        if (draggedPaths.length !== 1) {
+          return false;
+        }
+        if (target.kind === "root") {
+          return true;
+        }
+
+        const targetPath = normalizeTreeLookupPath(
+          target.directoryPath ?? target.hoveredPath,
+        );
+        return (
+          targetPath === treeModelRef.current.rootPath ||
+          treeModelRef.current.itemByPath.get(targetPath ?? "")?.kind ===
+            "folder"
+        );
+      },
       onDropComplete: (event) => {
         void handleTreeDrop(event);
       },
