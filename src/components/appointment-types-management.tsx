@@ -537,6 +537,8 @@ export function AppointmentTypesManagement({
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAppointmentType, setEditingAppointmentType] =
     useState<AppointmentType | null>(null);
+  const [editingAppointmentTypeFolder, setEditingAppointmentTypeFolder] =
+    useState<AppointmentTypeFolder | null>(null);
   const [createFolderParentId, setCreateFolderParentId] = useState<
     Id<"appointmentTypeFolders"> | undefined
   >();
@@ -1164,6 +1166,13 @@ export function AppointmentTypesManagement({
     }
   }
 
+  const openEditFolderDialog = useCallback((folder: AppointmentTypeFolder) => {
+    setEditingAppointmentTypeFolder(folder);
+    setCreateFolderParentId(folder.parentFolderId);
+    setCreateFolderName(folder.name);
+    setIsFolderDialogOpen(true);
+  }, []);
+
   const openAppointmentTypeFromTreePath = useCallback(
     (selectedPath: string | undefined) => {
       if (!selectedPath) {
@@ -1175,6 +1184,10 @@ export function AppointmentTypesManagement({
       );
       if (selectedItem?.kind === "appointmentType") {
         openEditDialog(selectedItem.appointmentType);
+        return;
+      }
+      if (selectedItem?.kind === "folder") {
+        openEditFolderDialog(selectedItem.folder);
         return;
       }
 
@@ -1190,7 +1203,7 @@ export function AppointmentTypesManagement({
         openEditDialog(appointmentType);
       }
     },
-    [openEditDialog],
+    [openEditDialog, openEditFolderDialog],
   );
 
   useEffect(() => {
@@ -1261,12 +1274,13 @@ export function AppointmentTypesManagement({
   function openCreateFolderDialog(
     parentFolderId?: Id<"appointmentTypeFolders">,
   ) {
+    setEditingAppointmentTypeFolder(null);
     setCreateFolderParentId(parentFolderId);
     setCreateFolderName("");
     setIsFolderDialogOpen(true);
   }
 
-  async function handleCreateFolder() {
+  async function handleSubmitFolder() {
     const name = normalizeEntityName(createFolderName);
     if (name.length < 2) {
       toast.error("Ordnername muss mindestens 2 Zeichen lang sein.");
@@ -1277,7 +1291,11 @@ export function AppointmentTypesManagement({
         appointmentTypes: appointmentTypesRef.current,
         folders: appointmentTypeFolders,
         name,
-        parentFolderId: createFolderParentId,
+        parentFolderId:
+          editingAppointmentTypeFolder?.parentFolderId ?? createFolderParentId,
+        ...(editingAppointmentTypeFolder && {
+          excludeFolderId: editingAppointmentTypeFolder._id,
+        }),
       })
     ) {
       toast.error("Name bereits vergeben", {
@@ -1287,24 +1305,42 @@ export function AppointmentTypesManagement({
     }
 
     try {
-      const result = await createAppointmentTypeFolderMutation({
-        name,
-        practiceId,
-        ...createParentFolderArg(createFolderParentId),
-        ...getCowMutationArgs(),
-      });
+      const result = editingAppointmentTypeFolder
+        ? await updateAppointmentTypeFolderMutation({
+            folderId: editingAppointmentTypeFolder._id,
+            name,
+            practiceId,
+            ...getCowMutationArgs(),
+          })
+        : await createAppointmentTypeFolderMutation({
+            name,
+            practiceId,
+            ...createParentFolderArg(createFolderParentId),
+            ...getCowMutationArgs(),
+          });
       handleDraftMutationResult(result);
       setIsFolderDialogOpen(false);
       setCreateFolderName("");
       setCreateFolderParentId(undefined);
-      toast.success("Ordner erstellt", {
-        description: `Ordner "${name}" wurde erstellt.`,
-      });
+      setEditingAppointmentTypeFolder(null);
+      toast.success(
+        editingAppointmentTypeFolder ? "Ordner umbenannt" : "Ordner erstellt",
+        {
+          description: `Ordner "${name}" wurde ${
+            editingAppointmentTypeFolder ? "umbenannt" : "erstellt"
+          }.`,
+        },
+      );
     } catch (error: unknown) {
-      toast.error("Fehler beim Erstellen", {
-        description:
-          error instanceof Error ? error.message : "Unbekannter Fehler",
-      });
+      toast.error(
+        editingAppointmentTypeFolder
+          ? "Fehler beim Umbenennen"
+          : "Fehler beim Erstellen",
+        {
+          description:
+            error instanceof Error ? error.message : "Unbekannter Fehler",
+        },
+      );
     }
   }
 
@@ -2049,14 +2085,27 @@ export function AppointmentTypesManagement({
             </Dialog>
           </div>
           <Dialog
-            onOpenChange={setIsFolderDialogOpen}
+            onOpenChange={(open) => {
+              setIsFolderDialogOpen(open);
+              if (!open) {
+                setEditingAppointmentTypeFolder(null);
+                setCreateFolderParentId(undefined);
+                setCreateFolderName("");
+              }
+            }}
             open={isFolderDialogOpen}
           >
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>Neuer Ordner</DialogTitle>
+                <DialogTitle>
+                  {editingAppointmentTypeFolder
+                    ? "Ordner umbenennen"
+                    : "Neuer Ordner"}
+                </DialogTitle>
                 <DialogDescription>
-                  Erstellen Sie einen Ordner für Terminarten.
+                  {editingAppointmentTypeFolder
+                    ? "Benennen Sie den Terminart-Ordner um."
+                    : "Erstellen Sie einen Ordner für Terminarten."}
                 </DialogDescription>
               </DialogHeader>
               <Field>
@@ -2075,6 +2124,9 @@ export function AppointmentTypesManagement({
                 <Button
                   onClick={() => {
                     setIsFolderDialogOpen(false);
+                    setEditingAppointmentTypeFolder(null);
+                    setCreateFolderParentId(undefined);
+                    setCreateFolderName("");
                   }}
                   type="button"
                   variant="outline"
@@ -2083,11 +2135,11 @@ export function AppointmentTypesManagement({
                 </Button>
                 <Button
                   onClick={() => {
-                    void handleCreateFolder();
+                    void handleSubmitFolder();
                   }}
                   type="button"
                 >
-                  Erstellen
+                  {editingAppointmentTypeFolder ? "Umbenennen" : "Erstellen"}
                 </Button>
               </DialogFooter>
             </DialogContent>

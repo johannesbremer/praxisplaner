@@ -97,6 +97,106 @@ const StructuredValueDiffView = React.lazy(() =>
   })),
 );
 
+function buildAppointmentTypeTreeDiffText({
+  appointmentTypes,
+  folders,
+}: {
+  appointmentTypes: string[];
+  folders: string[];
+}) {
+  const folderPaths = folders.flatMap((value) => {
+    const parsed = parseDiffValue(value);
+    if (!parsed) {
+      return [];
+    }
+    const name = stringValue(parsed["name"]);
+    if (!name) {
+      return [];
+    }
+    const parentPath = stringValue(parsed["parentFolderPath"]);
+    return [`${parentPath ? `${parentPath}/` : ""}${name}/`];
+  });
+  const appointmentTypePaths = appointmentTypes.flatMap((value) => {
+    const parsed = parseDiffValue(value);
+    if (!parsed) {
+      return [];
+    }
+    const name = stringValue(parsed["name"]);
+    if (!name) {
+      return [];
+    }
+    const folderPath = stringValue(parsed["folderPath"]);
+    const duration = stringValue(parsed["duration"]);
+    const followUpPlan = Array.isArray(parsed["followUpPlan"])
+      ? parsed["followUpPlan"]
+      : [];
+    const practitioners = Array.isArray(parsed["allowedPractitioners"])
+      ? parsed["allowedPractitioners"]
+          .filter((entry) => typeof entry === "string")
+          .join(", ")
+      : "";
+    const metadata = [
+      duration ? `${duration} Min.` : "",
+      practitioners ? `Behandler: ${practitioners}` : "",
+      followUpPlan.length > 0
+        ? `${followUpPlan.length} Folgetermin${
+            followUpPlan.length === 1 ? "" : "e"
+          }`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    const label = metadata ? `${name} (${metadata})` : name;
+    return [folderPath ? `${folderPath}/${label}` : label];
+  });
+
+  return renderIndentedTree([...folderPaths, ...appointmentTypePaths]);
+}
+
+function buildAppointmentTypeTreeProjectedSection(
+  sections: RuleSetDiffSection[],
+): null | ProjectedRuleSetDiffSection {
+  const appointmentTypeSection = sections.find(
+    (section) => section.key === "appointmentTypes",
+  );
+  const folderSection = sections.find(
+    (section) => section.key === "appointmentTypeFolders",
+  );
+  if (!appointmentTypeSection && !folderSection) {
+    return null;
+  }
+
+  const before = buildAppointmentTypeTreeDiffText({
+    appointmentTypes: appointmentTypeSection?.removed ?? [],
+    folders: folderSection?.removed ?? [],
+  });
+  const after = buildAppointmentTypeTreeDiffText({
+    appointmentTypes: appointmentTypeSection?.added ?? [],
+    folders: folderSection?.added ?? [],
+  });
+  if (before === after) {
+    return null;
+  }
+
+  return {
+    rows: [
+      {
+        after,
+        before,
+        id: "appointment-type-tree",
+        kind: before && after ? "modified" : after ? "added" : "removed",
+        path: "Terminarten",
+      },
+    ],
+    section: {
+      added: appointmentTypeSection?.added ?? folderSection?.added ?? [],
+      key: "appointmentTypeTree",
+      removed: appointmentTypeSection?.removed ?? folderSection?.removed ?? [],
+      title: "Terminarten",
+    },
+  };
+}
+
 function buildRuleNameContextFromTree(
   tree: ConditionTreeNode,
 ): RuleNameContext {
@@ -682,14 +782,25 @@ function getProjectedRuleSetDiffSections(diff: RuleSetDiff) {
     (section) => section.added.length > 0 || section.removed.length > 0,
   );
   const entityRenames = getEntityRenames(diff);
-  return changedSections
+  const appointmentTreeSection =
+    buildAppointmentTypeTreeProjectedSection(changedSections);
+  const projectedSections = changedSections
+    .filter(
+      (section) =>
+        section.key !== "appointmentTypeFolders" &&
+        section.key !== "appointmentTypes",
+    )
     .map(
       (section): ProjectedRuleSetDiffSection => ({
         rows: buildStructuredDiffRows(section, entityRenames),
         section,
       }),
-    )
-    .filter((projectedSection) => projectedSection.rows.length > 0);
+    );
+
+  return [
+    ...(appointmentTreeSection ? [appointmentTreeSection] : []),
+    ...projectedSections,
+  ].filter((projectedSection) => projectedSection.rows.length > 0);
 }
 
 function getRuleSummary(value: Record<string, unknown>) {
@@ -1008,6 +1119,40 @@ function parseRuleDiffTree(
       : value;
 
   return parseConditionTreeNodeOrNull(treeRoot);
+}
+
+function renderIndentedTree(paths: string[]) {
+  if (paths.length === 0) {
+    return "";
+  }
+
+  const lines = new Map<string, string>([["Terminarten", "Terminarten/"]]);
+
+  for (const path of paths.toSorted()) {
+    const segments = path.split("/").filter(Boolean);
+    for (const [index, segment] of segments.entries()) {
+      const key = segments.slice(0, index + 1).join("/");
+      const isLeaf = index === segments.length - 1;
+      if (lines.has(key)) {
+        continue;
+      }
+      const suffix = isLeaf && !path.endsWith("/") ? "" : "/";
+      lines.set(key, `${"  ".repeat(index + 1)}${segment}${suffix}`);
+    }
+  }
+
+  return [...lines.entries()]
+    .toSorted(([pathA], [pathB]) => {
+      if (pathA === "Terminarten") {
+        return -1;
+      }
+      if (pathB === "Terminarten") {
+        return 1;
+      }
+      return pathA.localeCompare(pathB);
+    })
+    .map(([, line]) => line)
+    .join("\n");
 }
 
 function resolveDiffItemMatchKey(section: RuleSetDiffSection, value: string) {
