@@ -1161,9 +1161,6 @@ export function AppointmentTypesManagement({
     }
     if (selectedItem?.kind === "appointmentType") {
       setSelectedTreeFolderId(selectedItem.appointmentType.treeFolderId);
-      if (!treePointerDownRef.current) {
-        openAppointmentTypeFromTreePath(selectedPath);
-      }
     }
   }
 
@@ -1241,7 +1238,7 @@ export function AppointmentTypesManagement({
 
       const deltaX = event.clientX - pointerDown.x;
       const deltaY = event.clientY - pointerDown.y;
-      if (Math.hypot(deltaX, deltaY) > 4) {
+      if (Math.hypot(deltaX, deltaY) > 8) {
         return;
       }
 
