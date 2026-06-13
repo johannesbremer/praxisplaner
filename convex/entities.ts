@@ -729,6 +729,77 @@ async function requireAppointmentTypeFolderInRuleSet(
   return folder;
 }
 
+const normalizeEntityName = (name: string) => name.trim();
+
+async function assertAppointmentTypeNameIsUniqueInRuleSet(
+  db: DatabaseReader,
+  args: {
+    excludeAppointmentTypeId?: Id<"appointmentTypes">;
+    name: string;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const existing = await db
+    .query("appointmentTypes")
+    .withIndex("by_ruleSetId_name", (q) =>
+      q.eq("ruleSetId", args.ruleSetId).eq("name", args.name),
+    )
+    .collect();
+
+  if (
+    existing.some(
+      (appointmentType) =>
+        !isDeletedRuleSetEntity(appointmentType) &&
+        appointmentType._id !== args.excludeAppointmentTypeId,
+    )
+  ) {
+    throw new Error(
+      `Terminart "${args.name}" existiert bereits in dieser Praxis.`,
+    );
+  }
+}
+
+async function assertTreeChildNameIsUnique(
+  db: DatabaseReader,
+  args: {
+    excludeFolderId?: Id<"appointmentTypeFolders">;
+    name: string;
+    parentFolderId: Id<"appointmentTypeFolders"> | undefined;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const [folders, appointmentTypes] = await Promise.all([
+    db
+      .query("appointmentTypeFolders")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect(),
+    db
+      .query("appointmentTypes")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect(),
+  ]);
+
+  const hasFolderCollision = folders.some(
+    (folder) =>
+      !isDeletedRuleSetEntity(folder) &&
+      folder._id !== args.excludeFolderId &&
+      folder.parentFolderId === args.parentFolderId &&
+      folder.name === args.name,
+  );
+  const hasAppointmentTypeCollision = appointmentTypes.some(
+    (appointmentType) =>
+      !isDeletedRuleSetEntity(appointmentType) &&
+      appointmentType.treeFolderId === args.parentFolderId &&
+      appointmentType.name === args.name,
+  );
+
+  if (hasFolderCollision || hasAppointmentTypeCollision) {
+    throw new Error(
+      `In diesem Ordner existiert bereits ein Eintrag mit dem Namen "${args.name}".`,
+    );
+  }
+}
+
 async function resolvePractitionerLineageKeys(
   db: DatabaseReader,
   practitionerIds: Id<"practitioners">[] | undefined,
@@ -783,6 +854,7 @@ export const createAppointmentType = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    const name = normalizeEntityName(args.name);
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -813,23 +885,15 @@ export const createAppointmentType = mutation({
         : undefined,
     );
 
-    // Check for name uniqueness within the rule set
-    const existing = await ctx.db
-      .query("appointmentTypes")
-      .withIndex("by_ruleSetId_name", (q) =>
-        q.eq("ruleSetId", ruleSetId).eq("name", args.name),
-      )
-      .collect();
-
-    if (
-      existing.some(
-        (appointmentType) => !isDeletedRuleSetEntity(appointmentType),
-      )
-    ) {
-      throw new Error(
-        "Appointment type with this name already exists in this rule set",
-      );
-    }
+    await assertAppointmentTypeNameIsUniqueInRuleSet(ctx.db, {
+      name,
+      ruleSetId,
+    });
+    await assertTreeChildNameIsUnique(ctx.db, {
+      name,
+      parentFolderId: args.treeFolderId,
+      ruleSetId,
+    });
 
     if (args.lineageKey) {
       const lineageKey = args.lineageKey;
@@ -857,7 +921,7 @@ export const createAppointmentType = mutation({
           duration: args.duration,
           followUpPlan: followUpPlan ?? [],
           lastModified: BigInt(Date.now()),
-          name: args.name,
+          name,
           treeFolderId: args.treeFolderId,
         });
 
@@ -878,7 +942,7 @@ export const createAppointmentType = mutation({
       ...(followUpPlan && { followUpPlan }),
       lastModified: BigInt(Date.now()),
       ...(args.lineageKey && { lineageKey: args.lineageKey }),
-      name: args.name,
+      name,
       practiceId: args.practiceId,
       ruleSetId,
       ...(args.treeFolderId && { treeFolderId: args.treeFolderId }),
@@ -907,6 +971,8 @@ export const updateAppointmentType = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    const name =
+      args.name === undefined ? undefined : normalizeEntityName(args.name);
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -921,27 +987,17 @@ export const updateAppointmentType = mutation({
       ruleSetId,
     );
 
-    // Check name uniqueness if changing name
-    if (args.name !== undefined && args.name !== appointmentType.name) {
-      const newName = args.name; // Narrow type for TypeScript
-      const existing = await ctx.db
-        .query("appointmentTypes")
-        .withIndex("by_ruleSetId_name", (q) =>
-          q.eq("ruleSetId", ruleSetId).eq("name", newName),
-        )
-        .collect();
-
-      if (
-        existing.some(
-          (candidate) =>
-            !isDeletedRuleSetEntity(candidate) &&
-            candidate._id !== appointmentType._id,
-        )
-      ) {
-        throw new Error(
-          "Appointment type with this name already exists in this rule set",
-        );
-      }
+    if (name !== undefined && name !== appointmentType.name) {
+      await assertAppointmentTypeNameIsUniqueInRuleSet(ctx.db, {
+        excludeAppointmentTypeId: appointmentType._id,
+        name,
+        ruleSetId,
+      });
+      await assertTreeChildNameIsUnique(ctx.db, {
+        name,
+        parentFolderId: appointmentType.treeFolderId,
+        ruleSetId,
+      });
     }
 
     // Build updates object
@@ -955,8 +1011,8 @@ export const updateAppointmentType = mutation({
       lastModified: BigInt(Date.now()),
     };
 
-    if (args.name !== undefined) {
-      updates.name = args.name;
+    if (name !== undefined) {
+      updates.name = name;
     }
     if (args.duration !== undefined) {
       updates.duration = args.duration;
@@ -1129,6 +1185,7 @@ export const createAppointmentTypeFolder = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    const name = normalizeEntityName(args.name);
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -1143,11 +1200,16 @@ export const createAppointmentTypeFolder = mutation({
         ruleSetId,
       });
     }
+    await assertTreeChildNameIsUnique(ctx.db, {
+      name,
+      parentFolderId: args.parentFolderId ?? undefined,
+      ruleSetId,
+    });
 
     const folderId = await ctx.db.insert("appointmentTypeFolders", {
       createdAt: BigInt(Date.now()),
       lastModified: BigInt(Date.now()),
-      name: args.name,
+      name,
       ...(args.parentFolderId && { parentFolderId: args.parentFolderId }),
       practiceId: args.practiceId,
       ruleSetId,
@@ -1177,6 +1239,8 @@ export const updateAppointmentTypeFolder = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    const name =
+      args.name === undefined ? undefined : normalizeEntityName(args.name);
     const ruleSetId = await resolveDraftRuleSetForMutation(
       ctx.db,
       args.practiceId,
@@ -1201,12 +1265,24 @@ export const updateAppointmentTypeFolder = mutation({
       parentFolderId:
         args.parentFolderId === null ? undefined : args.parentFolderId,
     });
+    const parentFolderId =
+      args.parentFolderId === undefined
+        ? folder.parentFolderId
+        : (args.parentFolderId ?? undefined);
+    const nextName = name ?? folder.name;
+    if (nextName !== folder.name || parentFolderId !== folder.parentFolderId) {
+      await assertTreeChildNameIsUnique(ctx.db, {
+        excludeFolderId: folder._id,
+        name: nextName,
+        parentFolderId,
+        ruleSetId,
+      });
+    }
 
     await ctx.db.patch("appointmentTypeFolders", folder._id, {
       lastModified: BigInt(Date.now()),
-      ...(args.name !== undefined && { name: args.name }),
-      parentFolderId:
-        args.parentFolderId === null ? undefined : args.parentFolderId,
+      ...(name !== undefined && { name }),
+      ...(args.parentFolderId !== undefined && { parentFolderId }),
     });
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
@@ -1306,6 +1382,14 @@ export const moveAppointmentTypeToFolder = mutation({
       await requireAppointmentTypeFolderInRuleSet(ctx.db, {
         folderId: args.treeFolderId,
         practiceId: args.practiceId,
+        ruleSetId,
+      });
+    }
+    const parentFolderId = args.treeFolderId ?? undefined;
+    if (parentFolderId !== appointmentType.treeFolderId) {
+      await assertTreeChildNameIsUnique(ctx.db, {
+        name: appointmentType.name,
+        parentFolderId,
         ruleSetId,
       });
     }

@@ -462,6 +462,40 @@ const createParentFolderMoveArg = (
   folderId: Id<"appointmentTypeFolders"> | undefined,
 ) => ({ parentFolderId: folderId ?? null });
 
+const normalizeEntityName = (name: string) => name.trim();
+
+const hasAppointmentTypeNameConflict = (params: {
+  appointmentTypes: readonly AppointmentType[];
+  excludeAppointmentTypeId?: Id<"appointmentTypes">;
+  name: string;
+}) =>
+  params.appointmentTypes.some(
+    (appointmentType) =>
+      appointmentType._id !== params.excludeAppointmentTypeId &&
+      appointmentType.name === params.name,
+  );
+
+const hasTreeChildNameConflict = (params: {
+  appointmentTypes: readonly AppointmentType[];
+  excludeAppointmentTypeId?: Id<"appointmentTypes">;
+  excludeFolderId?: Id<"appointmentTypeFolders">;
+  folders: readonly AppointmentTypeFolder[];
+  name: string;
+  parentFolderId: Id<"appointmentTypeFolders"> | undefined;
+}) =>
+  params.folders.some(
+    (folder) =>
+      folder._id !== params.excludeFolderId &&
+      folder.parentFolderId === params.parentFolderId &&
+      folder.name === params.name,
+  ) ||
+  params.appointmentTypes.some(
+    (appointmentType) =>
+      appointmentType._id !== params.excludeAppointmentTypeId &&
+      appointmentType.treeFolderId === params.parentFolderId &&
+      appointmentType.name === params.name,
+  );
+
 const appointmentTreeStyle: AppointmentTreeStyle = {
   "--trees-accent-override": "var(--primary)",
   "--trees-bg-muted-override": "var(--accent)",
@@ -482,6 +516,44 @@ const appointmentTreeStyle: AppointmentTreeStyle = {
   "--trees-selected-bg-override": "var(--accent)",
   "--trees-selected-fg-override": "var(--accent-foreground)",
   "--trees-selected-focused-border-color-override": "var(--ring)",
+};
+
+let appointmentTreeClickHandler:
+  | ((selectedPath: string | undefined) => void)
+  | undefined;
+let appointmentTreeClickListenerAttached = false;
+
+const ensureAppointmentTreeClickListener = () => {
+  if (appointmentTreeClickListenerAttached || typeof document === "undefined") {
+    return;
+  }
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      const treeHost = document.querySelector("file-tree-container");
+      if (!treeHost) {
+        return;
+      }
+
+      const composedPath = event.composedPath();
+      if (!composedPath.includes(treeHost)) {
+        return;
+      }
+
+      const treeItem = composedPath.find(
+        (node): node is HTMLElement =>
+          node instanceof HTMLElement && node.dataset["itemPath"] !== undefined,
+      );
+      if (!treeItem) {
+        return;
+      }
+
+      appointmentTreeClickHandler?.(treeItem.dataset["itemPath"]);
+    },
+    true,
+  );
+  appointmentTreeClickListenerAttached = true;
 };
 
 export function AppointmentTypesManagement({
@@ -591,6 +663,9 @@ export function AppointmentTypesManagement({
     },
     flattenEmptyDirectories: false,
     initialExpansion: "open",
+    onSelectionChange: (selectedPaths) => {
+      handleTreeSelectionChange(selectedPaths);
+    },
     paths: treeModel.paths,
     search: true,
   });
@@ -719,6 +794,42 @@ export function AppointmentTypesManagement({
         }
 
         const parsedValue = parseResult.data;
+        const normalizedName = normalizeEntityName(parsedValue.name);
+        const existingAppointmentTypeId = editingAppointmentType?._id;
+        if (
+          hasAppointmentTypeNameConflict({
+            appointmentTypes: appointmentTypesRef.current,
+            ...(existingAppointmentTypeId && {
+              excludeAppointmentTypeId: existingAppointmentTypeId,
+            }),
+            name: normalizedName,
+          })
+        ) {
+          toast.error("Name bereits vergeben", {
+            description: `Die Terminart "${normalizedName}" existiert bereits in dieser Praxis.`,
+          });
+          return;
+        }
+
+        const treeFolderId =
+          editingAppointmentType?.treeFolderId ?? newAppointmentTypeFolderId;
+        if (
+          hasTreeChildNameConflict({
+            appointmentTypes: appointmentTypesRef.current,
+            ...(existingAppointmentTypeId && {
+              excludeAppointmentTypeId: existingAppointmentTypeId,
+            }),
+            folders: appointmentTypeFolders,
+            name: normalizedName,
+            parentFolderId: treeFolderId,
+          })
+        ) {
+          toast.error("Name bereits vergeben", {
+            description: `In diesem Ordner existiert bereits ein Eintrag mit dem Namen "${normalizedName}".`,
+          });
+          return;
+        }
+
         const normalizedFollowUpPlan = normalizeFollowUpPlanForSubmit(
           parsedValue.followUpPlan,
         ).match(
@@ -763,7 +874,7 @@ export function AppointmentTypesManagement({
           const afterState = {
             duration: parsedValue.duration,
             followUpPlan: normalizedFollowUpPlan,
-            name: parsedValue.name,
+            name: normalizedName,
             practitionerLineageKeys: toSnapshotLineageIds(
               formPractitionerSnapshots,
             ),
@@ -783,7 +894,7 @@ export function AppointmentTypesManagement({
           const updateResult = await updateAppointmentTypeMutation({
             appointmentTypeId: editingAppointmentType._id,
             duration: parsedValue.duration,
-            name: parsedValue.name,
+            name: normalizedName,
             practiceId,
             practitionerIds: resolvedFormPractitionerIds.ids,
             ...getCowMutationArgs(),
@@ -892,7 +1003,7 @@ export function AppointmentTypesManagement({
           });
 
           toast.success("Terminart aktualisiert", {
-            description: `Terminart "${parsedValue.name}" wurde erfolgreich aktualisiert.`,
+            description: `Terminart "${normalizedName}" wurde erfolgreich aktualisiert.`,
           });
 
           setIsDialogOpen(false);
@@ -902,7 +1013,7 @@ export function AppointmentTypesManagement({
           // Create new appointment type
           const createResult = await createAppointmentTypeMutation({
             duration: parsedValue.duration,
-            name: parsedValue.name,
+            name: normalizedName,
             practiceId,
             practitionerIds: resolvedFormPractitionerIds.ids,
             ...createTreeFolderArg(newAppointmentTypeFolderId),
@@ -924,7 +1035,7 @@ export function AppointmentTypesManagement({
             followUpPlan: normalizedFollowUpPlan ?? [],
             lastModified: 0n,
             lineageKey: appointmentTypeLineageKey,
-            name: parsedValue.name,
+            name: normalizedName,
             practiceId,
             ruleSetId: createResult.ruleSetId,
             ...createTreeFolderArg(newAppointmentTypeFolderId),
@@ -942,7 +1053,7 @@ export function AppointmentTypesManagement({
               const recreateResult = await createAppointmentTypeMutation({
                 duration: parsedValue.duration,
                 lineageKey: appointmentTypeLineageKey,
-                name: parsedValue.name,
+                name: normalizedName,
                 practiceId,
                 practitionerIds: resolvedFormPractitionerIds.ids,
                 ...createTreeFolderArg(newAppointmentTypeFolderId),
@@ -964,17 +1075,17 @@ export function AppointmentTypesManagement({
             },
             validateBeforeCreate: () => {
               const existingByName = appointmentTypesRef.current.some(
-                (type) => type.name === parsedValue.name,
+                (type) => type.name === normalizedName,
               );
               if (existingByName) {
-                return `[HISTORY:APPOINTMENT_TYPE_NAME_CONFLICT] Die Terminart kann nicht wiederhergestellt werden, weil bereits eine andere Terminart mit dem Namen "${parsedValue.name}" existiert.`;
+                return `[HISTORY:APPOINTMENT_TYPE_NAME_CONFLICT] Die Terminart kann nicht wiederhergestellt werden, weil bereits eine andere Terminart mit dem Namen "${normalizedName}" existiert.`;
               }
               return null;
             },
           });
 
           toast.success("Terminart erstellt", {
-            description: `Terminart "${parsedValue.name}" wurde erfolgreich erstellt.`,
+            description: `Terminart "${normalizedName}" wurde erfolgreich erstellt.`,
           });
 
           setIsDialogOpen(false);
@@ -1014,36 +1125,88 @@ export function AppointmentTypesManagement({
     setIsDialogOpen(true);
   };
 
-  const openEditDialog = (appointmentType: AppointmentType) => {
-    const validPractitionerIds =
-      appointmentType.allowedPractitionerLineageKeys.flatMap((lineageKey) => {
-        const practitionerId = resolvePractitionerIdForLineage(
-          asPractitionerLineageKey(lineageKey),
-        );
-        return practitionerId === undefined ? [] : [practitionerId];
-      });
+  const openEditDialog = useCallback(
+    (appointmentType: AppointmentType) => {
+      const validPractitionerIds =
+        appointmentType.allowedPractitionerLineageKeys.flatMap((lineageKey) => {
+          const practitionerLineageKey = asPractitionerLineageKey(lineageKey);
+          const practitionerId = practitionersRef.current.find(
+            (practitioner) =>
+              practitioner.lineageKey === practitionerLineageKey,
+          )?._id;
+          return practitionerId === undefined ? [] : [practitionerId];
+        });
 
-    setEditingAppointmentType(appointmentType);
-    setNewAppointmentTypeFolderId(undefined);
-    form.setFieldValue("name", appointmentType.name);
-    form.setFieldValue("duration", appointmentType.duration);
-    form.setFieldValue(
-      "followUpPlan",
-      normalizeFollowUpPlanForForm(appointmentType.followUpPlan),
-    );
-    form.setFieldValue("practitionerIds", validPractitionerIds);
-
-    if (
-      validPractitionerIds.length !==
-      appointmentType.allowedPractitionerLineageKeys.length
-    ) {
-      toast.info(
-        "Mindestens ein zuvor zugeordneter Behandler existiert nicht mehr und wurde entfernt.",
+      setEditingAppointmentType(appointmentType);
+      setNewAppointmentTypeFolderId(undefined);
+      form.setFieldValue("name", appointmentType.name);
+      form.setFieldValue("duration", appointmentType.duration);
+      form.setFieldValue(
+        "followUpPlan",
+        normalizeFollowUpPlanForForm(appointmentType.followUpPlan),
       );
+      form.setFieldValue("practitionerIds", validPractitionerIds);
+
+      if (
+        validPractitionerIds.length !==
+        appointmentType.allowedPractitionerLineageKeys.length
+      ) {
+        toast.info(
+          "Mindestens ein zuvor zugeordneter Behandler existiert nicht mehr und wurde entfernt.",
+        );
+      }
+
+      setIsDialogOpen(true);
+    },
+    [form],
+  );
+
+  function handleTreeSelectionChange(selectedPaths: readonly string[]) {
+    const [selectedPath] = selectedPaths;
+    if (!selectedPath) {
+      return;
     }
 
-    setIsDialogOpen(true);
-  };
+    openAppointmentTypeFromTreePath(selectedPath);
+    fileTree.model.getItem(selectedPath)?.deselect();
+  }
+
+  const openAppointmentTypeFromTreePath = useCallback(
+    (selectedPath: string | undefined) => {
+      if (!selectedPath) {
+        return;
+      }
+
+      const selectedItem = treeModel.itemByPath.get(selectedPath);
+      if (selectedItem?.kind === "appointmentType") {
+        openEditDialog(selectedItem.appointmentType);
+        return;
+      }
+
+      const selectedName = selectedPath.split("/").at(-1);
+      if (!selectedName) {
+        return;
+      }
+
+      const appointmentType = appointmentTypesRef.current.find(
+        (candidate) => createTreeSegment(candidate.name) === selectedName,
+      );
+      if (appointmentType) {
+        openEditDialog(appointmentType);
+      }
+    },
+    [openEditDialog, treeModel.itemByPath],
+  );
+
+  useEffect(() => {
+    appointmentTreeClickHandler = openAppointmentTypeFromTreePath;
+    ensureAppointmentTreeClickListener();
+    return () => {
+      if (appointmentTreeClickHandler === openAppointmentTypeFromTreePath) {
+        appointmentTreeClickHandler = undefined;
+      }
+    };
+  }, [openAppointmentTypeFromTreePath]);
 
   function openCreateFolderDialog(
     parentFolderId?: Id<"appointmentTypeFolders">,
@@ -1054,9 +1217,22 @@ export function AppointmentTypesManagement({
   }
 
   async function handleCreateFolder() {
-    const name = createFolderName.trim();
+    const name = normalizeEntityName(createFolderName);
     if (name.length < 2) {
       toast.error("Ordnername muss mindestens 2 Zeichen lang sein.");
+      return;
+    }
+    if (
+      hasTreeChildNameConflict({
+        appointmentTypes: appointmentTypesRef.current,
+        folders: appointmentTypeFolders,
+        name,
+        parentFolderId: createFolderParentId,
+      })
+    ) {
+      toast.error("Name bereits vergeben", {
+        description: `In diesem Ordner existiert bereits ein Eintrag mit dem Namen "${name}".`,
+      });
       return;
     }
 
