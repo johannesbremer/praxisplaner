@@ -518,44 +518,6 @@ const appointmentTreeStyle: AppointmentTreeStyle = {
   "--trees-selected-focused-border-color-override": "var(--ring)",
 };
 
-let appointmentTreeClickHandler:
-  | ((selectedPath: string | undefined) => void)
-  | undefined;
-let appointmentTreeClickListenerAttached = false;
-
-const ensureAppointmentTreeClickListener = () => {
-  if (appointmentTreeClickListenerAttached || typeof document === "undefined") {
-    return;
-  }
-
-  document.addEventListener(
-    "click",
-    (event) => {
-      const treeHost = document.querySelector("file-tree-container");
-      if (!treeHost) {
-        return;
-      }
-
-      const composedPath = event.composedPath();
-      if (!composedPath.includes(treeHost)) {
-        return;
-      }
-
-      const treeItem = composedPath.find(
-        (node): node is HTMLElement =>
-          node instanceof HTMLElement && node.dataset["itemPath"] !== undefined,
-      );
-      if (!treeItem) {
-        return;
-      }
-
-      appointmentTreeClickHandler?.(treeItem.dataset["itemPath"]);
-    },
-    true,
-  );
-  appointmentTreeClickListenerAttached = true;
-};
-
 export function AppointmentTypesManagement({
   onDraftMutation,
   onRegisterHistoryAction,
@@ -572,6 +534,9 @@ export function AppointmentTypesManagement({
   >();
   const [createFolderName, setCreateFolderName] = useState("");
   const [newAppointmentTypeFolderId, setNewAppointmentTypeFolderId] = useState<
+    Id<"appointmentTypeFolders"> | undefined
+  >();
+  const [selectedTreeFolderId, setSelectedTreeFolderId] = useState<
     Id<"appointmentTypeFolders"> | undefined
   >();
   const [isFolderDialogOpen, setIsFolderDialogOpen] = useState(false);
@@ -696,6 +661,11 @@ export function AppointmentTypesManagement({
   useEffect(() => {
     ruleSetReplayTargetRef.current = ruleSetReplayTarget;
   }, [ruleSetReplayTarget]);
+  const treePointerDownRef = useRef<null | {
+    path: string;
+    x: number;
+    y: number;
+  }>(null);
 
   const getCowMutationArgs = () =>
     toCowMutationArgs(ruleSetReplayTargetRef.current);
@@ -1164,11 +1134,21 @@ export function AppointmentTypesManagement({
   function handleTreeSelectionChange(selectedPaths: readonly string[]) {
     const [selectedPath] = selectedPaths;
     if (!selectedPath) {
+      setSelectedTreeFolderId(undefined);
       return;
     }
 
-    openAppointmentTypeFromTreePath(selectedPath);
-    fileTree.model.getItem(selectedPath)?.deselect();
+    const selectedItem = treeModel.itemByPath.get(selectedPath);
+    if (selectedItem?.kind === "folder") {
+      setSelectedTreeFolderId(selectedItem.id);
+      return;
+    }
+    if (selectedItem?.kind === "appointmentType") {
+      setSelectedTreeFolderId(selectedItem.appointmentType.treeFolderId);
+      if (!treePointerDownRef.current) {
+        openAppointmentTypeFromTreePath(selectedPath);
+      }
+    }
   }
 
   const openAppointmentTypeFromTreePath = useCallback(
@@ -1199,12 +1179,67 @@ export function AppointmentTypesManagement({
   );
 
   useEffect(() => {
-    appointmentTreeClickHandler = openAppointmentTypeFromTreePath;
-    ensureAppointmentTreeClickListener();
-    return () => {
-      if (appointmentTreeClickHandler === openAppointmentTypeFromTreePath) {
-        appointmentTreeClickHandler = undefined;
+    const getTreeItemPath = (event: PointerEvent) => {
+      const treeHost = document.querySelector("file-tree-container");
+      if (!treeHost) {
+        return;
       }
+
+      const composedPath = event.composedPath();
+      if (!composedPath.includes(treeHost)) {
+        return;
+      }
+
+      const treeItem = composedPath.find(
+        (node): node is HTMLElement =>
+          node instanceof HTMLElement && node.dataset["itemPath"] !== undefined,
+      );
+      return treeItem?.dataset["itemPath"];
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const path = getTreeItemPath(event);
+      treePointerDownRef.current =
+        path === undefined
+          ? null
+          : {
+              path,
+              x: event.clientX,
+              y: event.clientY,
+            };
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      const pointerDown = treePointerDownRef.current;
+      treePointerDownRef.current = null;
+      if (!pointerDown) {
+        return;
+      }
+
+      const path = getTreeItemPath(event);
+      if (path !== pointerDown.path) {
+        return;
+      }
+
+      const deltaX = event.clientX - pointerDown.x;
+      const deltaY = event.clientY - pointerDown.y;
+      if (Math.hypot(deltaX, deltaY) > 4) {
+        return;
+      }
+
+      openAppointmentTypeFromTreePath(path);
+    };
+    const handleDragStart = () => {
+      treePointerDownRef.current = null;
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("pointerup", handlePointerUp, true);
+    document.addEventListener("dragstart", handleDragStart, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("pointerup", handlePointerUp, true);
+      document.removeEventListener("dragstart", handleDragStart, true);
     };
   }, [openAppointmentTypeFromTreePath]);
 
@@ -1482,7 +1517,7 @@ export function AppointmentTypesManagement({
                 <Button
                   aria-label="Ordner hinzufügen"
                   onClick={() => {
-                    openCreateFolderDialog();
+                    openCreateFolderDialog(selectedTreeFolderId);
                   }}
                   size="icon"
                   variant="outline"
@@ -1497,7 +1532,7 @@ export function AppointmentTypesManagement({
                 <Button
                   aria-label="Terminart hinzufügen"
                   onClick={() => {
-                    openCreateDialog();
+                    openCreateDialog(selectedTreeFolderId);
                   }}
                   size="icon"
                   variant="outline"
