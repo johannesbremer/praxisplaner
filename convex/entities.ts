@@ -895,7 +895,7 @@ export const createAppointmentType = mutation({
     practiceId: v.id("practices"),
     practitionerIds: v.array(v.id("practitioners")),
     selectedRuleSetId: v.id("ruleSets"),
-    treeFolderId: v.optional(v.id("appointmentTypeFolders")),
+    treeFolderId: v.optional(v.union(v.id("appointmentTypeFolders"), v.null())),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -916,7 +916,7 @@ export const createAppointmentType = mutation({
     const normalizedAllowedPractitionerLineageKeys =
       allowedPractitionerLineageKeys ?? [];
     const treeFolder =
-      args.treeFolderId === undefined
+      args.treeFolderId === undefined || args.treeFolderId === null
         ? undefined
         : await resolveAppointmentTypeFolderInRuleSet(ctx.db, {
             folderId: args.treeFolderId,
@@ -969,7 +969,9 @@ export const createAppointmentType = mutation({
           followUpPlan: followUpPlan ?? [],
           lastModified: BigInt(Date.now()),
           name,
-          ...(treeFolder && { treeFolderId: treeFolder._id }),
+          ...(args.treeFolderId !== undefined && {
+            treeFolderId: treeFolder?._id,
+          }),
         });
 
         const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
@@ -1228,6 +1230,7 @@ export const getAppointmentTypeFolders = query({
 export const createAppointmentTypeFolder = mutation({
   args: {
     expectedDraftRevision: expectedDraftRevisionValidator,
+    lineageKey: v.optional(v.id("appointmentTypeFolders")),
     name: v.string(),
     parentFolderId: v.optional(
       v.union(v.id("appointmentTypeFolders"), v.null()),
@@ -1260,17 +1263,46 @@ export const createAppointmentTypeFolder = mutation({
       ruleSetId,
     });
 
+    if (args.lineageKey !== undefined) {
+      const existingFolders = await ctx.db
+        .query("appointmentTypeFolders")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+        .collect();
+      const existingFolder = existingFolders.find(
+        (folder) => folder.lineageKey === args.lineageKey,
+      );
+      if (existingFolder !== undefined) {
+        if (!isDeletedRuleSetEntity(existingFolder)) {
+          throw new Error("Appointment type folder already exists");
+        }
+
+        await ctx.db.patch("appointmentTypeFolders", existingFolder._id, {
+          deleted: false,
+          lastModified: BigInt(Date.now()),
+          lineageKey: args.lineageKey,
+          name,
+          parentFolderId: parentFolder?._id,
+        });
+
+        const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
+        return { draftRevision, entityId: existingFolder._id, ruleSetId };
+      }
+    }
+
     const folderId = await ctx.db.insert("appointmentTypeFolders", {
       createdAt: BigInt(Date.now()),
       lastModified: BigInt(Date.now()),
+      ...(args.lineageKey && { lineageKey: args.lineageKey }),
       name,
       ...(parentFolder && { parentFolderId: parentFolder._id }),
       practiceId: args.practiceId,
       ruleSetId,
     });
-    await ctx.db.patch("appointmentTypeFolders", folderId, {
-      lineageKey: folderId,
-    });
+    if (args.lineageKey === undefined) {
+      await ctx.db.patch("appointmentTypeFolders", folderId, {
+        lineageKey: folderId,
+      });
+    }
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
     return { draftRevision, entityId: folderId, ruleSetId };
