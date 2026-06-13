@@ -149,15 +149,21 @@ interface DeletedAppointmentTypeSnapshot {
   practitionerSnapshots: PractitionerHistorySnapshot[];
   treeFolderLineageKey: AppointmentTypeFolderLineageKey;
 }
-
 interface FollowUpPlanFormStep {
   appointmentTypeLineageKey: FollowUpPlanTargetSelection;
   offsetUnit: FollowUpPlanOffsetUnit;
   offsetValue: number;
 }
+
 type FollowUpPlanOffsetUnit = FollowUpPlanStep["offsetUnit"];
 type FollowUpPlanStep = NonNullable<AppointmentType["followUpPlan"]>[number];
 type FollowUpPlanTargetSelection = "" | AppointmentTypeLineageKey;
+interface OptimisticAppointmentTypeTreeRestore {
+  appointmentTypeLineageKeys: ReadonlySet<AppointmentTypeLineageKey>;
+  appointmentTypes: AppointmentType[];
+  folderLineageKeys: ReadonlySet<AppointmentTypeFolderLineageKey>;
+  folders: AppointmentTypeFolder[];
+}
 
 type Practitioner = FrontendLineageEntity<
   "practitioners",
@@ -536,6 +542,37 @@ const createAppointmentTypeFolderHistoryTarget = (
         lineageKey: getAppointmentTypeFolderLineageKey(folder),
       };
 
+const mergeAppointmentTypesByLineage = (
+  baseAppointmentTypes: AppointmentType[],
+  optimisticAppointmentTypes: AppointmentType[],
+) => {
+  const baseLineageKeys = new Set(
+    baseAppointmentTypes.map((appointmentType) => appointmentType.lineageKey),
+  );
+  return [
+    ...baseAppointmentTypes,
+    ...optimisticAppointmentTypes.filter(
+      (appointmentType) => !baseLineageKeys.has(appointmentType.lineageKey),
+    ),
+  ];
+};
+
+const mergeAppointmentTypeFoldersByLineage = (
+  baseFolders: AppointmentTypeFolder[],
+  optimisticFolders: AppointmentTypeFolder[],
+) => {
+  const baseLineageKeys = new Set(
+    baseFolders.map((folder) => getAppointmentTypeFolderLineageKey(folder)),
+  );
+  return [
+    ...baseFolders,
+    ...optimisticFolders.filter(
+      (folder) =>
+        !baseLineageKeys.has(getAppointmentTypeFolderLineageKey(folder)),
+    ),
+  ];
+};
+
 const appointmentTreeStyle: AppointmentTreeStyle = {
   "--trees-accent-override": "var(--primary)",
   "--trees-bg-muted-override": "var(--accent)",
@@ -582,6 +619,8 @@ export function AppointmentTypesManagement({
     Id<"appointmentTypeFolders"> | undefined
   >();
   const [isFolderDialogOpen, setIsFolderDialogOpen] = useState(false);
+  const [optimisticTreeRestore, setOptimisticTreeRestore] =
+    useState<null | OptimisticAppointmentTypeTreeRestore>(null);
 
   const appointmentTypesQuery = useQuery(api.entities.getAppointmentTypes, {
     ruleSetId,
@@ -617,7 +656,7 @@ export function AppointmentTypesManagement({
     api.entities.moveAppointmentTypeToFolder,
   );
 
-  const appointmentTypes: AppointmentType[] = useMemo(() => {
+  const baseAppointmentTypes: AppointmentType[] = useMemo(() => {
     if (!appointmentTypesQuery) {
       return [];
     }
@@ -645,9 +684,53 @@ export function AppointmentTypesManagement({
       source: "AppointmentTypesManagement",
     });
   }, [practitionersQuery]);
-  const appointmentTypeFolders = useMemo(
+  const baseAppointmentTypeFolders = useMemo(
     () => appointmentTypeFoldersQuery ?? [],
     [appointmentTypeFoldersQuery],
+  );
+  const activeOptimisticTreeRestore = useMemo(() => {
+    if (optimisticTreeRestore === null) {
+      return null;
+    }
+
+    const baseFolderLineageKeys = new Set(
+      baseAppointmentTypeFolders.map((folder) =>
+        getAppointmentTypeFolderLineageKey(folder),
+      ),
+    );
+    const baseAppointmentTypeLineageKeys = new Set(
+      baseAppointmentTypes.map((appointmentType) => appointmentType.lineageKey),
+    );
+    const foldersCaughtUp = [...optimisticTreeRestore.folderLineageKeys].every(
+      (lineageKey) => baseFolderLineageKeys.has(lineageKey),
+    );
+    const appointmentTypesCaughtUp = [
+      ...optimisticTreeRestore.appointmentTypeLineageKeys,
+    ].every((lineageKey) => baseAppointmentTypeLineageKeys.has(lineageKey));
+
+    return foldersCaughtUp && appointmentTypesCaughtUp
+      ? null
+      : optimisticTreeRestore;
+  }, [baseAppointmentTypeFolders, baseAppointmentTypes, optimisticTreeRestore]);
+  const appointmentTypes = useMemo(
+    () =>
+      activeOptimisticTreeRestore === null
+        ? baseAppointmentTypes
+        : mergeAppointmentTypesByLineage(
+            baseAppointmentTypes,
+            activeOptimisticTreeRestore.appointmentTypes,
+          ),
+    [activeOptimisticTreeRestore, baseAppointmentTypes],
+  );
+  const appointmentTypeFolders = useMemo(
+    () =>
+      activeOptimisticTreeRestore === null
+        ? baseAppointmentTypeFolders
+        : mergeAppointmentTypeFoldersByLineage(
+            baseAppointmentTypeFolders,
+            activeOptimisticTreeRestore.folders,
+          ),
+    [activeOptimisticTreeRestore, baseAppointmentTypeFolders],
   );
   const treeModel = useMemo(
     () => buildAppointmentTreeModel(appointmentTypes, appointmentTypeFolders),
@@ -1972,6 +2055,72 @@ export function AppointmentTypesManagement({
             AppointmentTypeFolderLineageKey,
             Id<"appointmentTypeFolders">
           >();
+          const optimisticFolderIds = new Map<
+            AppointmentTypeFolderLineageKey,
+            Id<"appointmentTypeFolders">
+          >();
+          for (const snapshot of folderSnapshots) {
+            optimisticFolderIds.set(snapshot.lineageKey, snapshot.lineageKey);
+          }
+          const optimisticFolders = folderSnapshots.map((snapshot) => {
+            const parentFolderId =
+              snapshot.parentLineageKey === undefined
+                ? undefined
+                : optimisticFolderIds.get(snapshot.parentLineageKey);
+            return createAppointmentTypeFolderRefSnapshot({
+              id: snapshot.lineageKey,
+              lineageKey: snapshot.lineageKey,
+              name: snapshot.name,
+              parentFolderId,
+              ruleSetId,
+            });
+          });
+          const optimisticAppointmentTypes = appointmentTypeSnapshots.flatMap(
+            (snapshot): AppointmentType[] => {
+              const treeFolderId = optimisticFolderIds.get(
+                snapshot.treeFolderLineageKey,
+              );
+              const practitionerIds =
+                resolvedPractitionerIdsByAppointmentTypeLineage.get(
+                  snapshot.lineageKey,
+                );
+              if (treeFolderId === undefined || practitionerIds === undefined) {
+                return [];
+              }
+              return [
+                {
+                  _creationTime: 0,
+                  _id: asAppointmentTypeId(snapshot.lineageKey),
+                  allowedPractitionerLineageKeys: toSnapshotLineageIds(
+                    snapshot.practitionerSnapshots,
+                  ),
+                  createdAt: 0n,
+                  duration: snapshot.duration,
+                  followUpPlan: snapshot.followUpPlan ?? [],
+                  lastModified: 0n,
+                  lineageKey: snapshot.lineageKey,
+                  name: snapshot.name,
+                  practiceId,
+                  ruleSetId,
+                  treeFolderId,
+                },
+              ];
+            },
+          );
+          setOptimisticTreeRestore({
+            appointmentTypeLineageKeys: new Set(
+              optimisticAppointmentTypes.map(
+                (appointmentType) => appointmentType.lineageKey,
+              ),
+            ),
+            appointmentTypes: optimisticAppointmentTypes,
+            folderLineageKeys: new Set(
+              optimisticFolders.map((folder) =>
+                getAppointmentTypeFolderLineageKey(folder),
+              ),
+            ),
+            folders: optimisticFolders,
+          });
           for (const snapshot of folderSnapshots) {
             const parentFolderId =
               snapshot.parentLineageKey === undefined
