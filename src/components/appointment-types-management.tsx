@@ -135,6 +135,15 @@ interface AppointmentTypesManagementProps {
   ruleSetReplayTarget: RuleSetReplayTarget;
 }
 
+interface AppointmentTypeTreeOptimisticDeleteParams {
+  appointmentTypeLineageKeys: AppointmentTypeLineageKey[];
+  folderLineageKeys: AppointmentTypeFolderLineageKey[];
+}
+
+interface AppointmentTypeTreeOptimisticRestoreParams {
+  appointmentTypes: AppointmentType[];
+  folders: AppointmentTypeFolder[];
+}
 interface DeletedAppointmentTypeFolderSnapshot {
   lineageKey: AppointmentTypeFolderLineageKey;
   name: string;
@@ -154,10 +163,11 @@ interface FollowUpPlanFormStep {
   offsetUnit: FollowUpPlanOffsetUnit;
   offsetValue: number;
 }
-
 type FollowUpPlanOffsetUnit = FollowUpPlanStep["offsetUnit"];
 type FollowUpPlanStep = NonNullable<AppointmentType["followUpPlan"]>[number];
+
 type FollowUpPlanTargetSelection = "" | AppointmentTypeLineageKey;
+
 interface OptimisticAppointmentTypeTreeRestore {
   appointmentTypeLineageKeys: ReadonlySet<AppointmentTypeLineageKey>;
   appointmentTypes: AppointmentType[];
@@ -952,10 +962,7 @@ export function AppointmentTypesManagement({
     [practiceId],
   );
   const hideAppointmentTypeTreeSubtreeOptimistically = useCallback(
-    (params: {
-      appointmentTypeLineageKeys: AppointmentTypeLineageKey[];
-      folderLineageKeys: AppointmentTypeFolderLineageKey[];
-    }) => {
+    (params: AppointmentTypeTreeOptimisticDeleteParams) => {
       setOptimisticTreeRestore({
         appointmentTypeLineageKeys: new Set(),
         appointmentTypes: [],
@@ -965,6 +972,27 @@ export function AppointmentTypesManagement({
         deletedFolderLineageKeys: new Set(params.folderLineageKeys),
         folderLineageKeys: new Set(),
         folders: [],
+      });
+    },
+    [],
+  );
+  const restoreAppointmentTypeTreeSubtreeOptimistically = useCallback(
+    (params: AppointmentTypeTreeOptimisticRestoreParams) => {
+      setOptimisticTreeRestore({
+        appointmentTypeLineageKeys: new Set(
+          params.appointmentTypes.map(
+            (appointmentType) => appointmentType.lineageKey,
+          ),
+        ),
+        appointmentTypes: params.appointmentTypes,
+        deletedAppointmentTypeLineageKeys: new Set(),
+        deletedFolderLineageKeys: new Set(),
+        folderLineageKeys: new Set(
+          params.folders.map((folder) =>
+            getAppointmentTypeFolderLineageKey(folder),
+          ),
+        ),
+        folders: params.folders,
       });
     },
     [],
@@ -2117,12 +2145,63 @@ export function AppointmentTypesManagement({
             AppointmentTypeFolderLineageKey,
             Id<"appointmentTypeFolders">
           >();
+          const plannedFolderIds = new Map<
+            AppointmentTypeFolderLineageKey,
+            Id<"appointmentTypeFolders">
+          >();
+          const plannedFolders: AppointmentTypeFolder[] = [];
           const optimisticFolderIds = new Map<
             AppointmentTypeFolderLineageKey,
             Id<"appointmentTypeFolders">
           >();
           for (const snapshot of folderSnapshots) {
             optimisticFolderIds.set(snapshot.lineageKey, snapshot.lineageKey);
+          }
+          for (const snapshot of folderSnapshots) {
+            const parentFolderId =
+              snapshot.parentLineageKey === undefined
+                ? undefined
+                : (plannedFolderIds.get(snapshot.parentLineageKey) ??
+                  appointmentTypeFoldersRef.current.find(
+                    (candidate) =>
+                      getAppointmentTypeFolderLineageKey(candidate) ===
+                      snapshot.parentLineageKey,
+                  )?._id);
+            if (
+              snapshot.parentLineageKey !== undefined &&
+              parentFolderId === undefined
+            ) {
+              return {
+                message: "Der Zielordner existiert nicht mehr.",
+                status: "conflict" as const,
+              };
+            }
+            if (
+              hasTreeChildNameConflict({
+                appointmentTypes: appointmentTypesRef.current,
+                folders: [
+                  ...appointmentTypeFoldersRef.current,
+                  ...plannedFolders,
+                ],
+                name: snapshot.name,
+                parentFolderId,
+              })
+            ) {
+              return {
+                message: `In diesem Ordner existiert bereits ein Eintrag mit dem Namen "${snapshot.name}".`,
+                status: "conflict" as const,
+              };
+            }
+            plannedFolderIds.set(snapshot.lineageKey, snapshot.lineageKey);
+            plannedFolders.push(
+              createAppointmentTypeFolderRefSnapshot({
+                id: snapshot.lineageKey,
+                lineageKey: snapshot.lineageKey,
+                name: snapshot.name,
+                parentFolderId,
+                ruleSetId,
+              }),
+            );
           }
           const optimisticFolders = folderSnapshots.map((snapshot) => {
             const parentFolderId =
@@ -2169,20 +2248,8 @@ export function AppointmentTypesManagement({
               ];
             },
           );
-          setOptimisticTreeRestore({
-            appointmentTypeLineageKeys: new Set(
-              optimisticAppointmentTypes.map(
-                (appointmentType) => appointmentType.lineageKey,
-              ),
-            ),
+          restoreAppointmentTypeTreeSubtreeOptimistically({
             appointmentTypes: optimisticAppointmentTypes,
-            deletedAppointmentTypeLineageKeys: new Set(),
-            deletedFolderLineageKeys: new Set(),
-            folderLineageKeys: new Set(
-              optimisticFolders.map((folder) =>
-                getAppointmentTypeFolderLineageKey(folder),
-              ),
-            ),
             folders: optimisticFolders,
           });
           for (const snapshot of folderSnapshots) {
@@ -2195,13 +2262,6 @@ export function AppointmentTypesManagement({
                       getAppointmentTypeFolderLineageKey(candidate) ===
                       snapshot.parentLineageKey,
                   )?._id);
-            const createConflict = validateTreeChildNameForHistory({
-              name: snapshot.name,
-              parentFolderId,
-            });
-            if (createConflict) {
-              return { message: createConflict, status: "conflict" as const };
-            }
             const recreateResult = await createAppointmentTypeFolderMutation({
               lineageKey: snapshot.lineageKey,
               name: snapshot.name,
