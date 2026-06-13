@@ -113,6 +113,9 @@ type AppointmentType = FrontendLineageEntity<
   AppointmentTypeQueryResult[number]
 >;
 type AppointmentTypeFolder = AppointmentTypeFolderQueryResult[number];
+type AppointmentTypeFolderHistoryTarget =
+  | { kind: "folder"; lineageKey: AppointmentTypeFolderLineageKey }
+  | { kind: "root" };
 type AppointmentTypeFolderLineageKey = Id<"appointmentTypeFolders">;
 type AppointmentTypeFolderQueryResult =
   (typeof api.entities.getAppointmentTypeFolders)["_returnType"];
@@ -510,6 +513,16 @@ const getAppointmentTypeFolderLineageKey = (
   folder: AppointmentTypeFolder,
 ): AppointmentTypeFolderLineageKey => folder.lineageKey ?? folder._id;
 
+const createAppointmentTypeFolderHistoryTarget = (
+  folder: AppointmentTypeFolder | undefined,
+): AppointmentTypeFolderHistoryTarget =>
+  folder === undefined
+    ? { kind: "root" }
+    : {
+        kind: "folder",
+        lineageKey: getAppointmentTypeFolderLineageKey(folder),
+      };
+
 const appointmentTreeStyle: AppointmentTreeStyle = {
   "--trees-accent-override": "var(--primary)",
   "--trees-bg-muted-override": "var(--accent)",
@@ -874,6 +887,61 @@ export function AppointmentTypesManagement({
       return null;
     },
     [isActiveAppointmentTypeFolder],
+  );
+  const resolveFolderHistoryTarget = useCallback(
+    (
+      target: AppointmentTypeFolderHistoryTarget,
+    ):
+      | { folderId: Id<"appointmentTypeFolders"> | undefined; status: "ok" }
+      | { message: string; status: "conflict" } => {
+      if (target.kind === "root") {
+        return { folderId: undefined, status: "ok" };
+      }
+
+      const folder = appointmentTypeFoldersRef.current.find(
+        (candidate) =>
+          getAppointmentTypeFolderLineageKey(candidate) === target.lineageKey,
+      );
+      if (folder === undefined) {
+        return {
+          message: "Der Zielordner existiert nicht mehr.",
+          status: "conflict",
+        };
+      }
+
+      return { folderId: folder._id, status: "ok" };
+    },
+    [],
+  );
+  const validateTreeChildNameForHistoryTarget = useCallback(
+    (params: {
+      excludeAppointmentTypeId?: Id<"appointmentTypes">;
+      excludeFolderId?: Id<"appointmentTypeFolders">;
+      name: string;
+      target: AppointmentTypeFolderHistoryTarget;
+    }) => {
+      const resolvedTarget = resolveFolderHistoryTarget(params.target);
+      if (resolvedTarget.status === "conflict") {
+        return resolvedTarget;
+      }
+
+      const validationMessage = validateTreeChildNameForHistory({
+        ...(params.excludeAppointmentTypeId && {
+          excludeAppointmentTypeId: params.excludeAppointmentTypeId,
+        }),
+        ...(params.excludeFolderId && {
+          excludeFolderId: params.excludeFolderId,
+        }),
+        name: params.name,
+        parentFolderId: resolvedTarget.folderId,
+      });
+      if (validationMessage) {
+        return { message: validationMessage, status: "conflict" as const };
+      }
+
+      return resolvedTarget;
+    },
+    [resolveFolderHistoryTarget, validateTreeChildNameForHistory],
   );
 
   const resolvePractitionerLineageKey = (
@@ -1794,7 +1862,16 @@ export function AppointmentTypesManagement({
       if (draggedItem?.kind === "appointmentType") {
         const appointmentType = draggedItem.appointmentType;
         const appointmentTypeLineageKey = appointmentType.lineageKey;
-        const previousFolderId = appointmentType.treeFolderId;
+        const previousFolder = appointmentType.treeFolderId
+          ? appointmentTypeFoldersRef.current.find(
+              (folder) => folder._id === appointmentType.treeFolderId,
+            )
+          : undefined;
+        const previousFolderTarget =
+          createAppointmentTypeFolderHistoryTarget(previousFolder);
+        const targetFolderTarget = createAppointmentTypeFolderHistoryTarget(
+          targetItem?.kind === "folder" ? targetItem.folder : undefined,
+        );
         const result = await moveAppointmentTypeToFolderMutation({
           appointmentTypeId: appointmentType._id,
           practiceId,
@@ -1820,10 +1897,15 @@ export function AppointmentTypesManagement({
           redoMissingMessage:
             "Die Terminart wurde bereits gelöscht und kann nicht erneut verschoben werden.",
           runRedo: async (currentAppointmentTypeId) => {
+            const resolvedTarget =
+              resolveFolderHistoryTarget(targetFolderTarget);
+            if (resolvedTarget.status === "conflict") {
+              return resolvedTarget;
+            }
             const redoResult = await moveAppointmentTypeToFolderMutation({
               appointmentTypeId: currentAppointmentTypeId,
               practiceId,
-              ...createTreeFolderMoveArg(parentFolderId),
+              ...createTreeFolderMoveArg(resolvedTarget.folderId),
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(redoResult);
@@ -1832,17 +1914,22 @@ export function AppointmentTypesManagement({
                 appointmentType,
                 id: redoResult.entityId,
                 ruleSetId: redoResult.ruleSetId,
-                treeFolderId: parentFolderId,
+                treeFolderId: resolvedTarget.folderId,
               }),
               { previousLineageKey: appointmentTypeLineageKey },
             );
             return { entityId: redoResult.entityId };
           },
           runUndo: async (currentAppointmentTypeId) => {
+            const resolvedTarget =
+              resolveFolderHistoryTarget(previousFolderTarget);
+            if (resolvedTarget.status === "conflict") {
+              return resolvedTarget;
+            }
             const undoResult = await moveAppointmentTypeToFolderMutation({
               appointmentTypeId: currentAppointmentTypeId,
               practiceId,
-              ...createTreeFolderMoveArg(previousFolderId),
+              ...createTreeFolderMoveArg(resolvedTarget.folderId),
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(undoResult);
@@ -1851,7 +1938,7 @@ export function AppointmentTypesManagement({
                 appointmentType,
                 id: undoResult.entityId,
                 ruleSetId: undoResult.ruleSetId,
-                treeFolderId: previousFolderId,
+                treeFolderId: resolvedTarget.folderId,
               }),
               { previousLineageKey: appointmentTypeLineageKey },
             );
@@ -1860,24 +1947,36 @@ export function AppointmentTypesManagement({
           undoMissingMessage:
             "Die Terminart wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
           validateRedo: (current) => {
-            if (current.treeFolderId !== previousFolderId) {
+            const resolvedPreviousTarget =
+              resolveFolderHistoryTarget(previousFolderTarget);
+            if (resolvedPreviousTarget.status === "conflict") {
+              return resolvedPreviousTarget.message;
+            }
+            if (current.treeFolderId !== resolvedPreviousTarget.folderId) {
               return "Die Terminart wurde zwischenzeitlich verschoben und kann nicht erneut angewendet werden.";
             }
-            return validateTreeChildNameForHistory({
+            const validation = validateTreeChildNameForHistoryTarget({
               excludeAppointmentTypeId: current._id,
               name: current.name,
-              parentFolderId,
+              target: targetFolderTarget,
             });
+            return validation.status === "conflict" ? validation.message : null;
           },
           validateUndo: (current) => {
-            if (current.treeFolderId !== parentFolderId) {
+            const resolvedTarget =
+              resolveFolderHistoryTarget(targetFolderTarget);
+            if (resolvedTarget.status === "conflict") {
+              return resolvedTarget.message;
+            }
+            if (current.treeFolderId !== resolvedTarget.folderId) {
               return "Die Terminart wurde zwischenzeitlich verschoben und kann nicht zurückgesetzt werden.";
             }
-            return validateTreeChildNameForHistory({
+            const validation = validateTreeChildNameForHistoryTarget({
               excludeAppointmentTypeId: current._id,
               name: current.name,
-              parentFolderId: previousFolderId,
+              target: previousFolderTarget,
             });
+            return validation.status === "conflict" ? validation.message : null;
           },
         });
         return;
@@ -1886,7 +1985,16 @@ export function AppointmentTypesManagement({
       if (draggedItem?.kind === "folder") {
         const folder = draggedItem.folder;
         const folderLineageKey = getAppointmentTypeFolderLineageKey(folder);
-        const previousParentFolderId = folder.parentFolderId;
+        const previousParentFolder = folder.parentFolderId
+          ? appointmentTypeFoldersRef.current.find(
+              (candidate) => candidate._id === folder.parentFolderId,
+            )
+          : undefined;
+        const previousParentTarget =
+          createAppointmentTypeFolderHistoryTarget(previousParentFolder);
+        const targetParentTarget = createAppointmentTypeFolderHistoryTarget(
+          targetItem?.kind === "folder" ? targetItem.folder : undefined,
+        );
         const result = await updateAppointmentTypeFolderMutation({
           folderId: folder._id,
           practiceId,
@@ -1913,10 +2021,14 @@ export function AppointmentTypesManagement({
           redoMissingMessage:
             "Der Ordner wurde bereits gelöscht und kann nicht erneut verschoben werden.",
           runRedo: async (currentFolderId) => {
+            const resolvedTarget = resolveFolderHistoryTarget(targetParentTarget);
+            if (resolvedTarget.status === "conflict") {
+              return resolvedTarget;
+            }
             const redoResult = await updateAppointmentTypeFolderMutation({
               folderId: currentFolderId,
               practiceId,
-              ...createParentFolderMoveArg(parentFolderId),
+              ...createParentFolderMoveArg(resolvedTarget.folderId),
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(redoResult);
@@ -1925,7 +2037,7 @@ export function AppointmentTypesManagement({
                 id: redoResult.entityId,
                 lineageKey: folderLineageKey,
                 name: folder.name,
-                parentFolderId,
+                parentFolderId: resolvedTarget.folderId,
                 ruleSetId: redoResult.ruleSetId,
               }),
               { previousLineageKey: folderLineageKey },
@@ -1933,10 +2045,15 @@ export function AppointmentTypesManagement({
             return { entityId: redoResult.entityId };
           },
           runUndo: async (currentFolderId) => {
+            const resolvedTarget =
+              resolveFolderHistoryTarget(previousParentTarget);
+            if (resolvedTarget.status === "conflict") {
+              return resolvedTarget;
+            }
             const undoResult = await updateAppointmentTypeFolderMutation({
               folderId: currentFolderId,
               practiceId,
-              ...createParentFolderMoveArg(previousParentFolderId),
+              ...createParentFolderMoveArg(resolvedTarget.folderId),
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(undoResult);
@@ -1945,7 +2062,7 @@ export function AppointmentTypesManagement({
                 id: undoResult.entityId,
                 lineageKey: folderLineageKey,
                 name: folder.name,
-                parentFolderId: previousParentFolderId,
+                parentFolderId: resolvedTarget.folderId,
                 ruleSetId: undoResult.ruleSetId,
               }),
               { previousLineageKey: folderLineageKey },
@@ -1955,24 +2072,35 @@ export function AppointmentTypesManagement({
           undoMissingMessage:
             "Der Ordner wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
           validateRedo: (current) => {
-            if (current.parentFolderId !== previousParentFolderId) {
+            const resolvedPreviousTarget =
+              resolveFolderHistoryTarget(previousParentTarget);
+            if (resolvedPreviousTarget.status === "conflict") {
+              return resolvedPreviousTarget.message;
+            }
+            if (current.parentFolderId !== resolvedPreviousTarget.folderId) {
               return "Der Ordner wurde zwischenzeitlich verschoben und kann nicht erneut angewendet werden.";
             }
-            return validateTreeChildNameForHistory({
+            const validation = validateTreeChildNameForHistoryTarget({
               excludeFolderId: current._id,
               name: current.name,
-              parentFolderId,
+              target: targetParentTarget,
             });
+            return validation.status === "conflict" ? validation.message : null;
           },
           validateUndo: (current) => {
-            if (current.parentFolderId !== parentFolderId) {
+            const resolvedTarget = resolveFolderHistoryTarget(targetParentTarget);
+            if (resolvedTarget.status === "conflict") {
+              return resolvedTarget.message;
+            }
+            if (current.parentFolderId !== resolvedTarget.folderId) {
               return "Der Ordner wurde zwischenzeitlich verschoben und kann nicht zurückgesetzt werden.";
             }
-            return validateTreeChildNameForHistory({
+            const validation = validateTreeChildNameForHistoryTarget({
               excludeFolderId: current._id,
               name: current.name,
-              parentFolderId: previousParentFolderId,
+              target: previousParentTarget,
             });
+            return validation.status === "conflict" ? validation.message : null;
           },
         });
       }
