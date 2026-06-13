@@ -997,6 +997,9 @@ export function AppointmentTypesManagement({
     },
     [],
   );
+  const clearAppointmentTypeTreeOptimisticRestore = useCallback(() => {
+    setOptimisticTreeRestore(null);
+  }, []);
   const createMovedAppointmentTypeRefSnapshot = useCallback(
     (params: {
       appointmentType: AppointmentType;
@@ -1851,16 +1854,20 @@ export function AppointmentTypesManagement({
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(recreateResult);
-            upsertAppointmentTypeFolderRef(
-              createAppointmentTypeFolderRefSnapshot({
-                id: recreateResult.entityId,
-                lineageKey: folderLineageKey,
-                name,
-                parentFolderId: resolvedParent.folderId,
-                ruleSetId: recreateResult.ruleSetId,
-              }),
-              { previousLineageKey: folderLineageKey },
-            );
+            const restoredFolder = createAppointmentTypeFolderRefSnapshot({
+              id: recreateResult.entityId,
+              lineageKey: folderLineageKey,
+              name,
+              parentFolderId: resolvedParent.folderId,
+              ruleSetId: recreateResult.ruleSetId,
+            });
+            upsertAppointmentTypeFolderRef(restoredFolder, {
+              previousLineageKey: folderLineageKey,
+            });
+            restoreAppointmentTypeTreeSubtreeOptimistically({
+              appointmentTypes: [],
+              folders: [restoredFolder],
+            });
             return { entityId: recreateResult.entityId };
           },
           runDelete: async (currentFolderId) => {
@@ -2090,6 +2097,7 @@ export function AppointmentTypesManagement({
             currentFolderId = redoResult.entityId;
             return { status: "applied" as const };
           } catch (error: unknown) {
+            clearAppointmentTypeTreeOptimisticRestore();
             if (isMissingEntityError(error)) {
               return { status: "applied" as const };
             }
@@ -2349,6 +2357,7 @@ export function AppointmentTypesManagement({
         description: `Ordner "${folder.name}" wurde gelöscht.`,
       });
     } catch (error: unknown) {
+      clearAppointmentTypeTreeOptimisticRestore();
       toast.error("Fehler beim Löschen", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
