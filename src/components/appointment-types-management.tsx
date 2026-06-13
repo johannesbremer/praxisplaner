@@ -125,16 +125,29 @@ interface AppointmentTypeFormValues {
   name: string;
   practitionerIds: Id<"practitioners">[];
 }
-
 type AppointmentTypeQueryResult =
   (typeof api.entities.getAppointmentTypes)["_returnType"];
-
 interface AppointmentTypesManagementProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
+}
+
+interface DeletedAppointmentTypeFolderSnapshot {
+  lineageKey: AppointmentTypeFolderLineageKey;
+  name: string;
+  parentLineageKey: AppointmentTypeFolderLineageKey | undefined;
+}
+
+interface DeletedAppointmentTypeSnapshot {
+  duration: number;
+  followUpPlan: AppointmentType["followUpPlan"];
+  lineageKey: AppointmentTypeLineageKey;
+  name: string;
+  practitionerSnapshots: PractitionerHistorySnapshot[];
+  treeFolderLineageKey: AppointmentTypeFolderLineageKey;
 }
 
 interface FollowUpPlanFormStep {
@@ -1726,21 +1739,129 @@ export function AppointmentTypesManagement({
 
   async function handleDeleteFolder(folder: AppointmentTypeFolder) {
     try {
-      const deletedSnapshot = {
-        lineageKey: getAppointmentTypeFolderLineageKey(folder),
-        name: folder.name,
-        parentFolderId: folder.parentFolderId,
+      const folderIdsToDelete = new Set<Id<"appointmentTypeFolders">>();
+      const pendingFolderIds = [folder._id];
+      const folderById = new Map(
+        appointmentTypeFoldersRef.current.map((candidate) => [
+          candidate._id,
+          candidate,
+        ]),
+      );
+      while (pendingFolderIds.length > 0) {
+        const nextFolderId = pendingFolderIds.pop();
+        if (nextFolderId === undefined || folderIdsToDelete.has(nextFolderId)) {
+          continue;
+        }
+        folderIdsToDelete.add(nextFolderId);
+        for (const childFolder of appointmentTypeFoldersRef.current) {
+          if (childFolder.parentFolderId === nextFolderId) {
+            pendingFolderIds.push(childFolder._id);
+          }
+        }
+      }
+      const depthOfDeletedFolder = (
+        lineageKey: AppointmentTypeFolderLineageKey,
+      ): number => {
+        const folderAtLineage = appointmentTypeFoldersRef.current.find(
+          (candidate) =>
+            getAppointmentTypeFolderLineageKey(candidate) === lineageKey,
+        );
+        let depth = 0;
+        let cursor = folderAtLineage?.parentFolderId;
+        while (cursor !== undefined && folderIdsToDelete.has(cursor)) {
+          depth += 1;
+          cursor = folderById.get(cursor)?.parentFolderId;
+        }
+        return depth;
       };
+      const folderSnapshots: DeletedAppointmentTypeFolderSnapshot[] =
+        appointmentTypeFoldersRef.current
+          .filter((candidate) => folderIdsToDelete.has(candidate._id))
+          .map((candidate) => {
+            const parentFolder = candidate.parentFolderId
+              ? appointmentTypeFoldersRef.current.find(
+                  (parent) => parent._id === candidate.parentFolderId,
+                )
+              : undefined;
+            return {
+              lineageKey: getAppointmentTypeFolderLineageKey(candidate),
+              name: candidate.name,
+              parentLineageKey: parentFolder
+                ? getAppointmentTypeFolderLineageKey(parentFolder)
+                : undefined,
+            };
+          })
+          .toSorted((left, right) => {
+            return (
+              depthOfDeletedFolder(left.lineageKey) -
+              depthOfDeletedFolder(right.lineageKey)
+            );
+          });
+      const appointmentTypeSnapshots: DeletedAppointmentTypeSnapshot[] =
+        appointmentTypesRef.current
+          .filter(
+            (appointmentType) =>
+              appointmentType.treeFolderId !== undefined &&
+              folderIdsToDelete.has(appointmentType.treeFolderId),
+          )
+          .map((appointmentType) => {
+            const treeFolder = appointmentTypeFoldersRef.current.find(
+              (candidate) => candidate._id === appointmentType.treeFolderId,
+            );
+            if (treeFolder === undefined) {
+              return;
+            }
+            return {
+              duration: appointmentType.duration,
+              followUpPlan: appointmentType.followUpPlan,
+              lineageKey: appointmentType.lineageKey,
+              name: appointmentType.name,
+              practitionerSnapshots: createPractitionerSnapshots(
+                appointmentType.allowedPractitionerLineageKeys
+                  .map((lineageKey) =>
+                    resolvePractitionerIdForLineage(
+                      asPractitionerLineageKey(lineageKey),
+                    ),
+                  )
+                  .flatMap((practitionerId) =>
+                    practitionerId === undefined ? [] : [practitionerId],
+                  ),
+              ),
+              treeFolderLineageKey:
+                getAppointmentTypeFolderLineageKey(treeFolder),
+            };
+          })
+          .flatMap((snapshot) => (snapshot === undefined ? [] : [snapshot]));
+      const rootFolderLineageKey = getAppointmentTypeFolderLineageKey(folder);
       const result = await deleteAppointmentTypeFolderMutation({
         folderId: folder._id,
         practiceId,
         ...getCowMutationArgs(),
       });
       handleDraftMutationResult(result);
-      removeAppointmentTypeFolderFromRef({
-        id: folder._id,
-        lineageKey: deletedSnapshot.lineageKey,
-      });
+      for (const snapshot of appointmentTypeSnapshots) {
+        const currentAppointmentType = appointmentTypesRef.current.find(
+          (appointmentType) =>
+            appointmentType.lineageKey === snapshot.lineageKey,
+        );
+        if (currentAppointmentType) {
+          removeAppointmentTypeFromRef({
+            id: currentAppointmentType._id,
+            lineageKey: snapshot.lineageKey,
+          });
+        }
+      }
+      for (const snapshot of folderSnapshots) {
+        const currentFolder = appointmentTypeFoldersRef.current.find(
+          (candidate) => candidate.lineageKey === snapshot.lineageKey,
+        );
+        if (currentFolder) {
+          removeAppointmentTypeFolderFromRef({
+            id: currentFolder._id,
+            lineageKey: snapshot.lineageKey,
+          });
+        }
+      }
       let currentFolderId = result.entityId;
       onRegisterHistoryAction?.({
         label: "Ordner gelöscht",
@@ -1752,10 +1873,29 @@ export function AppointmentTypesManagement({
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(redoResult);
-            removeAppointmentTypeFolderFromRef({
-              id: currentFolderId,
-              lineageKey: deletedSnapshot.lineageKey,
-            });
+            for (const snapshot of appointmentTypeSnapshots) {
+              const currentAppointmentType = appointmentTypesRef.current.find(
+                (appointmentType) =>
+                  appointmentType.lineageKey === snapshot.lineageKey,
+              );
+              if (currentAppointmentType) {
+                removeAppointmentTypeFromRef({
+                  id: currentAppointmentType._id,
+                  lineageKey: snapshot.lineageKey,
+                });
+              }
+            }
+            for (const snapshot of folderSnapshots) {
+              const currentFolder = appointmentTypeFoldersRef.current.find(
+                (candidate) => candidate.lineageKey === snapshot.lineageKey,
+              );
+              if (currentFolder) {
+                removeAppointmentTypeFolderFromRef({
+                  id: currentFolder._id,
+                  lineageKey: snapshot.lineageKey,
+                });
+              }
+            }
             currentFolderId = redoResult.entityId;
             return { status: "applied" as const };
           } catch (error: unknown) {
@@ -1772,58 +1912,95 @@ export function AppointmentTypesManagement({
           }
         },
         undo: async () => {
-          const existingByLineage = appointmentTypeFoldersRef.current.find(
-            (existingFolder) =>
-              existingFolder.lineageKey === deletedSnapshot.lineageKey,
-          );
-          if (existingByLineage) {
-            if (
-              existingByLineage.name === deletedSnapshot.name &&
-              existingByLineage.parentFolderId ===
-                deletedSnapshot.parentFolderId
-            ) {
-              currentFolderId = existingByLineage._id;
-              return { status: "applied" as const };
-            }
-
-            return {
-              message: `[HISTORY:APPOINTMENT_TYPE_FOLDER_LINEAGE_CONFLICT] Der Ordner mit lineageKey ${deletedSnapshot.lineageKey} existiert bereits, hat aber abweichende Einstellungen.`,
-              status: "conflict" as const,
-            };
-          }
-
-          const parentFolderId = isActiveAppointmentTypeFolder(
-            deletedSnapshot.parentFolderId,
-          )
-            ? deletedSnapshot.parentFolderId
-            : undefined;
-          const createConflict = validateTreeChildNameForHistory({
-            name: deletedSnapshot.name,
-            parentFolderId,
-          });
-          if (createConflict) {
-            return { message: createConflict, status: "conflict" as const };
-          }
-
-          const recreateResult = await createAppointmentTypeFolderMutation({
-            lineageKey: deletedSnapshot.lineageKey,
-            name: deletedSnapshot.name,
-            practiceId,
-            ...createParentFolderArg(parentFolderId),
-            ...getCowMutationArgs(),
-          });
-          handleDraftMutationResult(recreateResult);
-          upsertAppointmentTypeFolderRef(
-            createAppointmentTypeFolderRefSnapshot({
-              id: recreateResult.entityId,
-              lineageKey: deletedSnapshot.lineageKey,
-              name: deletedSnapshot.name,
+          const restoredFolderIds = new Map<
+            AppointmentTypeFolderLineageKey,
+            Id<"appointmentTypeFolders">
+          >();
+          for (const snapshot of folderSnapshots) {
+            const parentFolderId =
+              snapshot.parentLineageKey === undefined
+                ? undefined
+                : (restoredFolderIds.get(snapshot.parentLineageKey) ??
+                  appointmentTypeFoldersRef.current.find(
+                    (candidate) =>
+                      getAppointmentTypeFolderLineageKey(candidate) ===
+                      snapshot.parentLineageKey,
+                  )?._id);
+            const createConflict = validateTreeChildNameForHistory({
+              name: snapshot.name,
               parentFolderId,
+            });
+            if (createConflict) {
+              return { message: createConflict, status: "conflict" as const };
+            }
+            const recreateResult = await createAppointmentTypeFolderMutation({
+              lineageKey: snapshot.lineageKey,
+              name: snapshot.name,
+              practiceId,
+              ...createParentFolderArg(parentFolderId),
+              ...getCowMutationArgs(),
+            });
+            handleDraftMutationResult(recreateResult);
+            restoredFolderIds.set(snapshot.lineageKey, recreateResult.entityId);
+            upsertAppointmentTypeFolderRef(
+              createAppointmentTypeFolderRefSnapshot({
+                id: recreateResult.entityId,
+                lineageKey: snapshot.lineageKey,
+                name: snapshot.name,
+                parentFolderId,
+                ruleSetId: recreateResult.ruleSetId,
+              }),
+              { previousLineageKey: snapshot.lineageKey },
+            );
+            if (snapshot.lineageKey === rootFolderLineageKey) {
+              currentFolderId = recreateResult.entityId;
+            }
+          }
+          for (const snapshot of appointmentTypeSnapshots) {
+            const treeFolderId = restoredFolderIds.get(
+              snapshot.treeFolderLineageKey,
+            );
+            if (treeFolderId === undefined) {
+              return {
+                message: "Der Zielordner existiert nicht mehr.",
+                status: "conflict" as const,
+              };
+            }
+            const resolvedPractitionerIds = practitionerIdsFromSnapshots(
+              practitionersRef.current,
+              snapshot.practitionerSnapshots,
+            );
+            if ("status" in resolvedPractitionerIds) {
+              return resolvedPractitionerIds;
+            }
+            const recreateResult = await createAppointmentTypeMutation({
+              duration: snapshot.duration,
+              lineageKey: snapshot.lineageKey,
+              name: snapshot.name,
+              practiceId,
+              practitionerIds: resolvedPractitionerIds.ids,
+              treeFolderId,
+              ...getCowMutationArgs(),
+              ...createFollowUpPlanCreateArgs(snapshot.followUpPlan),
+            });
+            handleDraftMutationResult(recreateResult);
+            upsertAppointmentTypeRef({
+              _creationTime: 0,
+              _id: asAppointmentTypeId(recreateResult.entityId),
+              allowedPractitionerLineageKeys: toSnapshotLineageIds(
+                snapshot.practitionerSnapshots,
+              ),
+              createdAt: 0n,
+              duration: snapshot.duration,
+              followUpPlan: snapshot.followUpPlan ?? [],
+              lastModified: 0n,
+              lineageKey: snapshot.lineageKey,
+              name: snapshot.name,
+              practiceId,
               ruleSetId: recreateResult.ruleSetId,
-            }),
-            { previousLineageKey: deletedSnapshot.lineageKey },
-          );
-          currentFolderId = recreateResult.entityId;
+              treeFolderId,
+            });
+          }
           return { status: "applied" as const };
         },
       });

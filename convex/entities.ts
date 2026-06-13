@@ -1406,32 +1406,62 @@ export const deleteAppointmentTypeFolder = mutation({
       ruleSetId,
     });
 
-    const [childFolders, childAppointmentTypes] = await Promise.all([
+    const [folders, appointmentTypes] = await Promise.all([
       ctx.db
         .query("appointmentTypeFolders")
-        .withIndex("by_ruleSetId_parentFolderId", (q) =>
-          q.eq("ruleSetId", ruleSetId).eq("parentFolderId", folder._id),
-        )
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
         .collect(),
       ctx.db
         .query("appointmentTypes")
-        .withIndex("by_ruleSetId_treeFolderId", (q) =>
-          q.eq("ruleSetId", ruleSetId).eq("treeFolderId", folder._id),
-        )
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
         .collect(),
     ]);
-
-    if (
-      childFolders.some((child) => !isDeletedRuleSetEntity(child)) ||
-      childAppointmentTypes.some((child) => !isDeletedRuleSetEntity(child))
-    ) {
-      throw new Error("Only empty folders can be deleted");
+    const folderIdsToDelete = new Set<Id<"appointmentTypeFolders">>();
+    const pendingFolderIds = [folder._id];
+    while (pendingFolderIds.length > 0) {
+      const nextFolderId = pendingFolderIds.pop();
+      if (nextFolderId === undefined || folderIdsToDelete.has(nextFolderId)) {
+        continue;
+      }
+      folderIdsToDelete.add(nextFolderId);
+      for (const childFolder of folders) {
+        if (
+          childFolder.parentFolderId === nextFolderId &&
+          !isDeletedRuleSetEntity(childFolder)
+        ) {
+          pendingFolderIds.push(childFolder._id);
+        }
+      }
     }
 
-    await ctx.db.patch("appointmentTypeFolders", folder._id, {
-      deleted: true,
-      lastModified: BigInt(Date.now()),
-    });
+    const now = BigInt(Date.now());
+    await Promise.all([
+      ...folders
+        .filter(
+          (candidate) =>
+            folderIdsToDelete.has(candidate._id) &&
+            !isDeletedRuleSetEntity(candidate),
+        )
+        .map((candidate) =>
+          ctx.db.patch("appointmentTypeFolders", candidate._id, {
+            deleted: true,
+            lastModified: now,
+          }),
+        ),
+      ...appointmentTypes
+        .filter(
+          (appointmentType) =>
+            appointmentType.treeFolderId !== undefined &&
+            folderIdsToDelete.has(appointmentType.treeFolderId) &&
+            !isDeletedRuleSetEntity(appointmentType),
+        )
+        .map((appointmentType) =>
+          ctx.db.patch("appointmentTypes", appointmentType._id, {
+            deleted: true,
+            lastModified: now,
+          }),
+        ),
+    ]);
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
     return { draftRevision, entityId: folder._id, ruleSetId };
