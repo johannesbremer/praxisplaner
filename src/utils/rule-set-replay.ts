@@ -3,13 +3,14 @@ import type {
   LedgerResult,
   ReplayableLedgerCommand,
 } from "./command-ledger";
+import type { EncodedRuleSetSnapshot } from "./rule-set-snapshot-codecs";
 
 import { toLedgerConflict } from "./command-ledger";
 
 export type RecordRuleSetCommand = (command: RuleSetCommand) => void;
 
 export interface RuleSetCommand extends LedgerCommand, ReplayableLedgerCommand {
-  kind?: RuleSetCommandKind;
+  kind: RuleSetCommandKind;
   replay?: RuleSetReplayAdapter;
   snapshots?: RuleSetCommandSnapshot;
   target?: RuleSetCommandTarget;
@@ -28,6 +29,8 @@ export type RuleSetCommandKind =
   | "location.create"
   | "location.deleteWithDependencies"
   | "location.update"
+  | "mfa.create"
+  | "mfa.delete"
   | "practitioner.create"
   | "practitioner.deleteWithDependencies"
   | "practitioner.update"
@@ -89,4 +92,3 @@ export function createRuleSetCommand(params: {
     undo: params.replay.undo,
   };
 }
-import type { EncodedRuleSetSnapshot } from "./rule-set-snapshot-codecs";

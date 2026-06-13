@@ -725,7 +725,12 @@ export function VacationScheduler({
       setNewMfaName("");
       const lineageKey = asMfaLineageKey(result.entityId);
       let currentMfaId = result.entityId;
+      const createdMfaSnapshot = encodeRuleSetSnapshot({
+        lineageKey,
+        name: trimmed,
+      });
       onRecordCommand?.({
+        kind: "mfa.create",
         label: "MFA erstellt",
         redo: async () => {
           try {
@@ -757,6 +762,13 @@ export function VacationScheduler({
             };
           }
           return { status: "applied" as const };
+        },
+        snapshots: {
+          after: createdMfaSnapshot,
+        },
+        target: {
+          entityId: currentMfaId,
+          lineageKey,
         },
         undo: async () => {
           const existing = findMfaByLineage(mfasRef.current, lineageKey);
@@ -816,7 +828,12 @@ export function VacationScheduler({
       handleDraftMutationResult(result);
       let currentMfaId = currentMfa._id;
       const lineageKey = currentMfa.lineageKey;
+      const deletedMfaSnapshot = encodeRuleSetSnapshot({
+        lineageKey,
+        name: currentMfa.name,
+      });
       onRecordCommand?.({
+        kind: "mfa.delete",
         label: "MFA entfernt",
         redo: async () => {
           const existing = findMfaByLineage(mfasRef.current, lineageKey);
@@ -847,6 +864,13 @@ export function VacationScheduler({
             };
           }
           return { status: "applied" as const };
+        },
+        snapshots: {
+          before: deletedMfaSnapshot,
+        },
+        target: {
+          entityId: currentMfaId,
+          lineageKey,
         },
         undo: async () => {
           const existing = findMfaByLineage(mfasRef.current, lineageKey);

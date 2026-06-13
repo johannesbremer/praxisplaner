@@ -32,7 +32,7 @@ interface RegisterLineageCreateActionParams<
   entitiesRef: RefObject<TEntity[]>;
   initialEntityId: TEntityId;
   isMissingEntityError: (error: unknown) => boolean;
-  kind?: RuleSetCommandKind;
+  kind: RuleSetCommandKind;
   label: string;
   lineageKey: TLineageKey;
   onRecordCommand: RecordRuleSetCommand | undefined;
@@ -50,7 +50,7 @@ interface RegisterLineageUpdateActionParams<
 > {
   entitiesRef: RefObject<TEntity[]>;
   initialEntityId: TEntityId;
-  kind?: RuleSetCommandKind;
+  kind: RuleSetCommandKind;
   label: string;
   lineageKey: TLineageKey;
   onRecordCommand: RecordRuleSetCommand | undefined;
@@ -83,7 +83,7 @@ export function registerLineageCreateHistoryAction<
 
   params.onRecordCommand(
     createRuleSetCommand({
-      kind: params.kind ?? "appointmentType.update",
+      kind: params.kind,
       label: params.label,
       replay: {
         redo: async () => {
@@ -147,7 +147,7 @@ export function registerLineageUpdateHistoryAction<
 
   params.onRecordCommand(
     createRuleSetCommand({
-      kind: params.kind ?? "appointmentType.update",
+      kind: params.kind,
       label: params.label,
       replay: {
         redo: async () => {
