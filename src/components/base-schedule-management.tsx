@@ -50,6 +50,7 @@ import {
 import { useErrorTracking } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
 import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
+import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
   applyBatchCreateResultToRef,
   applyReplaceResultToRef,
@@ -290,7 +291,11 @@ export default function BaseScheduleManagement({
       );
 
       if (deletedSchedulePayloads.length > 0) {
+        const deletedSchedulesSnapshot = encodeRuleSetSnapshot(
+          deletedSchedulePayloads,
+        );
         onRecordCommand?.({
+          kind: "baseSchedule.replaceSet",
           label: "Arbeitszeiten gelöscht",
           redo: async () => {
             const presentLineageKeys = deletedSchedulePayloads
@@ -328,6 +333,12 @@ export default function BaseScheduleManagement({
             }
 
             return { status: "applied" as const };
+          },
+          snapshots: {
+            before: deletedSchedulesSnapshot,
+          },
+          target: {
+            ruleSetId,
           },
           undo: async () => {
             const missingPayloads = deletedSchedulePayloads.filter(
@@ -1068,7 +1079,11 @@ function BaseScheduleDialog({
         }
 
         if (!schedule && createdSchedulePayloads.length > 0) {
+          const createdSchedulesSnapshot = encodeRuleSetSnapshot(
+            createdSchedulePayloads,
+          );
           onRecordCommand?.({
+            kind: "baseSchedule.replaceSet",
             label: "Arbeitszeiten erstellt",
             redo: async () => {
               const missingPayloads = createdSchedulePayloads.filter(
@@ -1113,6 +1128,12 @@ function BaseScheduleDialog({
                 schedulesRef,
               });
               return { status: "applied" as const };
+            },
+            snapshots: {
+              after: createdSchedulesSnapshot,
+            },
+            target: {
+              ruleSetId,
             },
             undo: async () => {
               const presentLineageKeys = createdSchedulePayloads
@@ -1163,8 +1184,14 @@ function BaseScheduleDialog({
             getAbsentLineageKeysForReplacement(oldLineageKeys, newLineageKeys);
           const undoExpectedAbsentLineageKeys =
             getAbsentLineageKeysForReplacement(newLineageKeys, oldLineageKeys);
+          const createdSchedulesSnapshot = encodeRuleSetSnapshot(
+            createdSchedulePayloads,
+          );
+          const oldSchedulesSnapshot =
+            encodeRuleSetSnapshot(oldSchedulePayloads);
 
           onRecordCommand?.({
+            kind: "baseSchedule.replaceSet",
             label: "Arbeitszeiten aktualisiert",
             redo: async () => {
               const replacementSchedules = Result.combine(
@@ -1198,6 +1225,13 @@ function BaseScheduleDialog({
                 schedulesRef,
               });
               return { status: "applied" as const };
+            },
+            snapshots: {
+              after: createdSchedulesSnapshot,
+              before: oldSchedulesSnapshot,
+            },
+            target: {
+              ruleSetId,
             },
             undo: async () => {
               const replacementSchedules = Result.combine(

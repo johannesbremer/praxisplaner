@@ -36,8 +36,8 @@ export type RuleSetCommandKind =
   | "schedulingRule.update";
 
 export interface RuleSetCommandSnapshot {
-  after?: unknown;
-  before?: unknown;
+  after?: EncodedRuleSetSnapshot<unknown>;
+  before?: EncodedRuleSetSnapshot<unknown>;
 }
 
 export interface RuleSetCommandTarget {
@@ -89,3 +89,4 @@ export function createRuleSetCommand(params: {
     undo: params.replay.undo,
   };
 }
+import type { EncodedRuleSetSnapshot } from "./rule-set-snapshot-codecs";

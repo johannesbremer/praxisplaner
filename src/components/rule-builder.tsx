@@ -31,6 +31,7 @@ import {
 } from "../utils/cow-history";
 import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
+import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import { RuleEditDialog } from "./rule-builder-editor";
 
 type AppointmentTypeQueryResult =
@@ -263,7 +264,12 @@ export function RuleBuilder({
           conditionTree: deletedRuleLineageTree,
           enabled: deletedRule.enabled,
         });
+        const deletedRuleSnapshot = encodeRuleSetSnapshot({
+          conditionTree: deletedRuleLineageTree,
+          enabled: deletedRule.enabled,
+        });
         onRecordCommand?.({
+          kind: "schedulingRule.delete",
           label: "Regel gelöscht",
           redo: async () => {
             const existing =
@@ -325,6 +331,12 @@ export function RuleBuilder({
                 status: "conflict" as const,
               };
             }
+          },
+          snapshots: {
+            before: deletedRuleSnapshot,
+          },
+          target: {
+            entityId: ruleId,
           },
           undo: async () => {
             const preparedRule = prepareRuleConditionTreeForReplay(
@@ -477,6 +489,10 @@ export function RuleBuilder({
                 conditionTree: currentRuleLineageTree,
                 enabled: true,
               });
+              const currentRuleSnapshot = encodeRuleSetSnapshot({
+                conditionTree: currentRuleLineageTree,
+                enabled: true,
+              });
               const previousRuleLineageTree = normalizeConditionTreeToLineage(
                 previousRule.conditionTree,
                 lineageAppointmentTypes,
@@ -484,6 +500,10 @@ export function RuleBuilder({
                 lineageLocations,
               );
               const previousRuleState = serializeRuleStateForComparison({
+                conditionTree: previousRuleLineageTree,
+                enabled: previousRule.enabled,
+              });
+              const previousRuleSnapshot = encodeRuleSetSnapshot({
                 conditionTree: previousRuleLineageTree,
                 enabled: previousRule.enabled,
               });
@@ -566,6 +586,7 @@ export function RuleBuilder({
                 "Die aktualisierte Regel wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
 
               onRecordCommand?.({
+                kind: "schedulingRule.update",
                 label: "Regel aktualisiert",
                 redo: async () => {
                   const resolvedRule = resolveRuleIdForReplay({
@@ -625,6 +646,13 @@ export function RuleBuilder({
                   handleDraftMutationResult(recreateResult);
                   currentRuleId = recreateResult.entityId;
                   return { status: "applied" as const };
+                },
+                snapshots: {
+                  after: currentRuleSnapshot,
+                  before: previousRuleSnapshot,
+                },
+                target: {
+                  entityId: currentRuleId,
                 },
                 undo: async () => {
                   const resolvedRule = resolveRuleIdForReplay({
@@ -693,7 +721,12 @@ export function RuleBuilder({
                 lineagePractitioners,
                 lineageLocations,
               );
+              const createdRuleSnapshot = encodeRuleSetSnapshot({
+                conditionTree: createdRuleLineageTree,
+                enabled: true,
+              });
               onRecordCommand?.({
+                kind: "schedulingRule.create",
                 label: "Regel erstellt",
                 redo: async () => {
                   const preparedRule = prepareRuleConditionTreeForReplay(
@@ -716,6 +749,12 @@ export function RuleBuilder({
                   handleDraftMutationResult(recreateResult);
                   currentRuleId = recreateResult.entityId;
                   return { status: "applied" as const };
+                },
+                snapshots: {
+                  after: createdRuleSnapshot,
+                },
+                target: {
+                  entityId: currentRuleId,
                 },
                 undo: async () => {
                   try {
