@@ -1158,17 +1158,24 @@ function parseRuleDiffTree(
   return parseConditionTreeNodeOrNull(treeRoot);
 }
 
+const APPOINTMENT_TYPE_TREE_ROOT_KEY = "\0appointment-type-tree-root";
+
 function renderIndentedTree(paths: string[]) {
   if (paths.length === 0) {
     return "";
   }
 
-  const lines = new Map<string, string>([["Terminarten", "Terminarten/"]]);
+  const lines = new Map<string, string>([
+    [APPOINTMENT_TYPE_TREE_ROOT_KEY, "Terminarten/"],
+  ]);
 
   for (const path of paths.toSorted()) {
     const segments = path.split("/").filter(Boolean);
     for (const [index, segment] of segments.entries()) {
-      const key = segments.slice(0, index + 1).join("/");
+      const key = [
+        APPOINTMENT_TYPE_TREE_ROOT_KEY,
+        ...segments.slice(0, index + 1),
+      ].join("/");
       const isLeaf = index === segments.length - 1;
       if (lines.has(key)) {
         continue;
@@ -1180,10 +1187,10 @@ function renderIndentedTree(paths: string[]) {
 
   return [...lines.entries()]
     .toSorted(([pathA], [pathB]) => {
-      if (pathA === "Terminarten") {
+      if (pathA === APPOINTMENT_TYPE_TREE_ROOT_KEY) {
         return -1;
       }
-      if (pathB === "Terminarten") {
+      if (pathB === APPOINTMENT_TYPE_TREE_ROOT_KEY) {
         return 1;
       }
       return pathA.localeCompare(pathB);
