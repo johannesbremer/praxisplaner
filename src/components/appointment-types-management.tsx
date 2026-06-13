@@ -2021,7 +2021,8 @@ export function AppointmentTypesManagement({
           redoMissingMessage:
             "Der Ordner wurde bereits gelöscht und kann nicht erneut verschoben werden.",
           runRedo: async (currentFolderId) => {
-            const resolvedTarget = resolveFolderHistoryTarget(targetParentTarget);
+            const resolvedTarget =
+              resolveFolderHistoryTarget(targetParentTarget);
             if (resolvedTarget.status === "conflict") {
               return resolvedTarget;
             }
@@ -2088,7 +2089,8 @@ export function AppointmentTypesManagement({
             return validation.status === "conflict" ? validation.message : null;
           },
           validateUndo: (current) => {
-            const resolvedTarget = resolveFolderHistoryTarget(targetParentTarget);
+            const resolvedTarget =
+              resolveFolderHistoryTarget(targetParentTarget);
             if (resolvedTarget.status === "conflict") {
               return resolvedTarget.message;
             }
