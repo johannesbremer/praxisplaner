@@ -248,6 +248,10 @@ export async function copyAppointmentTypes(
     .query("appointmentTypes")
     .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
     .collect();
+  const sourceFolders = await db
+    .query("appointmentTypeFolders")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
+    .collect();
   const sourcePractitioners = await db
     .query("practitioners")
     .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", sourceRuleSetId))
@@ -266,11 +270,52 @@ export async function copyAppointmentTypes(
   );
 
   const idMap = new Map<Id<"appointmentTypes">, Id<"appointmentTypes">>();
+  const folderIdMap = new Map<
+    Id<"appointmentTypeFolders">,
+    Id<"appointmentTypeFolders">
+  >();
+
+  for (const sourceFolder of sourceFolders) {
+    if (isRuleSetEntityDeleted(sourceFolder)) {
+      continue;
+    }
+
+    const newFolderId = await db.insert("appointmentTypeFolders", {
+      createdAt: sourceFolder.createdAt,
+      lastModified: BigInt(Date.now()),
+      name: sourceFolder.name,
+      practiceId,
+      ruleSetId: targetRuleSetId,
+    });
+
+    folderIdMap.set(sourceFolder._id, newFolderId);
+  }
+
+  for (const sourceFolder of sourceFolders) {
+    if (
+      isRuleSetEntityDeleted(sourceFolder) ||
+      sourceFolder.parentFolderId === undefined
+    ) {
+      continue;
+    }
+
+    const copiedFolderId = folderIdMap.get(sourceFolder._id);
+    const copiedParentFolderId = folderIdMap.get(sourceFolder.parentFolderId);
+    if (copiedFolderId !== undefined && copiedParentFolderId !== undefined) {
+      await db.patch("appointmentTypeFolders", copiedFolderId, {
+        parentFolderId: copiedParentFolderId,
+      });
+    }
+  }
 
   for (const sourceType of sourceTypes) {
     if (isRuleSetEntityDeleted(sourceType)) {
       continue;
     }
+    const copiedTreeFolderId =
+      sourceType.treeFolderId === undefined
+        ? undefined
+        : folderIdMap.get(sourceType.treeFolderId);
     const newId = await insertSelfLineageEntity(db, "appointmentTypes", {
       allowedPractitionerLineageKeys:
         sourceType.allowedPractitionerLineageKeys.filter((lineageKey) =>
@@ -290,6 +335,7 @@ export async function copyAppointmentTypes(
       parentId: sourceType._id, // Track which entity this was copied from
       practiceId,
       ruleSetId: targetRuleSetId,
+      ...(copiedTreeFolderId && { treeFolderId: copiedTreeFolderId }),
     });
 
     idMap.set(sourceType._id, newId);

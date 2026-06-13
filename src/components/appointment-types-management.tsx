@@ -1,8 +1,12 @@
+import type { ContextMenuItem, FileTreeDropResult } from "@pierre/trees";
+
+import { FileTree, useFileTree } from "@pierre/trees/react";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
 import {
   ArrowDown,
   ArrowUp,
+  FolderPlus,
   Package2,
   Pencil,
   Plus,
@@ -19,7 +23,6 @@ import type {
   PractitionerLineageKey,
 } from "@/convex/identity";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -80,18 +83,39 @@ import {
   findFrontendEntityByEntityId,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
+type AppointmentTreeItem =
+  | {
+      appointmentType: AppointmentType;
+      id: Id<"appointmentTypes">;
+      kind: "appointmentType";
+    }
+  | {
+      folder: AppointmentTypeFolder;
+      id: Id<"appointmentTypeFolders">;
+      kind: "folder";
+    };
+interface AppointmentTreeModel {
+  itemByPath: ReadonlyMap<string, AppointmentTreeItem>;
+  paths: string[];
+  rootPath: string;
+}
 type AppointmentType = FrontendLineageEntity<
   "appointmentTypes",
   AppointmentTypeQueryResult[number]
 >;
+type AppointmentTypeFolder = AppointmentTypeFolderQueryResult[number];
+type AppointmentTypeFolderQueryResult =
+  (typeof api.entities.getAppointmentTypeFolders)["_returnType"];
 interface AppointmentTypeFormValues {
   duration: number;
   followUpPlan: FollowUpPlanFormStep[];
   name: string;
   practitionerIds: Id<"practitioners">[];
 }
+
 type AppointmentTypeQueryResult =
   (typeof api.entities.getAppointmentTypes)["_returnType"];
+
 interface AppointmentTypesManagementProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
   onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
@@ -175,30 +199,6 @@ const createFollowUpPlanCreateArgs = (
 const createFollowUpPlanUpdateArgs = (
   followUpPlan: FollowUpPlanStep[] | undefined,
 ) => ({ followUpPlan: followUpPlan ?? [] });
-
-const formatFollowUpOffset = (step: {
-  offsetUnit: FollowUpPlanStep["offsetUnit"];
-  offsetValue: number;
-}) => {
-  const unitLabel =
-    step.offsetUnit === "minutes"
-      ? step.offsetValue === 1
-        ? "Minute"
-        : "Minuten"
-      : step.offsetUnit === "days"
-        ? step.offsetValue === 1
-          ? "Tag"
-          : "Tage"
-        : step.offsetUnit === "weeks"
-          ? step.offsetValue === 1
-            ? "Woche"
-            : "Wochen"
-          : step.offsetValue === 1
-            ? "Monat"
-            : "Monate";
-
-  return `${step.offsetValue} ${unitLabel}`;
-};
 
 const parseNumberInput = (valueAsNumber: number, fallback = 0) =>
   Number.isNaN(valueAsNumber) ? fallback : valueAsNumber;
@@ -432,6 +432,27 @@ const resolveSelectedAppointmentTypeLineageKey = (
   return ok(step.appointmentTypeLineageKey);
 };
 
+const sanitizeTreeSegment = (value: string) =>
+  value.replaceAll("/", "／").trim() || "Unbenannt";
+
+const createTreeSegment = (name: string) => sanitizeTreeSegment(name);
+
+const createTreeFolderArg = (
+  folderId: Id<"appointmentTypeFolders"> | undefined,
+) => (folderId === undefined ? {} : { treeFolderId: folderId });
+
+const createParentFolderArg = (
+  folderId: Id<"appointmentTypeFolders"> | undefined,
+) => (folderId === undefined ? {} : { parentFolderId: folderId });
+
+const createTreeFolderMoveArg = (
+  folderId: Id<"appointmentTypeFolders"> | undefined,
+) => ({ treeFolderId: folderId ?? null });
+
+const createParentFolderMoveArg = (
+  folderId: Id<"appointmentTypeFolders"> | undefined,
+) => ({ parentFolderId: folderId ?? null });
+
 export function AppointmentTypesManagement({
   onDraftMutation,
   onRegisterHistoryAction,
@@ -443,10 +464,24 @@ export function AppointmentTypesManagement({
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAppointmentType, setEditingAppointmentType] =
     useState<AppointmentType | null>(null);
+  const [createFolderParentId, setCreateFolderParentId] = useState<
+    Id<"appointmentTypeFolders"> | undefined
+  >();
+  const [createFolderName, setCreateFolderName] = useState("");
+  const [newAppointmentTypeFolderId, setNewAppointmentTypeFolderId] = useState<
+    Id<"appointmentTypeFolders"> | undefined
+  >();
+  const [isFolderDialogOpen, setIsFolderDialogOpen] = useState(false);
 
   const appointmentTypesQuery = useQuery(api.entities.getAppointmentTypes, {
     ruleSetId,
   });
+  const appointmentTypeFoldersQuery = useQuery(
+    api.entities.getAppointmentTypeFolders,
+    {
+      ruleSetId,
+    },
+  );
   const practitionersQuery = useQuery(api.entities.getPractitioners, {
     ruleSetId,
   });
@@ -458,6 +493,18 @@ export function AppointmentTypesManagement({
   );
   const deleteAppointmentTypeMutation = useMutation(
     api.entities.deleteAppointmentType,
+  );
+  const createAppointmentTypeFolderMutation = useMutation(
+    api.entities.createAppointmentTypeFolder,
+  );
+  const updateAppointmentTypeFolderMutation = useMutation(
+    api.entities.updateAppointmentTypeFolder,
+  );
+  const deleteAppointmentTypeFolderMutation = useMutation(
+    api.entities.deleteAppointmentTypeFolder,
+  );
+  const moveAppointmentTypeToFolderMutation = useMutation(
+    api.entities.moveAppointmentTypeToFolder,
   );
 
   const appointmentTypes: AppointmentType[] = useMemo(() => {
@@ -488,6 +535,34 @@ export function AppointmentTypesManagement({
       source: "AppointmentTypesManagement",
     });
   }, [practitionersQuery]);
+  const appointmentTypeFolders = useMemo(
+    () => appointmentTypeFoldersQuery ?? [],
+    [appointmentTypeFoldersQuery],
+  );
+  const treeModel = useMemo(
+    () => buildAppointmentTreeModel(appointmentTypes, appointmentTypeFolders),
+    [appointmentTypeFolders, appointmentTypes],
+  );
+  const fileTree = useFileTree({
+    dragAndDrop: {
+      canDrop: ({ draggedPaths, target }) =>
+        draggedPaths.length === 1 &&
+        (target.kind === "root" ||
+          treeModel.itemByPath.get(
+            target.directoryPath ?? target.hoveredPath ?? "",
+          )?.kind === "folder"),
+      onDropComplete: (event) => {
+        void handleTreeDrop(event);
+      },
+      onDropError: (error) => {
+        toast.error("Verschieben fehlgeschlagen", { description: error });
+      },
+    },
+    flattenEmptyDirectories: false,
+    initialExpansion: "open",
+    paths: treeModel.paths,
+    search: true,
+  });
   const formSchema = useMemo(
     () =>
       createAppointmentTypeFormSchema({
@@ -794,6 +869,7 @@ export function AppointmentTypesManagement({
             name: parsedValue.name,
             practiceId,
             practitionerIds: resolvedFormPractitionerIds.ids,
+            ...createTreeFolderArg(newAppointmentTypeFolderId),
             ...getCowMutationArgs(),
             ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
           });
@@ -815,6 +891,7 @@ export function AppointmentTypesManagement({
             name: parsedValue.name,
             practiceId,
             ruleSetId: createResult.ruleSetId,
+            ...createTreeFolderArg(newAppointmentTypeFolderId),
           });
           const { entityId } = createResult;
 
@@ -832,6 +909,7 @@ export function AppointmentTypesManagement({
                 name: parsedValue.name,
                 practiceId,
                 practitionerIds: resolvedFormPractitionerIds.ids,
+                ...createTreeFolderArg(newAppointmentTypeFolderId),
                 ...getCowMutationArgs(),
                 ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
               });
@@ -889,11 +967,13 @@ export function AppointmentTypesManagement({
   const closeDialog = () => {
     setIsDialogOpen(false);
     setEditingAppointmentType(null);
+    setNewAppointmentTypeFolderId(undefined);
     form.reset();
   };
 
-  const openCreateDialog = () => {
+  const openCreateDialog = (treeFolderId?: Id<"appointmentTypeFolders">) => {
     setEditingAppointmentType(null);
+    setNewAppointmentTypeFolderId(treeFolderId);
     form.reset();
     setIsDialogOpen(true);
   };
@@ -908,6 +988,7 @@ export function AppointmentTypesManagement({
       });
 
     setEditingAppointmentType(appointmentType);
+    setNewAppointmentTypeFolderId(undefined);
     form.setFieldValue("name", appointmentType.name);
     form.setFieldValue("duration", appointmentType.duration);
     form.setFieldValue(
@@ -927,6 +1008,106 @@ export function AppointmentTypesManagement({
 
     setIsDialogOpen(true);
   };
+
+  function openCreateFolderDialog(
+    parentFolderId?: Id<"appointmentTypeFolders">,
+  ) {
+    setCreateFolderParentId(parentFolderId);
+    setCreateFolderName("");
+    setIsFolderDialogOpen(true);
+  }
+
+  async function handleCreateFolder() {
+    const name = createFolderName.trim();
+    if (name.length < 2) {
+      toast.error("Ordnername muss mindestens 2 Zeichen lang sein.");
+      return;
+    }
+
+    try {
+      const result = await createAppointmentTypeFolderMutation({
+        name,
+        practiceId,
+        ...createParentFolderArg(createFolderParentId),
+        ...getCowMutationArgs(),
+      });
+      handleDraftMutationResult(result);
+      setIsFolderDialogOpen(false);
+      setCreateFolderName("");
+      setCreateFolderParentId(undefined);
+      toast.success("Ordner erstellt", {
+        description: `Ordner "${name}" wurde erstellt.`,
+      });
+    } catch (error: unknown) {
+      toast.error("Fehler beim Erstellen", {
+        description:
+          error instanceof Error ? error.message : "Unbekannter Fehler",
+      });
+    }
+  }
+
+  async function handleDeleteFolder(folder: AppointmentTypeFolder) {
+    try {
+      const result = await deleteAppointmentTypeFolderMutation({
+        folderId: folder._id,
+        practiceId,
+        ...getCowMutationArgs(),
+      });
+      handleDraftMutationResult(result);
+      toast.success("Ordner gelöscht", {
+        description: `Ordner "${folder.name}" wurde gelöscht.`,
+      });
+    } catch (error: unknown) {
+      toast.error("Fehler beim Löschen", {
+        description:
+          error instanceof Error ? error.message : "Unbekannter Fehler",
+      });
+    }
+  }
+
+  async function handleTreeDrop(event: FileTreeDropResult) {
+    const [draggedPath] = event.draggedPaths;
+    if (!draggedPath) {
+      return;
+    }
+
+    const draggedItem = treeModel.itemByPath.get(draggedPath);
+    const targetPath = event.target.directoryPath ?? event.target.hoveredPath;
+    const targetItem =
+      targetPath === null || targetPath === treeModel.rootPath
+        ? undefined
+        : treeModel.itemByPath.get(targetPath);
+    const parentFolderId =
+      targetItem?.kind === "folder" ? targetItem.id : undefined;
+
+    try {
+      if (draggedItem?.kind === "appointmentType") {
+        const result = await moveAppointmentTypeToFolderMutation({
+          appointmentTypeId: draggedItem.id,
+          practiceId,
+          ...createTreeFolderMoveArg(parentFolderId),
+          ...getCowMutationArgs(),
+        });
+        handleDraftMutationResult(result);
+        return;
+      }
+
+      if (draggedItem?.kind === "folder") {
+        const result = await updateAppointmentTypeFolderMutation({
+          folderId: draggedItem.id,
+          practiceId,
+          ...createParentFolderMoveArg(parentFolderId),
+          ...getCowMutationArgs(),
+        });
+        handleDraftMutationResult(result);
+      }
+    } catch (error: unknown) {
+      toast.error("Verschieben fehlgeschlagen", {
+        description:
+          error instanceof Error ? error.message : "Unbekannter Fehler",
+      });
+    }
+  }
 
   const handleDelete = async (appointmentType: AppointmentType) => {
     try {
@@ -1083,9 +1264,25 @@ export function AppointmentTypesManagement({
               <CardTitle>Terminarten</CardTitle>
             </div>
           </div>
+          <Button
+            onClick={() => {
+              openCreateFolderDialog();
+            }}
+            size="sm"
+            variant="outline"
+          >
+            <FolderPlus className="h-4 w-4 mr-2" />
+            Ordner hinzufügen
+          </Button>
           <Dialog onOpenChange={setIsDialogOpen} open={isDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={openCreateDialog} size="sm" variant="outline">
+              <Button
+                onClick={() => {
+                  openCreateDialog();
+                }}
+                size="sm"
+                variant="outline"
+              >
                 <Plus className="h-4 w-4 mr-2" />
                 Terminart hinzufügen
               </Button>
@@ -1563,14 +1760,60 @@ export function AppointmentTypesManagement({
               </form>
             </DialogContent>
           </Dialog>
+          <Dialog
+            onOpenChange={setIsFolderDialogOpen}
+            open={isFolderDialogOpen}
+          >
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Neuer Ordner</DialogTitle>
+                <DialogDescription>
+                  Erstellen Sie einen Ordner für Terminarten.
+                </DialogDescription>
+              </DialogHeader>
+              <Field>
+                <FieldLabel htmlFor="appointment-type-folder-name">
+                  Ordnername
+                </FieldLabel>
+                <Input
+                  id="appointment-type-folder-name"
+                  onChange={(event) => {
+                    setCreateFolderName(event.target.value);
+                  }}
+                  value={createFolderName}
+                />
+              </Field>
+              <DialogFooter>
+                <Button
+                  onClick={() => {
+                    setIsFolderDialogOpen(false);
+                  }}
+                  type="button"
+                  variant="outline"
+                >
+                  Abbrechen
+                </Button>
+                <Button
+                  onClick={() => {
+                    void handleCreateFolder();
+                  }}
+                  type="button"
+                >
+                  Erstellen
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </CardHeader>
       <CardContent>
-        {appointmentTypesQuery === undefined ? (
+        {appointmentTypesQuery === undefined ||
+        appointmentTypeFoldersQuery === undefined ? (
           <div className="text-center py-4 text-muted-foreground">
             Lade Terminarten...
           </div>
-        ) : appointmentTypes.length === 0 ? (
+        ) : appointmentTypes.length === 0 &&
+          appointmentTypeFolders.length === 0 ? (
           <div className="text-center py-8">
             <Package2 className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
             <div className="text-muted-foreground">
@@ -1580,98 +1823,174 @@ export function AppointmentTypesManagement({
         ) : (
           <div className="space-y-4">
             <div className="text-sm text-muted-foreground">
-              {appointmentTypes.length} Terminarten verfügbar
+              {appointmentTypes.length} Terminarten in{" "}
+              {appointmentTypeFolders.length} Ordnern
             </div>
 
-            <div className="grid gap-3">
-              {appointmentTypes.map((appointmentType) => {
-                // Get practitioner names for this appointment type
-                const appointmentTypePractitioners =
-                  appointmentType.allowedPractitionerLineageKeys
-                    .map((practitionerLineageKey) =>
-                      practitioners.find(
-                        (practitioner) =>
-                          practitioner.lineageKey === practitionerLineageKey,
-                      ),
-                    )
-                    .filter((p): p is NonNullable<typeof p> => p !== undefined);
+            <div className="rounded-md border">
+              <FileTree
+                className="h-[420px]"
+                model={fileTree.model}
+                renderContextMenu={(item: ContextMenuItem) => {
+                  const treeItem = treeModel.itemByPath.get(item.path);
 
-                return (
-                  <div
-                    className="border rounded-lg p-3 flex items-start justify-between"
-                    key={appointmentType._id}
-                  >
-                    <div className="flex-1">
-                      <div className="font-medium mb-2">
-                        {appointmentType.name}
-                      </div>
-                      <div className="text-sm text-muted-foreground mb-2">
-                        Dauer: {appointmentType.duration} Minuten
-                      </div>
-                      {(appointmentType.followUpPlan?.length ?? 0) > 0 && (
-                        <div className="mb-2 space-y-1">
-                          <div className="text-sm font-medium">
-                            {appointmentType.followUpPlan?.length} Kettentermine
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {appointmentType.followUpPlan?.map((step) => {
-                              const target = appointmentTypes.find(
-                                (candidate) =>
-                                  candidate.lineageKey ===
-                                  step.appointmentTypeLineageKey,
-                              );
-
-                              if (!target) {
-                                return null;
-                              }
-
-                              return (
-                                <Badge key={step.stepId} variant="outline">
-                                  {formatFollowUpOffset(step)} {"->"}{" "}
-                                  {target.name}
-                                </Badge>
-                              );
-                            })}
-                          </div>
-                        </div>
+                  return (
+                    <div className="min-w-48 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                      {treeItem?.kind === "folder" && (
+                        <>
+                          <button
+                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                            onClick={() => {
+                              openCreateDialog(treeItem.id);
+                            }}
+                            type="button"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Neue Terminart
+                          </button>
+                          <button
+                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                            onClick={() => {
+                              openCreateFolderDialog(treeItem.id);
+                            }}
+                            type="button"
+                          >
+                            <FolderPlus className="h-4 w-4" />
+                            Neuer Ordner
+                          </button>
+                          <button
+                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
+                            onClick={() => {
+                              void handleDeleteFolder(treeItem.folder);
+                            }}
+                            type="button"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Ordner löschen
+                          </button>
+                        </>
                       )}
-                      {appointmentTypePractitioners.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {appointmentTypePractitioners.map((practitioner) => (
-                            <Badge key={practitioner._id} variant="secondary">
-                              {practitioner.name}
-                            </Badge>
-                          ))}
-                        </div>
+                      {treeItem?.kind === "appointmentType" && (
+                        <>
+                          <button
+                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                            onClick={() => {
+                              openEditDialog(treeItem.appointmentType);
+                            }}
+                            type="button"
+                          >
+                            <Pencil className="h-4 w-4" />
+                            Bearbeiten
+                          </button>
+                          <button
+                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
+                            onClick={() => {
+                              void handleDelete(treeItem.appointmentType);
+                            }}
+                            type="button"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Löschen
+                          </button>
+                        </>
+                      )}
+                      {item.path === treeModel.rootPath && (
+                        <>
+                          <button
+                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                            onClick={() => {
+                              openCreateDialog();
+                            }}
+                            type="button"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Neue Terminart
+                          </button>
+                          <button
+                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                            onClick={() => {
+                              openCreateFolderDialog();
+                            }}
+                            type="button"
+                          >
+                            <FolderPlus className="h-4 w-4" />
+                            Neuer Ordner
+                          </button>
+                        </>
                       )}
                     </div>
-                    <div className="flex gap-1">
-                      <Button
-                        onClick={() => {
-                          openEditDialog(appointmentType);
-                        }}
-                        size="sm"
-                        variant="ghost"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        onClick={() => {
-                          void handleDelete(appointmentType);
-                        }}
-                        size="sm"
-                        variant="ghost"
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                }}
+              />
             </div>
           </div>
         )}
       </CardContent>
     </Card>
   );
+}
+
+function buildAppointmentTreeModel(
+  appointmentTypes: readonly AppointmentType[],
+  folders: readonly AppointmentTypeFolder[],
+): AppointmentTreeModel {
+  const rootPath = "Terminarten";
+  const itemByPath = new Map<string, AppointmentTreeItem>();
+  const folderById = new Map(folders.map((folder) => [folder._id, folder]));
+  const folderPathById = new Map<Id<"appointmentTypeFolders">, string>();
+
+  const resolveFolderPath = (
+    folder: AppointmentTypeFolder,
+    activeIds: ReadonlySet<Id<"appointmentTypeFolders">> = new Set(),
+  ): string => {
+    const cached = folderPathById.get(folder._id);
+    if (cached) {
+      return cached;
+    }
+
+    if (activeIds.has(folder._id)) {
+      const fallback = `${rootPath}/${createTreeSegment(folder.name)}`;
+      folderPathById.set(folder._id, fallback);
+      return fallback;
+    }
+
+    const parentFolder =
+      folder.parentFolderId === undefined
+        ? undefined
+        : folderById.get(folder.parentFolderId);
+    const parentPath = parentFolder
+      ? resolveFolderPath(parentFolder, new Set([...activeIds, folder._id]))
+      : rootPath;
+    const path = `${parentPath}/${createTreeSegment(folder.name)}`;
+    folderPathById.set(folder._id, path);
+    return path;
+  };
+
+  const paths = [`${rootPath}/`];
+
+  for (const folder of folders) {
+    const path = resolveFolderPath(folder);
+    paths.push(`${path}/`);
+    itemByPath.set(path, {
+      folder,
+      id: folder._id,
+      kind: "folder",
+    });
+  }
+
+  for (const appointmentType of appointmentTypes) {
+    const parentPath =
+      appointmentType.treeFolderId === undefined
+        ? rootPath
+        : (folderPathById.get(appointmentType.treeFolderId) ?? rootPath);
+    const path = `${parentPath}/${createTreeSegment(appointmentType.name)}`;
+    paths.push(path);
+    itemByPath.set(path, {
+      appointmentType,
+      id: appointmentType._id,
+      kind: "appointmentType",
+    });
+  }
+
+  return { itemByPath, paths: paths.toSorted(), rootPath };
 }

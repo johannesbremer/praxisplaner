@@ -455,6 +455,20 @@ export default defineSchema({
   // Each step stores the fully validated payload for that step.
   // ================================================================
 
+  appointmentTypeFolders: defineTable({
+    createdAt: v.int64(),
+    deleted: v.optional(v.boolean()),
+    lastModified: v.int64(),
+    name: v.string(),
+    parentFolderId: v.optional(v.id("appointmentTypeFolders")),
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_ruleSetId", ["ruleSetId"])
+    .index("by_parentFolderId", ["parentFolderId"])
+    .index("by_ruleSetId_parentFolderId", ["ruleSetId", "parentFolderId"]),
+
   appointmentTypes: defineTable({
     allowedPractitionerLineageKeys: v.array(v.id("practitioners")),
     createdAt: v.int64(),
@@ -467,12 +481,15 @@ export default defineSchema({
     parentId: v.optional(v.id("appointmentTypes")), // Reference to the entity this was copied from
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"), // Required: appointment types are versioned per rule set
+    treeFolderId: v.optional(v.id("appointmentTypeFolders")),
   })
     .index("by_practiceId", ["practiceId"])
     .index("by_ruleSetId", ["ruleSetId"])
     .index("by_ruleSetId_name", ["ruleSetId", "name"])
     .index("by_parentId", ["parentId"])
     .index("by_parentId_ruleSetId", ["parentId", "ruleSetId"])
+    .index("by_treeFolderId", ["treeFolderId"])
+    .index("by_ruleSetId_treeFolderId", ["ruleSetId", "treeFolderId"])
     .index("by_lineageKey", ["lineageKey"])
     .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
 
