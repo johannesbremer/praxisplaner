@@ -97,6 +97,119 @@ const StructuredValueDiffView = React.lazy(() =>
   })),
 );
 
+interface AppointmentTypeTreePath {
+  isFolder: boolean;
+  segments: string[];
+}
+
+function buildAppointmentTypeTreeDiffText({
+  appointmentTypes,
+  folders,
+}: {
+  appointmentTypes: string[];
+  folders: string[];
+}) {
+  const folderPaths = folders.flatMap((value): AppointmentTypeTreePath[] => {
+    const parsed = parseDiffValue(value);
+    if (!parsed) {
+      return [];
+    }
+    const name = stringValue(parsed["name"]);
+    if (!name) {
+      return [];
+    }
+    const parentPath = stringValue(parsed["parentFolderPath"]);
+    return [
+      {
+        isFolder: true,
+        segments: [...splitStoredFolderPath(parentPath), name],
+      },
+    ];
+  });
+  const appointmentTypePaths = appointmentTypes.flatMap(
+    (value): AppointmentTypeTreePath[] => {
+      const parsed = parseDiffValue(value);
+      if (!parsed) {
+        return [];
+      }
+      const name = stringValue(parsed["name"]);
+      if (!name) {
+        return [];
+      }
+      const folderPath = stringValue(parsed["folderPath"]);
+      const duration = stringValue(parsed["duration"]);
+      const followUpPlan = Array.isArray(parsed["followUpPlan"])
+        ? parsed["followUpPlan"]
+        : [];
+      const practitioners = Array.isArray(parsed["allowedPractitioners"])
+        ? parsed["allowedPractitioners"]
+            .filter((entry) => typeof entry === "string")
+            .join(", ")
+        : "";
+      const metadata = [
+        duration ? `${duration} Min.` : "",
+        practitioners ? `Behandler: ${practitioners}` : "",
+        formatAppointmentTypeTreeFollowUpPlan(followUpPlan),
+      ]
+        .filter(Boolean)
+        .join(", ");
+      const label = metadata ? `${name} (${metadata})` : name;
+      return [
+        {
+          isFolder: false,
+          segments: [...splitStoredFolderPath(folderPath), label],
+        },
+      ];
+    },
+  );
+
+  return renderIndentedTree([...folderPaths, ...appointmentTypePaths]);
+}
+
+function buildAppointmentTypeTreeProjectedSection(
+  sections: RuleSetDiffSection[],
+): null | ProjectedRuleSetDiffSection {
+  const appointmentTypeSection = sections.find(
+    (section) => section.key === "appointmentTypes",
+  );
+  const folderSection = sections.find(
+    (section) => section.key === "appointmentTypeFolders",
+  );
+  if (!appointmentTypeSection && !folderSection) {
+    return null;
+  }
+
+  const before = buildAppointmentTypeTreeDiffText({
+    appointmentTypes: appointmentTypeSection?.removed ?? [],
+    folders: folderSection?.removed ?? [],
+  });
+  const after = buildAppointmentTypeTreeDiffText({
+    appointmentTypes: appointmentTypeSection?.added ?? [],
+    folders: folderSection?.added ?? [],
+  });
+  if (before === after) {
+    return null;
+  }
+
+  return {
+    rows: [
+      {
+        after,
+        before,
+        id: "appointment-type-tree",
+        kind: before && after ? "modified" : after ? "added" : "removed",
+        path: "Terminarten",
+      },
+    ],
+    section: {
+      added: appointmentTypeSection?.added ?? folderSection?.added ?? [],
+      key: "appointmentTypeTree",
+      removed: appointmentTypeSection?.removed ?? folderSection?.removed ?? [],
+      title: "Terminarten",
+    },
+  };
+}
+
 function buildRuleNameContextFromTree(
   tree: ConditionTreeNode,
 ): RuleNameContext {
@@ -292,6 +405,47 @@ function buildStructuredDiffRows(
 function dayOfWeekLabel(value: unknown) {
   const labels = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
   return typeof value === "number" ? (labels[value] ?? String(value)) : "";
+}
+
+function formatAppointmentTypeTreeFollowUpPlan(steps: unknown[]) {
+  if (steps.length === 0) {
+    return "";
+  }
+
+  const stepSummaries = steps.map((step, index) => {
+    if (!isRecord(step)) {
+      return `#${index + 1}`;
+    }
+
+    const appointmentTypeName = stringValue(step["appointmentTypeName"]);
+    const offsetValue = stringValue(step["offsetValue"]);
+    const offsetUnit = formatEnumValue("offsetUnit", step["offsetUnit"]);
+    const searchMode = formatEnumValue("searchMode", step["searchMode"]);
+    const locationMode = formatEnumValue("locationMode", step["locationMode"]);
+    const practitionerMode = formatEnumValue(
+      "practitionerMode",
+      step["practitionerMode"],
+    );
+    const required = stringValue(step["required"]);
+    const note = stringValue(step["note"]);
+
+    return [
+      `#${index + 1}`,
+      appointmentTypeName,
+      [offsetValue, offsetUnit].filter(Boolean).join(" "),
+      searchMode,
+      locationMode,
+      practitionerMode,
+      required
+        ? `Pflicht: ${formatFieldValue("required", step["required"])}`
+        : "",
+      note ? `Notiz: ${note}` : "",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+  });
+
+  return `Folgetermine: ${stepSummaries.join("; ")}`;
 }
 
 function formatChangedStructuredDiffValues(
@@ -682,14 +836,25 @@ function getProjectedRuleSetDiffSections(diff: RuleSetDiff) {
     (section) => section.added.length > 0 || section.removed.length > 0,
   );
   const entityRenames = getEntityRenames(diff);
-  return changedSections
+  const appointmentTreeSection =
+    buildAppointmentTypeTreeProjectedSection(changedSections);
+  const projectedSections = changedSections
+    .filter(
+      (section) =>
+        section.key !== "appointmentTypeFolders" &&
+        section.key !== "appointmentTypes",
+    )
     .map(
       (section): ProjectedRuleSetDiffSection => ({
         rows: buildStructuredDiffRows(section, entityRenames),
         section,
       }),
-    )
-    .filter((projectedSection) => projectedSection.rows.length > 0);
+    );
+
+  return [
+    ...(appointmentTreeSection ? [appointmentTreeSection] : []),
+    ...projectedSections,
+  ].filter((projectedSection) => projectedSection.rows.length > 0);
 }
 
 function getRuleSummary(value: Record<string, unknown>) {
@@ -1010,6 +1175,50 @@ function parseRuleDiffTree(
   return parseConditionTreeNodeOrNull(treeRoot);
 }
 
+const APPOINTMENT_TYPE_TREE_ROOT_KEY = "\0appointment-type-tree-root";
+const APPOINTMENT_TYPE_TREE_KEY_SEPARATOR = "\0";
+
+function renderIndentedTree(paths: AppointmentTypeTreePath[]) {
+  if (paths.length === 0) {
+    return "";
+  }
+
+  const lines = new Map<string, string>([
+    [APPOINTMENT_TYPE_TREE_ROOT_KEY, "Terminarten/"],
+  ]);
+
+  for (const path of paths.toSorted((left, right) =>
+    left.segments.join("\0").localeCompare(right.segments.join("\0")),
+  )) {
+    const { segments } = path;
+    for (const [index, segment] of segments.entries()) {
+      const key = [
+        APPOINTMENT_TYPE_TREE_ROOT_KEY,
+        ...segments.slice(0, index + 1),
+      ].join(APPOINTMENT_TYPE_TREE_KEY_SEPARATOR);
+      const isLeaf = index === segments.length - 1;
+      if (lines.has(key)) {
+        continue;
+      }
+      const suffix = isLeaf && !path.isFolder ? "" : "/";
+      lines.set(key, `${"  ".repeat(index + 1)}${segment}${suffix}`);
+    }
+  }
+
+  return [...lines.entries()]
+    .toSorted(([pathA], [pathB]) => {
+      if (pathA === APPOINTMENT_TYPE_TREE_ROOT_KEY) {
+        return -1;
+      }
+      if (pathB === APPOINTMENT_TYPE_TREE_ROOT_KEY) {
+        return 1;
+      }
+      return pathA.localeCompare(pathB);
+    })
+    .map(([, line]) => line)
+    .join("\n");
+}
+
 function resolveDiffItemMatchKey(section: RuleSetDiffSection, value: string) {
   const parsed = parseDiffValue(value);
   if (!parsed || typeof parsed !== "object") {
@@ -1203,6 +1412,12 @@ function SaveDialogForm({
       </DialogFooter>
     </form>
   );
+}
+
+function splitStoredFolderPath(path: string | undefined) {
+  return path === undefined || path === ""
+    ? []
+    : path.split("/").filter(Boolean);
 }
 
 function stringValue(value: unknown) {
