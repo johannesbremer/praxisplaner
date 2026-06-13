@@ -8,12 +8,12 @@ import {
   type TimeString,
 } from "@/lib/typed-regex";
 
-import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
+import type { RuleSetCommand } from "../utils/rule-set-replay";
 
 import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { invalidStateError } from "../utils/frontend-errors";
@@ -23,7 +23,7 @@ export interface BaseScheduleDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
+  onRecordCommand?: (action: RuleSetCommand) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
@@ -32,7 +32,7 @@ export interface BaseScheduleDialogProps {
 
 export interface BaseScheduleManagementProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
+  onRecordCommand?: (action: RuleSetCommand) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;

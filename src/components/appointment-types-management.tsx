@@ -67,12 +67,12 @@ import {
 } from "@/convex/identity";
 import { APPOINTMENT_TYPE_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
-import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
+import type { RuleSetCommand } from "../utils/rule-set-replay";
 
 import { findIdInList } from "../utils/convex-ids";
 import {
@@ -129,7 +129,7 @@ type AppointmentTypeQueryResult =
   (typeof api.entities.getAppointmentTypes)["_returnType"];
 interface AppointmentTypesManagementProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
+  onRecordCommand?: (action: RuleSetCommand) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
@@ -619,7 +619,7 @@ const appointmentTreeStyle: AppointmentTreeStyle = {
 
 export function AppointmentTypesManagement({
   onDraftMutation,
-  onRegisterHistoryAction,
+  onRecordCommand,
   onRuleSetCreated,
   practiceId,
   ruleSetReplayTarget,
@@ -1281,7 +1281,7 @@ export function AppointmentTypesManagement({
             initialEntityId: updateResult.entityId,
             label: "Terminart aktualisiert",
             lineageKey: appointmentTypeLineageKey,
-            onRegisterHistoryAction,
+            onRecordCommand,
             redoMissingMessage:
               "Die Terminart wurde bereits gelöscht und kann nicht erneut angewendet werden.",
             runRedo: async (currentAppointmentTypeId) => {
@@ -1410,7 +1410,7 @@ export function AppointmentTypesManagement({
             isMissingEntityError,
             label: "Terminart erstellt",
             lineageKey: appointmentTypeLineageKey,
-            onRegisterHistoryAction,
+            onRecordCommand,
             runCreate: async () => {
               const recreateResult = await createAppointmentTypeMutation({
                 duration: parsedValue.duration,
@@ -1734,7 +1734,7 @@ export function AppointmentTypesManagement({
           initialEntityId: result.entityId,
           label: "Ordner umbenannt",
           lineageKey: folderLineageKey,
-          onRegisterHistoryAction,
+          onRecordCommand,
           redoMissingMessage:
             "Der Ordner wurde bereits gelöscht und kann nicht erneut umbenannt werden.",
           runRedo: async (currentFolderId) => {
@@ -1832,7 +1832,7 @@ export function AppointmentTypesManagement({
           isMissingEntityError,
           label: "Ordner erstellt",
           lineageKey: folderLineageKey,
-          onRegisterHistoryAction,
+          onRecordCommand,
           runCreate: async () => {
             const resolvedParent =
               resolveFolderHistoryTarget(parentFolderTarget);
@@ -2057,7 +2057,7 @@ export function AppointmentTypesManagement({
         }
       }
       let currentFolderId = result.entityId;
-      onRegisterHistoryAction?.({
+      onRecordCommand?.({
         label: "Ordner gelöscht",
         redo: async () => {
           try {
@@ -2420,7 +2420,7 @@ export function AppointmentTypesManagement({
           initialEntityId: result.entityId,
           label: "Terminart verschoben",
           lineageKey: appointmentTypeLineageKey,
-          onRegisterHistoryAction,
+          onRecordCommand,
           redoMissingMessage:
             "Die Terminart wurde bereits gelöscht und kann nicht erneut verschoben werden.",
           runRedo: async (currentAppointmentTypeId) => {
@@ -2544,7 +2544,7 @@ export function AppointmentTypesManagement({
           initialEntityId: result.entityId,
           label: "Ordner verschoben",
           lineageKey: folderLineageKey,
-          onRegisterHistoryAction,
+          onRecordCommand,
           redoMissingMessage:
             "Der Ordner wurde bereits gelöscht und kann nicht erneut verschoben werden.",
           runRedo: async (currentFolderId) => {
@@ -2676,7 +2676,7 @@ export function AppointmentTypesManagement({
 
       let currentAppointmentTypeId = appointmentType._id;
 
-      onRegisterHistoryAction?.({
+      onRecordCommand?.({
         label: "Terminart gelöscht",
         redo: async () => {
           try {

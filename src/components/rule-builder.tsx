@@ -7,12 +7,12 @@ import { Card, CardAction, CardHeader, CardTitle } from "@/components/ui/card";
 import { RULE_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
 import type { Id } from "../../convex/_generated/dataModel";
-import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
+import type { RuleSetCommand } from "../utils/rule-set-replay";
 import type { RuleFromDB } from "./rule-builder-types";
 
 import { api } from "../../convex/_generated/api";
@@ -48,7 +48,7 @@ type RuleAppointmentType = FrontendLineageEntity<
 
 interface RuleBuilderProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
+  onRecordCommand?: (action: RuleSetCommand) => void;
   onRuleCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
@@ -89,7 +89,7 @@ const getReplayCopySource = (
 
 export function RuleBuilder({
   onDraftMutation,
-  onRegisterHistoryAction,
+  onRecordCommand,
   onRuleCreated,
   practiceId,
   ruleSetReplayTarget,
@@ -263,7 +263,7 @@ export function RuleBuilder({
           conditionTree: deletedRuleLineageTree,
           enabled: deletedRule.enabled,
         });
-        onRegisterHistoryAction?.({
+        onRecordCommand?.({
           label: "Regel gelöscht",
           redo: async () => {
             const existing =
@@ -565,7 +565,7 @@ export function RuleBuilder({
               const undoStaleMessage =
                 "Die aktualisierte Regel wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
 
-              onRegisterHistoryAction?.({
+              onRecordCommand?.({
                 label: "Regel aktualisiert",
                 redo: async () => {
                   const resolvedRule = resolveRuleIdForReplay({
@@ -693,7 +693,7 @@ export function RuleBuilder({
                 lineagePractitioners,
                 lineageLocations,
               );
-              onRegisterHistoryAction?.({
+              onRecordCommand?.({
                 label: "Regel erstellt",
                 redo: async () => {
                   const preparedRule = prepareRuleConditionTreeForReplay(

@@ -45,12 +45,12 @@ import { asMfaId, asMfaLineageKey } from "@/convex/identity";
 import { GDT_DATE_REGEX } from "@/lib/typed-regex";
 import { cn } from "@/lib/utils";
 
-import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
+import type { RuleSetCommand } from "../utils/rule-set-replay";
 
 import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
 import { dispatchCustomEvent } from "../utils/browser-api";
@@ -128,7 +128,7 @@ interface VacationSchedulerProps {
   editable: boolean;
   onDateChange?: (date: Temporal.PlainDate) => void;
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
+  onRecordCommand?: (action: RuleSetCommand) => void;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
   selectedDate: Temporal.PlainDate;
@@ -161,7 +161,7 @@ export function VacationScheduler({
   editable,
   onDateChange,
   onDraftMutation,
-  onRegisterHistoryAction,
+  onRecordCommand,
   practiceId,
   ruleSetReplayTarget,
   selectedDate,
@@ -659,7 +659,7 @@ export function VacationScheduler({
     const nextSnapshots = await setVacationsForDay(staff, date, nextPortions, {
       clearSnapshots: previousSnapshots,
     });
-    onRegisterHistoryAction?.({
+    onRecordCommand?.({
       label,
       redo: async () => {
         await setVacationsForDay(staff, date, nextPortions, {
@@ -700,7 +700,7 @@ export function VacationScheduler({
       setNewMfaName("");
       const lineageKey = asMfaLineageKey(result.entityId);
       let currentMfaId = result.entityId;
-      onRegisterHistoryAction?.({
+      onRecordCommand?.({
         label: "MFA erstellt",
         redo: async () => {
           try {
@@ -791,7 +791,7 @@ export function VacationScheduler({
       handleDraftMutationResult(result);
       let currentMfaId = currentMfa._id;
       const lineageKey = currentMfa.lineageKey;
-      onRegisterHistoryAction?.({
+      onRecordCommand?.({
         label: "MFA entfernt",
         redo: async () => {
           const existing = findMfaByLineage(mfasRef.current, lineageKey);

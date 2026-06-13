@@ -28,12 +28,12 @@ import {
 } from "@/convex/identity";
 import { LOCATION_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
-import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
+import type { RuleSetCommand } from "../utils/rule-set-replay";
 
 import {
   ruleSetIdFromReplayTarget,
@@ -72,7 +72,7 @@ type LocationRow = FrontendLineageEntity<
 >;
 interface LocationsManagementProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
+  onRecordCommand?: (action: RuleSetCommand) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
@@ -87,7 +87,7 @@ type PractitionersQueryResult =
 
 export function LocationsManagement({
   onDraftMutation,
-  onRegisterHistoryAction,
+  onRecordCommand,
   onRuleSetCreated,
   practiceId,
   ruleSetReplayTarget,
@@ -206,7 +206,7 @@ export function LocationsManagement({
             initialEntityId: asLocationId(updateResult.entityId),
             label: "Standort aktualisiert",
             lineageKey: editingLocation.lineageKey,
-            onRegisterHistoryAction,
+            onRecordCommand,
             redoMissingMessage:
               "Der Standort wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
             runRedo: async (currentLocationId) => {
@@ -266,7 +266,7 @@ export function LocationsManagement({
             isMissingEntityError,
             label: "Standort erstellt",
             lineageKey: locationLineageKey,
-            onRegisterHistoryAction,
+            onRecordCommand,
             runCreate: async () => {
               const recreateResult = await createLocationMutation({
                 lineageKey: locationLineageKey,
@@ -404,7 +404,7 @@ export function LocationsManagement({
 
       if (deletedSnapshot) {
         let currentLocationId = asLocationId(locationId);
-        onRegisterHistoryAction?.({
+        onRecordCommand?.({
           label: "Standort gelöscht",
           redo: async () => {
             try {

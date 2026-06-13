@@ -33,9 +33,9 @@ import { api } from "@/convex/_generated/api";
 import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
 
 import type { VersionNode } from "../components/version-graph/types";
-import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type { SchedulingSimulatedContext } from "../types";
 import type { RuleSetReplayTarget } from "../utils/cow-history";
+import type { RuleSetCommand } from "../utils/rule-set-replay";
 
 import { createSimulatedContext } from "../../lib/utils";
 import { PraxismanagerAuthGate } from "../auth/access-control";
@@ -49,7 +49,7 @@ import { RuleBuilder } from "../components/rule-builder";
 import { VacationScheduler } from "../components/vacation-scheduler";
 import { VersionGraph } from "../components/version-graph/index";
 import { useRegisterGlobalUndoRedoControls } from "../hooks/use-global-undo-redo-controls";
-import { useLocalHistory } from "../hooks/use-local-history";
+import { useCommandLedger } from "../utils/command-ledger";
 import { findIdInList } from "../utils/convex-ids";
 import { isValidDateDE } from "../utils/date-utils";
 import { useErrorTracking } from "../utils/error-tracking";
@@ -166,14 +166,14 @@ function LogicView() {
     null,
   );
   const {
-    canRedo: canRedoRegelnHistoryAction,
-    canUndo: canUndoRegelnHistoryAction,
-    clear: clearRegelnHistoryAction,
-    pushAction: pushRegelnHistoryAction,
-    redo: redoRegelnHistoryAction,
-    redoDepth: redoRegelnHistoryDepth,
-    undo: undoRegelnHistoryAction,
-  } = useLocalHistory({
+    canRedo: canRedoRegelnCommand,
+    canUndo: canUndoRegelnCommand,
+    clear: clearRegelnLedger,
+    record: recordRegelnCommandInLedger,
+    redo: redoRegelnCommand,
+    redoDepth: redoRegelnCommandDepth,
+    undo: undoRegelnCommand,
+  } = useCommandLedger<RuleSetCommand>({
     onError: (action, operation, error) => {
       captureError(error, {
         actionLabel: action.label,
@@ -183,11 +183,11 @@ function LogicView() {
     },
   });
 
-  const registerRegelnHistoryAction = useCallback(
-    (action: LocalHistoryAction) => {
-      pushRegelnHistoryAction(action);
+  const recordRegelnCommand = useCallback(
+    (command: RuleSetCommand) => {
+      recordRegelnCommandInLedger(command);
     },
-    [pushRegelnHistoryAction],
+    [recordRegelnCommandInLedger],
   );
 
   const deleteAllSimulatedDataMutation = useMutation(
@@ -633,9 +633,9 @@ function LogicView() {
       return;
     }
 
-    clearRegelnHistoryAction();
+    clearRegelnLedger();
     lastHistoryScopeRef.current = historyScopeKey;
-  }, [clearRegelnHistoryAction, historyScopeKey]);
+  }, [clearRegelnLedger, historyScopeKey]);
 
   const isRegelnHistoryTab =
     activeTab === "rule-management" || activeTab === "vacation-scheduler";
@@ -646,7 +646,7 @@ function LogicView() {
       return;
     }
 
-    const result = await undoRegelnHistoryAction();
+    const result = await undoRegelnCommand();
 
     if (result.status === "conflict") {
       toast.error("Änderung konnte nicht rückgängig gemacht werden", {
@@ -709,7 +709,7 @@ function LogicView() {
     captureError,
     currentPractice,
     discardEquivalentUnsavedRuleSetMutation,
-    undoRegelnHistoryAction,
+    undoRegelnCommand,
     unsavedRuleSet,
   ]);
 
@@ -722,14 +722,14 @@ function LogicView() {
       previousRuleSetId !== unsavedRuleSet._id;
     if (
       isRegelnHistoryTab &&
-      redoRegelnHistoryDepth > 0 &&
+      redoRegelnCommandDepth > 0 &&
       unsavedRuleSet &&
       ruleSetIdFromUrl !== unsavedRuleSet._id
     ) {
       pushUrl({ ruleSetId: unsavedRuleSet._id });
     }
 
-    const result = await redoRegelnHistoryAction();
+    const result = await redoRegelnCommand();
 
     if (result.status === "conflict") {
       if (shouldRestorePreviousRuleSet) {
@@ -753,26 +753,25 @@ function LogicView() {
   }, [
     isRegelnHistoryTab,
     pushUrl,
-    redoRegelnHistoryAction,
-    redoRegelnHistoryDepth,
+    redoRegelnCommand,
+    redoRegelnCommandDepth,
     ruleSetIdFromUrl,
     unsavedRuleSet,
   ]);
 
   const regelnUndoRedoControls = useMemo(
     () =>
-      isRegelnHistoryTab &&
-      (canUndoRegelnHistoryAction || canRedoRegelnHistoryAction)
+      isRegelnHistoryTab && (canUndoRegelnCommand || canRedoRegelnCommand)
         ? {
-            canRedo: canRedoRegelnHistoryAction,
-            canUndo: canUndoRegelnHistoryAction,
+            canRedo: canRedoRegelnCommand,
+            canUndo: canUndoRegelnCommand,
             onRedo: runRegelnRedo,
             onUndo: runRegelnUndo,
           }
         : null,
     [
-      canRedoRegelnHistoryAction,
-      canUndoRegelnHistoryAction,
+      canRedoRegelnCommand,
+      canUndoRegelnCommand,
       isRegelnHistoryTab,
       runRegelnRedo,
       runRegelnUndo,
@@ -1287,7 +1286,7 @@ function LogicView() {
                   {ruleSetReplayTarget && (
                     <AppointmentTypesManagement
                       onDraftMutation={handleDraftMutation}
-                      onRegisterHistoryAction={registerRegelnHistoryAction}
+                      onRecordCommand={recordRegelnCommand}
                       practiceId={currentPractice._id}
                       ruleSetReplayTarget={ruleSetReplayTarget}
                     />
@@ -1297,7 +1296,7 @@ function LogicView() {
                   {ruleSetReplayTarget && (
                     <PractitionerManagement
                       onDraftMutation={handleDraftMutation}
-                      onRegisterHistoryAction={registerRegelnHistoryAction}
+                      onRecordCommand={recordRegelnCommand}
                       practiceId={currentPractice._id}
                       ruleSetReplayTarget={ruleSetReplayTarget}
                     />
@@ -1307,7 +1306,7 @@ function LogicView() {
                   {ruleSetReplayTarget && (
                     <BaseScheduleManagement
                       onDraftMutation={handleDraftMutation}
-                      onRegisterHistoryAction={registerRegelnHistoryAction}
+                      onRecordCommand={recordRegelnCommand}
                       practiceId={currentPractice._id}
                       ruleSetReplayTarget={ruleSetReplayTarget}
                     />
@@ -1317,7 +1316,7 @@ function LogicView() {
                   {ruleSetReplayTarget && (
                     <LocationsManagement
                       onDraftMutation={handleDraftMutation}
-                      onRegisterHistoryAction={registerRegelnHistoryAction}
+                      onRecordCommand={recordRegelnCommand}
                       practiceId={currentPractice._id}
                       ruleSetReplayTarget={ruleSetReplayTarget}
                     />
@@ -1431,7 +1430,7 @@ function LogicView() {
                     {ruleSetReplayTarget && (
                       <RuleBuilder
                         onDraftMutation={handleDraftMutation}
-                        onRegisterHistoryAction={registerRegelnHistoryAction}
+                        onRecordCommand={recordRegelnCommand}
                         practiceId={currentPractice._id}
                         ruleSetReplayTarget={ruleSetReplayTarget}
                       />
@@ -1510,7 +1509,7 @@ function LogicView() {
                   });
                 }}
                 onDraftMutation={handleDraftMutation}
-                onRegisterHistoryAction={registerRegelnHistoryAction}
+                onRecordCommand={recordRegelnCommand}
                 practiceId={currentPractice._id}
                 ruleSetReplayTarget={ruleSetReplayTarget}
                 selectedDate={Temporal.PlainDate.from({

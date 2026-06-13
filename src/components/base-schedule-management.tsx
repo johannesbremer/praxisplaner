@@ -103,7 +103,7 @@ const formSchema = z.object({
 });
 export default function BaseScheduleManagement({
   onDraftMutation,
-  onRegisterHistoryAction,
+  onRecordCommand,
   onRuleSetCreated,
   practiceId,
   ruleSetReplayTarget,
@@ -290,7 +290,7 @@ export default function BaseScheduleManagement({
       );
 
       if (deletedSchedulePayloads.length > 0) {
-        onRegisterHistoryAction?.({
+        onRecordCommand?.({
           label: "Arbeitszeiten gelöscht",
           redo: async () => {
             const presentLineageKeys = deletedSchedulePayloads
@@ -581,7 +581,7 @@ export default function BaseScheduleManagement({
         ruleSetReplayTarget={ruleSetReplayTarget}
         schedule={editingSchedule}
         {...(onDraftMutation && { onDraftMutation })}
-        {...(onRegisterHistoryAction && { onRegisterHistoryAction })}
+        {...(onRecordCommand && { onRecordCommand })}
         {...(onRuleSetCreated && { onRuleSetCreated })}
       />
     </Card>
@@ -592,7 +592,7 @@ function BaseScheduleDialog({
   isOpen,
   onClose,
   onDraftMutation,
-  onRegisterHistoryAction,
+  onRecordCommand,
   onRuleSetCreated,
   practiceId,
   ruleSetReplayTarget,
@@ -1068,7 +1068,7 @@ function BaseScheduleDialog({
         }
 
         if (!schedule && createdSchedulePayloads.length > 0) {
-          onRegisterHistoryAction?.({
+          onRecordCommand?.({
             label: "Arbeitszeiten erstellt",
             redo: async () => {
               const missingPayloads = createdSchedulePayloads.filter(
@@ -1164,7 +1164,7 @@ function BaseScheduleDialog({
           const undoExpectedAbsentLineageKeys =
             getAbsentLineageKeysForReplacement(newLineageKeys, oldLineageKeys);
 
-          onRegisterHistoryAction?.({
+          onRecordCommand?.({
             label: "Arbeitszeiten aktualisiert",
             redo: async () => {
               const replacementSchedules = Result.combine(

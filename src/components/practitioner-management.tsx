@@ -22,12 +22,12 @@ import { api } from "@/convex/_generated/api";
 import { asPractitionerId, asPractitionerLineageKey } from "@/convex/identity";
 import { PRACTITIONER_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
-import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
+import type { RuleSetCommand } from "../utils/rule-set-replay";
 
 import {
   ruleSetIdFromReplayTarget,
@@ -53,7 +53,7 @@ interface PractitionerDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
+  onRecordCommand?: (action: RuleSetCommand) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   practitioner?: PractitionerWithLineage | undefined;
@@ -62,7 +62,7 @@ interface PractitionerDialogProps {
 
 interface PractitionerManagementProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
+  onRecordCommand?: (action: RuleSetCommand) => void;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
@@ -77,7 +77,7 @@ type PractitionerWithLineage = FrontendLineageEntity<
 
 export default function PractitionerManagement({
   onDraftMutation,
-  onRegisterHistoryAction,
+  onRecordCommand,
   onRuleSetCreated,
   practiceId,
   ruleSetReplayTarget,
@@ -155,7 +155,7 @@ export default function PractitionerManagement({
       handleDraftMutationResult(deleteResult);
       let currentSnapshot = deleteResult.snapshot;
       let currentPractitionerId = currentSnapshot.practitioner.id;
-      onRegisterHistoryAction?.({
+      onRecordCommand?.({
         label: "Arzt gelöscht",
         redo: async () => {
           const existingByLineage = findFrontendEntityByLineageKey(
@@ -355,7 +355,7 @@ export default function PractitionerManagement({
         practitioner={editingPractitioner}
         ruleSetReplayTarget={ruleSetReplayTarget}
         {...(onDraftMutation && { onDraftMutation })}
-        {...(onRegisterHistoryAction && { onRegisterHistoryAction })}
+        {...(onRecordCommand && { onRecordCommand })}
         {...(onRuleSetCreated && { onRuleSetCreated })}
       />
     </Card>
@@ -366,7 +366,7 @@ function PractitionerDialog({
   isOpen,
   onClose,
   onDraftMutation,
-  onRegisterHistoryAction,
+  onRecordCommand,
   onRuleSetCreated,
   practiceId,
   practitioner,
@@ -441,7 +441,7 @@ function PractitionerDialog({
             initialEntityId: asPractitionerId(updateResult.entityId),
             label: "Arzt aktualisiert",
             lineageKey: practitionerLineageKey,
-            onRegisterHistoryAction,
+            onRecordCommand,
             redoMissingMessage:
               "Der Arzt wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
             runRedo: async (currentPractitionerId) => {
@@ -499,7 +499,7 @@ function PractitionerDialog({
             isMissingEntityError,
             label: "Arzt erstellt",
             lineageKey: practitionerLineageKey,
-            onRegisterHistoryAction,
+            onRecordCommand,
             runCreate: async () => {
               const recreateResult = await createMutation({
                 lineageKey: practitionerLineageKey,
