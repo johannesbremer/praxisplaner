@@ -161,6 +161,8 @@ type FollowUpPlanTargetSelection = "" | AppointmentTypeLineageKey;
 interface OptimisticAppointmentTypeTreeRestore {
   appointmentTypeLineageKeys: ReadonlySet<AppointmentTypeLineageKey>;
   appointmentTypes: AppointmentType[];
+  deletedAppointmentTypeLineageKeys: ReadonlySet<AppointmentTypeLineageKey>;
+  deletedFolderLineageKeys: ReadonlySet<AppointmentTypeFolderLineageKey>;
   folderLineageKeys: ReadonlySet<AppointmentTypeFolderLineageKey>;
   folders: AppointmentTypeFolder[];
 }
@@ -545,14 +547,19 @@ const createAppointmentTypeFolderHistoryTarget = (
 const mergeAppointmentTypesByLineage = (
   baseAppointmentTypes: AppointmentType[],
   optimisticAppointmentTypes: AppointmentType[],
+  deletedLineageKeys: ReadonlySet<AppointmentTypeLineageKey>,
 ) => {
   const baseLineageKeys = new Set(
     baseAppointmentTypes.map((appointmentType) => appointmentType.lineageKey),
   );
   return [
-    ...baseAppointmentTypes,
+    ...baseAppointmentTypes.filter(
+      (appointmentType) => !deletedLineageKeys.has(appointmentType.lineageKey),
+    ),
     ...optimisticAppointmentTypes.filter(
-      (appointmentType) => !baseLineageKeys.has(appointmentType.lineageKey),
+      (appointmentType) =>
+        !deletedLineageKeys.has(appointmentType.lineageKey) &&
+        !baseLineageKeys.has(appointmentType.lineageKey),
     ),
   ];
 };
@@ -560,14 +567,19 @@ const mergeAppointmentTypesByLineage = (
 const mergeAppointmentTypeFoldersByLineage = (
   baseFolders: AppointmentTypeFolder[],
   optimisticFolders: AppointmentTypeFolder[],
+  deletedLineageKeys: ReadonlySet<AppointmentTypeFolderLineageKey>,
 ) => {
   const baseLineageKeys = new Set(
     baseFolders.map((folder) => getAppointmentTypeFolderLineageKey(folder)),
   );
   return [
-    ...baseFolders,
+    ...baseFolders.filter(
+      (folder) =>
+        !deletedLineageKeys.has(getAppointmentTypeFolderLineageKey(folder)),
+    ),
     ...optimisticFolders.filter(
       (folder) =>
+        !deletedLineageKeys.has(getAppointmentTypeFolderLineageKey(folder)) &&
         !baseLineageKeys.has(getAppointmentTypeFolderLineageKey(folder)),
     ),
   ];
@@ -707,8 +719,17 @@ export function AppointmentTypesManagement({
     const appointmentTypesCaughtUp = [
       ...optimisticTreeRestore.appointmentTypeLineageKeys,
     ].every((lineageKey) => baseAppointmentTypeLineageKeys.has(lineageKey));
+    const deletedFoldersCaughtUp = [
+      ...optimisticTreeRestore.deletedFolderLineageKeys,
+    ].every((lineageKey) => !baseFolderLineageKeys.has(lineageKey));
+    const deletedAppointmentTypesCaughtUp = [
+      ...optimisticTreeRestore.deletedAppointmentTypeLineageKeys,
+    ].every((lineageKey) => !baseAppointmentTypeLineageKeys.has(lineageKey));
 
-    return foldersCaughtUp && appointmentTypesCaughtUp
+    return foldersCaughtUp &&
+      appointmentTypesCaughtUp &&
+      deletedFoldersCaughtUp &&
+      deletedAppointmentTypesCaughtUp
       ? null
       : optimisticTreeRestore;
   }, [baseAppointmentTypeFolders, baseAppointmentTypes, optimisticTreeRestore]);
@@ -719,6 +740,7 @@ export function AppointmentTypesManagement({
         : mergeAppointmentTypesByLineage(
             baseAppointmentTypes,
             activeOptimisticTreeRestore.appointmentTypes,
+            activeOptimisticTreeRestore.deletedAppointmentTypeLineageKeys,
           ),
     [activeOptimisticTreeRestore, baseAppointmentTypes],
   );
@@ -729,6 +751,7 @@ export function AppointmentTypesManagement({
         : mergeAppointmentTypeFoldersByLineage(
             baseAppointmentTypeFolders,
             activeOptimisticTreeRestore.folders,
+            activeOptimisticTreeRestore.deletedFolderLineageKeys,
           ),
     [activeOptimisticTreeRestore, baseAppointmentTypeFolders],
   );
@@ -927,6 +950,24 @@ export function AppointmentTypesManagement({
       }),
     }),
     [practiceId],
+  );
+  const hideAppointmentTypeTreeSubtreeOptimistically = useCallback(
+    (params: {
+      appointmentTypeLineageKeys: AppointmentTypeLineageKey[];
+      folderLineageKeys: AppointmentTypeFolderLineageKey[];
+    }) => {
+      setOptimisticTreeRestore({
+        appointmentTypeLineageKeys: new Set(),
+        appointmentTypes: [],
+        deletedAppointmentTypeLineageKeys: new Set(
+          params.appointmentTypeLineageKeys,
+        ),
+        deletedFolderLineageKeys: new Set(params.folderLineageKeys),
+        folderLineageKeys: new Set(),
+        folders: [],
+      });
+    },
+    [],
   );
   const createMovedAppointmentTypeRefSnapshot = useCallback(
     (params: {
@@ -1933,6 +1974,16 @@ export function AppointmentTypesManagement({
           })
           .flatMap((snapshot) => (snapshot === undefined ? [] : [snapshot]));
       const rootFolderLineageKey = getAppointmentTypeFolderLineageKey(folder);
+      const deletedAppointmentTypeLineageKeys = appointmentTypeSnapshots.map(
+        (snapshot) => snapshot.lineageKey,
+      );
+      const deletedFolderLineageKeys = folderSnapshots.map(
+        (snapshot) => snapshot.lineageKey,
+      );
+      hideAppointmentTypeTreeSubtreeOptimistically({
+        appointmentTypeLineageKeys: deletedAppointmentTypeLineageKeys,
+        folderLineageKeys: deletedFolderLineageKeys,
+      });
       const result = await deleteAppointmentTypeFolderMutation({
         folderId: folder._id,
         practiceId,
@@ -1967,6 +2018,10 @@ export function AppointmentTypesManagement({
         label: "Ordner gelöscht",
         redo: async () => {
           try {
+            hideAppointmentTypeTreeSubtreeOptimistically({
+              appointmentTypeLineageKeys: deletedAppointmentTypeLineageKeys,
+              folderLineageKeys: deletedFolderLineageKeys,
+            });
             const redoResult = await deleteAppointmentTypeFolderMutation({
               folderId: currentFolderId,
               practiceId,
@@ -2018,23 +2073,30 @@ export function AppointmentTypesManagement({
           >();
           for (const snapshot of appointmentTypeSnapshots) {
             if (
-              hasAppointmentTypeNameConflict({
-                appointmentTypes: appointmentTypesRef.current,
-                name: snapshot.name,
-              })
+              appointmentTypesRef.current.some(
+                (appointmentType) =>
+                  appointmentType.lineageKey !== snapshot.lineageKey &&
+                  appointmentType.name === snapshot.name,
+              )
             ) {
               return {
                 message: `[HISTORY:APPOINTMENT_TYPE_NAME_CONFLICT] Die Terminart kann nicht wiederhergestellt werden, weil bereits eine andere Terminart mit dem Namen "${snapshot.name}" existiert.`,
                 status: "conflict" as const,
               };
             }
-            const existingByLineage = appointmentTypesRef.current.some(
+            const existingByLineage = appointmentTypesRef.current.find(
               (appointmentType) =>
                 appointmentType.lineageKey === snapshot.lineageKey,
             );
-            if (existingByLineage) {
+            if (
+              existingByLineage &&
+              (existingByLineage.name !== snapshot.name ||
+                existingByLineage.duration !== snapshot.duration ||
+                serializeFollowUpPlan(existingByLineage.followUpPlan) !==
+                  serializeFollowUpPlan(snapshot.followUpPlan))
+            ) {
               return {
-                message: `[HISTORY:APPOINTMENT_TYPE_LINEAGE_CONFLICT] Die Terminart mit lineageKey ${snapshot.lineageKey} existiert bereits.`,
+                message: `[HISTORY:APPOINTMENT_TYPE_LINEAGE_CONFLICT] Die Terminart mit lineageKey ${snapshot.lineageKey} existiert bereits, hat aber abweichende Einstellungen.`,
                 status: "conflict" as const,
               };
             }
@@ -2114,6 +2176,8 @@ export function AppointmentTypesManagement({
               ),
             ),
             appointmentTypes: optimisticAppointmentTypes,
+            deletedAppointmentTypeLineageKeys: new Set(),
+            deletedFolderLineageKeys: new Set(),
             folderLineageKeys: new Set(
               optimisticFolders.map((folder) =>
                 getAppointmentTypeFolderLineageKey(folder),
