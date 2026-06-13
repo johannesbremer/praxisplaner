@@ -446,6 +446,14 @@ const sanitizeTreeSegment = (value: string) =>
 
 const createTreeSegment = (name: string) => sanitizeTreeSegment(name);
 
+const normalizeTreeLookupPath = (path: null | string | undefined) => {
+  if (path === null || path === undefined) {
+    return;
+  }
+
+  return path.endsWith("/") ? path.slice(0, -1) : path;
+};
+
 const createTreeFolderArg = (
   folderId: Id<"appointmentTypeFolders"> | undefined,
 ) => (folderId === undefined ? {} : { treeFolderId: folderId });
@@ -617,7 +625,9 @@ export function AppointmentTypesManagement({
         draggedPaths.length === 1 &&
         (target.kind === "root" ||
           treeModel.itemByPath.get(
-            target.directoryPath ?? target.hoveredPath ?? "",
+            normalizeTreeLookupPath(
+              target.directoryPath ?? target.hoveredPath,
+            ) ?? "",
           )?.kind === "folder"),
       onDropComplete: (event) => {
         void handleTreeDrop(event);
@@ -1138,7 +1148,9 @@ export function AppointmentTypesManagement({
       return;
     }
 
-    const selectedItem = treeModel.itemByPath.get(selectedPath);
+    const selectedItem = treeModel.itemByPath.get(
+      normalizeTreeLookupPath(selectedPath) ?? "",
+    );
     if (selectedItem?.kind === "folder") {
       setSelectedTreeFolderId(selectedItem.id);
       return;
@@ -1157,7 +1169,9 @@ export function AppointmentTypesManagement({
         return;
       }
 
-      const selectedItem = treeModel.itemByPath.get(selectedPath);
+      const selectedItem = treeModel.itemByPath.get(
+        normalizeTreeLookupPath(selectedPath) ?? "",
+      );
       if (selectedItem?.kind === "appointmentType") {
         openEditDialog(selectedItem.appointmentType);
         return;
@@ -1318,10 +1332,14 @@ export function AppointmentTypesManagement({
       return;
     }
 
-    const draggedItem = treeModel.itemByPath.get(draggedPath);
-    const targetPath = event.target.directoryPath ?? event.target.hoveredPath;
+    const draggedItem = treeModel.itemByPath.get(
+      normalizeTreeLookupPath(draggedPath) ?? "",
+    );
+    const targetPath = normalizeTreeLookupPath(
+      event.target.directoryPath ?? event.target.hoveredPath,
+    );
     const targetItem =
-      targetPath === null || targetPath === treeModel.rootPath
+      targetPath === undefined || targetPath === treeModel.rootPath
         ? undefined
         : treeModel.itemByPath.get(targetPath);
     const parentFolderId =
@@ -2100,7 +2118,9 @@ export function AppointmentTypesManagement({
                 className="h-[420px] bg-card text-card-foreground"
                 model={fileTree.model}
                 renderContextMenu={(item: ContextMenuItem) => {
-                  const treeItem = treeModel.itemByPath.get(item.path);
+                  const treeItem = treeModel.itemByPath.get(
+                    normalizeTreeLookupPath(item.path) ?? "",
+                  );
 
                   return (
                     <div className="min-w-48 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
