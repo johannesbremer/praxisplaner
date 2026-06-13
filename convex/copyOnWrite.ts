@@ -283,7 +283,9 @@ export async function copyAppointmentTypes(
     const newFolderId = await db.insert("appointmentTypeFolders", {
       createdAt: sourceFolder.createdAt,
       lastModified: BigInt(Date.now()),
+      lineageKey: sourceFolder.lineageKey ?? sourceFolder._id,
       name: sourceFolder.name,
+      parentId: sourceFolder._id,
       practiceId,
       ruleSetId: targetRuleSetId,
     });

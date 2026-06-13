@@ -331,6 +331,7 @@ function missingLineageKeyError(params: {
   entityId: string;
   entityType:
     | "appointment type"
+    | "appointment type folder"
     | "base schedule"
     | "location"
     | "practitioner";
@@ -709,7 +710,7 @@ async function assertFolderMoveDoesNotCreateCycle(
     cursor = parent?.parentFolderId;
   }
 }
-async function requireAppointmentTypeFolderInRuleSet(
+async function resolveAppointmentTypeFolderInRuleSet(
   db: DatabaseReader,
   args: {
     folderId: Id<"appointmentTypeFolders">;
@@ -718,15 +719,51 @@ async function requireAppointmentTypeFolderInRuleSet(
   },
 ) {
   const folder = await db.get("appointmentTypeFolders", args.folderId);
-  if (
-    folder?.practiceId !== args.practiceId ||
-    folder.ruleSetId !== args.ruleSetId ||
-    isDeletedRuleSetEntity(folder)
-  ) {
-    throw new Error("Appointment type folder not found in this rule set");
+  if (!folder) {
+    const folderCopy = await db
+      .query("appointmentTypeFolders")
+      .withIndex("by_ruleSetId_lineageKey", (q) =>
+        q.eq("ruleSetId", args.ruleSetId).eq("lineageKey", args.folderId),
+      )
+      .first();
+    if (
+      folderCopy?.practiceId === args.practiceId &&
+      !isDeletedRuleSetEntity(folderCopy)
+    ) {
+      return folderCopy;
+    }
+
+    throw new Error("Appointment type folder not found");
+  }
+  if (folder.practiceId !== args.practiceId) {
+    throw new Error("Appointment type folder does not belong to this practice");
   }
 
-  return folder;
+  if (folder.ruleSetId === args.ruleSetId) {
+    if (isDeletedRuleSetEntity(folder)) {
+      throw new Error("Appointment type folder not found in this rule set");
+    }
+    return folder;
+  }
+
+  const lineageKey = folder.lineageKey ?? folder._id;
+  const folderCopy = await db
+    .query("appointmentTypeFolders")
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q.eq("ruleSetId", args.ruleSetId).eq("lineageKey", lineageKey),
+    )
+    .first();
+
+  if (
+    folderCopy?.practiceId !== args.practiceId ||
+    isDeletedRuleSetEntity(folderCopy)
+  ) {
+    throw new Error(
+      `[LINEAGE:APPOINTMENT_TYPE_FOLDER_NOT_FOUND] Terminart-Ordner mit lineageKey ${lineageKey} wurde im Ziel-Regelset ${args.ruleSetId} nicht gefunden.`,
+    );
+  }
+
+  return folderCopy;
 }
 
 const normalizeEntityName = (name: string) => name.trim();
@@ -869,13 +906,14 @@ export const createAppointmentType = mutation({
     );
     const normalizedAllowedPractitionerLineageKeys =
       allowedPractitionerLineageKeys ?? [];
-    if (args.treeFolderId !== undefined) {
-      await requireAppointmentTypeFolderInRuleSet(ctx.db, {
-        folderId: args.treeFolderId,
-        practiceId: args.practiceId,
-        ruleSetId,
-      });
-    }
+    const treeFolder =
+      args.treeFolderId === undefined
+        ? undefined
+        : await resolveAppointmentTypeFolderInRuleSet(ctx.db, {
+            folderId: args.treeFolderId,
+            practiceId: args.practiceId,
+            ruleSetId,
+          });
     const followUpPlan = await validateFollowUpPlan(
       ctx.db,
       ruleSetId,
@@ -891,7 +929,7 @@ export const createAppointmentType = mutation({
     });
     await assertTreeChildNameIsUnique(ctx.db, {
       name,
-      parentFolderId: args.treeFolderId,
+      parentFolderId: treeFolder?._id,
       ruleSetId,
     });
 
@@ -922,7 +960,7 @@ export const createAppointmentType = mutation({
           followUpPlan: followUpPlan ?? [],
           lastModified: BigInt(Date.now()),
           name,
-          treeFolderId: args.treeFolderId,
+          treeFolderId: treeFolder?._id,
         });
 
         const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
@@ -945,7 +983,7 @@ export const createAppointmentType = mutation({
       name,
       practiceId: args.practiceId,
       ruleSetId,
-      ...(args.treeFolderId && { treeFolderId: args.treeFolderId }),
+      ...(treeFolder && { treeFolderId: treeFolder._id }),
     });
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
@@ -1193,16 +1231,17 @@ export const createAppointmentTypeFolder = mutation({
       args.selectedRuleSetId,
     );
 
-    if (args.parentFolderId !== undefined && args.parentFolderId !== null) {
-      await requireAppointmentTypeFolderInRuleSet(ctx.db, {
-        folderId: args.parentFolderId,
-        practiceId: args.practiceId,
-        ruleSetId,
-      });
-    }
+    const parentFolder =
+      args.parentFolderId === undefined || args.parentFolderId === null
+        ? undefined
+        : await resolveAppointmentTypeFolderInRuleSet(ctx.db, {
+            folderId: args.parentFolderId,
+            practiceId: args.practiceId,
+            ruleSetId,
+          });
     await assertTreeChildNameIsUnique(ctx.db, {
       name,
-      parentFolderId: args.parentFolderId ?? undefined,
+      parentFolderId: parentFolder?._id,
       ruleSetId,
     });
 
@@ -1210,9 +1249,12 @@ export const createAppointmentTypeFolder = mutation({
       createdAt: BigInt(Date.now()),
       lastModified: BigInt(Date.now()),
       name,
-      ...(args.parentFolderId && { parentFolderId: args.parentFolderId }),
+      ...(parentFolder && { parentFolderId: parentFolder._id }),
       practiceId: args.practiceId,
       ruleSetId,
+    });
+    await ctx.db.patch("appointmentTypeFolders", folderId, {
+      lineageKey: folderId,
     });
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
@@ -1247,28 +1289,28 @@ export const updateAppointmentTypeFolder = mutation({
       args.expectedDraftRevision,
       args.selectedRuleSetId,
     );
-    const folder = await requireAppointmentTypeFolderInRuleSet(ctx.db, {
+    const folder = await resolveAppointmentTypeFolderInRuleSet(ctx.db, {
       folderId: args.folderId,
       practiceId: args.practiceId,
       ruleSetId,
     });
 
-    if (args.parentFolderId !== undefined && args.parentFolderId !== null) {
-      await requireAppointmentTypeFolderInRuleSet(ctx.db, {
-        folderId: args.parentFolderId,
-        practiceId: args.practiceId,
-        ruleSetId,
-      });
-    }
+    const requestedParentFolder =
+      args.parentFolderId === undefined || args.parentFolderId === null
+        ? undefined
+        : await resolveAppointmentTypeFolderInRuleSet(ctx.db, {
+            folderId: args.parentFolderId,
+            practiceId: args.practiceId,
+            ruleSetId,
+          });
     await assertFolderMoveDoesNotCreateCycle(ctx.db, {
       folderId: folder._id,
-      parentFolderId:
-        args.parentFolderId === null ? undefined : args.parentFolderId,
+      parentFolderId: requestedParentFolder?._id,
     });
     const parentFolderId =
       args.parentFolderId === undefined
         ? folder.parentFolderId
-        : (args.parentFolderId ?? undefined);
+        : requestedParentFolder?._id;
     const nextName = name ?? folder.name;
     if (nextName !== folder.name || parentFolderId !== folder.parentFolderId) {
       await assertTreeChildNameIsUnique(ctx.db, {
@@ -1311,7 +1353,7 @@ export const deleteAppointmentTypeFolder = mutation({
       args.expectedDraftRevision,
       args.selectedRuleSetId,
     );
-    const folder = await requireAppointmentTypeFolderInRuleSet(ctx.db, {
+    const folder = await resolveAppointmentTypeFolderInRuleSet(ctx.db, {
       folderId: args.folderId,
       practiceId: args.practiceId,
       ruleSetId,
@@ -1378,14 +1420,15 @@ export const moveAppointmentTypeToFolder = mutation({
       ruleSetId,
     );
 
-    if (args.treeFolderId !== undefined && args.treeFolderId !== null) {
-      await requireAppointmentTypeFolderInRuleSet(ctx.db, {
-        folderId: args.treeFolderId,
-        practiceId: args.practiceId,
-        ruleSetId,
-      });
-    }
-    const parentFolderId = args.treeFolderId ?? undefined;
+    const targetFolder =
+      args.treeFolderId === undefined || args.treeFolderId === null
+        ? undefined
+        : await resolveAppointmentTypeFolderInRuleSet(ctx.db, {
+            folderId: args.treeFolderId,
+            practiceId: args.practiceId,
+            ruleSetId,
+          });
+    const parentFolderId = targetFolder?._id;
     if (parentFolderId !== appointmentType.treeFolderId) {
       await assertTreeChildNameIsUnique(ctx.db, {
         name: appointmentType.name,
@@ -1401,7 +1444,7 @@ export const moveAppointmentTypeToFolder = mutation({
     );
     await ctx.db.patch("appointmentTypes", appointmentType._id, {
       lastModified: BigInt(Date.now()),
-      treeFolderId: args.treeFolderId === null ? undefined : args.treeFolderId,
+      treeFolderId: parentFolderId,
     });
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);

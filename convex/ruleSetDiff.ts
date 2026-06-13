@@ -24,6 +24,7 @@ type DatabaseReader = GenericDatabaseReader<DataModel>;
 
 interface RuleSetCanonicalSnapshot {
   appointmentCoverage: string[];
+  appointmentTypeFolders: string[];
   appointmentTypes: string[];
   baseSchedules: string[];
   locations: string[];
@@ -35,6 +36,7 @@ interface RuleSetCanonicalSnapshot {
 
 const canonicalSnapshotSectionTitles = {
   appointmentCoverage: "Terminverschiebungen",
+  appointmentTypeFolders: "Terminart-Ordner",
   appointmentTypes: "Terminarten",
   baseSchedules: "Arbeitszeiten",
   locations: "Standorte",
@@ -267,6 +269,7 @@ async function buildRuleSetCanonicalSnapshot(
   ruleSetId: Id<"ruleSets">,
 ): Promise<RuleSetCanonicalSnapshot> {
   const [
+    appointmentTypeFoldersRaw,
     appointmentTypesRaw,
     baseSchedules,
     locationsRaw,
@@ -275,6 +278,10 @@ async function buildRuleSetCanonicalSnapshot(
     rules,
     vacations,
   ] = await Promise.all([
+    db
+      .query("appointmentTypeFolders")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect(),
     db
       .query("appointmentTypes")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
@@ -307,6 +314,9 @@ async function buildRuleSetCanonicalSnapshot(
   const appointmentTypes = appointmentTypesRaw.filter(
     (appointmentType) => !isRuleSetEntityDeleted(appointmentType),
   );
+  const appointmentTypeFolders = appointmentTypeFoldersRaw.filter(
+    (folder) => !isRuleSetEntityDeleted(folder),
+  );
   const locations = locationsRaw.filter(
     (location) => !isRuleSetEntityDeleted(location),
   );
@@ -327,6 +337,22 @@ async function buildRuleSetCanonicalSnapshot(
     "appointment type",
   );
   const mfaNameByReference = createEntityNameLookup(mfas, "mfa");
+  const appointmentTypeFolderPathById = createAppointmentTypeFolderPathLookup(
+    appointmentTypeFolders,
+  );
+
+  const canonicalAppointmentTypeFolders = appointmentTypeFolders
+    .map((folder) =>
+      JSON.stringify({
+        __diffKey: getAppointmentTypeFolderDiffKey(folder),
+        name: folder.name,
+        parentFolderPath: folder.parentFolderId
+          ? (appointmentTypeFolderPathById.get(folder.parentFolderId) ??
+            "Unbekannter Ordner")
+          : null,
+      }),
+    )
+    .toSorted();
 
   const canonicalPractitioners = practitioners
     .map((practitioner) =>
@@ -377,6 +403,10 @@ async function buildRuleSetCanonicalSnapshot(
           ),
         ),
         duration: appointmentType.duration,
+        folderPath: appointmentType.treeFolderId
+          ? (appointmentTypeFolderPathById.get(appointmentType.treeFolderId) ??
+            "Unbekannter Ordner")
+          : null,
         followUpPlan:
           appointmentType.followUpPlan?.map((step) => ({
             appointmentTypeName:
@@ -477,6 +507,7 @@ async function buildRuleSetCanonicalSnapshot(
 
   return {
     appointmentCoverage: [],
+    appointmentTypeFolders: canonicalAppointmentTypeFolders,
     appointmentTypes: canonicalAppointmentTypes,
     baseSchedules: canonicalBaseSchedules,
     locations: canonicalLocations,
@@ -485,6 +516,41 @@ async function buildRuleSetCanonicalSnapshot(
     rules: canonicalRules,
     vacations: canonicalVacations,
   };
+}
+
+function createAppointmentTypeFolderPathLookup(
+  folders: Doc<"appointmentTypeFolders">[],
+) {
+  const folderById = new Map(folders.map((folder) => [folder._id, folder]));
+  const pathById = new Map<Id<"appointmentTypeFolders">, string>();
+
+  const resolvePath = (
+    folder: Doc<"appointmentTypeFolders">,
+    visitedIds: ReadonlySet<Id<"appointmentTypeFolders">>,
+  ): string => {
+    const cachedPath = pathById.get(folder._id);
+    if (cachedPath) {
+      return cachedPath;
+    }
+
+    if (!folder.parentFolderId || visitedIds.has(folder._id)) {
+      pathById.set(folder._id, folder.name);
+      return folder.name;
+    }
+
+    const parentFolder = folderById.get(folder.parentFolderId);
+    const path = parentFolder
+      ? `${resolvePath(parentFolder, new Set([...visitedIds, folder._id]))}/${folder.name}`
+      : folder.name;
+    pathById.set(folder._id, path);
+    return path;
+  };
+
+  for (const folder of folders) {
+    resolvePath(folder, new Set());
+  }
+
+  return pathById;
 }
 
 function createEntityNameLookup(
@@ -509,6 +575,12 @@ function createEntityNameLookup(
     ];
   });
   return new Map(entries);
+}
+
+function getAppointmentTypeFolderDiffKey(
+  folder: Pick<Doc<"appointmentTypeFolders">, "_id" | "lineageKey">,
+) {
+  return folder.lineageKey ?? folder._id;
 }
 
 function getMultisetDifference(values: string[], comparison: string[]) {
