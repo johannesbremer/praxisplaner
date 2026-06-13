@@ -1430,6 +1430,10 @@ export function AppointmentTypesManagement({
                 ...getCowMutationArgs(),
               });
               handleDraftMutationResult(undoResult);
+              hideAppointmentTypeTreeSubtreeOptimistically({
+                appointmentTypeLineageKeys: [appointmentTypeLineageKey],
+                folderLineageKeys: [],
+              });
               return { entityId: undoResult.entityId };
             },
             validateBeforeCreate: () => {
@@ -1866,6 +1870,10 @@ export function AppointmentTypesManagement({
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(undoResult);
+            hideAppointmentTypeTreeSubtreeOptimistically({
+              appointmentTypeLineageKeys: [],
+              folderLineageKeys: [folderLineageKey],
+            });
             removeAppointmentTypeFolderFromRef({
               id: currentFolderId,
               lineageKey: folderLineageKey,
