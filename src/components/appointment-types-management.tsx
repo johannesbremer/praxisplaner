@@ -679,6 +679,7 @@ export function AppointmentTypesManagement({
     ruleSetReplayTargetRef.current = ruleSetReplayTarget;
   }, [ruleSetReplayTarget]);
   const treePointerDownRef = useRef<null | {
+    canOpenItem: boolean;
     path: string;
     x: number;
     y: number;
@@ -1197,7 +1198,7 @@ export function AppointmentTypesManagement({
   );
 
   useEffect(() => {
-    const getTreeItemPath = (event: PointerEvent) => {
+    const getTreeItemClickTarget = (event: PointerEvent) => {
       const treeHost = document.querySelector("file-tree-container");
       if (!treeHost) {
         return;
@@ -1212,7 +1213,26 @@ export function AppointmentTypesManagement({
         (node): node is HTMLElement =>
           node instanceof HTMLElement && node.dataset["itemPath"] !== undefined,
       );
-      return treeItem?.dataset["itemPath"];
+      const itemPath = treeItem?.dataset["itemPath"];
+      if (!itemPath) {
+        return;
+      }
+
+      const itemSection = composedPath.find(
+        (node): node is HTMLElement =>
+          node instanceof HTMLElement &&
+          node.dataset["itemSection"] !== undefined,
+      )?.dataset["itemSection"];
+      const item = treeModelRef.current.itemByPath.get(
+        normalizeTreeLookupPath(itemPath) ?? "",
+      );
+      const isFolderChevronClick =
+        item?.kind === "folder" && itemSection === "icon";
+
+      return {
+        canOpenItem: !isFolderChevronClick,
+        path: itemPath,
+      };
     };
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -1220,12 +1240,13 @@ export function AppointmentTypesManagement({
         treePointerDownRef.current = null;
         return;
       }
-      const path = getTreeItemPath(event);
+      const target = getTreeItemClickTarget(event);
       treePointerDownRef.current =
-        path === undefined
+        target === undefined
           ? null
           : {
-              path,
+              canOpenItem: target.canOpenItem,
+              path: target.path,
               x: event.clientX,
               y: event.clientY,
             };
@@ -1242,8 +1263,12 @@ export function AppointmentTypesManagement({
         return;
       }
 
-      const path = getTreeItemPath(event);
+      const target = getTreeItemClickTarget(event);
+      const path = target?.path;
       if (path !== pointerDown.path) {
+        return;
+      }
+      if (!pointerDown.canOpenItem || target?.canOpenItem === false) {
         return;
       }
 
@@ -1631,6 +1656,7 @@ export function AppointmentTypesManagement({
                               </FieldLabel>
                               <Input
                                 aria-invalid={isInvalid}
+                                autoFocus
                                 id="appointment-type-name"
                                 onBlur={field.handleBlur}
                                 onChange={(e) => {
@@ -2094,52 +2120,55 @@ export function AppointmentTypesManagement({
             open={isFolderDialogOpen}
           >
             <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingAppointmentTypeFolder
-                    ? "Ordner umbenennen"
-                    : "Neuer Ordner"}
-                </DialogTitle>
-                <DialogDescription>
-                  {editingAppointmentTypeFolder
-                    ? "Benennen Sie den Terminart-Ordner um."
-                    : "Erstellen Sie einen Ordner für Terminarten."}
-                </DialogDescription>
-              </DialogHeader>
-              <Field>
-                <FieldLabel htmlFor="appointment-type-folder-name">
-                  Ordnername
-                </FieldLabel>
-                <Input
-                  id="appointment-type-folder-name"
-                  onChange={(event) => {
-                    setCreateFolderName(event.target.value);
-                  }}
-                  value={createFolderName}
-                />
-              </Field>
-              <DialogFooter>
-                <Button
-                  onClick={() => {
-                    setIsFolderDialogOpen(false);
-                    setEditingAppointmentTypeFolder(null);
-                    setCreateFolderParentId(undefined);
-                    setCreateFolderName("");
-                  }}
-                  type="button"
-                  variant="outline"
-                >
-                  Abbrechen
-                </Button>
-                <Button
-                  onClick={() => {
-                    void handleSubmitFolder();
-                  }}
-                  type="button"
-                >
-                  {editingAppointmentTypeFolder ? "Umbenennen" : "Erstellen"}
-                </Button>
-              </DialogFooter>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handleSubmitFolder();
+                }}
+              >
+                <DialogHeader>
+                  <DialogTitle>
+                    {editingAppointmentTypeFolder
+                      ? "Ordner umbenennen"
+                      : "Neuer Ordner"}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {editingAppointmentTypeFolder
+                      ? "Benennen Sie den Terminart-Ordner um."
+                      : "Erstellen Sie einen Ordner für Terminarten."}
+                  </DialogDescription>
+                </DialogHeader>
+                <Field className="mt-4">
+                  <FieldLabel htmlFor="appointment-type-folder-name">
+                    Ordnername
+                  </FieldLabel>
+                  <Input
+                    autoFocus
+                    id="appointment-type-folder-name"
+                    onChange={(event) => {
+                      setCreateFolderName(event.target.value);
+                    }}
+                    value={createFolderName}
+                  />
+                </Field>
+                <DialogFooter className="mt-6">
+                  <Button
+                    onClick={() => {
+                      setIsFolderDialogOpen(false);
+                      setEditingAppointmentTypeFolder(null);
+                      setCreateFolderParentId(undefined);
+                      setCreateFolderName("");
+                    }}
+                    type="button"
+                    variant="outline"
+                  >
+                    Abbrechen
+                  </Button>
+                  <Button type="submit">
+                    {editingAppointmentTypeFolder ? "Umbenennen" : "Erstellen"}
+                  </Button>
+                </DialogFooter>
+              </form>
             </DialogContent>
           </Dialog>
         </div>
