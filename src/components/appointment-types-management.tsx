@@ -1643,6 +1643,13 @@ export function AppointmentTypesManagement({
         });
       } else {
         const parentFolderId = createFolderParentId;
+        const parentFolderTarget = createAppointmentTypeFolderHistoryTarget(
+          parentFolderId
+            ? appointmentTypeFoldersRef.current.find(
+                (folder) => folder._id === parentFolderId,
+              )
+            : undefined,
+        );
         const result = await createAppointmentTypeFolderMutation({
           name,
           practiceId,
@@ -1668,9 +1675,14 @@ export function AppointmentTypesManagement({
           lineageKey: folderLineageKey,
           onRegisterHistoryAction,
           runCreate: async () => {
+            const resolvedParent =
+              resolveFolderHistoryTarget(parentFolderTarget);
+            if (resolvedParent.status === "conflict") {
+              return resolvedParent;
+            }
             const createConflict = validateTreeChildNameForHistory({
               name,
-              parentFolderId,
+              parentFolderId: resolvedParent.folderId,
             });
             if (createConflict) {
               return { message: createConflict, status: "conflict" as const };
@@ -1679,7 +1691,7 @@ export function AppointmentTypesManagement({
               lineageKey: folderLineageKey,
               name,
               practiceId,
-              ...createParentFolderArg(parentFolderId),
+              ...createParentFolderArg(resolvedParent.folderId),
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(recreateResult);
@@ -1688,7 +1700,7 @@ export function AppointmentTypesManagement({
                 id: recreateResult.entityId,
                 lineageKey: folderLineageKey,
                 name,
-                parentFolderId,
+                parentFolderId: resolvedParent.folderId,
                 ruleSetId: recreateResult.ruleSetId,
               }),
               { previousLineageKey: folderLineageKey },
@@ -1708,8 +1720,13 @@ export function AppointmentTypesManagement({
             });
             return { entityId: undoResult.entityId };
           },
-          validateBeforeCreate: () =>
-            validateTreeChildNameForHistory({ name, parentFolderId }),
+          validateBeforeCreate: () => {
+            const validation = validateTreeChildNameForHistoryTarget({
+              name,
+              target: parentFolderTarget,
+            });
+            return validation.status === "conflict" ? validation.message : null;
+          },
         });
       }
       setIsFolderDialogOpen(false);
