@@ -1929,6 +1929,45 @@ export function AppointmentTypesManagement({
           }
         },
         undo: async () => {
+          const resolvedPractitionerIdsByAppointmentTypeLineage = new Map<
+            AppointmentTypeLineageKey,
+            Id<"practitioners">[]
+          >();
+          for (const snapshot of appointmentTypeSnapshots) {
+            if (
+              hasAppointmentTypeNameConflict({
+                appointmentTypes: appointmentTypesRef.current,
+                name: snapshot.name,
+              })
+            ) {
+              return {
+                message: `[HISTORY:APPOINTMENT_TYPE_NAME_CONFLICT] Die Terminart kann nicht wiederhergestellt werden, weil bereits eine andere Terminart mit dem Namen "${snapshot.name}" existiert.`,
+                status: "conflict" as const,
+              };
+            }
+            const existingByLineage = appointmentTypesRef.current.some(
+              (appointmentType) =>
+                appointmentType.lineageKey === snapshot.lineageKey,
+            );
+            if (existingByLineage) {
+              return {
+                message: `[HISTORY:APPOINTMENT_TYPE_LINEAGE_CONFLICT] Die Terminart mit lineageKey ${snapshot.lineageKey} existiert bereits.`,
+                status: "conflict" as const,
+              };
+            }
+            const resolvedPractitionerIds = practitionerIdsFromSnapshots(
+              practitionersRef.current,
+              snapshot.practitionerSnapshots,
+            );
+            if ("status" in resolvedPractitionerIds) {
+              return resolvedPractitionerIds;
+            }
+            resolvedPractitionerIdsByAppointmentTypeLineage.set(
+              snapshot.lineageKey,
+              resolvedPractitionerIds.ids,
+            );
+          }
+
           const restoredFolderIds = new Map<
             AppointmentTypeFolderLineageKey,
             Id<"appointmentTypeFolders">
@@ -1983,19 +2022,23 @@ export function AppointmentTypesManagement({
                 status: "conflict" as const,
               };
             }
-            const resolvedPractitionerIds = practitionerIdsFromSnapshots(
-              practitionersRef.current,
-              snapshot.practitionerSnapshots,
-            );
-            if ("status" in resolvedPractitionerIds) {
-              return resolvedPractitionerIds;
+            const practitionerIds =
+              resolvedPractitionerIdsByAppointmentTypeLineage.get(
+                snapshot.lineageKey,
+              );
+            if (practitionerIds === undefined) {
+              return {
+                message:
+                  "Die Terminart konnte nicht wiederhergestellt werden, weil ihre Behandler nicht aufgeloest werden konnten.",
+                status: "conflict" as const,
+              };
             }
             const recreateResult = await createAppointmentTypeMutation({
               duration: snapshot.duration,
               lineageKey: snapshot.lineageKey,
               name: snapshot.name,
               practiceId,
-              practitionerIds: resolvedPractitionerIds.ids,
+              practitionerIds,
               treeFolderId,
               ...getCowMutationArgs(),
               ...createFollowUpPlanCreateArgs(snapshot.followUpPlan),

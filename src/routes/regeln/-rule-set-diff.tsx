@@ -97,6 +97,11 @@ const StructuredValueDiffView = React.lazy(() =>
   })),
 );
 
+interface AppointmentTypeTreePath {
+  isFolder: boolean;
+  segments: string[];
+}
+
 function buildAppointmentTypeTreeDiffText({
   appointmentTypes,
   folders,
@@ -104,7 +109,7 @@ function buildAppointmentTypeTreeDiffText({
   appointmentTypes: string[];
   folders: string[];
 }) {
-  const folderPaths = folders.flatMap((value) => {
+  const folderPaths = folders.flatMap((value): AppointmentTypeTreePath[] => {
     const parsed = parseDiffValue(value);
     if (!parsed) {
       return [];
@@ -114,37 +119,49 @@ function buildAppointmentTypeTreeDiffText({
       return [];
     }
     const parentPath = stringValue(parsed["parentFolderPath"]);
-    return [`${parentPath ? `${parentPath}/` : ""}${name}/`];
+    return [
+      {
+        isFolder: true,
+        segments: [...splitStoredFolderPath(parentPath), name],
+      },
+    ];
   });
-  const appointmentTypePaths = appointmentTypes.flatMap((value) => {
-    const parsed = parseDiffValue(value);
-    if (!parsed) {
-      return [];
-    }
-    const name = stringValue(parsed["name"]);
-    if (!name) {
-      return [];
-    }
-    const folderPath = stringValue(parsed["folderPath"]);
-    const duration = stringValue(parsed["duration"]);
-    const followUpPlan = Array.isArray(parsed["followUpPlan"])
-      ? parsed["followUpPlan"]
-      : [];
-    const practitioners = Array.isArray(parsed["allowedPractitioners"])
-      ? parsed["allowedPractitioners"]
-          .filter((entry) => typeof entry === "string")
-          .join(", ")
-      : "";
-    const metadata = [
-      duration ? `${duration} Min.` : "",
-      practitioners ? `Behandler: ${practitioners}` : "",
-      formatAppointmentTypeTreeFollowUpPlan(followUpPlan),
-    ]
-      .filter(Boolean)
-      .join(", ");
-    const label = metadata ? `${name} (${metadata})` : name;
-    return [folderPath ? `${folderPath}/${label}` : label];
-  });
+  const appointmentTypePaths = appointmentTypes.flatMap(
+    (value): AppointmentTypeTreePath[] => {
+      const parsed = parseDiffValue(value);
+      if (!parsed) {
+        return [];
+      }
+      const name = stringValue(parsed["name"]);
+      if (!name) {
+        return [];
+      }
+      const folderPath = stringValue(parsed["folderPath"]);
+      const duration = stringValue(parsed["duration"]);
+      const followUpPlan = Array.isArray(parsed["followUpPlan"])
+        ? parsed["followUpPlan"]
+        : [];
+      const practitioners = Array.isArray(parsed["allowedPractitioners"])
+        ? parsed["allowedPractitioners"]
+            .filter((entry) => typeof entry === "string")
+            .join(", ")
+        : "";
+      const metadata = [
+        duration ? `${duration} Min.` : "",
+        practitioners ? `Behandler: ${practitioners}` : "",
+        formatAppointmentTypeTreeFollowUpPlan(followUpPlan),
+      ]
+        .filter(Boolean)
+        .join(", ");
+      const label = metadata ? `${name} (${metadata})` : name;
+      return [
+        {
+          isFolder: false,
+          segments: [...splitStoredFolderPath(folderPath), label],
+        },
+      ];
+    },
+  );
 
   return renderIndentedTree([...folderPaths, ...appointmentTypePaths]);
 }
@@ -1159,8 +1176,9 @@ function parseRuleDiffTree(
 }
 
 const APPOINTMENT_TYPE_TREE_ROOT_KEY = "\0appointment-type-tree-root";
+const APPOINTMENT_TYPE_TREE_KEY_SEPARATOR = "\0";
 
-function renderIndentedTree(paths: string[]) {
+function renderIndentedTree(paths: AppointmentTypeTreePath[]) {
   if (paths.length === 0) {
     return "";
   }
@@ -1169,18 +1187,20 @@ function renderIndentedTree(paths: string[]) {
     [APPOINTMENT_TYPE_TREE_ROOT_KEY, "Terminarten/"],
   ]);
 
-  for (const path of paths.toSorted()) {
-    const segments = path.split("/").filter(Boolean);
+  for (const path of paths.toSorted((left, right) =>
+    left.segments.join("\0").localeCompare(right.segments.join("\0")),
+  )) {
+    const { segments } = path;
     for (const [index, segment] of segments.entries()) {
       const key = [
         APPOINTMENT_TYPE_TREE_ROOT_KEY,
         ...segments.slice(0, index + 1),
-      ].join("/");
+      ].join(APPOINTMENT_TYPE_TREE_KEY_SEPARATOR);
       const isLeaf = index === segments.length - 1;
       if (lines.has(key)) {
         continue;
       }
-      const suffix = isLeaf && !path.endsWith("/") ? "" : "/";
+      const suffix = isLeaf && !path.isFolder ? "" : "/";
       lines.set(key, `${"  ".repeat(index + 1)}${segment}${suffix}`);
     }
   }
@@ -1392,6 +1412,12 @@ function SaveDialogForm({
       </DialogFooter>
     </form>
   );
+}
+
+function splitStoredFolderPath(path: string | undefined) {
+  return path === undefined || path === ""
+    ? []
+    : path.split("/").filter(Boolean);
 }
 
 function stringValue(value: unknown) {
