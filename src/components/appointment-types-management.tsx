@@ -619,12 +619,16 @@ export function AppointmentTypesManagement({
     () => buildAppointmentTreeModel(appointmentTypes, appointmentTypeFolders),
     [appointmentTypeFolders, appointmentTypes],
   );
+  const treeModelRef = useRef(treeModel);
+  useEffect(() => {
+    treeModelRef.current = treeModel;
+  }, [treeModel]);
   const fileTree = useFileTree({
     dragAndDrop: {
       canDrop: ({ draggedPaths, target }) =>
         draggedPaths.length === 1 &&
         (target.kind === "root" ||
-          treeModel.itemByPath.get(
+          treeModelRef.current.itemByPath.get(
             normalizeTreeLookupPath(
               target.directoryPath ?? target.hoveredPath,
             ) ?? "",
@@ -1148,7 +1152,7 @@ export function AppointmentTypesManagement({
       return;
     }
 
-    const selectedItem = treeModel.itemByPath.get(
+    const selectedItem = treeModelRef.current.itemByPath.get(
       normalizeTreeLookupPath(selectedPath) ?? "",
     );
     if (selectedItem?.kind === "folder") {
@@ -1169,7 +1173,7 @@ export function AppointmentTypesManagement({
         return;
       }
 
-      const selectedItem = treeModel.itemByPath.get(
+      const selectedItem = treeModelRef.current.itemByPath.get(
         normalizeTreeLookupPath(selectedPath) ?? "",
       );
       if (selectedItem?.kind === "appointmentType") {
@@ -1189,7 +1193,7 @@ export function AppointmentTypesManagement({
         openEditDialog(appointmentType);
       }
     },
-    [openEditDialog, treeModel.itemByPath],
+    [openEditDialog],
   );
 
   useEffect(() => {
@@ -1332,16 +1336,17 @@ export function AppointmentTypesManagement({
       return;
     }
 
-    const draggedItem = treeModel.itemByPath.get(
+    const currentTreeModel = treeModelRef.current;
+    const draggedItem = currentTreeModel.itemByPath.get(
       normalizeTreeLookupPath(draggedPath) ?? "",
     );
     const targetPath = normalizeTreeLookupPath(
       event.target.directoryPath ?? event.target.hoveredPath,
     );
     const targetItem =
-      targetPath === undefined || targetPath === treeModel.rootPath
+      targetPath === undefined || targetPath === currentTreeModel.rootPath
         ? undefined
-        : treeModel.itemByPath.get(targetPath);
+        : currentTreeModel.itemByPath.get(targetPath);
     const parentFolderId =
       targetItem?.kind === "folder" ? targetItem.id : undefined;
 
@@ -2118,9 +2123,8 @@ export function AppointmentTypesManagement({
                 className="h-[420px] bg-card text-card-foreground"
                 model={fileTree.model}
                 renderContextMenu={(item: ContextMenuItem) => {
-                  const treeItem = treeModel.itemByPath.get(
-                    normalizeTreeLookupPath(item.path) ?? "",
-                  );
+                  const itemPath = normalizeTreeLookupPath(item.path);
+                  const treeItem = treeModel.itemByPath.get(itemPath ?? "");
 
                   return (
                     <div className="min-w-48 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
@@ -2182,7 +2186,7 @@ export function AppointmentTypesManagement({
                           </button>
                         </>
                       )}
-                      {item.path === treeModel.rootPath && (
+                      {itemPath === treeModel.rootPath && (
                         <>
                           <button
                             className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
