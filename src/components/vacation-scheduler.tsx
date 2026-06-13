@@ -69,6 +69,7 @@ import {
   getPublicHolidayName,
   getPublicHolidaysData,
 } from "../utils/public-holidays";
+import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
   formatDateFull,
   zonedDateTimeStringResult,
@@ -659,7 +660,24 @@ export function VacationScheduler({
     const nextSnapshots = await setVacationsForDay(staff, date, nextPortions, {
       clearSnapshots: previousSnapshots,
     });
+    const beforeSnapshot = encodeRuleSetSnapshot({
+      date: date.toString(),
+      portions: previousSnapshots,
+      staff,
+    });
+    const afterSnapshot = encodeRuleSetSnapshot({
+      date: date.toString(),
+      portions: nextSnapshots,
+      staff,
+    });
+    const commandKind =
+      previousSnapshots.length === 0
+        ? "absence.create"
+        : nextSnapshots.length === 0
+          ? "absence.delete"
+          : "absence.update";
     onRecordCommand?.({
+      kind: commandKind,
       label,
       redo: async () => {
         await setVacationsForDay(staff, date, nextPortions, {
@@ -667,6 +685,13 @@ export function VacationScheduler({
           createSnapshots: nextSnapshots,
         });
         return { status: "applied" as const };
+      },
+      snapshots: {
+        after: afterSnapshot,
+        before: beforeSnapshot,
+      },
+      target: {
+        lineageKey: staff.lineageKey,
       },
       undo: async () => {
         await setVacationsForDay(
