@@ -89,6 +89,7 @@ import {
   findFrontendEntityByEntityId,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
+import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 type AppointmentTreeItem =
   | {
       appointmentType: AppointmentType;
@@ -1251,6 +1252,8 @@ export function AppointmentTypesManagement({
           const afterPractitionerSnapshots = createPractitionerSnapshots(
             resolvedFormPractitionerIds.ids,
           );
+          const beforeSnapshot = encodeRuleSetSnapshot(beforeState);
+          const afterSnapshot = encodeRuleSetSnapshot(afterState);
 
           // Update existing appointment type
           const updateResult = await updateAppointmentTypeMutation({
@@ -1279,6 +1282,7 @@ export function AppointmentTypesManagement({
           registerLineageUpdateHistoryAction({
             entitiesRef: appointmentTypesRef,
             initialEntityId: updateResult.entityId,
+            kind: "appointmentType.update",
             label: "Terminart aktualisiert",
             lineageKey: appointmentTypeLineageKey,
             onRecordCommand,
@@ -1325,6 +1329,10 @@ export function AppointmentTypesManagement({
               });
               handleDraftMutationResult(undoResult);
               return { entityId: undoResult.entityId };
+            },
+            snapshots: {
+              after: afterSnapshot,
+              before: beforeSnapshot,
             },
             undoMissingMessage:
               "Die Terminart wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
@@ -1403,11 +1411,21 @@ export function AppointmentTypesManagement({
             ...createTreeFolderArg(newAppointmentTypeFolderId),
           });
           const { entityId } = createResult;
+          const createdSnapshot = encodeRuleSetSnapshot({
+            duration: parsedValue.duration,
+            followUpPlan: normalizedFollowUpPlan,
+            name: normalizedName,
+            practitionerLineageKeys: toSnapshotLineageIds(
+              formPractitionerSnapshots,
+            ),
+            treeFolderId: newAppointmentTypeFolderId,
+          });
 
           registerLineageCreateHistoryAction({
             entitiesRef: appointmentTypesRef,
             initialEntityId: entityId,
             isMissingEntityError,
+            kind: "appointmentType.create",
             label: "Terminart erstellt",
             lineageKey: appointmentTypeLineageKey,
             onRecordCommand,
@@ -1438,6 +1456,9 @@ export function AppointmentTypesManagement({
                 folderLineageKeys: [],
               });
               return { entityId: undoResult.entityId };
+            },
+            snapshots: {
+              after: createdSnapshot,
             },
             validateBeforeCreate: () => {
               const existingByName = appointmentTypesRef.current.some(
@@ -1729,9 +1750,32 @@ export function AppointmentTypesManagement({
           }),
           { previousLineageKey: folderLineageKey },
         );
+        const previousFolderSnapshot = encodeRuleSetSnapshot({
+          lineageKey: folderLineageKey,
+          name: previousName,
+          parent: createAppointmentTypeFolderHistoryTarget(
+            parentFolderId
+              ? appointmentTypeFoldersRef.current.find(
+                  (folder) => folder._id === parentFolderId,
+                )
+              : undefined,
+          ),
+        });
+        const renamedFolderSnapshot = encodeRuleSetSnapshot({
+          lineageKey: folderLineageKey,
+          name,
+          parent: createAppointmentTypeFolderHistoryTarget(
+            parentFolderId
+              ? appointmentTypeFoldersRef.current.find(
+                  (folder) => folder._id === parentFolderId,
+                )
+              : undefined,
+          ),
+        });
         registerLineageUpdateHistoryAction({
           entitiesRef: appointmentTypeFoldersRef,
           initialEntityId: result.entityId,
+          kind: "appointmentType.update",
           label: "Ordner umbenannt",
           lineageKey: folderLineageKey,
           onRecordCommand,
@@ -1776,6 +1820,10 @@ export function AppointmentTypesManagement({
               { previousLineageKey: folderLineageKey },
             );
             return { entityId: undoResult.entityId };
+          },
+          snapshots: {
+            after: renamedFolderSnapshot,
+            before: previousFolderSnapshot,
           },
           undoMissingMessage:
             "Der Ordner wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
@@ -1826,10 +1874,16 @@ export function AppointmentTypesManagement({
             ruleSetId: result.ruleSetId,
           }),
         );
+        const createdFolderSnapshot = encodeRuleSetSnapshot({
+          lineageKey: folderLineageKey,
+          name,
+          parent: parentFolderTarget,
+        });
         registerLineageCreateHistoryAction({
           entitiesRef: appointmentTypeFoldersRef,
           initialEntityId: result.entityId,
           isMissingEntityError,
+          kind: "appointmentType.create",
           label: "Ordner erstellt",
           lineageKey: folderLineageKey,
           onRecordCommand,
@@ -1886,6 +1940,9 @@ export function AppointmentTypesManagement({
               lineageKey: folderLineageKey,
             });
             return { entityId: undoResult.entityId };
+          },
+          snapshots: {
+            after: createdFolderSnapshot,
           },
           validateBeforeCreate: () => {
             const validation = validateTreeChildNameForHistoryTarget({
@@ -2057,7 +2114,13 @@ export function AppointmentTypesManagement({
         }
       }
       let currentFolderId = result.entityId;
+      const deletedSubtreeSnapshot = encodeRuleSetSnapshot({
+        appointmentTypes: appointmentTypeSnapshots,
+        folders: folderSnapshots,
+        rootFolderLineageKey,
+      });
       onRecordCommand?.({
+        kind: "appointmentType.delete",
         label: "Ordner gelöscht",
         redo: async () => {
           try {
@@ -2109,6 +2172,13 @@ export function AppointmentTypesManagement({
               status: "conflict" as const,
             };
           }
+        },
+        snapshots: {
+          before: deletedSubtreeSnapshot,
+        },
+        target: {
+          entityId: result.entityId,
+          lineageKey: rootFolderLineageKey,
         },
         undo: async () => {
           const resolvedPractitionerIdsByAppointmentTypeLineage = new Map<
@@ -2415,9 +2485,18 @@ export function AppointmentTypesManagement({
           }),
           { previousLineageKey: appointmentTypeLineageKey },
         );
+        const previousMoveSnapshot = encodeRuleSetSnapshot({
+          lineageKey: appointmentTypeLineageKey,
+          parent: previousFolderTarget,
+        });
+        const targetMoveSnapshot = encodeRuleSetSnapshot({
+          lineageKey: appointmentTypeLineageKey,
+          parent: targetFolderTarget,
+        });
         registerLineageUpdateHistoryAction({
           entitiesRef: appointmentTypesRef,
           initialEntityId: result.entityId,
+          kind: "appointmentType.move",
           label: "Terminart verschoben",
           lineageKey: appointmentTypeLineageKey,
           onRecordCommand,
@@ -2470,6 +2549,10 @@ export function AppointmentTypesManagement({
               { previousLineageKey: appointmentTypeLineageKey },
             );
             return { entityId: undoResult.entityId };
+          },
+          snapshots: {
+            after: targetMoveSnapshot,
+            before: previousMoveSnapshot,
           },
           undoMissingMessage:
             "Die Terminart wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
@@ -2539,9 +2622,18 @@ export function AppointmentTypesManagement({
           }),
           { previousLineageKey: folderLineageKey },
         );
+        const previousFolderMoveSnapshot = encodeRuleSetSnapshot({
+          lineageKey: folderLineageKey,
+          parent: previousParentTarget,
+        });
+        const targetFolderMoveSnapshot = encodeRuleSetSnapshot({
+          lineageKey: folderLineageKey,
+          parent: targetParentTarget,
+        });
         registerLineageUpdateHistoryAction({
           entitiesRef: appointmentTypeFoldersRef,
           initialEntityId: result.entityId,
+          kind: "appointmentType.move",
           label: "Ordner verschoben",
           lineageKey: folderLineageKey,
           onRecordCommand,
@@ -2596,6 +2688,10 @@ export function AppointmentTypesManagement({
               { previousLineageKey: folderLineageKey },
             );
             return { entityId: undoResult.entityId };
+          },
+          snapshots: {
+            after: targetFolderMoveSnapshot,
+            before: previousFolderMoveSnapshot,
           },
           undoMissingMessage:
             "Der Ordner wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
@@ -2675,8 +2771,13 @@ export function AppointmentTypesManagement({
       });
 
       let currentAppointmentTypeId = appointmentType._id;
+      const deletedAppointmentTypeSnapshot = encodeRuleSetSnapshot({
+        ...deletedSnapshot,
+        practitionerSnapshots: deletedPractitionerSnapshots,
+      });
 
       onRecordCommand?.({
+        kind: "appointmentType.delete",
         label: "Terminart gelöscht",
         redo: async () => {
           try {
@@ -2700,6 +2801,13 @@ export function AppointmentTypesManagement({
               status: "conflict" as const,
             };
           }
+        },
+        snapshots: {
+          before: deletedAppointmentTypeSnapshot,
+        },
+        target: {
+          entityId: appointmentType._id,
+          lineageKey: deletedSnapshot.lineageKey,
         },
         undo: async () => {
           const { selectedRuleSetId } = getCowMutationArgs();

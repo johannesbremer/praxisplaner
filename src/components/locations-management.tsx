@@ -55,6 +55,7 @@ import {
   findFrontendEntityByLineageKey,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
+import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 
 const isMissingEntityError = (error: unknown) =>
   isMissingRuleSetEntityError(error, LOCATION_MISSING_ENTITY_REGEX);
@@ -204,6 +205,7 @@ export function LocationsManagement({
           registerLineageUpdateHistoryAction({
             entitiesRef: locationsRef,
             initialEntityId: asLocationId(updateResult.entityId),
+            kind: "location.update",
             label: "Standort aktualisiert",
             lineageKey: editingLocation.lineageKey,
             onRecordCommand,
@@ -228,6 +230,16 @@ export function LocationsManagement({
               });
               handleDraftMutationResult(undoResult);
               return { entityId: asLocationId(undoResult.entityId) };
+            },
+            snapshots: {
+              after: encodeRuleSetSnapshot({
+                lineageKey: editingLocation.lineageKey,
+                name: trimmedName,
+              }),
+              before: encodeRuleSetSnapshot({
+                lineageKey: editingLocation.lineageKey,
+                name: previousName,
+              }),
             },
             undoMissingMessage:
               "Der Standort wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
@@ -264,6 +276,7 @@ export function LocationsManagement({
             entitiesRef: locationsRef,
             initialEntityId: entityId,
             isMissingEntityError,
+            kind: "location.create",
             label: "Standort erstellt",
             lineageKey: locationLineageKey,
             onRecordCommand,
@@ -286,6 +299,12 @@ export function LocationsManagement({
               });
               handleDraftMutationResult(undoResult);
               return { entityId: asLocationId(undoResult.entityId) };
+            },
+            snapshots: {
+              after: encodeRuleSetSnapshot({
+                lineageKey: locationLineageKey,
+                name: trimmedName,
+              }),
             },
             validateBeforeCreate: () => {
               const duplicate = locationsRef.current.some(
@@ -404,7 +423,12 @@ export function LocationsManagement({
 
       if (deletedSnapshot) {
         let currentLocationId = asLocationId(locationId);
+        const deletedLocationSnapshot = encodeRuleSetSnapshot({
+          baseSchedules: deletedScheduleSnapshots,
+          location: deletedSnapshot,
+        });
         onRecordCommand?.({
+          kind: "location.deleteWithDependencies",
           label: "Standort gelöscht",
           redo: async () => {
             try {
@@ -428,6 +452,13 @@ export function LocationsManagement({
                 status: "conflict" as const,
               };
             }
+          },
+          snapshots: {
+            before: deletedLocationSnapshot,
+          },
+          target: {
+            entityId: locationId,
+            lineageKey: deletedSnapshot.lineageKey,
           },
           undo: async () => {
             const existingByLineage = findFrontendEntityByLineageKey(

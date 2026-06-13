@@ -45,6 +45,7 @@ import {
   findFrontendEntityByLineageKey,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
+import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 
 const isMissingEntityError = (error: unknown) =>
   isMissingRuleSetEntityError(error, PRACTITIONER_MISSING_ENTITY_REGEX);
@@ -155,7 +156,11 @@ export default function PractitionerManagement({
       handleDraftMutationResult(deleteResult);
       let currentSnapshot = deleteResult.snapshot;
       let currentPractitionerId = currentSnapshot.practitioner.id;
+      const deletedPractitionerSnapshot = encodeRuleSetSnapshot(
+        deleteResult.snapshot,
+      );
       onRecordCommand?.({
+        kind: "practitioner.deleteWithDependencies",
         label: "Arzt gelöscht",
         redo: async () => {
           const existingByLineage = findFrontendEntityByLineageKey(
@@ -222,6 +227,13 @@ export default function PractitionerManagement({
               status: "conflict" as const,
             };
           }
+        },
+        snapshots: {
+          before: deletedPractitionerSnapshot,
+        },
+        target: {
+          entityId: currentPractitionerId,
+          lineageKey: currentSnapshot.practitioner.lineageKey,
         },
         undo: async () => {
           try {
@@ -439,6 +451,7 @@ function PractitionerDialog({
           registerLineageUpdateHistoryAction({
             entitiesRef: practitionersRef,
             initialEntityId: asPractitionerId(updateResult.entityId),
+            kind: "practitioner.update",
             label: "Arzt aktualisiert",
             lineageKey: practitionerLineageKey,
             onRecordCommand,
@@ -463,6 +476,16 @@ function PractitionerDialog({
               });
               handleDraftMutationResult(undoResult);
               return { entityId: asPractitionerId(undoResult.entityId) };
+            },
+            snapshots: {
+              after: encodeRuleSetSnapshot({
+                lineageKey: practitionerLineageKey,
+                name: trimmedName,
+              }),
+              before: encodeRuleSetSnapshot({
+                lineageKey: practitionerLineageKey,
+                name: beforeName,
+              }),
             },
             undoMissingMessage:
               "Der Arzt wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
@@ -497,6 +520,7 @@ function PractitionerDialog({
             entitiesRef: practitionersRef,
             initialEntityId: entityId,
             isMissingEntityError,
+            kind: "practitioner.create",
             label: "Arzt erstellt",
             lineageKey: practitionerLineageKey,
             onRecordCommand,
@@ -518,6 +542,12 @@ function PractitionerDialog({
               });
               handleDraftMutationResult(undoResult);
               return { entityId: asPractitionerId(undoResult.entityId) };
+            },
+            snapshots: {
+              after: encodeRuleSetSnapshot({
+                lineageKey: practitionerLineageKey,
+                name: trimmedName,
+              }),
             },
             validateBeforeCreate: () => {
               const duplicate = practitionersRef.current.some(

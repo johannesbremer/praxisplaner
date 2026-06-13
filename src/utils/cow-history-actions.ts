@@ -5,6 +5,7 @@ import type { LineageTrackedEntity } from "./cow-history";
 import type {
   RecordRuleSetCommand,
   RuleSetCommandKind,
+  RuleSetCommandSnapshot,
 } from "./rule-set-replay";
 
 import { resolveReplayEntity } from "./cow-history";
@@ -38,6 +39,7 @@ interface RegisterLineageCreateActionParams<
   runCreate: () => Promise<ReplayStepResult<TEntityId>>;
   runDelete: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
   scope?: string;
+  snapshots?: RuleSetCommandSnapshot;
   validateBeforeCreate?: () => null | string;
 }
 
@@ -56,6 +58,7 @@ interface RegisterLineageUpdateActionParams<
   runRedo: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
   runUndo: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
   scope?: string;
+  snapshots?: RuleSetCommandSnapshot;
   undoMissingMessage: string;
   validateRedo: (entity: TEntity) => null | string;
   validateUndo: (entity: TEntity) => null | string;
@@ -121,6 +124,7 @@ export function registerLineageCreateHistoryAction<
         },
       },
       ...(params.scope && { scope: params.scope }),
+      ...(params.snapshots && { snapshots: params.snapshots }),
       target: {
         entityId: params.initialEntityId,
         lineageKey: params.lineageKey,
@@ -194,6 +198,7 @@ export function registerLineageUpdateHistoryAction<
         },
       },
       ...(params.scope && { scope: params.scope }),
+      ...(params.snapshots && { snapshots: params.snapshots }),
       target: {
         entityId: params.initialEntityId,
         lineageKey: params.lineageKey,
