@@ -495,13 +495,14 @@ const hasTreeChildNameConflict = (params: {
     (folder) =>
       folder._id !== params.excludeFolderId &&
       folder.parentFolderId === params.parentFolderId &&
-      folder.name === params.name,
+      createTreeSegment(folder.name) === createTreeSegment(params.name),
   ) ||
   params.appointmentTypes.some(
     (appointmentType) =>
       appointmentType._id !== params.excludeAppointmentTypeId &&
       appointmentType.treeFolderId === params.parentFolderId &&
-      appointmentType.name === params.name,
+      createTreeSegment(appointmentType.name) ===
+        createTreeSegment(params.name),
   );
 
 const appointmentTreeStyle: AppointmentTreeStyle = {
@@ -1163,7 +1164,9 @@ export function AppointmentTypesManagement({
     }
     if (selectedItem?.kind === "appointmentType") {
       setSelectedTreeFolderId(selectedItem.appointmentType.treeFolderId);
+      return;
     }
+    setSelectedTreeFolderId(undefined);
   }
 
   const openEditFolderDialog = useCallback((folder: AppointmentTypeFolder) => {
@@ -1188,19 +1191,6 @@ export function AppointmentTypesManagement({
       }
       if (selectedItem?.kind === "folder") {
         openEditFolderDialog(selectedItem.folder);
-        return;
-      }
-
-      const selectedName = selectedPath.split("/").at(-1);
-      if (!selectedName) {
-        return;
-      }
-
-      const appointmentType = appointmentTypesRef.current.find(
-        (candidate) => createTreeSegment(candidate.name) === selectedName,
-      );
-      if (appointmentType) {
-        openEditDialog(appointmentType);
       }
     },
     [openEditDialog, openEditFolderDialog],
@@ -1226,6 +1216,10 @@ export function AppointmentTypesManagement({
     };
 
     const handlePointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) {
+        treePointerDownRef.current = null;
+        return;
+      }
       const path = getTreeItemPath(event);
       treePointerDownRef.current =
         path === undefined
@@ -1238,6 +1232,10 @@ export function AppointmentTypesManagement({
     };
 
     const handlePointerUp = (event: PointerEvent) => {
+      if (event.button !== 0) {
+        treePointerDownRef.current = null;
+        return;
+      }
       const pointerDown = treePointerDownRef.current;
       treePointerDownRef.current = null;
       if (!pointerDown) {

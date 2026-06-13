@@ -451,6 +451,22 @@ async function applyPendingSimulationAppointmentsForRuleSet(
   }
 }
 
+async function deleteAppointmentTypeFoldersByRuleSet(
+  db: DatabaseWriter,
+  ruleSetId: Id<"ruleSets">,
+): Promise<void> {
+  await deleteByRuleSetQuery(
+    () =>
+      db
+        .query("appointmentTypeFolders")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+        .take(100),
+    async (item) => {
+      await db.delete("appointmentTypeFolders", item._id);
+    },
+  );
+}
+
 async function deleteAppointmentTypesByRuleSet(
   db: DatabaseWriter,
   ruleSetId: Id<"ruleSets">,
@@ -569,6 +585,7 @@ async function deleteRuleSetContents(
   await deletePractitionersByRuleSet(db, ruleSetId);
   await deleteLocationsByRuleSet(db, ruleSetId);
   await deleteAppointmentTypesByRuleSet(db, ruleSetId);
+  await deleteAppointmentTypeFoldersByRuleSet(db, ruleSetId);
   await deleteBaseSchedulesByRuleSet(db, ruleSetId);
   await deleteVacationsByRuleSet(db, ruleSetId);
   await deleteMfasByRuleSet(db, ruleSetId);

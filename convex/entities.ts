@@ -774,6 +774,7 @@ async function resolveAppointmentTypeFolderInRuleSet(
 }
 
 const normalizeEntityName = (name: string) => name.trim();
+const normalizeTreeChildName = (name: string) => name.replaceAll("/", "／");
 
 async function assertAppointmentTypeNameIsUniqueInRuleSet(
   db: DatabaseReader,
@@ -828,13 +829,14 @@ async function assertTreeChildNameIsUnique(
       !isDeletedRuleSetEntity(folder) &&
       folder._id !== args.excludeFolderId &&
       folder.parentFolderId === args.parentFolderId &&
-      folder.name === args.name,
+      normalizeTreeChildName(folder.name) === normalizeTreeChildName(args.name),
   );
   const hasAppointmentTypeCollision = appointmentTypes.some(
     (appointmentType) =>
       !isDeletedRuleSetEntity(appointmentType) &&
       appointmentType.treeFolderId === args.parentFolderId &&
-      appointmentType.name === args.name,
+      normalizeTreeChildName(appointmentType.name) ===
+        normalizeTreeChildName(args.name),
   );
 
   if (hasFolderCollision || hasAppointmentTypeCollision) {
@@ -967,7 +969,7 @@ export const createAppointmentType = mutation({
           followUpPlan: followUpPlan ?? [],
           lastModified: BigInt(Date.now()),
           name,
-          treeFolderId: treeFolder?._id,
+          ...(treeFolder && { treeFolderId: treeFolder._id }),
         });
 
         const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
