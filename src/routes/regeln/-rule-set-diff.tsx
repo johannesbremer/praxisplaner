@@ -138,11 +138,7 @@ function buildAppointmentTypeTreeDiffText({
     const metadata = [
       duration ? `${duration} Min.` : "",
       practitioners ? `Behandler: ${practitioners}` : "",
-      followUpPlan.length > 0
-        ? `${followUpPlan.length} Folgetermin${
-            followUpPlan.length === 1 ? "" : "e"
-          }`
-        : "",
+      formatAppointmentTypeTreeFollowUpPlan(followUpPlan),
     ]
       .filter(Boolean)
       .join(", ");
@@ -392,6 +388,47 @@ function buildStructuredDiffRows(
 function dayOfWeekLabel(value: unknown) {
   const labels = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
   return typeof value === "number" ? (labels[value] ?? String(value)) : "";
+}
+
+function formatAppointmentTypeTreeFollowUpPlan(steps: unknown[]) {
+  if (steps.length === 0) {
+    return "";
+  }
+
+  const stepSummaries = steps.map((step, index) => {
+    if (!isRecord(step)) {
+      return `#${index + 1}`;
+    }
+
+    const appointmentTypeName = stringValue(step["appointmentTypeName"]);
+    const offsetValue = stringValue(step["offsetValue"]);
+    const offsetUnit = formatEnumValue("offsetUnit", step["offsetUnit"]);
+    const searchMode = formatEnumValue("searchMode", step["searchMode"]);
+    const locationMode = formatEnumValue("locationMode", step["locationMode"]);
+    const practitionerMode = formatEnumValue(
+      "practitionerMode",
+      step["practitionerMode"],
+    );
+    const required = stringValue(step["required"]);
+    const note = stringValue(step["note"]);
+
+    return [
+      `#${index + 1}`,
+      appointmentTypeName,
+      [offsetValue, offsetUnit].filter(Boolean).join(" "),
+      searchMode,
+      locationMode,
+      practitionerMode,
+      required
+        ? `Pflicht: ${formatFieldValue("required", step["required"])}`
+        : "",
+      note ? `Notiz: ${note}` : "",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+  });
+
+  return `Folgetermine: ${stepSummaries.join("; ")}`;
 }
 
 function formatChangedStructuredDiffValues(
