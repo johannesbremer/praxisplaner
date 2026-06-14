@@ -11,13 +11,7 @@ import {
 } from "./calendar-planning-command";
 
 export function useCalendarPlanningHistory() {
-  const {
-    canRedo: canRedoHistoryAction,
-    canUndo: canUndoHistoryAction,
-    record,
-    redo,
-    undo,
-  } = useCommandLedger({
+  const { canRedo, canUndo, record, redo, undo } = useCommandLedger({
     executeCommand: executeCalendarPlanningCommand,
   });
 
@@ -51,15 +45,15 @@ export function useCalendarPlanningHistory() {
 
   const calendarUndoRedoControls = useMemo(
     () =>
-      canUndoHistoryAction || canRedoHistoryAction
+      canUndo || canRedo
         ? {
-            canRedo: canRedoHistoryAction,
-            canUndo: canUndoHistoryAction,
+            canRedo,
+            canUndo,
             onRedo: runRedo,
             onUndo: runUndo,
           }
         : null,
-    [canRedoHistoryAction, canUndoHistoryAction, runRedo, runUndo],
+    [canRedo, canUndo, runRedo, runUndo],
   );
 
   useRegisterGlobalUndoRedoControls(calendarUndoRedoControls);

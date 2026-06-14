@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  attachRuleSetReplay,
   executeRuleSetCommand,
+  recordRuleSetCommand,
 } from "../utils/rule-set-command-executor";
 import {
   createRuleSetCommandDescription,
@@ -19,7 +19,16 @@ describe("rule set replay commands", () => {
       name: "Dr. Test",
     });
 
-    const command = attachRuleSetReplay(
+    let recordedCommand: ReturnType<typeof createRuleSetCommandDescription> =
+      createRuleSetCommandDescription({
+        kind: "practitioner.update",
+        label: "unrecorded",
+      });
+
+    recordRuleSetCommand(
+      (command) => {
+        recordedCommand = command;
+      },
       createRuleSetCommandDescription({
         kind: "practitioner.update",
         label: "Arzt aktualisiert",
@@ -39,23 +48,23 @@ describe("rule set replay commands", () => {
       { redo, undo },
     );
 
-    expect(command.kind).toBe("practitioner.update");
-    expect(command.payload).toEqual({
+    expect(recordedCommand.kind).toBe("practitioner.update");
+    expect(recordedCommand.payload).toEqual({
       after: { name: "Dr. Test" },
       before: { name: "Dr. Old" },
       kind: "practitioner.update",
       lineageKey: "practitioner-lineage",
     });
-    expect(command.target?.lineageKey).toBe("practitioner-lineage");
-    expect(command.snapshots?.after).toBe(snapshot);
+    expect(recordedCommand.target?.lineageKey).toBe("practitioner-lineage");
+    expect(recordedCommand.snapshots?.after).toBe(snapshot);
 
     await expect(
-      Promise.resolve(executeRuleSetCommand(command, "redo")),
+      Promise.resolve(executeRuleSetCommand(recordedCommand, "redo")),
     ).resolves.toEqual({
       status: "applied",
     });
     await expect(
-      Promise.resolve(executeRuleSetCommand(command, "undo")),
+      Promise.resolve(executeRuleSetCommand(recordedCommand, "undo")),
     ).resolves.toEqual({
       status: "applied",
     });
