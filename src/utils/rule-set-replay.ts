@@ -1,6 +1,7 @@
 import type {
   LedgerCommand,
   LedgerConflictCode,
+  LedgerExecutionResult,
   LedgerResult,
   ReplayableLedgerCommand,
 } from "./command-ledger";
@@ -95,8 +96,8 @@ export interface RuleSetNamedLineageUpdatePayload {
 }
 
 export interface RuleSetReplayAdapter {
-  redo: () => LedgerResult | Promise<LedgerResult>;
-  undo: () => LedgerResult | Promise<LedgerResult>;
+  redo: () => LedgerExecutionResult | Promise<LedgerExecutionResult>;
+  undo: () => LedgerExecutionResult | Promise<LedgerExecutionResult>;
 }
 
 export interface RuleSetSnapshotCommandPayload {
