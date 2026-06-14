@@ -26,7 +26,7 @@ const mutationQueue: {
     updater: (localStore: unknown, args: unknown) => void,
   ) => (args: unknown) => Promise<unknown>;
 }[] = [];
-const pushHistoryAction =
+const recordCalendarCommand =
   vi.fn<(action: CalendarPlanningHistoryAction) => void>();
 
 vi.mock("convex/react", () => ({
@@ -41,7 +41,7 @@ vi.mock("convex/react", () => ({
 
 vi.mock("../../components/calendar/use-calendar-planning-history", () => ({
   useCalendarPlanningHistory: () => ({
-    pushHistoryAction,
+    recordCalendarCommand,
   }),
 }));
 
@@ -67,7 +67,7 @@ const parseZonedDateTime = (value: string, source: string) =>
 describe("calendar planning workbench", () => {
   beforeEach(() => {
     mutationQueue.length = 0;
-    pushHistoryAction.mockReset();
+    recordCalendarCommand.mockReset();
   });
 
   it("creates an Appointment through the deep Workbench Interface and owns history snapshots", async () => {
@@ -156,7 +156,7 @@ describe("calendar planning workbench", () => {
         title: "Check-up",
       }),
     );
-    expect(pushHistoryAction).toHaveBeenCalledWith(
+    expect(recordCalendarCommand).toHaveBeenCalledWith(
       expect.objectContaining({ label: "Termin erstellt" }),
     );
   });
@@ -236,7 +236,7 @@ describe("calendar planning workbench", () => {
       });
     });
 
-    const historyAction = pushHistoryAction.mock.calls[0]?.[0];
+    const historyAction = recordCalendarCommand.mock.calls[0]?.[0];
     expect(historyAction?.label).toBe("Sperrung erstellt");
     const redoResult = await historyAction?.redo();
     expect(redoResult).toEqual(

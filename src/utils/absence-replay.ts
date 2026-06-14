@@ -1,5 +1,52 @@
 import type { RuleSetReplayAdapter } from "./rule-set-replay";
 
+export function createAbsenceDayReplayAdapter<
+  TStaff,
+  TDate,
+  TPortion,
+  TSnapshot extends { portion: TPortion },
+>(params: {
+  date: TDate;
+  nextPortions: TPortion[];
+  nextSnapshots: TSnapshot[];
+  previousSnapshots: TSnapshot[];
+  setAbsencesForDay: (
+    staff: TStaff,
+    date: TDate,
+    portions: TPortion[],
+    options?: {
+      clearSnapshots?: TSnapshot[];
+      createSnapshots?: TSnapshot[];
+    },
+  ) => Promise<TSnapshot[]>;
+  staff: TStaff;
+}): RuleSetReplayAdapter {
+  return createAbsenceReplayAdapter({
+    redo: async () => {
+      await params.setAbsencesForDay(
+        params.staff,
+        params.date,
+        params.nextPortions,
+        {
+          clearSnapshots: params.previousSnapshots,
+          createSnapshots: params.nextSnapshots,
+        },
+      );
+    },
+    undo: async () => {
+      await params.setAbsencesForDay(
+        params.staff,
+        params.date,
+        params.previousSnapshots.map((snapshot) => snapshot.portion),
+        {
+          clearSnapshots: params.nextSnapshots,
+          createSnapshots: params.previousSnapshots,
+        },
+      );
+    },
+  });
+}
+
 export function createAbsenceReplayAdapter(params: {
   redo: () => Promise<void>;
   undo: () => Promise<void>;

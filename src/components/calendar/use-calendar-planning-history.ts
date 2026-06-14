@@ -20,7 +20,7 @@ export function useCalendarPlanningHistory() {
     executeCommand: executeCalendarPlanningCommand,
   });
 
-  const pushHistoryAction = useCallback(
+  const recordCalendarCommand = useCallback(
     (action: CalendarPlanningHistoryAction) => {
       record(createCalendarPlanningCommand(action));
     },
@@ -61,7 +61,7 @@ export function useCalendarPlanningHistory() {
   useRegisterGlobalUndoRedoControls(calendarUndoRedoControls);
 
   return {
-    pushHistoryAction,
+    recordCalendarCommand,
     redo: runRedo,
     undo: runUndo,
   };

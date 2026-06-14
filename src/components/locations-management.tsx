@@ -50,14 +50,12 @@ import {
   findFrontendEntityByLineageKey,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
+import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
 import {
   createNamedLineageCreateReplayAdapter,
   createNamedLineageUpdateReplayAdapter,
 } from "../utils/rule-set-named-lineage-replay";
-import {
-  createRuleSetCommandDescription,
-  recordRuleSetCommand,
-} from "../utils/rule-set-replay";
+import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 
 const isMissingEntityError = (error: unknown) =>

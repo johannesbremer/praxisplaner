@@ -53,7 +53,7 @@ import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 import type { RuleSetCommand } from "../utils/rule-set-replay";
 
 import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
-import { createAbsenceReplayAdapter } from "../utils/absence-replay";
+import { createAbsenceDayReplayAdapter } from "../utils/absence-replay";
 import { dispatchCustomEvent } from "../utils/browser-api";
 import {
   ruleSetIdFromReplayTarget,
@@ -69,14 +69,12 @@ import {
   getPublicHolidayName,
   getPublicHolidaysData,
 } from "../utils/public-holidays";
+import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
 import {
   createNamedLineageCreateReplayAdapter,
   createNamedLineageDeleteReplayAdapter,
 } from "../utils/rule-set-named-lineage-replay";
-import {
-  createRuleSetCommandDescription,
-  recordRuleSetCommand,
-} from "../utils/rule-set-replay";
+import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
   formatDateFull,
@@ -691,24 +689,13 @@ export function VacationScheduler({
     recordRuleSetCommand(
       onRecordCommand,
       command,
-      createAbsenceReplayAdapter({
-        redo: async () => {
-          await setVacationsForDay(staff, date, nextPortions, {
-            clearSnapshots: previousSnapshots,
-            createSnapshots: nextSnapshots,
-          });
-        },
-        undo: async () => {
-          await setVacationsForDay(
-            staff,
-            date,
-            previousSnapshots.map((snapshot) => snapshot.portion),
-            {
-              clearSnapshots: nextSnapshots,
-              createSnapshots: previousSnapshots,
-            },
-          );
-        },
+      createAbsenceDayReplayAdapter({
+        date,
+        nextPortions,
+        nextSnapshots,
+        previousSnapshots,
+        setAbsencesForDay: setVacationsForDay,
+        staff,
       }),
     );
   };

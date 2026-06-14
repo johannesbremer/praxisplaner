@@ -66,10 +66,8 @@ import {
   type RegelnTabParam,
   useRegelnUrl,
 } from "../utils/regeln-url";
-import {
-  executeRuleSetCommand,
-  withSerializableRuleSetPayload,
-} from "../utils/rule-set-replay";
+import { executeRuleSetCommand } from "../utils/rule-set-command-executor";
+import { withSerializableRuleSetPayload } from "../utils/rule-set-replay";
 import { dateToInstantStringResult } from "../utils/time-calculations";
 import { RuleSetDiffView, SaveDialogForm } from "./regeln/-rule-set-diff";
 import {

@@ -10,11 +10,11 @@ import type {
 } from "./rule-set-replay";
 
 import { resolveReplayEntity } from "./cow-history";
+import { recordRuleSetCommand } from "./rule-set-command-executor";
 import {
   appliedLedgerResult,
   conflictLedgerResult,
   createRuleSetCommandDescription,
-  recordRuleSetCommand,
 } from "./rule-set-replay";
 
 interface LegacyReplayConflict {

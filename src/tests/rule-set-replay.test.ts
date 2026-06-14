@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   attachRuleSetReplay,
-  createRuleSetCommandDescription,
   executeRuleSetCommand,
+} from "../utils/rule-set-command-executor";
+import {
+  createRuleSetCommandDescription,
   withSerializableRuleSetPayload,
 } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";

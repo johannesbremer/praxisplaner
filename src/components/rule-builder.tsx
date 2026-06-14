@@ -30,10 +30,8 @@ import {
 } from "../utils/cow-history";
 import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
-import {
-  createRuleSetCommandDescription,
-  recordRuleSetCommand,
-} from "../utils/rule-set-replay";
+import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
+import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import { RuleEditDialog } from "./rule-builder-editor";
 

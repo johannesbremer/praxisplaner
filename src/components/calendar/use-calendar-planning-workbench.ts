@@ -540,7 +540,7 @@ export function useCalendarPlanningWorkbench(args: {
     [referenceMaps, getBlockedSlotHistoryDoc, resolveBlockedSlotId],
   );
 
-  const { pushHistoryAction } = useCalendarPlanningHistory();
+  const { recordCalendarCommand } = useCalendarPlanningHistory();
 
   const getLocationLineageKeyForDisplayId = useCallback(
     (locationId: Id<"locations">) =>
@@ -1333,7 +1333,7 @@ export function useCalendarPlanningWorkbench(args: {
         title: createArgs.title,
       });
 
-      pushHistoryAction({
+      recordCalendarCommand({
         label: "Termin erstellt",
         redo: async () => {
           await ensureLatestConflictData();
@@ -1403,7 +1403,7 @@ export function useCalendarPlanningWorkbench(args: {
       getAppointmentCreationEnd,
       getRequiredAppointmentTypeInfo,
       hasAppointmentConflict,
-      pushHistoryAction,
+      recordCalendarCommand,
       rememberCreatedAppointmentFromStrings,
       referenceMaps.appointmentTypeLineageKeyById,
       runCreateAppointmentInternal,
@@ -1490,7 +1490,7 @@ export function useCalendarPlanningWorkbench(args: {
         start: state.start,
       });
 
-      pushHistoryAction({
+      recordCalendarCommand({
         label: "Termin aktualisiert",
         redo: async () => {
           await ensureLatestConflictData();
@@ -1597,7 +1597,7 @@ export function useCalendarPlanningWorkbench(args: {
       getAppointmentUpdateMutation,
       hasAppointmentConflict,
       parseZonedDateTime,
-      pushHistoryAction,
+      recordCalendarCommand,
       rememberAppointmentHistoryDoc,
       resolveAppointmentReferenceDisplayIds,
       runUpdateAppointmentInternal,
@@ -1663,7 +1663,7 @@ export function useCalendarPlanningWorkbench(args: {
         start: createArgs.start,
       });
 
-      pushHistoryAction({
+      recordCalendarCommand({
         label: "Termin gelöscht",
         redo: async () => {
           try {
@@ -1717,7 +1717,7 @@ export function useCalendarPlanningWorkbench(args: {
       getAppointmentCreationEnd,
       getRequiredAppointmentTypeInfo,
       hasAppointmentConflict,
-      pushHistoryAction,
+      recordCalendarCommand,
       rememberAppointmentHistoryDoc,
       resolveAppointmentReferenceDisplayIds,
       runCreateAppointmentInternal,
@@ -1757,7 +1757,7 @@ export function useCalendarPlanningWorkbench(args: {
         title: createArgs.title,
       });
 
-      pushHistoryAction({
+      recordCalendarCommand({
         label: "Sperrung erstellt",
         redo: async () => {
           await ensureLatestConflictData();
@@ -1818,7 +1818,7 @@ export function useCalendarPlanningWorkbench(args: {
       ensureLatestConflictData,
       forgetBlockedSlotHistoryDoc,
       hasBlockedSlotConflict,
-      pushHistoryAction,
+      recordCalendarCommand,
       rememberCreatedBlockedSlotHistoryDoc,
       resolveBlockedSlotReferenceLineageKeys,
       runCreateBlockedSlotInternal,
@@ -1941,7 +1941,7 @@ export function useCalendarPlanningWorkbench(args: {
         title: state.title,
       });
 
-      pushHistoryAction({
+      recordCalendarCommand({
         label: "Sperrung aktualisiert",
         redo: async () => {
           await ensureLatestConflictData();
@@ -2027,7 +2027,7 @@ export function useCalendarPlanningWorkbench(args: {
       getLocationLineageKeyForDisplayId,
       getPractitionerLineageKeyForDisplayId,
       hasBlockedSlotConflict,
-      pushHistoryAction,
+      recordCalendarCommand,
       referenceMaps,
       rememberBlockedSlotHistoryDoc,
       runUpdateBlockedSlotInternal,
@@ -2071,7 +2071,7 @@ export function useCalendarPlanningWorkbench(args: {
         title: deleted.title,
       };
 
-      pushHistoryAction({
+      recordCalendarCommand({
         label: "Sperrung gelöscht",
         redo: async () => {
           try {
@@ -2121,7 +2121,7 @@ export function useCalendarPlanningWorkbench(args: {
       forgetBlockedSlotHistoryDoc,
       getBlockedSlotHistoryDoc,
       hasBlockedSlotConflict,
-      pushHistoryAction,
+      recordCalendarCommand,
       rememberBlockedSlotHistoryDoc,
       resolveBlockedSlotReferenceDisplayIds,
       runCreateBlockedSlotInternal,

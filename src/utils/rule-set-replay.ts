@@ -2,7 +2,6 @@ import type {
   LedgerCommand,
   LedgerConflictCode,
   LedgerExecutionResult,
-  LedgerOperation,
   LedgerResult,
 } from "./command-ledger";
 import type { EncodedRuleSetSnapshot } from "./rule-set-snapshot-codecs";
@@ -97,21 +96,9 @@ export interface RuleSetSnapshotCommandPayload {
 }
 
 const APPLIED_RESULT: LedgerResult = { status: "applied" };
-const replayAdaptersByCommand = new WeakMap<
-  RuleSetCommand,
-  RuleSetReplayAdapter
->();
 
 export function appliedLedgerResult(): LedgerResult {
   return APPLIED_RESULT;
-}
-
-export function attachRuleSetReplay(
-  command: RuleSetCommandDescription,
-  replay: RuleSetReplayAdapter,
-): RuleSetCommand {
-  replayAdaptersByCommand.set(command, replay);
-  return command;
 }
 
 export function conflictLedgerResult(
@@ -156,27 +143,6 @@ export function createRuleSetCommandDescription(params: {
     ...(params.snapshots && { snapshots: params.snapshots }),
     ...(params.target && { target: params.target }),
   };
-}
-
-export function executeRuleSetCommand(
-  command: RuleSetCommand,
-  operation: LedgerOperation,
-): LedgerExecutionResult | Promise<LedgerExecutionResult> {
-  const replay = replayAdaptersByCommand.get(command);
-  if (!replay) {
-    return conflictLedgerResult(
-      "Für diese Regelwerk-Aktion ist kein Wiedergabe-Adapter registriert.",
-    );
-  }
-  return replay[operation]();
-}
-
-export function recordRuleSetCommand(
-  record: RecordRuleSetCommand | undefined,
-  command: RuleSetCommandDescription,
-  replay: RuleSetReplayAdapter,
-): void {
-  record?.(attachRuleSetReplay(command, replay));
 }
 
 export function withSerializableRuleSetPayload<TCommand extends RuleSetCommand>(
