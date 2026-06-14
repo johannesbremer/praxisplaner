@@ -18,6 +18,11 @@ import {
   createRuleSetCommandDescription,
 } from "./rule-set-replay";
 
+type CowLineageRuleSetCommandKind = Exclude<
+  RuleSetCommandKind,
+  "absence.create" | "absence.delete" | "absence.update"
+>;
+
 interface LegacyReplayConflict {
   message: string;
   status: "conflict";
@@ -35,7 +40,7 @@ interface RecordLineageCreateCommandParams<
   entitiesRef: RefObject<TEntity[]>;
   initialEntityId: TEntityId;
   isMissingEntityError: (error: unknown) => boolean;
-  kind: RuleSetCommandKind;
+  kind: CowLineageRuleSetCommandKind;
   label: string;
   lineageKey: TLineageKey;
   onRecordCommand: RecordRuleSetCommand | undefined;
@@ -54,7 +59,7 @@ interface RecordLineageUpdateCommandParams<
 > {
   entitiesRef: RefObject<TEntity[]>;
   initialEntityId: TEntityId;
-  kind: RuleSetCommandKind;
+  kind: CowLineageRuleSetCommandKind;
   label: string;
   lineageKey: TLineageKey;
   onRecordCommand: RecordRuleSetCommand | undefined;

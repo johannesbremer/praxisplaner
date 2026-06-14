@@ -6,6 +6,7 @@ import {
 } from "../utils/rule-set-command-executor";
 import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor-internal";
 import {
+  createRuleSetAbsenceCommand,
   createRuleSetCommandDescription,
   withSerializableRuleSetPayload,
 } from "../utils/rule-set-replay";
@@ -96,5 +97,45 @@ describe("rule set replay commands", () => {
         lineageKey: "appointment-type-lineage",
       },
     });
+  });
+
+  it("records absence commands as a typed command family", async () => {
+    const redo = vi.fn(() => ({ status: "applied" as const }));
+    const undo = vi.fn(() => ({ status: "applied" as const }));
+    const before = encodeRuleSetSnapshot({
+      date: "2026-04-21",
+      portions: [],
+      staff: { lineageKey: "staff-lineage" },
+    });
+    const after = encodeRuleSetSnapshot({
+      date: "2026-04-21",
+      portions: [{ portion: "full-day" }],
+      staff: { lineageKey: "staff-lineage" },
+    });
+
+    const command = createRuleSetAbsenceCommand({
+      kind: "absence.create",
+      label: "Abwesenheit eingetragen",
+      payload: {
+        afterPortionCount: 1,
+        beforePortionCount: 0,
+        date: "2026-04-21",
+        kind: "absence.create",
+        staffLineageKey: "staff-lineage",
+      },
+      snapshots: { after, before },
+      target: { lineageKey: "staff-lineage" },
+    });
+    registerRuleSetReplayAdapter(command, { redo, undo });
+
+    await expect(
+      Promise.resolve(executeRuleSetCommand(command, "redo")),
+    ).resolves.toEqual({
+      status: "applied",
+    });
+    expect(command.payload.staffLineageKey).toBe("staff-lineage");
+    expect(command.snapshots.before).toBe(before);
+    expect(redo).toHaveBeenCalledTimes(1);
+    expect(undo).not.toHaveBeenCalled();
   });
 });

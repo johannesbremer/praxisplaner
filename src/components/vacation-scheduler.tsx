@@ -53,7 +53,10 @@ import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 import type { RuleSetCommand } from "../utils/rule-set-replay";
 
 import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
-import { createAbsenceDayReplayAdapter } from "../utils/absence-replay";
+import {
+  createAbsenceDayReplayAdapter,
+  recordAbsenceReplayCommand,
+} from "../utils/absence-replay";
 import { dispatchCustomEvent } from "../utils/browser-api";
 import {
   ruleSetIdFromReplayTarget,
@@ -75,7 +78,10 @@ import {
   createNamedLineageCreateReplayAdapter,
   createNamedLineageDeleteReplayAdapter,
 } from "../utils/rule-set-named-lineage-replay";
-import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
+import {
+  createRuleSetAbsenceCommand,
+  createRuleSetCommandDescription,
+} from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
   formatDateFull,
@@ -676,9 +682,16 @@ export function VacationScheduler({
         : nextSnapshots.length === 0
           ? "absence.delete"
           : "absence.update";
-    const command = createRuleSetCommandDescription({
+    const command = createRuleSetAbsenceCommand({
       kind: commandKind,
       label,
+      payload: {
+        afterPortionCount: nextSnapshots.length,
+        beforePortionCount: previousSnapshots.length,
+        date: date.toString(),
+        kind: commandKind,
+        staffLineageKey: staff.lineageKey,
+      },
       snapshots: {
         after: afterSnapshot,
         before: beforeSnapshot,
@@ -695,8 +708,7 @@ export function VacationScheduler({
       setAbsencesForDay: setVacationsForDay,
       staff,
     });
-    registerRuleSetReplayAdapter(command, replay);
-    recordRuleSetCommand(onRecordCommand, command);
+    recordAbsenceReplayCommand(onRecordCommand, command, replay);
   };
 
   const handleCreateMfa = async () => {

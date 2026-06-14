@@ -1,4 +1,11 @@
-import type { RuleSetReplayAdapter } from "./rule-set-replay";
+import type {
+  RecordRuleSetCommand,
+  RuleSetAbsenceCommand,
+  RuleSetReplayAdapter,
+} from "./rule-set-replay";
+
+import { recordRuleSetCommand } from "./rule-set-command-executor";
+import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 
 export function createAbsenceDayReplayAdapter<
   TStaff,
@@ -61,4 +68,13 @@ export function createAbsenceReplayAdapter(params: {
       return { status: "applied" };
     },
   };
+}
+
+export function recordAbsenceReplayCommand(
+  record: RecordRuleSetCommand | undefined,
+  command: RuleSetAbsenceCommand,
+  replay: RuleSetReplayAdapter,
+): void {
+  registerRuleSetReplayAdapter(command, replay);
+  recordRuleSetCommand(record, command);
 }

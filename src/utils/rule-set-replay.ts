@@ -10,14 +10,30 @@ import { toLedgerConflict } from "./command-ledger";
 
 export type RecordRuleSetCommand = (command: RuleSetCommand) => void;
 
-export type RuleSetCommand = RuleSetCommandDescription;
-
-export interface RuleSetCommandDescription extends LedgerCommand {
-  kind: RuleSetCommandKind;
-  payload?: RuleSetCommandPayload;
-  snapshots?: RuleSetCommandSnapshot;
-  target?: RuleSetCommandTarget;
+export interface RuleSetAbsenceCommand extends LedgerCommand {
+  kind: Extract<
+    RuleSetCommandKind,
+    "absence.create" | "absence.delete" | "absence.update"
+  >;
+  payload: RuleSetAbsencePayload;
+  snapshots: Required<RuleSetCommandSnapshot>;
+  target: Required<Pick<RuleSetCommandTarget, "lineageKey">>;
 }
+
+export interface RuleSetAbsencePayload {
+  afterPortionCount: number;
+  beforePortionCount: number;
+  date: string;
+  kind: Extract<
+    RuleSetCommandKind,
+    "absence.create" | "absence.delete" | "absence.update"
+  >;
+  staffLineageKey: string;
+}
+
+export type RuleSetCommand = RuleSetAbsenceCommand | RuleSetLegacyCommand;
+
+export type RuleSetCommandDescription = RuleSetCommand;
 
 export type RuleSetCommandKind =
   | "absence.create"
@@ -42,6 +58,7 @@ export type RuleSetCommandKind =
   | "schedulingRule.update";
 
 export type RuleSetCommandPayload =
+  | RuleSetAbsencePayload
   | RuleSetNamedLineageCreatePayload
   | RuleSetNamedLineageDeletePayload
   | RuleSetNamedLineageUpdatePayload
@@ -56,6 +73,16 @@ export interface RuleSetCommandTarget {
   entityId?: string;
   lineageKey?: string;
   ruleSetId?: string;
+}
+
+export interface RuleSetLegacyCommand extends LedgerCommand {
+  kind: Exclude<
+    RuleSetCommandKind,
+    "absence.create" | "absence.delete" | "absence.update"
+  >;
+  payload?: RuleSetCommandPayload;
+  snapshots?: RuleSetCommandSnapshot;
+  target?: RuleSetCommandTarget;
 }
 
 export interface RuleSetNamedLineageCreatePayload {
@@ -90,9 +117,30 @@ export interface RuleSetReplayAdapter {
 }
 
 export interface RuleSetSnapshotCommandPayload {
-  kind: RuleSetCommandKind;
+  kind: Exclude<
+    RuleSetCommandKind,
+    "absence.create" | "absence.delete" | "absence.update"
+  >;
   snapshots: RuleSetCommandSnapshot;
   target?: RuleSetCommandTarget;
+}
+
+export function createRuleSetAbsenceCommand(params: {
+  kind: RuleSetAbsenceCommand["kind"];
+  label: string;
+  payload: RuleSetAbsencePayload;
+  scope?: string;
+  snapshots: Required<RuleSetCommandSnapshot>;
+  target: RuleSetAbsenceCommand["target"];
+}): RuleSetAbsenceCommand {
+  return {
+    kind: params.kind,
+    label: params.label,
+    payload: params.payload,
+    ...(params.scope && { scope: params.scope }),
+    snapshots: params.snapshots,
+    target: params.target,
+  };
 }
 
 const APPLIED_RESULT: LedgerResult = { status: "applied" };
@@ -127,7 +175,7 @@ export function conflictLedgerResult(
 
 export function createRuleSetCommandDescription(params: {
   clearHistoryBefore?: boolean;
-  kind: RuleSetCommandKind;
+  kind: RuleSetLegacyCommand["kind"];
   label: string;
   payload?: RuleSetCommandPayload;
   scope?: string;
