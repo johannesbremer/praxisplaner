@@ -53,6 +53,7 @@ import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 import type { RuleSetCommand } from "../utils/rule-set-replay";
 
 import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
+import { createAbsenceReplayAdapter } from "../utils/absence-replay";
 import { dispatchCustomEvent } from "../utils/browser-api";
 import {
   ruleSetIdFromReplayTarget,
@@ -688,27 +689,28 @@ export function VacationScheduler({
       },
     });
     onRecordCommand?.(
-      attachRuleSetReplay(command, {
-        redo: async () => {
-          await setVacationsForDay(staff, date, nextPortions, {
-            clearSnapshots: previousSnapshots,
-            createSnapshots: nextSnapshots,
-          });
-          return { status: "applied" as const };
-        },
-        undo: async () => {
-          await setVacationsForDay(
-            staff,
-            date,
-            previousSnapshots.map((snapshot) => snapshot.portion),
-            {
-              clearSnapshots: nextSnapshots,
-              createSnapshots: previousSnapshots,
-            },
-          );
-          return { status: "applied" as const };
-        },
-      }),
+      attachRuleSetReplay(
+        command,
+        createAbsenceReplayAdapter({
+          redo: async () => {
+            await setVacationsForDay(staff, date, nextPortions, {
+              clearSnapshots: previousSnapshots,
+              createSnapshots: nextSnapshots,
+            });
+          },
+          undo: async () => {
+            await setVacationsForDay(
+              staff,
+              date,
+              previousSnapshots.map((snapshot) => snapshot.portion),
+              {
+                clearSnapshots: nextSnapshots,
+                createSnapshots: previousSnapshots,
+              },
+            );
+          },
+        }),
+      ),
     );
   };
 
