@@ -48,10 +48,8 @@ import {
 import { useErrorTracking } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
 import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
-import {
-  recordRuleSetCommand,
-  registerRuleSetReplayAdapter,
-} from "../utils/rule-set-command-executor";
+import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
+import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor-internal";
 import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {

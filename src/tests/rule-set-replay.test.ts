@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   executeRuleSetCommand,
   recordRuleSetCommand,
-  registerRuleSetReplayAdapter,
 } from "../utils/rule-set-command-executor";
+import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor-internal";
 import {
   createRuleSetCommandDescription,
   withSerializableRuleSetPayload,

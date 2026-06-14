@@ -10,10 +10,8 @@ import type {
 } from "./rule-set-replay";
 
 import { resolveReplayEntity } from "./cow-history";
-import {
-  recordRuleSetCommand,
-  registerRuleSetReplayAdapter,
-} from "./rule-set-command-executor";
+import { recordRuleSetCommand } from "./rule-set-command-executor";
+import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 import {
   appliedLedgerResult,
   conflictLedgerResult,

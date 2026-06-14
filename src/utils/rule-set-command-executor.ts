@@ -3,17 +3,10 @@ import type {
   RecordRuleSetCommand,
   RuleSetCommand,
   RuleSetCommandDescription,
-  RuleSetCommandKind,
-  RuleSetReplayAdapter,
 } from "./rule-set-replay";
 
+import { getRegisteredRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 import { conflictLedgerResult } from "./rule-set-replay";
-
-type RuleSetReplayRegistry = Partial<
-  Record<RuleSetCommandKind, WeakMap<RuleSetCommand, RuleSetReplayAdapter>>
->;
-
-const replayAdaptersByKind: RuleSetReplayRegistry = {};
 
 export function executeRuleSetCommand(
   command: RuleSetCommand,
@@ -52,23 +45,11 @@ export function recordRuleSetCommand(
   record?.(command);
 }
 
-export function registerRuleSetReplayAdapter(
-  command: RuleSetCommandDescription,
-  replay: RuleSetReplayAdapter,
-): RuleSetCommand {
-  const replayAdapters =
-    replayAdaptersByKind[command.kind] ??
-    new WeakMap<RuleSetCommand, RuleSetReplayAdapter>();
-  replayAdapters.set(command, replay);
-  replayAdaptersByKind[command.kind] = replayAdapters;
-  return command;
-}
-
 function executeRegisteredRuleSetReplay(
   command: RuleSetCommand,
   operation: LedgerOperation,
 ): LedgerExecutionResult | Promise<LedgerExecutionResult> {
-  const replay = replayAdaptersByKind[command.kind]?.get(command);
+  const replay = getRegisteredRuleSetReplayAdapter(command);
   if (!replay) {
     return conflictLedgerResult(
       "Für diese Regelwerk-Aktion ist kein Wiedergabe-Adapter registriert.",

@@ -51,10 +51,8 @@ import {
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
 import { createLocationDependencyDeleteReplayAdapter } from "../utils/location-dependency-delete-replay";
-import {
-  recordRuleSetCommand,
-  registerRuleSetReplayAdapter,
-} from "../utils/rule-set-command-executor";
+import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
+import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor-internal";
 import {
   createNamedLineageCreateReplayAdapter,
   createNamedLineageUpdateReplayAdapter,

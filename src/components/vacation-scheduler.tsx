@@ -69,10 +69,8 @@ import {
   getPublicHolidayName,
   getPublicHolidaysData,
 } from "../utils/public-holidays";
-import {
-  recordRuleSetCommand,
-  registerRuleSetReplayAdapter,
-} from "../utils/rule-set-command-executor";
+import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
+import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor-internal";
 import {
   createNamedLineageCreateReplayAdapter,
   createNamedLineageDeleteReplayAdapter,
