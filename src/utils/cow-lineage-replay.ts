@@ -26,7 +26,7 @@ interface MutationStepResult<TId extends string> {
   entityId: TId;
 }
 
-interface RegisterLineageCreateActionParams<
+interface RecordLineageCreateCommandParams<
   TEntityId extends string,
   TLineageKey extends string,
   TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
@@ -46,7 +46,7 @@ interface RegisterLineageCreateActionParams<
   validateBeforeCreate?: () => null | string;
 }
 
-interface RegisterLineageUpdateActionParams<
+interface RecordLineageUpdateCommandParams<
   TEntityId extends string,
   TLineageKey extends string,
   TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
@@ -73,12 +73,12 @@ type ReplayStepResult<TId extends string> =
   | LegacyReplayConflict
   | MutationStepResult<TId>;
 
-export function registerLineageCreateHistoryAction<
+export function recordLineageCreateRuleSetCommand<
   TEntityId extends string,
   TLineageKey extends string,
   TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
 >(
-  params: RegisterLineageCreateActionParams<TEntityId, TLineageKey, TEntity>,
+  params: RecordLineageCreateCommandParams<TEntityId, TLineageKey, TEntity>,
 ): void {
   if (!params.onRecordCommand) {
     return;
@@ -137,12 +137,12 @@ export function registerLineageCreateHistoryAction<
   });
 }
 
-export function registerLineageUpdateHistoryAction<
+export function recordLineageUpdateRuleSetCommand<
   TEntityId extends string,
   TLineageKey extends string,
   TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
 >(
-  params: RegisterLineageUpdateActionParams<TEntityId, TLineageKey, TEntity>,
+  params: RecordLineageUpdateCommandParams<TEntityId, TLineageKey, TEntity>,
 ): void {
   if (!params.onRecordCommand) {
     return;

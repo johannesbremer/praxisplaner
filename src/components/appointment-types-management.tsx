@@ -90,9 +90,9 @@ import {
   useRuleSetReplayTargetController,
 } from "../utils/cow-history";
 import {
-  registerLineageCreateHistoryAction,
-  registerLineageUpdateHistoryAction,
-} from "../utils/cow-history-actions";
+  recordLineageCreateRuleSetCommand,
+  recordLineageUpdateRuleSetCommand,
+} from "../utils/cow-lineage-replay";
 import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import {
   findFrontendEntityByEntityId,
@@ -1194,7 +1194,7 @@ export function AppointmentTypesManagement({
             },
             { previousLineageKey: appointmentTypeLineageKey },
           );
-          registerLineageUpdateHistoryAction({
+          recordLineageUpdateRuleSetCommand({
             entitiesRef: appointmentTypesRef,
             initialEntityId: updateResult.entityId,
             kind: "appointmentType.update",
@@ -1336,7 +1336,7 @@ export function AppointmentTypesManagement({
             treeFolderId: newAppointmentTypeFolderId,
           });
 
-          registerLineageCreateHistoryAction({
+          recordLineageCreateRuleSetCommand({
             entitiesRef: appointmentTypesRef,
             initialEntityId: entityId,
             isMissingEntityError,
@@ -1687,7 +1687,7 @@ export function AppointmentTypesManagement({
               : undefined,
           ),
         });
-        registerLineageUpdateHistoryAction({
+        recordLineageUpdateRuleSetCommand({
           entitiesRef: appointmentTypeFoldersRef,
           initialEntityId: result.entityId,
           kind: "appointmentType.update",
@@ -1794,7 +1794,7 @@ export function AppointmentTypesManagement({
           name,
           parent: parentFolderTarget,
         });
-        registerLineageCreateHistoryAction({
+        recordLineageCreateRuleSetCommand({
           entitiesRef: appointmentTypeFoldersRef,
           initialEntityId: result.entityId,
           isMissingEntityError,
@@ -2394,7 +2394,7 @@ export function AppointmentTypesManagement({
           lineageKey: appointmentTypeLineageKey,
           parent: targetFolderTarget,
         });
-        registerLineageUpdateHistoryAction({
+        recordLineageUpdateRuleSetCommand({
           entitiesRef: appointmentTypesRef,
           initialEntityId: result.entityId,
           kind: "appointmentType.move",
@@ -2531,7 +2531,7 @@ export function AppointmentTypesManagement({
           lineageKey: folderLineageKey,
           parent: targetParentTarget,
         });
-        registerLineageUpdateHistoryAction({
+        recordLineageUpdateRuleSetCommand({
           entitiesRef: appointmentTypeFoldersRef,
           initialEntityId: result.entityId,
           kind: "appointmentType.move",
