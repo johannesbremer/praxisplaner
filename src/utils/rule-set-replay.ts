@@ -53,6 +53,7 @@ export type RuleSetCommandKind =
 
 export type RuleSetCommandPayload =
   | RuleSetNamedLineageCreatePayload
+  | RuleSetNamedLineageDeletePayload
   | RuleSetNamedLineageUpdatePayload
   | RuleSetSnapshotCommandPayload;
 
@@ -68,7 +69,16 @@ export interface RuleSetCommandTarget {
 }
 
 export interface RuleSetNamedLineageCreatePayload {
-  kind: Extract<RuleSetCommandKind, "location.create" | "practitioner.create">;
+  kind: Extract<
+    RuleSetCommandKind,
+    "location.create" | "mfa.create" | "practitioner.create"
+  >;
+  lineageKey: string;
+  name: string;
+}
+
+export interface RuleSetNamedLineageDeletePayload {
+  kind: Extract<RuleSetCommandKind, "mfa.delete">;
   lineageKey: string;
   name: string;
 }

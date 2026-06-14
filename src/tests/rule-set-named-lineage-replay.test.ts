@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createNamedLineageCreateReplayAdapter,
+  createNamedLineageDeleteReplayAdapter,
   createNamedLineageUpdateReplayAdapter,
 } from "../utils/rule-set-named-lineage-replay";
 import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
@@ -171,6 +172,96 @@ describe("named lineage rule set replay adapter", () => {
       conflict: {
         code: "nameConflict",
         name: "Dr. Duplicate",
+      },
+      status: "conflict",
+    });
+    expect(runCreate).not.toHaveBeenCalled();
+  });
+
+  it("treats redo delete as applied when the lineage is already gone", async () => {
+    const entitiesRef: RefObject<TestEntity[]> = { current: [] };
+    const command = createRuleSetCommandDescription({
+      kind: "mfa.delete",
+      label: "MFA entfernt",
+      payload: {
+        kind: "mfa.delete",
+        lineageKey: "lineage:mfa",
+        name: "MFA",
+      },
+    });
+    const runDelete = vi.fn((entityId: TestEntityId) =>
+      Promise.resolve({ entityId }),
+    );
+
+    const replay = createNamedLineageDeleteReplayAdapter<
+      TestEntityId,
+      TestLineageKey,
+      TestEntity
+    >({
+      command,
+      entitiesRef,
+      initialEntityId: "entity:mfa",
+      isMissingEntityError: () => false,
+      lineageKey: "lineage:mfa",
+      payload: {
+        kind: "mfa.delete",
+        lineageKey: "lineage:mfa",
+        name: "MFA",
+      },
+      runCreate: () => Promise.resolve({ entityId: "entity:mfa" }),
+      runDelete,
+    });
+
+    await expect(replay.redo()).resolves.toEqual({ status: "applied" });
+    expect(runDelete).not.toHaveBeenCalled();
+  });
+
+  it("returns a typed name conflict when restoring a deleted named entity duplicate", async () => {
+    const entitiesRef: RefObject<TestEntity[]> = {
+      current: [
+        {
+          _id: "entity:other",
+          lineageKey: "lineage:other",
+          name: "MFA",
+        },
+      ],
+    };
+    const command = createRuleSetCommandDescription({
+      kind: "mfa.delete",
+      label: "MFA entfernt",
+      payload: {
+        kind: "mfa.delete",
+        lineageKey: "lineage:mfa",
+        name: "MFA",
+      },
+    });
+    const runCreate = vi.fn(() =>
+      Promise.resolve({ entityId: "entity:mfa" as const }),
+    );
+
+    const replay = createNamedLineageDeleteReplayAdapter<
+      TestEntityId,
+      TestLineageKey,
+      TestEntity
+    >({
+      command,
+      entitiesRef,
+      initialEntityId: "entity:mfa",
+      isMissingEntityError: () => false,
+      lineageKey: "lineage:mfa",
+      payload: {
+        kind: "mfa.delete",
+        lineageKey: "lineage:mfa",
+        name: "MFA",
+      },
+      runCreate,
+      runDelete: (entityId) => Promise.resolve({ entityId }),
+    });
+
+    await expect(replay.undo()).resolves.toMatchObject({
+      conflict: {
+        code: "nameConflict",
+        name: "MFA",
       },
       status: "conflict",
     });

@@ -5,6 +5,7 @@ import type { LineageTrackedEntity } from "./cow-history";
 import type {
   RuleSetCommandDescription,
   RuleSetNamedLineageCreatePayload,
+  RuleSetNamedLineageDeletePayload,
   RuleSetNamedLineageUpdatePayload,
   RuleSetReplayAdapter,
 } from "./rule-set-replay";
@@ -32,6 +33,19 @@ interface NamedLineageCreateReplayParams<
 > extends NamedLineageReplayBaseParams<TEntityId, TLineageKey, TEntity> {
   isMissingEntityError: (error: unknown) => boolean;
   payload: RuleSetNamedLineageCreatePayload;
+  runCreate: () => Promise<ReplayStepResult<TEntityId>>;
+  runDelete: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
+}
+
+interface NamedLineageDeleteReplayParams<
+  TEntityId extends string,
+  TLineageKey extends string,
+  TEntity extends LineageTrackedEntity<TEntityId, TLineageKey> & {
+    name: string;
+  },
+> extends NamedLineageReplayBaseParams<TEntityId, TLineageKey, TEntity> {
+  isMissingEntityError: (error: unknown) => boolean;
+  payload: RuleSetNamedLineageDeletePayload;
   runCreate: () => Promise<ReplayStepResult<TEntityId>>;
   runDelete: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
 }
@@ -119,6 +133,73 @@ export function createNamedLineageCreateReplayAdapter<
             : "Die Aktion konnte nicht ausgeführt werden.",
         );
       }
+    },
+  };
+}
+
+export function createNamedLineageDeleteReplayAdapter<
+  TEntityId extends string,
+  TLineageKey extends string,
+  TEntity extends LineageTrackedEntity<TEntityId, TLineageKey> & {
+    name: string;
+  },
+>(
+  params: NamedLineageDeleteReplayParams<TEntityId, TLineageKey, TEntity>,
+): RuleSetReplayAdapter {
+  let currentEntityId = params.initialEntityId;
+
+  return {
+    redo: async () => {
+      const existingByLineage = params.entitiesRef.current.find(
+        (entity) => entity.lineageKey === params.lineageKey,
+      );
+      if (!existingByLineage) {
+        return appliedLedgerResult();
+      }
+
+      currentEntityId = existingByLineage._id;
+      try {
+        const result = await params.runDelete(currentEntityId);
+        const next = withMutationResult(currentEntityId, result);
+        currentEntityId = next.currentEntityId;
+        return next.historyResult;
+      } catch (error: unknown) {
+        if (params.isMissingEntityError(error)) {
+          return appliedLedgerResult();
+        }
+        return conflictLedgerResult(
+          error instanceof Error
+            ? error.message
+            : "Die Aktion konnte nicht ausgeführt werden.",
+        );
+      }
+    },
+    undo: async () => {
+      const existingByLineage = params.entitiesRef.current.find(
+        (entity) => entity.lineageKey === params.lineageKey,
+      );
+      if (existingByLineage) {
+        currentEntityId = existingByLineage._id;
+        return appliedLedgerResult();
+      }
+
+      const duplicate = params.entitiesRef.current.some(
+        (entity) => entity.name === params.payload.name,
+      );
+      if (duplicate) {
+        return conflictLedgerResult(
+          `${params.command.label}: Ein Eintrag mit diesem Namen existiert bereits.`,
+          {
+            code: "nameConflict",
+            name: params.payload.name,
+          },
+        );
+      }
+
+      const result = await params.runCreate();
+      const next = withMutationResult(currentEntityId, result);
+      currentEntityId = next.currentEntityId;
+      return next.historyResult;
     },
   };
 }

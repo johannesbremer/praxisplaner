@@ -68,6 +68,14 @@ import {
   getPublicHolidayName,
   getPublicHolidaysData,
 } from "../utils/public-holidays";
+import {
+  createNamedLineageCreateReplayAdapter,
+  createNamedLineageDeleteReplayAdapter,
+} from "../utils/rule-set-named-lineage-replay";
+import {
+  attachRuleSetReplay,
+  createRuleSetCommandDescription,
+} from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
   formatDateFull,
@@ -716,15 +724,38 @@ export function VacationScheduler({
       handleDraftMutationResult(result);
       setNewMfaName("");
       const lineageKey = asMfaLineageKey(result.entityId);
-      let currentMfaId = result.entityId;
       const createdMfaSnapshot = encodeRuleSetSnapshot({
         lineageKey,
         name: trimmed,
       });
-      onRecordCommand?.({
+      const command = createRuleSetCommandDescription({
         kind: "mfa.create",
         label: "MFA erstellt",
-        redo: async () => {
+        payload: {
+          kind: "mfa.create",
+          lineageKey,
+          name: trimmed,
+        },
+        snapshots: {
+          after: createdMfaSnapshot,
+        },
+        target: {
+          entityId: result.entityId,
+          lineageKey,
+        },
+      });
+      const replay = createNamedLineageCreateReplayAdapter({
+        command,
+        entitiesRef: mfasRef,
+        initialEntityId: asMfaId(result.entityId),
+        isMissingEntityError: isMissingMfaError,
+        lineageKey,
+        payload: {
+          kind: "mfa.create",
+          lineageKey,
+          name: trimmed,
+        },
+        runCreate: async () => {
           try {
             const redoResult = await createMfa({
               lineageKey,
@@ -732,8 +763,8 @@ export function VacationScheduler({
               practiceId,
               ...getCowMutationArgs(),
             });
-            currentMfaId = redoResult.entityId;
             handleDraftMutationResult(redoResult);
+            return { entityId: asMfaId(redoResult.entityId) };
           } catch (error) {
             if (isAlreadyExistingMfaError(error)) {
               return { status: "applied" as const };
@@ -753,16 +784,8 @@ export function VacationScheduler({
               status: "conflict" as const,
             };
           }
-          return { status: "applied" as const };
         },
-        snapshots: {
-          after: createdMfaSnapshot,
-        },
-        target: {
-          entityId: currentMfaId,
-          lineageKey,
-        },
-        undo: async () => {
+        runDelete: async (currentMfaId) => {
           const existing = findMfaByLineage(mfasRef.current, lineageKey);
           try {
             const undoResult = await removeMfa({
@@ -771,6 +794,7 @@ export function VacationScheduler({
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(undoResult);
+            return { entityId: currentMfaId };
           } catch (error) {
             if (isMissingMfaError(error)) {
               return { status: "applied" as const };
@@ -790,9 +814,9 @@ export function VacationScheduler({
               status: "conflict" as const,
             };
           }
-          return { status: "applied" as const };
         },
       });
+      onRecordCommand?.(attachRuleSetReplay(command, replay));
       toast.success("MFA hinzugefügt");
     } catch (error) {
       toast.error("MFA konnte nicht angelegt werden", {
@@ -818,16 +842,49 @@ export function VacationScheduler({
         ...getCowMutationArgs(),
       });
       handleDraftMutationResult(result);
-      let currentMfaId = currentMfa._id;
       const lineageKey = currentMfa.lineageKey;
       const deletedMfaSnapshot = encodeRuleSetSnapshot({
         lineageKey,
         name: currentMfa.name,
       });
-      onRecordCommand?.({
+      const command = createRuleSetCommandDescription({
         kind: "mfa.delete",
         label: "MFA entfernt",
-        redo: async () => {
+        payload: {
+          kind: "mfa.delete",
+          lineageKey,
+          name: currentMfa.name,
+        },
+        snapshots: {
+          before: deletedMfaSnapshot,
+        },
+        target: {
+          entityId: currentMfa._id,
+          lineageKey,
+        },
+      });
+      const replay = createNamedLineageDeleteReplayAdapter({
+        command,
+        entitiesRef: mfasRef,
+        initialEntityId: currentMfa._id,
+        isMissingEntityError: isMissingMfaError,
+        lineageKey,
+        payload: {
+          kind: "mfa.delete",
+          lineageKey,
+          name: currentMfa.name,
+        },
+        runCreate: async () => {
+          const undoResult = await createMfa({
+            lineageKey,
+            name: currentMfa.name,
+            practiceId,
+            ...getCowMutationArgs(),
+          });
+          handleDraftMutationResult(undoResult);
+          return { entityId: asMfaId(undoResult.entityId) };
+        },
+        runDelete: async (currentMfaId) => {
           const existing = findMfaByLineage(mfasRef.current, lineageKey);
           try {
             const redoResult = await removeMfa({
@@ -836,6 +893,7 @@ export function VacationScheduler({
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(redoResult);
+            return { entityId: currentMfaId };
           } catch (error) {
             if (isMissingMfaError(error)) {
               return { status: "applied" as const };
@@ -855,32 +913,9 @@ export function VacationScheduler({
               status: "conflict" as const,
             };
           }
-          return { status: "applied" as const };
-        },
-        snapshots: {
-          before: deletedMfaSnapshot,
-        },
-        target: {
-          entityId: currentMfaId,
-          lineageKey,
-        },
-        undo: async () => {
-          const existing = findMfaByLineage(mfasRef.current, lineageKey);
-          if (existing) {
-            currentMfaId = existing._id;
-            return { status: "applied" as const };
-          }
-          const undoResult = await createMfa({
-            lineageKey,
-            name: currentMfa.name,
-            practiceId,
-            ...getCowMutationArgs(),
-          });
-          currentMfaId = asMfaId(undoResult.entityId);
-          handleDraftMutationResult(undoResult);
-          return { status: "applied" as const };
         },
       });
+      onRecordCommand?.(attachRuleSetReplay(command, replay));
       toast.success("MFA entfernt");
     } catch (error) {
       toast.error("MFA konnte nicht entfernt werden", {
