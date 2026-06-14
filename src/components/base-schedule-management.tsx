@@ -40,6 +40,7 @@ import {
 import { api } from "@/convex/_generated/api";
 import { asBaseScheduleId, asBaseScheduleLineageKey } from "@/convex/identity";
 
+import { createBaseScheduleReplaceSetReplay } from "../utils/base-schedule-replay";
 import {
   ruleSetIdFromReplayTarget,
   useRuleSetReplayTargetController,
@@ -61,7 +62,6 @@ import {
   buildLocationLineageByIdMap,
   buildPractitionerLineageByIdMap,
   type ExtendedSchedule,
-  getAbsentLineageKeysForReplacement,
   isBaseScheduleMissingError,
   type LocationMatchEntity,
   matchesSchedulePayload,
@@ -71,7 +71,6 @@ import {
   type SchedulePayload,
   toBatchCreateScheduleInput,
   toCreatedSchedulePayload,
-  toMutationSchedulePayload,
   toSchedulePayload,
   toSchedulePayloadFromAppliedSchedule,
   toSchedulePayloadFromLineageSnapshot,
@@ -724,139 +723,6 @@ function BaseScheduleDialog({
       }),
     [createScheduleBatchMutation, getLocalCowMutationArgs, practiceId],
   );
-  const createBaseScheduleReplaceSetReplay = React.useCallback(
-    (params: {
-      after: SchedulePayload[];
-      before: SchedulePayload[];
-      label: string;
-    }) => {
-      const applyState = async (
-        expectedPayloads: SchedulePayload[],
-        replacementPayloads: SchedulePayload[],
-        conflictMessage: string,
-      ) => {
-        const expectedPresentLineageKeys = expectedPayloads
-          .filter((payload) =>
-            schedulesRef.current.some((scheduleItem) =>
-              matchesSchedulePayload(scheduleItem, payload),
-            ),
-          )
-          .map((payload) => payload.lineageKey);
-        const replacementMissingPayloads = replacementPayloads.filter(
-          (payload) =>
-            !schedulesRef.current.some((scheduleItem) =>
-              matchesSchedulePayload(scheduleItem, payload),
-            ),
-        );
-
-        if (
-          expectedPresentLineageKeys.length === 0 &&
-          replacementMissingPayloads.length === 0
-        ) {
-          return { status: "applied" as const };
-        }
-
-        if (expectedPayloads.length === 0) {
-          const batchSchedules = Result.combine(
-            replacementMissingPayloads.map((payload) =>
-              toBatchCreateScheduleInput(payload),
-            ),
-          ).match(
-            (value) => value,
-            (error) => {
-              captureFrontendError(error, {
-                context: "base_schedule_replay_create_payload",
-                practiceId,
-              });
-              return null;
-            },
-          );
-          if (!batchSchedules) {
-            return { message: conflictMessage, status: "conflict" as const };
-          }
-          const result = await runCreateScheduleBatch(batchSchedules);
-          handleDraftMutationResult(result);
-          applyBatchCreateResultToRef({
-            createdScheduleIds: result.createdScheduleIds,
-            practiceId,
-            ruleSetId: result.ruleSetId,
-            schedules: batchSchedules,
-            schedulesRef,
-          });
-          return { status: "applied" as const };
-        }
-
-        const replacementSchedules = Result.combine(
-          replacementPayloads.map((payload) =>
-            toMutationSchedulePayload(payload),
-          ),
-        ).match(
-          (value) => value,
-          () => null,
-        );
-        if (!replacementSchedules) {
-          return { message: conflictMessage, status: "conflict" as const };
-        }
-
-        try {
-          const expectedAbsentLineageKeys = getAbsentLineageKeysForReplacement(
-            expectedPayloads.map((payload) => payload.lineageKey),
-            replacementPayloads.map((payload) => payload.lineageKey),
-          );
-          const result = await replaceScheduleSetMutation({
-            expectedAbsentLineageKeys,
-            expectedPresentLineageKeys,
-            practiceId,
-            replacementSchedules,
-            ...getLocalCowMutationArgs(),
-          });
-          handleDraftMutationResult(result);
-          removeSchedulesFromRef(schedulesRef, expectedPresentLineageKeys);
-          applyReplaceResultToRef({
-            appliedSchedules: result.appliedSchedules,
-            practiceId,
-            ruleSetId: result.ruleSetId,
-            schedulesRef,
-          });
-        } catch (error: unknown) {
-          if (
-            replacementPayloads.length === 0 &&
-            isBaseScheduleMissingError(error)
-          ) {
-            return { status: "applied" as const };
-          }
-          return {
-            message: error instanceof Error ? error.message : conflictMessage,
-            status: "conflict" as const,
-          };
-        }
-
-        return { status: "applied" as const };
-      };
-
-      return {
-        redo: () =>
-          applyState(
-            params.before,
-            params.after,
-            `${params.label} konnten nicht erneut angewendet werden.`,
-          ),
-        undo: () =>
-          applyState(
-            params.after,
-            params.before,
-            `${params.label} konnten nicht wiederhergestellt werden.`,
-          ),
-      };
-    },
-    [
-      getLocalCowMutationArgs,
-      handleDraftMutationResult,
-      practiceId,
-      replaceScheduleSetMutation,
-      runCreateScheduleBatch,
-    ],
-  );
   const form = useForm({
     defaultValues: {
       breakTimes: schedule?.breakTimes ?? [],
@@ -1220,7 +1086,14 @@ function BaseScheduleDialog({
               createBaseScheduleReplaceSetReplay({
                 after: createdSchedulePayloads,
                 before: [],
+                getCowMutationArgs: getLocalCowMutationArgs,
+                handleDraftMutationResult,
+                isBaseScheduleMissingError,
                 label: "Arbeitszeiten",
+                practiceId,
+                replaceScheduleSet: replaceScheduleSetMutation,
+                runCreateScheduleBatch,
+                schedulesRef,
               }),
             ),
           );
@@ -1250,7 +1123,14 @@ function BaseScheduleDialog({
               createBaseScheduleReplaceSetReplay({
                 after: createdSchedulePayloads,
                 before: oldSchedulePayloads,
+                getCowMutationArgs: getLocalCowMutationArgs,
+                handleDraftMutationResult,
+                isBaseScheduleMissingError,
                 label: "Arbeitszeiten",
+                practiceId,
+                replaceScheduleSet: replaceScheduleSetMutation,
+                runCreateScheduleBatch,
+                schedulesRef,
               }),
             ),
           );
