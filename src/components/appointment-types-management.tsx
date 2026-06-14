@@ -74,6 +74,7 @@ import type {
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 import type { RuleSetCommand } from "../utils/rule-set-replay";
 
+import { createAppointmentTypeDeleteReplayAdapter } from "../utils/appointment-type-delete-replay";
 import {
   type AppointmentTypeTreeOverlay,
   createAppointmentTypeTreeDeleteOverlay,
@@ -2685,7 +2686,6 @@ export function AppointmentTypesManagement({
         lineageKey: deletedSnapshot.lineageKey,
       });
 
-      let currentAppointmentTypeId = appointmentType._id;
       const deletedAppointmentTypeSnapshot = encodeRuleSetSnapshot({
         ...deletedSnapshot,
         practitionerSnapshots: deletedPractitionerSnapshots,
@@ -2702,38 +2702,53 @@ export function AppointmentTypesManagement({
           lineageKey: deletedSnapshot.lineageKey,
         },
       });
-      recordRuleSetCommand(onRecordCommand, command, {
-        redo: async () => {
-          try {
+      recordRuleSetCommand(
+        onRecordCommand,
+        command,
+        createAppointmentTypeDeleteReplayAdapter({
+          createAppointmentType: async (
+            snapshot,
+            practitionerIds,
+            treeFolderId: Id<"appointmentTypeFolders"> | null,
+          ) => {
+            const recreateResult = await createAppointmentTypeMutation({
+              duration: snapshot.duration,
+              lineageKey: snapshot.lineageKey,
+              name: snapshot.name,
+              practiceId,
+              practitionerIds,
+              treeFolderId,
+              ...getCowMutationArgs(),
+              ...createFollowUpPlanCreateArgs(snapshot.followUpPlan),
+            });
+            handleDraftMutationResult(recreateResult);
+            return {
+              entityId: asAppointmentTypeId(recreateResult.entityId),
+              ruleSetId: recreateResult.ruleSetId,
+            };
+          },
+          deleteAppointmentType: async (args) => {
             const redoResult = await deleteAppointmentTypeMutation({
-              appointmentTypeId: currentAppointmentTypeId,
-              appointmentTypeLineageKey: deletedSnapshot.lineageKey,
+              appointmentTypeId: args.appointmentTypeId,
+              appointmentTypeLineageKey: args.appointmentTypeLineageKey,
               practiceId,
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(redoResult);
-            return { status: "applied" as const };
-          } catch (error: unknown) {
-            if (isMissingEntityError(error)) {
-              return { status: "applied" as const };
-            }
-            return {
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "Die Terminart konnte nicht gelöscht werden.",
-              status: "conflict" as const,
-            };
-          }
-        },
-        undo: async () => {
-          const { selectedRuleSetId } = getCowMutationArgs();
-          const existingByLineage = appointmentTypesRef.current.find(
-            (type) =>
-              type.lineageKey === deletedSnapshot.lineageKey &&
-              type.ruleSetId === selectedRuleSetId,
-          );
-          if (existingByLineage) {
+          },
+          findExistingByLineage: (lineageKey, selectedRuleSetId) =>
+            appointmentTypesRef.current.find(
+              (type) =>
+                type.lineageKey === lineageKey &&
+                type.ruleSetId === selectedRuleSetId,
+            ),
+          hasFolder: (folderId) =>
+            appointmentTypeFoldersRef.current.some(
+              (folder) => folder._id === folderId,
+            ),
+          initialEntityId: appointmentType._id,
+          isMissingEntityError,
+          isSameDefinition: (existingByLineage, snapshot) => {
             const existingPractitionerLineageIds =
               existingByLineage.allowedPractitionerLineageKeys
                 .map((lineageKey) => asPractitionerLineageKey(lineageKey))
@@ -2741,78 +2756,56 @@ export function AppointmentTypesManagement({
             const deletedPractitionerLineageIds = toSnapshotLineageIds(
               deletedPractitionerSnapshots,
             );
-            const isSameDefinition =
-              existingByLineage.duration === deletedSnapshot.duration &&
+            return (
+              existingByLineage.duration === snapshot.duration &&
               serializeFollowUpPlan(existingByLineage.followUpPlan) ===
-                serializeFollowUpPlan(deletedSnapshot.followUpPlan) &&
+                serializeFollowUpPlan(snapshot.followUpPlan) &&
               samePractitionerLineageIds(
                 existingPractitionerLineageIds,
                 deletedPractitionerLineageIds,
-              );
-
-            if (isSameDefinition) {
-              currentAppointmentTypeId = existingByLineage._id;
-              return { status: "applied" as const };
-            }
-
-            return {
-              message: `[HISTORY:APPOINTMENT_TYPE_LINEAGE_CONFLICT] Die Terminart mit lineageKey ${deletedSnapshot.lineageKey} existiert bereits, hat aber abweichende Einstellungen.`,
-              status: "conflict" as const,
-            };
-          }
-
-          const resolvedUndoPractitionerIds = practitionerIdsFromSnapshots(
-            practitionersRef.current,
-            deletedPractitionerSnapshots,
-          );
-          if ("status" in resolvedUndoPractitionerIds) {
-            return resolvedUndoPractitionerIds;
-          }
-
-          const recreateResult = await createAppointmentTypeMutation({
-            duration: deletedSnapshot.duration,
-            lineageKey: deletedSnapshot.lineageKey,
-            name: deletedSnapshot.name,
-            practiceId,
-            practitionerIds: resolvedUndoPractitionerIds.ids,
-            treeFolderId:
-              deletedSnapshot.treeFolderId &&
-              appointmentTypeFoldersRef.current.some(
-                (folder) => folder._id === deletedSnapshot.treeFolderId,
               )
-                ? deletedSnapshot.treeFolderId
-                : null,
-            ...getCowMutationArgs(),
-            ...createFollowUpPlanCreateArgs(deletedSnapshot.followUpPlan),
-          });
-          handleDraftMutationResult(recreateResult);
-          upsertAppointmentTypeRef({
+            );
+          },
+          lineageKey: deletedSnapshot.lineageKey,
+          resolvePractitionerIds: () => {
+            const resolvedUndoPractitionerIds = practitionerIdsFromSnapshots(
+              practitionersRef.current,
+              deletedPractitionerSnapshots,
+            );
+            if ("status" in resolvedUndoPractitionerIds) {
+              return resolvedUndoPractitionerIds;
+            }
+            return {
+              ids: resolvedUndoPractitionerIds.ids,
+              status: "ok",
+            };
+          },
+          selectedRuleSetId: () => getCowMutationArgs().selectedRuleSetId,
+          snapshot: deletedSnapshot,
+          snapshotFolderId: (snapshot) => snapshot.treeFolderId,
+          toRestoredRef: (
+            snapshot,
+            recreateResult,
+            treeFolderId: Id<"appointmentTypeFolders"> | null,
+          ) => ({
             _creationTime: 0,
-            _id: asAppointmentTypeId(recreateResult.entityId),
+            _id: recreateResult.entityId,
             allowedPractitionerLineageKeys: toSnapshotLineageIds(
               deletedPractitionerSnapshots,
             ),
             createdAt: 0n,
-            duration: deletedSnapshot.duration,
-            followUpPlan: deletedSnapshot.followUpPlan ?? [],
+            duration: snapshot.duration,
+            followUpPlan: snapshot.followUpPlan ?? [],
             lastModified: 0n,
-            lineageKey: deletedSnapshot.lineageKey,
-            name: deletedSnapshot.name,
+            lineageKey: snapshot.lineageKey,
+            name: snapshot.name,
             practiceId,
             ruleSetId: recreateResult.ruleSetId,
-            ...(deletedSnapshot.treeFolderId &&
-            appointmentTypeFoldersRef.current.some(
-              (folder) => folder._id === deletedSnapshot.treeFolderId,
-            )
-              ? { treeFolderId: deletedSnapshot.treeFolderId }
-              : {}),
-          });
-          currentAppointmentTypeId = asAppointmentTypeId(
-            recreateResult.entityId,
-          );
-          return { status: "applied" as const };
-        },
-      });
+            ...(treeFolderId ? { treeFolderId } : {}),
+          }),
+          upsertRestoredRef: upsertAppointmentTypeRef,
+        }),
+      );
 
       toast.success("Terminart gelöscht", {
         description: `Terminart "${appointmentType.name}" wurde erfolgreich gelöscht.`,
