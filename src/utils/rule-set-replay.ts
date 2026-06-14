@@ -8,11 +8,18 @@ import type { EncodedRuleSetSnapshot } from "./rule-set-snapshot-codecs";
 
 import { toLedgerConflict } from "./command-ledger";
 
+export interface ExecutableRuleSetCommand extends RuleSetCommand {
+  redo: ReplayableLedgerCommand["redo"];
+  replay: RuleSetReplayAdapter;
+  undo: ReplayableLedgerCommand["undo"];
+}
+
 export type RecordRuleSetCommand = (command: RuleSetCommand) => void;
 
-export interface RuleSetCommand
-  extends ReplayableLedgerCommand, RuleSetCommandDescription {
+export interface RuleSetCommand extends RuleSetCommandDescription {
+  redo?: ReplayableLedgerCommand["redo"];
   replay?: RuleSetReplayAdapter;
+  undo?: ReplayableLedgerCommand["undo"];
 }
 
 export interface RuleSetCommandDescription extends LedgerCommand {
@@ -97,7 +104,7 @@ export function appliedLedgerResult(): LedgerResult {
 export function attachRuleSetReplay(
   command: RuleSetCommandDescription,
   replay: RuleSetReplayAdapter,
-): RuleSetCommand {
+): ExecutableRuleSetCommand {
   return {
     ...command,
     redo: replay.redo,
@@ -134,7 +141,7 @@ export function createRuleSetCommand(
   params: Parameters<typeof createRuleSetCommandDescription>[0] & {
     replay: RuleSetReplayAdapter;
   },
-): RuleSetCommand {
+): ExecutableRuleSetCommand {
   return attachRuleSetReplay(createRuleSetCommandDescription(params), {
     redo: params.replay.redo,
     undo: params.replay.undo,

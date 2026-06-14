@@ -10,6 +10,11 @@ export interface LedgerCommand {
   scope?: string;
 }
 
+export type LedgerCommandExecutor<TCommand extends LedgerCommand> = (
+  command: TCommand,
+  operation: LedgerOperation,
+) => LedgerExecutionResult | Promise<LedgerExecutionResult>;
+
 export type LedgerConflict =
   | {
       code: "nameConflict";
@@ -86,7 +91,8 @@ interface CommandLedgerState {
   undoDepth: number;
 }
 
-interface UseCommandLedgerOptions<TCommand extends ReplayableLedgerCommand> {
+interface UseCommandLedgerOptions<TCommand extends LedgerCommand> {
+  executeCommand?: LedgerCommandExecutor<TCommand>;
   maxDepth?: number;
   onConflict?: (command: TCommand, result: LedgerResult) => void;
   onError?: (
@@ -109,7 +115,7 @@ const DEFAULT_STATE: CommandLedgerState = {
   undoDepth: 0,
 };
 
-const EMPTY_OPTIONS: UseCommandLedgerOptions<ReplayableLedgerCommand> = {};
+const EMPTY_OPTIONS: UseCommandLedgerOptions<LedgerCommand> = {};
 const DEFAULT_ERROR_MESSAGE = "Aktion konnte nicht ausgeführt werden.";
 const DEFAULT_MAX_DEPTH = 100;
 const clearQueueResult = () => null;
@@ -165,7 +171,7 @@ export function toLedgerConflict(params: {
   };
 }
 
-export function useCommandLedger<TCommand extends ReplayableLedgerCommand>(
+export function useCommandLedger<TCommand extends LedgerCommand>(
   options?: UseCommandLedgerOptions<TCommand>,
 ) {
   const resolvedOptions = options ?? EMPTY_OPTIONS;
@@ -242,7 +248,11 @@ export function useCommandLedger<TCommand extends ReplayableLedgerCommand>(
         }
 
         try {
-          const rawResult = await command[operation]();
+          const rawResult = await executeLedgerCommand(
+            command,
+            operation,
+            optionsRef.current.executeCommand,
+          );
           const result = withCommandContext(
             command,
             operation,
@@ -320,6 +330,23 @@ export function useCommandLedger<TCommand extends ReplayableLedgerCommand>(
   };
 }
 
+function executeLedgerCommand<TCommand extends LedgerCommand>(
+  command: TCommand,
+  operation: LedgerOperation,
+  executeCommand: LedgerCommandExecutor<TCommand> | undefined,
+): Promise<LedgerExecutionResult> {
+  if (executeCommand) {
+    return Promise.resolve(executeCommand(command, operation));
+  }
+  if (isReplayableLedgerCommand(command)) {
+    return Promise.resolve(command[operation]());
+  }
+  return Promise.resolve({
+    message: "Für diese Aktion ist kein Wiedergabe-Adapter registriert.",
+    status: "conflict",
+  });
+}
+
 function extractConflictCode(message: string): LedgerConflictCode | undefined {
   const rawCode = HISTORY_CONFLICT_CODE_REGEX.exec(message)?.[1];
   if (!rawCode) {
@@ -349,6 +376,17 @@ function extractConflictCode(message: string): LedgerConflictCode | undefined {
     return "staleState";
   }
   return undefined;
+}
+
+function isReplayableLedgerCommand(
+  command: LedgerCommand,
+): command is ReplayableLedgerCommand {
+  return (
+    "redo" in command &&
+    typeof command.redo === "function" &&
+    "undo" in command &&
+    typeof command.undo === "function"
+  );
 }
 
 function toLedgerResult(result: LedgerExecutionResult): LedgerResult {

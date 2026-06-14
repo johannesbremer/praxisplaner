@@ -1,7 +1,10 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ReplayableLedgerCommand } from "../utils/command-ledger";
+import type {
+  LedgerCommand,
+  ReplayableLedgerCommand,
+} from "../utils/command-ledger";
 
 import { useCommandLedger } from "../utils/command-ledger";
 
@@ -158,6 +161,53 @@ describe("useCommandLedger", () => {
     });
 
     expect(result.current.undoDepth).toBe(1);
+    expect(result.current.canUndo).toBe(true);
+  });
+
+  it("can execute stored command descriptions through an adapter", async () => {
+    interface DescriptionCommand extends LedgerCommand {
+      operationId: string;
+    }
+
+    const executeCommand = vi.fn((recorded: DescriptionCommand) => {
+      expect(recorded.operationId).toBe("rename");
+      return applied;
+    });
+    const { result } = renderHook(() =>
+      useCommandLedger<DescriptionCommand>({ executeCommand }),
+    );
+
+    act(() => {
+      result.current.record({
+        label: "Rename",
+        operationId: "rename",
+      });
+    });
+
+    await act(() => result.current.undo());
+
+    expect(executeCommand).toHaveBeenCalledWith(
+      {
+        label: "Rename",
+        operationId: "rename",
+      },
+      "undo",
+    );
+    expect(result.current.canRedo).toBe(true);
+  });
+
+  it("keeps a non-executable command on conflict when no adapter is registered", async () => {
+    const { result } = renderHook(() => useCommandLedger<LedgerCommand>());
+
+    act(() => {
+      result.current.record({ label: "Data command" });
+    });
+    const undoResult = await act(() => result.current.undo());
+
+    expect(undoResult).toMatchObject({
+      conflict: { code: "staleState" },
+      status: "conflict",
+    });
     expect(result.current.canUndo).toBe(true);
   });
 });
