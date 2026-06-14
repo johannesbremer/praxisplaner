@@ -183,13 +183,6 @@ function LogicView() {
     },
   });
 
-  const recordRegelnCommand = useCallback(
-    (command: RuleSetCommand) => {
-      recordRegelnCommandInLedger(command);
-    },
-    [recordRegelnCommandInLedger],
-  );
-
   const deleteAllSimulatedDataMutation = useMutation(
     api.appointments.deleteAllSimulatedData,
   );
@@ -620,6 +613,19 @@ function LogicView() {
     return null;
   }, [currentWorkingRuleSet?._id, ruleSetIdFromUrl, unsavedRuleSet]);
   const lastHistoryScopeRef = useRef<null | string>(historyScopeKey);
+  const recordRegelnCommand = useCallback(
+    (command: RuleSetCommand) => {
+      if (command.scope || !historyScopeKey) {
+        recordRegelnCommandInLedger(command);
+        return;
+      }
+      recordRegelnCommandInLedger({
+        ...command,
+        scope: historyScopeKey,
+      });
+    },
+    [historyScopeKey, recordRegelnCommandInLedger],
+  );
 
   React.useEffect(() => {
     if (!historyScopeKey) {
@@ -633,7 +639,7 @@ function LogicView() {
       return;
     }
 
-    clearRegelnLedger();
+    clearRegelnLedger(lastHistoryScopeRef.current);
     lastHistoryScopeRef.current = historyScopeKey;
   }, [clearRegelnLedger, historyScopeKey]);
 
