@@ -66,6 +66,7 @@ import {
   type RegelnTabParam,
   useRegelnUrl,
 } from "../utils/regeln-url";
+import { withSerializableRuleSetPayload } from "../utils/rule-set-replay";
 import { dateToInstantStringResult } from "../utils/time-calculations";
 import { RuleSetDiffView, SaveDialogForm } from "./regeln/-rule-set-diff";
 import {
@@ -615,12 +616,13 @@ function LogicView() {
   const lastHistoryScopeRef = useRef<null | string>(historyScopeKey);
   const recordRegelnCommand = useCallback(
     (command: RuleSetCommand) => {
+      const serializableCommand = withSerializableRuleSetPayload(command);
       if (command.scope || !historyScopeKey) {
-        recordRegelnCommandInLedger(command);
+        recordRegelnCommandInLedger(serializableCommand);
         return;
       }
       recordRegelnCommandInLedger({
-        ...command,
+        ...serializableCommand,
         scope: historyScopeKey,
       });
     },

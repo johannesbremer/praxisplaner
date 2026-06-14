@@ -3,6 +3,12 @@ export interface EncodedRuleSetSnapshot<TSnapshot> {
   stableKey: string;
 }
 
+export function decodeRuleSetSnapshot<TSnapshot>(
+  encoded: EncodedRuleSetSnapshot<TSnapshot>,
+): TSnapshot {
+  return encoded.snapshot;
+}
+
 export function encodeRuleSetSnapshot<TSnapshot>(
   snapshot: TSnapshot,
 ): EncodedRuleSetSnapshot<TSnapshot> {
@@ -17,6 +23,13 @@ export function snapshotsMatch(
   right: EncodedRuleSetSnapshot<unknown>,
 ): boolean {
   return left.stableKey === right.stableKey;
+}
+
+export function snapshotValueMatches<TSnapshot>(
+  encoded: EncodedRuleSetSnapshot<TSnapshot>,
+  snapshot: TSnapshot,
+): boolean {
+  return snapshotsMatch(encoded, encodeRuleSetSnapshot(snapshot));
 }
 
 function stableStringify(value: unknown): string {

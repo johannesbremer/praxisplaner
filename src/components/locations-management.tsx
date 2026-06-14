@@ -39,10 +39,6 @@ import {
   ruleSetIdFromReplayTarget,
   useRuleSetReplayTargetController,
 } from "../utils/cow-history";
-import {
-  registerLineageCreateHistoryAction,
-  registerLineageUpdateHistoryAction,
-} from "../utils/cow-history-actions";
 import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
@@ -54,6 +50,14 @@ import {
   findFrontendEntityByLineageKey,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
+import {
+  createNamedLineageCreateReplayAdapter,
+  createNamedLineageUpdateReplayAdapter,
+} from "../utils/rule-set-named-lineage-replay";
+import {
+  attachRuleSetReplay,
+  createRuleSetCommandDescription,
+} from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 
 const isMissingEntityError = (error: unknown) =>
@@ -192,13 +196,35 @@ export function LocationsManagement({
             ...getCowMutationArgs(),
           });
           handleDraftMutationResult(updateResult);
-          registerLineageUpdateHistoryAction({
-            entitiesRef: locationsRef,
-            initialEntityId: asLocationId(updateResult.entityId),
+          const command = createRuleSetCommandDescription({
             kind: "location.update",
             label: "Standort aktualisiert",
+            payload: {
+              after: { name: trimmedName },
+              before: { name: previousName },
+              kind: "location.update",
+              lineageKey: editingLocation.lineageKey,
+            },
+            snapshots: {
+              after: encodeRuleSetSnapshot({
+                lineageKey: editingLocation.lineageKey,
+                name: trimmedName,
+              }),
+              before: encodeRuleSetSnapshot({
+                lineageKey: editingLocation.lineageKey,
+                name: previousName,
+              }),
+            },
+            target: {
+              entityId: updateResult.entityId,
+              lineageKey: editingLocation.lineageKey,
+            },
+          });
+          const replay = createNamedLineageUpdateReplayAdapter({
+            command,
+            entitiesRef: locationsRef,
+            initialEntityId: asLocationId(updateResult.entityId),
             lineageKey: editingLocation.lineageKey,
-            onRecordCommand,
             payload: {
               after: { name: trimmedName },
               before: { name: previousName },
@@ -227,31 +253,10 @@ export function LocationsManagement({
               handleDraftMutationResult(undoResult);
               return { entityId: asLocationId(undoResult.entityId) };
             },
-            snapshots: {
-              after: encodeRuleSetSnapshot({
-                lineageKey: editingLocation.lineageKey,
-                name: trimmedName,
-              }),
-              before: encodeRuleSetSnapshot({
-                lineageKey: editingLocation.lineageKey,
-                name: previousName,
-              }),
-            },
             undoMissingMessage:
               "Der Standort wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
-            validateRedo: (current) => {
-              if (current.name !== previousName) {
-                return "Der Standort wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.";
-              }
-              return null;
-            },
-            validateUndo: (current) => {
-              if (current.name !== trimmedName) {
-                return "Der Standort wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
-              }
-              return null;
-            },
           });
+          onRecordCommand?.(attachRuleSetReplay(command, replay));
 
           toast.success("Standort aktualisiert", {
             description: `Standort "${value.name}" wurde erfolgreich aktualisiert.`,
@@ -268,14 +273,31 @@ export function LocationsManagement({
           const locationLineageKey = asLocationLineageKey(
             createResult.entityId,
           );
-          registerLineageCreateHistoryAction({
+          const command = createRuleSetCommandDescription({
+            kind: "location.create",
+            label: "Standort erstellt",
+            payload: {
+              kind: "location.create",
+              lineageKey: locationLineageKey,
+              name: trimmedName,
+            },
+            snapshots: {
+              after: encodeRuleSetSnapshot({
+                lineageKey: locationLineageKey,
+                name: trimmedName,
+              }),
+            },
+            target: {
+              entityId,
+              lineageKey: locationLineageKey,
+            },
+          });
+          const replay = createNamedLineageCreateReplayAdapter({
+            command,
             entitiesRef: locationsRef,
             initialEntityId: entityId,
             isMissingEntityError,
-            kind: "location.create",
-            label: "Standort erstellt",
             lineageKey: locationLineageKey,
-            onRecordCommand,
             payload: {
               kind: "location.create",
               lineageKey: locationLineageKey,
@@ -301,22 +323,8 @@ export function LocationsManagement({
               handleDraftMutationResult(undoResult);
               return { entityId: asLocationId(undoResult.entityId) };
             },
-            snapshots: {
-              after: encodeRuleSetSnapshot({
-                lineageKey: locationLineageKey,
-                name: trimmedName,
-              }),
-            },
-            validateBeforeCreate: () => {
-              const duplicate = locationsRef.current.some(
-                (location) => location.name === trimmedName,
-              );
-              if (duplicate) {
-                return "Der Standort existiert bereits und kann nicht erneut erstellt werden.";
-              }
-              return null;
-            },
           });
+          onRecordCommand?.(attachRuleSetReplay(command, replay));
 
           toast.success("Standort erstellt", {
             description: `Standort "${value.name}" wurde erfolgreich erstellt.`,

@@ -1,5 +1,6 @@
 import type {
   LedgerCommand,
+  LedgerConflictCode,
   LedgerResult,
   ReplayableLedgerCommand,
 } from "./command-ledger";
@@ -9,10 +10,14 @@ import { toLedgerConflict } from "./command-ledger";
 
 export type RecordRuleSetCommand = (command: RuleSetCommand) => void;
 
-export interface RuleSetCommand extends LedgerCommand, ReplayableLedgerCommand {
+export interface RuleSetCommand
+  extends ReplayableLedgerCommand, RuleSetCommandDescription {
+  replay?: RuleSetReplayAdapter;
+}
+
+export interface RuleSetCommandDescription extends LedgerCommand {
   kind: RuleSetCommandKind;
   payload?: RuleSetCommandPayload;
-  replay?: RuleSetReplayAdapter;
   snapshots?: RuleSetCommandSnapshot;
   target?: RuleSetCommandTarget;
 }
@@ -41,7 +46,8 @@ export type RuleSetCommandKind =
 
 export type RuleSetCommandPayload =
   | RuleSetNamedLineageCreatePayload
-  | RuleSetNamedLineageUpdatePayload;
+  | RuleSetNamedLineageUpdatePayload
+  | RuleSetSnapshotCommandPayload;
 
 export interface RuleSetCommandSnapshot {
   after?: EncodedRuleSetSnapshot<unknown>;
@@ -76,43 +82,97 @@ export interface RuleSetReplayAdapter {
   undo: () => LedgerResult | Promise<LedgerResult>;
 }
 
+export interface RuleSetSnapshotCommandPayload {
+  kind: RuleSetCommandKind;
+  snapshots: RuleSetCommandSnapshot;
+  target?: RuleSetCommandTarget;
+}
+
 const APPLIED_RESULT: LedgerResult = { status: "applied" };
 
 export function appliedLedgerResult(): LedgerResult {
   return APPLIED_RESULT;
 }
 
-export function conflictLedgerResult(message: string): LedgerResult {
+export function attachRuleSetReplay(
+  command: RuleSetCommandDescription,
+  replay: RuleSetReplayAdapter,
+): RuleSetCommand {
+  return {
+    ...command,
+    redo: replay.redo,
+    replay,
+    undo: replay.undo,
+  };
+}
+
+export function conflictLedgerResult(
+  message: string,
+  options?: {
+    code?: LedgerConflictCode;
+    name?: string;
+    reference?: string;
+    target?: string;
+  },
+): LedgerResult {
   return {
     conflict: toLedgerConflict({
-      code: message.includes("nicht gefunden") ? "targetMissing" : "staleState",
+      code:
+        options?.code ??
+        (message.includes("nicht gefunden") ? "targetMissing" : "staleState"),
       message,
+      ...(options?.name && { name: options.name }),
+      ...(options?.reference && { reference: options.reference }),
+      ...(options?.target && { target: options.target }),
     }),
     message,
     status: "conflict",
   };
 }
 
-export function createRuleSetCommand(params: {
+export function createRuleSetCommand(
+  params: Parameters<typeof createRuleSetCommandDescription>[0] & {
+    replay: RuleSetReplayAdapter;
+  },
+): RuleSetCommand {
+  return attachRuleSetReplay(createRuleSetCommandDescription(params), {
+    redo: params.replay.redo,
+    undo: params.replay.undo,
+  });
+}
+
+export function createRuleSetCommandDescription(params: {
   clearHistoryBefore?: boolean;
   kind: RuleSetCommandKind;
   label: string;
   payload?: RuleSetCommandPayload;
-  replay: RuleSetReplayAdapter;
   scope?: string;
   snapshots?: RuleSetCommandSnapshot;
   target?: RuleSetCommandTarget;
-}): RuleSetCommand {
+}): RuleSetCommandDescription {
   return {
     ...(params.clearHistoryBefore && { clearHistoryBefore: true }),
     kind: params.kind,
     label: params.label,
     ...(params.payload && { payload: params.payload }),
-    redo: params.replay.redo,
-    replay: params.replay,
     ...(params.scope && { scope: params.scope }),
     ...(params.snapshots && { snapshots: params.snapshots }),
     ...(params.target && { target: params.target }),
-    undo: params.replay.undo,
+  };
+}
+
+export function withSerializableRuleSetPayload<TCommand extends RuleSetCommand>(
+  command: TCommand,
+): TCommand {
+  if (command.payload || !command.snapshots) {
+    return command;
+  }
+  return {
+    ...command,
+    payload: {
+      kind: command.kind,
+      snapshots: command.snapshots,
+      ...(command.target && { target: command.target }),
+    },
   };
 }

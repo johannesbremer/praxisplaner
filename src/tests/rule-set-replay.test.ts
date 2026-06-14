@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createRuleSetCommand } from "../utils/rule-set-replay";
+import {
+  createRuleSetCommand,
+  withSerializableRuleSetPayload,
+} from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 
 describe("rule set replay commands", () => {
@@ -48,5 +51,36 @@ describe("rule set replay commands", () => {
     });
     expect(redo).toHaveBeenCalledTimes(1);
     expect(undo).toHaveBeenCalledTimes(1);
+  });
+
+  it("adds a snapshot payload for legacy executable commands", () => {
+    const snapshot = encodeRuleSetSnapshot({
+      lineageKey: "appointment-type-lineage",
+      name: "Checkup",
+    });
+    const command = createRuleSetCommand({
+      kind: "appointmentType.update",
+      label: "Terminart aktualisiert",
+      replay: {
+        redo: () => ({ status: "applied" }),
+        undo: () => ({ status: "applied" }),
+      },
+      snapshots: {
+        before: snapshot,
+      },
+      target: {
+        lineageKey: "appointment-type-lineage",
+      },
+    });
+
+    expect(withSerializableRuleSetPayload(command).payload).toEqual({
+      kind: "appointmentType.update",
+      snapshots: {
+        before: snapshot,
+      },
+      target: {
+        lineageKey: "appointment-type-lineage",
+      },
+    });
   });
 });

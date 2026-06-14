@@ -33,10 +33,6 @@ import {
   ruleSetIdFromReplayTarget,
   useRuleSetReplayTargetController,
 } from "../utils/cow-history";
-import {
-  registerLineageCreateHistoryAction,
-  registerLineageUpdateHistoryAction,
-} from "../utils/cow-history-actions";
 import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
@@ -44,6 +40,14 @@ import {
   findFrontendEntityByLineageKey,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
+import {
+  createNamedLineageCreateReplayAdapter,
+  createNamedLineageUpdateReplayAdapter,
+} from "../utils/rule-set-named-lineage-replay";
+import {
+  attachRuleSetReplay,
+  createRuleSetCommandDescription,
+} from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 
 const isMissingEntityError = (error: unknown) =>
@@ -428,13 +432,35 @@ function PractitionerDialog({
             ...getCowMutationArgs(),
           });
           handleDraftMutationResult(updateResult);
-          registerLineageUpdateHistoryAction({
-            entitiesRef: practitionersRef,
-            initialEntityId: asPractitionerId(updateResult.entityId),
+          const command = createRuleSetCommandDescription({
             kind: "practitioner.update",
             label: "Arzt aktualisiert",
+            payload: {
+              after: { name: trimmedName },
+              before: { name: beforeName },
+              kind: "practitioner.update",
+              lineageKey: practitionerLineageKey,
+            },
+            snapshots: {
+              after: encodeRuleSetSnapshot({
+                lineageKey: practitionerLineageKey,
+                name: trimmedName,
+              }),
+              before: encodeRuleSetSnapshot({
+                lineageKey: practitionerLineageKey,
+                name: beforeName,
+              }),
+            },
+            target: {
+              entityId: updateResult.entityId,
+              lineageKey: practitionerLineageKey,
+            },
+          });
+          const replay = createNamedLineageUpdateReplayAdapter({
+            command,
+            entitiesRef: practitionersRef,
+            initialEntityId: asPractitionerId(updateResult.entityId),
             lineageKey: practitionerLineageKey,
-            onRecordCommand,
             payload: {
               after: { name: trimmedName },
               before: { name: beforeName },
@@ -463,31 +489,10 @@ function PractitionerDialog({
               handleDraftMutationResult(undoResult);
               return { entityId: asPractitionerId(undoResult.entityId) };
             },
-            snapshots: {
-              after: encodeRuleSetSnapshot({
-                lineageKey: practitionerLineageKey,
-                name: trimmedName,
-              }),
-              before: encodeRuleSetSnapshot({
-                lineageKey: practitionerLineageKey,
-                name: beforeName,
-              }),
-            },
             undoMissingMessage:
               "Der Arzt wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
-            validateRedo: (current) => {
-              if (current.name !== beforeName) {
-                return "Der Arzt wurde zwischenzeitlich geändert und kann nicht erneut aktualisiert werden.";
-              }
-              return null;
-            },
-            validateUndo: (current) => {
-              if (current.name !== trimmedName) {
-                return "Der Arzt wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
-              }
-              return null;
-            },
           });
+          onRecordCommand?.(attachRuleSetReplay(command, replay));
 
           toast.success("Arzt aktualisiert");
         } else {
@@ -502,14 +507,31 @@ function PractitionerDialog({
           const practitionerLineageKey = asPractitionerLineageKey(
             createResult.entityId,
           );
-          registerLineageCreateHistoryAction({
+          const command = createRuleSetCommandDescription({
+            kind: "practitioner.create",
+            label: "Arzt erstellt",
+            payload: {
+              kind: "practitioner.create",
+              lineageKey: practitionerLineageKey,
+              name: trimmedName,
+            },
+            snapshots: {
+              after: encodeRuleSetSnapshot({
+                lineageKey: practitionerLineageKey,
+                name: trimmedName,
+              }),
+            },
+            target: {
+              entityId,
+              lineageKey: practitionerLineageKey,
+            },
+          });
+          const replay = createNamedLineageCreateReplayAdapter({
+            command,
             entitiesRef: practitionersRef,
             initialEntityId: entityId,
             isMissingEntityError,
-            kind: "practitioner.create",
-            label: "Arzt erstellt",
             lineageKey: practitionerLineageKey,
-            onRecordCommand,
             payload: {
               kind: "practitioner.create",
               lineageKey: practitionerLineageKey,
@@ -534,22 +556,8 @@ function PractitionerDialog({
               handleDraftMutationResult(undoResult);
               return { entityId: asPractitionerId(undoResult.entityId) };
             },
-            snapshots: {
-              after: encodeRuleSetSnapshot({
-                lineageKey: practitionerLineageKey,
-                name: trimmedName,
-              }),
-            },
-            validateBeforeCreate: () => {
-              const duplicate = practitionersRef.current.some(
-                (entry) => entry.name === trimmedName,
-              );
-              if (duplicate) {
-                return "Der Arzt existiert bereits und kann nicht erneut erstellt werden.";
-              }
-              return null;
-            },
           });
+          onRecordCommand?.(attachRuleSetReplay(command, replay));
           toast.success("Arzt erstellt");
         }
 
