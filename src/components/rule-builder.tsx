@@ -30,6 +30,10 @@ import {
 } from "../utils/cow-history";
 import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
+import {
+  attachRuleSetReplay,
+  createRuleSetCommandDescription,
+} from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import { RuleEditDialog } from "./rule-builder-editor";
 
@@ -258,100 +262,104 @@ export function RuleBuilder({
           conditionTree: deletedRuleLineageTree,
           enabled: deletedRule.enabled,
         });
-        onRecordCommand?.({
+        const command = createRuleSetCommandDescription({
           kind: "schedulingRule.delete",
           label: "Regel gelöscht",
-          redo: async () => {
-            const existing =
-              rulesRef.current.find((rule) => rule._id === currentRuleId) ??
-              rulesRef.current.find(
-                (rule) =>
-                  serializeRuleStateForComparison({
-                    conditionTree: normalizeConditionTreeToLineage(
-                      rule.conditionTree,
-                      appointmentTypesRef.current,
-                      practitionersRef.current,
-                      locationsRef.current,
-                    ),
-                    enabled: rule.enabled,
-                  }) === deletedRuleState,
-              );
-            if (
-              existing &&
-              serializeRuleStateForComparison({
-                conditionTree: normalizeConditionTreeToLineage(
-                  existing.conditionTree,
-                  appointmentTypesRef.current,
-                  practitionersRef.current,
-                  locationsRef.current,
-                ),
-                enabled: existing.enabled,
-              }) !== deletedRuleState
-            ) {
-              return {
-                message:
-                  "Die Regel wurde zwischenzeitlich geändert und kann nicht erneut gelöscht werden.",
-                status: "conflict" as const,
-              };
-            }
-
-            if (!existing) {
-              return { status: "applied" as const };
-            }
-
-            currentRuleId = existing._id;
-
-            try {
-              const redoResult = await deleteRuleMutation({
-                practiceId,
-                ruleId: currentRuleId,
-                ...getCowMutationArgs(),
-              });
-              handleDraftMutationResult(redoResult);
-              return { status: "applied" as const };
-            } catch (error: unknown) {
-              if (isMissingEntityError(error)) {
-                return { status: "applied" as const };
-              }
-              return {
-                message:
-                  error instanceof Error
-                    ? error.message
-                    : "Die Regel konnte nicht gelöscht werden.",
-                status: "conflict" as const,
-              };
-            }
-          },
           snapshots: {
             before: deletedRuleSnapshot,
           },
           target: {
             entityId: ruleId,
           },
-          undo: async () => {
-            const preparedRule = prepareRuleConditionTreeForReplay(
-              deletedRuleLineageTree,
-              appointmentTypesRef.current,
-              practitionersRef.current,
-              locationsRef.current,
-            );
-            if (preparedRule.status === "conflict") {
-              return {
-                message: preparedRule.message,
-                status: "conflict" as const,
-              };
-            }
-            const recreateResult = await runCreateRule({
-              conditionTree: preparedRule.conditionTree,
-              ...getReplayCopySource(deletedRule),
-              enabled: deletedRule.enabled,
-              name: deletedRuleName,
-            });
-            handleDraftMutationResult(recreateResult);
-            currentRuleId = recreateResult.entityId;
-            return { status: "applied" as const };
-          },
         });
+        onRecordCommand?.(
+          attachRuleSetReplay(command, {
+            redo: async () => {
+              const existing =
+                rulesRef.current.find((rule) => rule._id === currentRuleId) ??
+                rulesRef.current.find(
+                  (rule) =>
+                    serializeRuleStateForComparison({
+                      conditionTree: normalizeConditionTreeToLineage(
+                        rule.conditionTree,
+                        appointmentTypesRef.current,
+                        practitionersRef.current,
+                        locationsRef.current,
+                      ),
+                      enabled: rule.enabled,
+                    }) === deletedRuleState,
+                );
+              if (
+                existing &&
+                serializeRuleStateForComparison({
+                  conditionTree: normalizeConditionTreeToLineage(
+                    existing.conditionTree,
+                    appointmentTypesRef.current,
+                    practitionersRef.current,
+                    locationsRef.current,
+                  ),
+                  enabled: existing.enabled,
+                }) !== deletedRuleState
+              ) {
+                return {
+                  message:
+                    "Die Regel wurde zwischenzeitlich geändert und kann nicht erneut gelöscht werden.",
+                  status: "conflict" as const,
+                };
+              }
+
+              if (!existing) {
+                return { status: "applied" as const };
+              }
+
+              currentRuleId = existing._id;
+
+              try {
+                const redoResult = await deleteRuleMutation({
+                  practiceId,
+                  ruleId: currentRuleId,
+                  ...getCowMutationArgs(),
+                });
+                handleDraftMutationResult(redoResult);
+                return { status: "applied" as const };
+              } catch (error: unknown) {
+                if (isMissingEntityError(error)) {
+                  return { status: "applied" as const };
+                }
+                return {
+                  message:
+                    error instanceof Error
+                      ? error.message
+                      : "Die Regel konnte nicht gelöscht werden.",
+                  status: "conflict" as const,
+                };
+              }
+            },
+            undo: async () => {
+              const preparedRule = prepareRuleConditionTreeForReplay(
+                deletedRuleLineageTree,
+                appointmentTypesRef.current,
+                practitionersRef.current,
+                locationsRef.current,
+              );
+              if (preparedRule.status === "conflict") {
+                return {
+                  message: preparedRule.message,
+                  status: "conflict" as const,
+                };
+              }
+              const recreateResult = await runCreateRule({
+                conditionTree: preparedRule.conditionTree,
+                ...getReplayCopySource(deletedRule),
+                enabled: deletedRule.enabled,
+                name: deletedRuleName,
+              });
+              handleDraftMutationResult(recreateResult);
+              currentRuleId = recreateResult.entityId;
+              return { status: "applied" as const };
+            },
+          }),
+        );
       }
     } catch (error) {
       console.error("Failed to delete rule:", error);
@@ -575,68 +583,9 @@ export function RuleBuilder({
               const undoStaleMessage =
                 "Die aktualisierte Regel wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
 
-              onRecordCommand?.({
+              const command = createRuleSetCommandDescription({
                 kind: "schedulingRule.update",
                 label: "Regel aktualisiert",
-                redo: async () => {
-                  const resolvedRule = resolveRuleIdForReplay({
-                    ambiguousMessage: redoAmbiguousMessage,
-                    missingMessage: redoMissingMessage,
-                    requiredState: previousRuleState,
-                    staleMessage: redoStaleMessage,
-                  });
-                  if (resolvedRule.status === "conflict") {
-                    if (resolvedRule.message === redoMissingMessage) {
-                      const currentMatches =
-                        findRuleIdsBySerializedState(currentRuleState);
-                      if (currentMatches.length === 1) {
-                        const resolvedCurrentRuleId = currentMatches.at(0);
-                        if (!resolvedCurrentRuleId) {
-                          return {
-                            message: resolvedRule.message,
-                            status: "conflict" as const,
-                          };
-                        }
-                        currentRuleId = resolvedCurrentRuleId;
-                        return { status: "applied" as const };
-                      }
-                    }
-                    return {
-                      message: resolvedRule.message,
-                      status: "conflict" as const,
-                    };
-                  }
-                  currentRuleId = resolvedRule.ruleId;
-                  const preparedRule = prepareRuleConditionTreeForReplay(
-                    currentRuleLineageTree,
-                    appointmentTypesRef.current,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  );
-                  if (preparedRule.status === "conflict") {
-                    return {
-                      message: preparedRule.message,
-                      status: "conflict" as const,
-                    };
-                  }
-
-                  const redoDeleteResult = await deleteRuleMutation({
-                    practiceId,
-                    ruleId: currentRuleId,
-                    ...getCowMutationArgs(),
-                  });
-                  handleDraftMutationResult(redoDeleteResult);
-
-                  const recreateResult = await runCreateRule({
-                    conditionTree: preparedRule.conditionTree,
-                    ...getReplayCopySource(previousRule),
-                    enabled: true,
-                    name: ruleName,
-                  });
-                  handleDraftMutationResult(recreateResult);
-                  currentRuleId = recreateResult.entityId;
-                  return { status: "applied" as const };
-                },
                 snapshots: {
                   after: currentRuleSnapshot,
                   before: previousRuleSnapshot,
@@ -644,66 +593,129 @@ export function RuleBuilder({
                 target: {
                   entityId: currentRuleId,
                 },
-                undo: async () => {
-                  const resolvedRule = resolveRuleIdForReplay({
-                    ambiguousMessage: undoAmbiguousMessage,
-                    missingMessage: undoMissingMessage,
-                    requiredState: currentRuleState,
-                    staleMessage: undoStaleMessage,
-                  });
-                  if (resolvedRule.status === "conflict") {
-                    if (resolvedRule.message === undoMissingMessage) {
-                      const previousMatches =
-                        findRuleIdsBySerializedState(previousRuleState);
-                      if (previousMatches.length === 1) {
-                        const resolvedPreviousRuleId = previousMatches.at(0);
-                        if (!resolvedPreviousRuleId) {
-                          return {
-                            message: resolvedRule.message,
-                            status: "conflict" as const,
-                          };
-                        }
-                        currentRuleId = resolvedPreviousRuleId;
-                        return { status: "applied" as const };
-                      }
-                    }
-                    return {
-                      message: resolvedRule.message,
-                      status: "conflict" as const,
-                    };
-                  }
-                  currentRuleId = resolvedRule.ruleId;
-                  const preparedRule = prepareRuleConditionTreeForReplay(
-                    previousRuleLineageTree,
-                    appointmentTypesRef.current,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  );
-                  if (preparedRule.status === "conflict") {
-                    return {
-                      message: preparedRule.message,
-                      status: "conflict" as const,
-                    };
-                  }
-
-                  const undoDeleteResult = await deleteRuleMutation({
-                    practiceId,
-                    ruleId: currentRuleId,
-                    ...getCowMutationArgs(),
-                  });
-                  handleDraftMutationResult(undoDeleteResult);
-
-                  const recreatePrevious = await runCreateRule({
-                    conditionTree: preparedRule.conditionTree,
-                    ...getReplayCopySource(previousRule),
-                    enabled: previousRule.enabled,
-                    name: previousRuleName,
-                  });
-                  handleDraftMutationResult(recreatePrevious);
-                  currentRuleId = recreatePrevious.entityId;
-                  return { status: "applied" as const };
-                },
               });
+              onRecordCommand?.(
+                attachRuleSetReplay(command, {
+                  redo: async () => {
+                    const resolvedRule = resolveRuleIdForReplay({
+                      ambiguousMessage: redoAmbiguousMessage,
+                      missingMessage: redoMissingMessage,
+                      requiredState: previousRuleState,
+                      staleMessage: redoStaleMessage,
+                    });
+                    if (resolvedRule.status === "conflict") {
+                      if (resolvedRule.message === redoMissingMessage) {
+                        const currentMatches =
+                          findRuleIdsBySerializedState(currentRuleState);
+                        if (currentMatches.length === 1) {
+                          const resolvedCurrentRuleId = currentMatches.at(0);
+                          if (!resolvedCurrentRuleId) {
+                            return {
+                              message: resolvedRule.message,
+                              status: "conflict" as const,
+                            };
+                          }
+                          currentRuleId = resolvedCurrentRuleId;
+                          return { status: "applied" as const };
+                        }
+                      }
+                      return {
+                        message: resolvedRule.message,
+                        status: "conflict" as const,
+                      };
+                    }
+                    currentRuleId = resolvedRule.ruleId;
+                    const preparedRule = prepareRuleConditionTreeForReplay(
+                      currentRuleLineageTree,
+                      appointmentTypesRef.current,
+                      practitionersRef.current,
+                      locationsRef.current,
+                    );
+                    if (preparedRule.status === "conflict") {
+                      return {
+                        message: preparedRule.message,
+                        status: "conflict" as const,
+                      };
+                    }
+
+                    const redoDeleteResult = await deleteRuleMutation({
+                      practiceId,
+                      ruleId: currentRuleId,
+                      ...getCowMutationArgs(),
+                    });
+                    handleDraftMutationResult(redoDeleteResult);
+
+                    const recreateResult = await runCreateRule({
+                      conditionTree: preparedRule.conditionTree,
+                      ...getReplayCopySource(previousRule),
+                      enabled: true,
+                      name: ruleName,
+                    });
+                    handleDraftMutationResult(recreateResult);
+                    currentRuleId = recreateResult.entityId;
+                    return { status: "applied" as const };
+                  },
+                  undo: async () => {
+                    const resolvedRule = resolveRuleIdForReplay({
+                      ambiguousMessage: undoAmbiguousMessage,
+                      missingMessage: undoMissingMessage,
+                      requiredState: currentRuleState,
+                      staleMessage: undoStaleMessage,
+                    });
+                    if (resolvedRule.status === "conflict") {
+                      if (resolvedRule.message === undoMissingMessage) {
+                        const previousMatches =
+                          findRuleIdsBySerializedState(previousRuleState);
+                        if (previousMatches.length === 1) {
+                          const resolvedPreviousRuleId = previousMatches.at(0);
+                          if (!resolvedPreviousRuleId) {
+                            return {
+                              message: resolvedRule.message,
+                              status: "conflict" as const,
+                            };
+                          }
+                          currentRuleId = resolvedPreviousRuleId;
+                          return { status: "applied" as const };
+                        }
+                      }
+                      return {
+                        message: resolvedRule.message,
+                        status: "conflict" as const,
+                      };
+                    }
+                    currentRuleId = resolvedRule.ruleId;
+                    const preparedRule = prepareRuleConditionTreeForReplay(
+                      previousRuleLineageTree,
+                      appointmentTypesRef.current,
+                      practitionersRef.current,
+                      locationsRef.current,
+                    );
+                    if (preparedRule.status === "conflict") {
+                      return {
+                        message: preparedRule.message,
+                        status: "conflict" as const,
+                      };
+                    }
+
+                    const undoDeleteResult = await deleteRuleMutation({
+                      practiceId,
+                      ruleId: currentRuleId,
+                      ...getCowMutationArgs(),
+                    });
+                    handleDraftMutationResult(undoDeleteResult);
+
+                    const recreatePrevious = await runCreateRule({
+                      conditionTree: preparedRule.conditionTree,
+                      ...getReplayCopySource(previousRule),
+                      enabled: previousRule.enabled,
+                      name: previousRuleName,
+                    });
+                    handleDraftMutationResult(recreatePrevious);
+                    currentRuleId = recreatePrevious.entityId;
+                    return { status: "applied" as const };
+                  },
+                }),
+              );
             } else {
               const createdRuleLineageTree = normalizeConditionTreeToLineage(
                 conditionTree,
@@ -715,60 +727,64 @@ export function RuleBuilder({
                 conditionTree: createdRuleLineageTree,
                 enabled: true,
               });
-              onRecordCommand?.({
+              const command = createRuleSetCommandDescription({
                 kind: "schedulingRule.create",
                 label: "Regel erstellt",
-                redo: async () => {
-                  const preparedRule = prepareRuleConditionTreeForReplay(
-                    createdRuleLineageTree,
-                    appointmentTypesRef.current,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  );
-                  if (preparedRule.status === "conflict") {
-                    return {
-                      message: preparedRule.message,
-                      status: "conflict" as const,
-                    };
-                  }
-                  const recreateResult = await runCreateRule({
-                    conditionTree: preparedRule.conditionTree,
-                    enabled: true,
-                    name: ruleName,
-                  });
-                  handleDraftMutationResult(recreateResult);
-                  currentRuleId = recreateResult.entityId;
-                  return { status: "applied" as const };
-                },
                 snapshots: {
                   after: createdRuleSnapshot,
                 },
                 target: {
                   entityId: currentRuleId,
                 },
-                undo: async () => {
-                  try {
-                    const undoDeleteResult = await deleteRuleMutation({
-                      practiceId,
-                      ruleId: currentRuleId,
-                      ...getCowMutationArgs(),
-                    });
-                    handleDraftMutationResult(undoDeleteResult);
-                    return { status: "applied" as const };
-                  } catch (error: unknown) {
-                    if (isMissingEntityError(error)) {
-                      return { status: "applied" as const };
-                    }
-                    return {
-                      message:
-                        error instanceof Error
-                          ? error.message
-                          : "Die Regel konnte nicht gelöscht werden.",
-                      status: "conflict" as const,
-                    };
-                  }
-                },
               });
+              onRecordCommand?.(
+                attachRuleSetReplay(command, {
+                  redo: async () => {
+                    const preparedRule = prepareRuleConditionTreeForReplay(
+                      createdRuleLineageTree,
+                      appointmentTypesRef.current,
+                      practitionersRef.current,
+                      locationsRef.current,
+                    );
+                    if (preparedRule.status === "conflict") {
+                      return {
+                        message: preparedRule.message,
+                        status: "conflict" as const,
+                      };
+                    }
+                    const recreateResult = await runCreateRule({
+                      conditionTree: preparedRule.conditionTree,
+                      enabled: true,
+                      name: ruleName,
+                    });
+                    handleDraftMutationResult(recreateResult);
+                    currentRuleId = recreateResult.entityId;
+                    return { status: "applied" as const };
+                  },
+                  undo: async () => {
+                    try {
+                      const undoDeleteResult = await deleteRuleMutation({
+                        practiceId,
+                        ruleId: currentRuleId,
+                        ...getCowMutationArgs(),
+                      });
+                      handleDraftMutationResult(undoDeleteResult);
+                      return { status: "applied" as const };
+                    } catch (error: unknown) {
+                      if (isMissingEntityError(error)) {
+                        return { status: "applied" as const };
+                      }
+                      return {
+                        message:
+                          error instanceof Error
+                            ? error.message
+                            : "Die Regel konnte nicht gelöscht werden.",
+                        status: "conflict" as const,
+                      };
+                    }
+                  },
+                }),
+              );
             }
 
             closeDialog();
