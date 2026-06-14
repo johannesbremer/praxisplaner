@@ -10,7 +10,10 @@ import type {
 } from "./rule-set-replay";
 
 import { resolveReplayEntity } from "./cow-history";
-import { recordRuleSetCommand } from "./rule-set-command-executor";
+import {
+  recordRuleSetCommand,
+  registerRuleSetReplayAdapter,
+} from "./rule-set-command-executor";
 import {
   appliedLedgerResult,
   conflictLedgerResult,
@@ -97,7 +100,7 @@ export function recordLineageCreateRuleSetCommand<
     },
   });
 
-  recordRuleSetCommand(params.onRecordCommand, command, {
+  const replay = {
     redo: async () => {
       const existingByLineage = params.entitiesRef.current.find(
         (entity) => entity.lineageKey === params.lineageKey,
@@ -134,7 +137,9 @@ export function recordLineageCreateRuleSetCommand<
         );
       }
     },
-  });
+  };
+  registerRuleSetReplayAdapter(command, replay);
+  recordRuleSetCommand(params.onRecordCommand, command);
 }
 
 export function recordLineageUpdateRuleSetCommand<
@@ -161,7 +166,7 @@ export function recordLineageUpdateRuleSetCommand<
     },
   });
 
-  recordRuleSetCommand(params.onRecordCommand, command, {
+  const replay = {
     redo: async () => {
       const resolvedCurrent = resolveReplayEntity({
         currentEntityId,
@@ -208,7 +213,9 @@ export function recordLineageUpdateRuleSetCommand<
       currentEntityId = next.currentEntityId;
       return next.historyResult;
     },
-  });
+  };
+  registerRuleSetReplayAdapter(command, replay);
+  recordRuleSetCommand(params.onRecordCommand, command);
 }
 
 function isLedgerResult<TId extends string>(

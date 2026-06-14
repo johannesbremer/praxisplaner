@@ -69,7 +69,10 @@ import {
   getPublicHolidayName,
   getPublicHolidaysData,
 } from "../utils/public-holidays";
-import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
+import {
+  recordRuleSetCommand,
+  registerRuleSetReplayAdapter,
+} from "../utils/rule-set-command-executor";
 import {
   createNamedLineageCreateReplayAdapter,
   createNamedLineageDeleteReplayAdapter,
@@ -686,18 +689,16 @@ export function VacationScheduler({
         lineageKey: staff.lineageKey,
       },
     });
-    recordRuleSetCommand(
-      onRecordCommand,
-      command,
-      createAbsenceDayReplayAdapter({
-        date,
-        nextPortions,
-        nextSnapshots,
-        previousSnapshots,
-        setAbsencesForDay: setVacationsForDay,
-        staff,
-      }),
-    );
+    const replay = createAbsenceDayReplayAdapter({
+      date,
+      nextPortions,
+      nextSnapshots,
+      previousSnapshots,
+      setAbsencesForDay: setVacationsForDay,
+      staff,
+    });
+    registerRuleSetReplayAdapter(command, replay);
+    recordRuleSetCommand(onRecordCommand, command);
   };
 
   const handleCreateMfa = async () => {
@@ -808,7 +809,8 @@ export function VacationScheduler({
           }
         },
       });
-      recordRuleSetCommand(onRecordCommand, command, replay);
+      registerRuleSetReplayAdapter(command, replay);
+      recordRuleSetCommand(onRecordCommand, command);
       toast.success("MFA hinzugefügt");
     } catch (error) {
       toast.error("MFA konnte nicht angelegt werden", {
@@ -907,7 +909,8 @@ export function VacationScheduler({
           }
         },
       });
-      recordRuleSetCommand(onRecordCommand, command, replay);
+      registerRuleSetReplayAdapter(command, replay);
+      recordRuleSetCommand(onRecordCommand, command);
       toast.success("MFA entfernt");
     } catch (error) {
       toast.error("MFA konnte nicht entfernt werden", {

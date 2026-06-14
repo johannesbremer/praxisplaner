@@ -48,7 +48,10 @@ import {
 import { useErrorTracking } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
 import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
-import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
+import {
+  recordRuleSetCommand,
+  registerRuleSetReplayAdapter,
+} from "../utils/rule-set-command-executor";
 import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
@@ -291,27 +294,25 @@ export default function BaseScheduleManagement({
             ruleSetId,
           },
         });
-        recordRuleSetCommand(
-          onRecordCommand,
-          command,
-          createBaseScheduleReplaceSetReplay({
-            after: [],
-            before: deletedSchedulePayloads,
-            getCowMutationArgs,
-            handleDraftMutationResult,
-            isBaseScheduleMissingError,
-            label: "Arbeitszeiten",
-            practiceId,
-            replaceScheduleSet: replaceScheduleSetMutation,
-            runCreateScheduleBatch: (schedules) =>
-              createScheduleBatchMutation({
-                practiceId,
-                schedules,
-                ...getCowMutationArgs(),
-              }),
-            schedulesRef,
-          }),
-        );
+        const replay = createBaseScheduleReplaceSetReplay({
+          after: [],
+          before: deletedSchedulePayloads,
+          getCowMutationArgs,
+          handleDraftMutationResult,
+          isBaseScheduleMissingError,
+          label: "Arbeitszeiten",
+          practiceId,
+          replaceScheduleSet: replaceScheduleSetMutation,
+          runCreateScheduleBatch: (schedules) =>
+            createScheduleBatchMutation({
+              practiceId,
+              schedules,
+              ...getCowMutationArgs(),
+            }),
+          schedulesRef,
+        });
+        registerRuleSetReplayAdapter(command, replay);
+        recordRuleSetCommand(onRecordCommand, command);
       }
     } catch (error: unknown) {
       captureError(error, {
@@ -1007,22 +1008,20 @@ function BaseScheduleDialog({
               ruleSetId,
             },
           });
-          recordRuleSetCommand(
-            onRecordCommand,
-            command,
-            createBaseScheduleReplaceSetReplay({
-              after: createdSchedulePayloads,
-              before: [],
-              getCowMutationArgs: getLocalCowMutationArgs,
-              handleDraftMutationResult,
-              isBaseScheduleMissingError,
-              label: "Arbeitszeiten",
-              practiceId,
-              replaceScheduleSet: replaceScheduleSetMutation,
-              runCreateScheduleBatch,
-              schedulesRef,
-            }),
-          );
+          const replay = createBaseScheduleReplaceSetReplay({
+            after: createdSchedulePayloads,
+            before: [],
+            getCowMutationArgs: getLocalCowMutationArgs,
+            handleDraftMutationResult,
+            isBaseScheduleMissingError,
+            label: "Arbeitszeiten",
+            practiceId,
+            replaceScheduleSet: replaceScheduleSetMutation,
+            runCreateScheduleBatch,
+            schedulesRef,
+          });
+          registerRuleSetReplayAdapter(command, replay);
+          recordRuleSetCommand(onRecordCommand, command);
         }
 
         if (schedule && createdSchedulePayloads.length > 0) {
@@ -1043,22 +1042,20 @@ function BaseScheduleDialog({
               ruleSetId,
             },
           });
-          recordRuleSetCommand(
-            onRecordCommand,
-            command,
-            createBaseScheduleReplaceSetReplay({
-              after: createdSchedulePayloads,
-              before: oldSchedulePayloads,
-              getCowMutationArgs: getLocalCowMutationArgs,
-              handleDraftMutationResult,
-              isBaseScheduleMissingError,
-              label: "Arbeitszeiten",
-              practiceId,
-              replaceScheduleSet: replaceScheduleSetMutation,
-              runCreateScheduleBatch,
-              schedulesRef,
-            }),
-          );
+          const replay = createBaseScheduleReplaceSetReplay({
+            after: createdSchedulePayloads,
+            before: oldSchedulePayloads,
+            getCowMutationArgs: getLocalCowMutationArgs,
+            handleDraftMutationResult,
+            isBaseScheduleMissingError,
+            label: "Arbeitszeiten",
+            practiceId,
+            replaceScheduleSet: replaceScheduleSetMutation,
+            runCreateScheduleBatch,
+            schedulesRef,
+          });
+          registerRuleSetReplayAdapter(command, replay);
+          recordRuleSetCommand(onRecordCommand, command);
         }
         onClose();
       } catch (error: unknown) {

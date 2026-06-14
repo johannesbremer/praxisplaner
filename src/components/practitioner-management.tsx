@@ -41,7 +41,10 @@ import {
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
 import { createPractitionerDependencyDeleteReplayAdapter } from "../utils/practitioner-dependency-delete-replay";
-import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
+import {
+  recordRuleSetCommand,
+  registerRuleSetReplayAdapter,
+} from "../utils/rule-set-command-executor";
 import {
   createNamedLineageCreateReplayAdapter,
   createNamedLineageUpdateReplayAdapter,
@@ -162,45 +165,43 @@ export default function PractitionerManagement({
           lineageKey: currentSnapshot.practitioner.lineageKey,
         },
       });
-      recordRuleSetCommand(
-        onRecordCommand,
-        command,
-        createPractitionerDependencyDeleteReplayAdapter<
-          Id<"practitioners">,
-          Id<"practitioners">,
-          typeof currentSnapshot
-        >({
-          deleteWithDependencies: async (args) => {
-            const result = await deleteWithDependenciesMutation({
-              practiceId,
-              practitionerId: args.practitionerId,
-              practitionerLineageKey: args.practitionerLineageKey,
-              ...getCowMutationArgs(),
-            });
-            handleDraftMutationResult(result);
-            return { snapshot: result.snapshot };
-          },
-          findByLineage: (lineageKey) =>
-            findFrontendEntityByLineageKey(
-              practitionersRef.current,
-              asPractitionerLineageKey(lineageKey),
-            ),
-          initialEntityId: currentPractitionerId,
-          initialSnapshot: currentSnapshot,
-          isMissingEntityError,
-          restoreWithDependencies: async (snapshot) => {
-            const result = await restoreWithDependenciesMutation({
-              practiceId,
-              snapshot,
-              ...getCowMutationArgs(),
-            });
-            handleDraftMutationResult(result);
-            return {
-              restoredPractitionerId: result.restoredPractitionerId,
-            };
-          },
-        }),
-      );
+      const replay = createPractitionerDependencyDeleteReplayAdapter<
+        Id<"practitioners">,
+        Id<"practitioners">,
+        typeof currentSnapshot
+      >({
+        deleteWithDependencies: async (args) => {
+          const result = await deleteWithDependenciesMutation({
+            practiceId,
+            practitionerId: args.practitionerId,
+            practitionerLineageKey: args.practitionerLineageKey,
+            ...getCowMutationArgs(),
+          });
+          handleDraftMutationResult(result);
+          return { snapshot: result.snapshot };
+        },
+        findByLineage: (lineageKey) =>
+          findFrontendEntityByLineageKey(
+            practitionersRef.current,
+            asPractitionerLineageKey(lineageKey),
+          ),
+        initialEntityId: currentPractitionerId,
+        initialSnapshot: currentSnapshot,
+        isMissingEntityError,
+        restoreWithDependencies: async (snapshot) => {
+          const result = await restoreWithDependenciesMutation({
+            practiceId,
+            snapshot,
+            ...getCowMutationArgs(),
+          });
+          handleDraftMutationResult(result);
+          return {
+            restoredPractitionerId: result.restoredPractitionerId,
+          };
+        },
+      });
+      registerRuleSetReplayAdapter(command, replay);
+      recordRuleSetCommand(onRecordCommand, command);
       toast.success("Arzt gelöscht");
     } catch (error: unknown) {
       captureError(error, {
@@ -443,7 +444,8 @@ function PractitionerDialog({
             undoMissingMessage:
               "Der Arzt wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
           });
-          recordRuleSetCommand(onRecordCommand, command, replay);
+          registerRuleSetReplayAdapter(command, replay);
+          recordRuleSetCommand(onRecordCommand, command);
 
           toast.success("Arzt aktualisiert");
         } else {
@@ -508,7 +510,8 @@ function PractitionerDialog({
               return { entityId: asPractitionerId(undoResult.entityId) };
             },
           });
-          recordRuleSetCommand(onRecordCommand, command, replay);
+          registerRuleSetReplayAdapter(command, replay);
+          recordRuleSetCommand(onRecordCommand, command);
           toast.success("Arzt erstellt");
         }
 

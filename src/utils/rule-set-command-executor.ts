@@ -48,12 +48,11 @@ export function executeRuleSetCommand(
 export function recordRuleSetCommand(
   record: RecordRuleSetCommand | undefined,
   command: RuleSetCommandDescription,
-  replay: RuleSetReplayAdapter,
 ): void {
-  record?.(attachRuleSetReplay(command, replay));
+  record?.(command);
 }
 
-function attachRuleSetReplay(
+export function registerRuleSetReplayAdapter(
   command: RuleSetCommandDescription,
   replay: RuleSetReplayAdapter,
 ): RuleSetCommand {

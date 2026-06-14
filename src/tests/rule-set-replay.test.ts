@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   executeRuleSetCommand,
   recordRuleSetCommand,
+  registerRuleSetReplayAdapter,
 } from "../utils/rule-set-command-executor";
 import {
   createRuleSetCommandDescription,
@@ -25,28 +26,26 @@ describe("rule set replay commands", () => {
         label: "unrecorded",
       });
 
-    recordRuleSetCommand(
-      (command) => {
-        recordedCommand = command;
-      },
-      createRuleSetCommandDescription({
+    const command = createRuleSetCommandDescription({
+      kind: "practitioner.update",
+      label: "Arzt aktualisiert",
+      payload: {
+        after: { name: "Dr. Test" },
+        before: { name: "Dr. Old" },
         kind: "practitioner.update",
-        label: "Arzt aktualisiert",
-        payload: {
-          after: { name: "Dr. Test" },
-          before: { name: "Dr. Old" },
-          kind: "practitioner.update",
-          lineageKey: "practitioner-lineage",
-        },
-        snapshots: {
-          after: snapshot,
-        },
-        target: {
-          lineageKey: "practitioner-lineage",
-        },
-      }),
-      { redo, undo },
-    );
+        lineageKey: "practitioner-lineage",
+      },
+      snapshots: {
+        after: snapshot,
+      },
+      target: {
+        lineageKey: "practitioner-lineage",
+      },
+    });
+    registerRuleSetReplayAdapter(command, { redo, undo });
+    recordRuleSetCommand((recorded) => {
+      recordedCommand = recorded;
+    }, command);
 
     expect(recordedCommand.kind).toBe("practitioner.update");
     expect(recordedCommand.payload).toEqual({
