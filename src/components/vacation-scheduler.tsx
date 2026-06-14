@@ -676,16 +676,9 @@ export function VacationScheduler({
         : nextSnapshots.length === 0
           ? "absence.delete"
           : "absence.update";
-    onRecordCommand?.({
+    const command = createRuleSetCommandDescription({
       kind: commandKind,
       label,
-      redo: async () => {
-        await setVacationsForDay(staff, date, nextPortions, {
-          clearSnapshots: previousSnapshots,
-          createSnapshots: nextSnapshots,
-        });
-        return { status: "applied" as const };
-      },
       snapshots: {
         after: afterSnapshot,
         before: beforeSnapshot,
@@ -693,19 +686,30 @@ export function VacationScheduler({
       target: {
         lineageKey: staff.lineageKey,
       },
-      undo: async () => {
-        await setVacationsForDay(
-          staff,
-          date,
-          previousSnapshots.map((snapshot) => snapshot.portion),
-          {
-            clearSnapshots: nextSnapshots,
-            createSnapshots: previousSnapshots,
-          },
-        );
-        return { status: "applied" as const };
-      },
     });
+    onRecordCommand?.(
+      attachRuleSetReplay(command, {
+        redo: async () => {
+          await setVacationsForDay(staff, date, nextPortions, {
+            clearSnapshots: previousSnapshots,
+            createSnapshots: nextSnapshots,
+          });
+          return { status: "applied" as const };
+        },
+        undo: async () => {
+          await setVacationsForDay(
+            staff,
+            date,
+            previousSnapshots.map((snapshot) => snapshot.portion),
+            {
+              clearSnapshots: nextSnapshots,
+              createSnapshots: previousSnapshots,
+            },
+          );
+          return { status: "applied" as const };
+        },
+      }),
+    );
   };
 
   const handleCreateMfa = async () => {
