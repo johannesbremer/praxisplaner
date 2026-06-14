@@ -77,8 +77,7 @@ import type { RuleSetCommand } from "../utils/rule-set-replay";
 import { findIdInList } from "../utils/convex-ids";
 import {
   ruleSetIdFromReplayTarget,
-  toCowMutationArgs,
-  updateRuleSetReplayTarget,
+  useRuleSetReplayTargetController,
 } from "../utils/cow-history";
 import {
   registerLineageCreateHistoryAction,
@@ -835,10 +834,6 @@ export function AppointmentTypesManagement({
   useEffect(() => {
     practitionersRef.current = practitioners;
   }, [practitioners]);
-  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
-  useEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
-  }, [ruleSetReplayTarget]);
   const treePointerDownRef = useRef<null | {
     canOpenItem: boolean;
     path: string;
@@ -846,18 +841,13 @@ export function AppointmentTypesManagement({
     y: number;
   }>(null);
 
-  const getCowMutationArgs = () =>
-    toCowMutationArgs(ruleSetReplayTargetRef.current);
-  const handleDraftMutationResult = (result: DraftMutationResult) => {
-    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
-      ruleSetReplayTargetRef.current,
-      result,
-    );
-    onDraftMutation?.(result);
-    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
-      onRuleSetCreated(result.ruleSetId);
-    }
-  };
+  const { getCowMutationArgs, handleDraftMutationResult } =
+    useRuleSetReplayTargetController({
+      ...(onDraftMutation && { onDraftMutation }),
+      ...(onRuleSetCreated && { onRuleSetCreated }),
+      ruleSetId,
+      ruleSetReplayTarget,
+    });
   const upsertAppointmentTypeRef = useCallback(
     (
       appointmentType: AppointmentType,

@@ -40,12 +40,9 @@ import {
 import { api } from "@/convex/_generated/api";
 import { asBaseScheduleId, asBaseScheduleLineageKey } from "@/convex/identity";
 
-import type { DraftMutationResult } from "../utils/cow-history";
-
 import {
   ruleSetIdFromReplayTarget,
-  toCowMutationArgs,
-  updateRuleSetReplayTarget,
+  useRuleSetReplayTargetController,
 } from "../utils/cow-history";
 import { useErrorTracking } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
@@ -185,22 +182,13 @@ export default function BaseScheduleManagement({
   useIsomorphicLayoutEffect(() => {
     schedulesRef.current = schedules;
   }, [schedules]);
-  const ruleSetReplayTargetRef = React.useRef(ruleSetReplayTarget);
-  useIsomorphicLayoutEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
-  }, [ruleSetReplayTarget]);
-  const getCowMutationArgs = () =>
-    toCowMutationArgs(ruleSetReplayTargetRef.current);
-  const handleDraftMutationResult = (result: DraftMutationResult) => {
-    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
-      ruleSetReplayTargetRef.current,
-      result,
-    );
-    onDraftMutation?.(result);
-    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
-      onRuleSetCreated(result.ruleSetId);
-    }
-  };
+  const { getCowMutationArgs, handleDraftMutationResult } =
+    useRuleSetReplayTargetController({
+      ...(onDraftMutation && { onDraftMutation }),
+      ...(onRuleSetCreated && { onRuleSetCreated }),
+      ruleSetId,
+      ruleSetReplayTarget,
+    });
 
   const handleEditGroup = (scheduleGroup: {
     breakTimes?: { end: string; start: string }[];
@@ -699,22 +687,15 @@ function BaseScheduleDialog({
   useIsomorphicLayoutEffect(() => {
     schedulesRef.current = schedules;
   }, [schedules]);
-  const ruleSetReplayTargetRef = React.useRef(ruleSetReplayTarget);
-  useIsomorphicLayoutEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
-  }, [ruleSetReplayTarget]);
-  const getLocalCowMutationArgs = () =>
-    toCowMutationArgs(ruleSetReplayTargetRef.current);
-  const handleDraftMutationResult = (result: DraftMutationResult) => {
-    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
-      ruleSetReplayTargetRef.current,
-      result,
-    );
-    onDraftMutation?.(result);
-    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
-      onRuleSetCreated(result.ruleSetId);
-    }
-  };
+  const {
+    getCowMutationArgs: getLocalCowMutationArgs,
+    handleDraftMutationResult,
+  } = useRuleSetReplayTargetController({
+    ...(onDraftMutation && { onDraftMutation }),
+    ...(onRuleSetCreated && { onRuleSetCreated }),
+    ruleSetId,
+    ruleSetReplayTarget,
+  });
 
   const createScheduleBatchMutation = useMutation(
     api.entities.createBaseScheduleBatch,
@@ -733,7 +714,7 @@ function BaseScheduleDialog({
         schedules,
         ...getLocalCowMutationArgs(),
       }),
-    [createScheduleBatchMutation, practiceId],
+    [createScheduleBatchMutation, getLocalCowMutationArgs, practiceId],
   );
   const form = useForm({
     defaultValues: {

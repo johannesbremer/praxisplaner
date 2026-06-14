@@ -56,8 +56,7 @@ import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
 import { dispatchCustomEvent } from "../utils/browser-api";
 import {
   ruleSetIdFromReplayTarget,
-  toCowMutationArgs,
-  updateRuleSetReplayTarget,
+  useRuleSetReplayTargetController,
 } from "../utils/cow-history";
 import { captureErrorGlobal } from "../utils/error-tracking";
 import {
@@ -282,16 +281,20 @@ export function VacationScheduler({
       source: "VacationScheduler",
     });
   }, [mfas]);
-  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
+  const {
+    getCowMutationArgs,
+    handleDraftMutationResult,
+    ruleSetReplayTargetRef,
+  } = useRuleSetReplayTargetController({
+    ...(onDraftMutation && { onDraftMutation }),
+    ruleSetId,
+    ruleSetReplayTarget,
+  });
   const vacationsRef = useRef(vacations ?? []);
   const mfasRef = useRef(mappedMfas);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const autoScrolledMonthRef = useRef<null | string>(null);
   const today = useMemo(() => Temporal.Now.plainDateISO("Europe/Berlin"), []);
-
-  useEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
-  }, [ruleSetReplayTarget]);
 
   useEffect(() => {
     vacationsRef.current = vacations ?? [];
@@ -380,17 +383,6 @@ export function VacationScheduler({
 
   const firstBodyRowStaffId = combinedRows[0]?.staff.id;
   const totalBodyRowCount = combinedRows.length;
-
-  const getCowMutationArgs = () =>
-    toCowMutationArgs(ruleSetReplayTargetRef.current);
-
-  const handleDraftMutationResult = (result: DraftMutationResult) => {
-    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
-      ruleSetReplayTargetRef.current,
-      result,
-    );
-    onDraftMutation?.(result);
-  };
 
   const navigateMonth = (offset: number) => {
     onDateChange?.(monthDate.add({ months: offset }));
