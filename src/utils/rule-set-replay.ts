@@ -11,6 +11,7 @@ export type RecordRuleSetCommand = (command: RuleSetCommand) => void;
 
 export interface RuleSetCommand extends LedgerCommand, ReplayableLedgerCommand {
   kind: RuleSetCommandKind;
+  payload?: RuleSetCommandPayload;
   replay?: RuleSetReplayAdapter;
   snapshots?: RuleSetCommandSnapshot;
   target?: RuleSetCommandTarget;
@@ -38,6 +39,10 @@ export type RuleSetCommandKind =
   | "schedulingRule.delete"
   | "schedulingRule.update";
 
+export type RuleSetCommandPayload =
+  | RuleSetNamedLineageCreatePayload
+  | RuleSetNamedLineageUpdatePayload;
+
 export interface RuleSetCommandSnapshot {
   after?: EncodedRuleSetSnapshot<unknown>;
   before?: EncodedRuleSetSnapshot<unknown>;
@@ -47,6 +52,23 @@ export interface RuleSetCommandTarget {
   entityId?: string;
   lineageKey?: string;
   ruleSetId?: string;
+}
+
+export interface RuleSetNamedLineageCreatePayload {
+  kind: Extract<RuleSetCommandKind, "location.create" | "practitioner.create">;
+  lineageKey: string;
+  name: string;
+}
+
+export interface RuleSetNamedLineageSnapshot {
+  name: string;
+}
+
+export interface RuleSetNamedLineageUpdatePayload {
+  after: RuleSetNamedLineageSnapshot;
+  before: RuleSetNamedLineageSnapshot;
+  kind: Extract<RuleSetCommandKind, "location.update" | "practitioner.update">;
+  lineageKey: string;
 }
 
 export interface RuleSetReplayAdapter {
@@ -75,6 +97,7 @@ export function createRuleSetCommand(params: {
   clearHistoryBefore?: boolean;
   kind: RuleSetCommandKind;
   label: string;
+  payload?: RuleSetCommandPayload;
   replay: RuleSetReplayAdapter;
   scope?: string;
   snapshots?: RuleSetCommandSnapshot;
@@ -84,6 +107,7 @@ export function createRuleSetCommand(params: {
     ...(params.clearHistoryBefore && { clearHistoryBefore: true }),
     kind: params.kind,
     label: params.label,
+    ...(params.payload && { payload: params.payload }),
     redo: params.replay.redo,
     replay: params.replay,
     ...(params.scope && { scope: params.scope }),

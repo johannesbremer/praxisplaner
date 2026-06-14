@@ -15,6 +15,12 @@ describe("rule set replay commands", () => {
     const command = createRuleSetCommand({
       kind: "practitioner.update",
       label: "Arzt aktualisiert",
+      payload: {
+        after: { name: "Dr. Test" },
+        before: { name: "Dr. Old" },
+        kind: "practitioner.update",
+        lineageKey: "practitioner-lineage",
+      },
       replay: { redo, undo },
       snapshots: {
         after: snapshot,
@@ -25,6 +31,12 @@ describe("rule set replay commands", () => {
     });
 
     expect(command.kind).toBe("practitioner.update");
+    expect(command.payload).toEqual({
+      after: { name: "Dr. Test" },
+      before: { name: "Dr. Old" },
+      kind: "practitioner.update",
+      lineageKey: "practitioner-lineage",
+    });
     expect(command.target?.lineageKey).toBe("practitioner-lineage");
     expect(command.snapshots?.after).toBe(snapshot);
 

@@ -199,6 +199,12 @@ export function LocationsManagement({
             label: "Standort aktualisiert",
             lineageKey: editingLocation.lineageKey,
             onRecordCommand,
+            payload: {
+              after: { name: trimmedName },
+              before: { name: previousName },
+              kind: "location.update",
+              lineageKey: editingLocation.lineageKey,
+            },
             redoMissingMessage:
               "Der Standort wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
             runRedo: async (currentLocationId) => {
@@ -270,6 +276,11 @@ export function LocationsManagement({
             label: "Standort erstellt",
             lineageKey: locationLineageKey,
             onRecordCommand,
+            payload: {
+              kind: "location.create",
+              lineageKey: locationLineageKey,
+              name: trimmedName,
+            },
             runCreate: async () => {
               const recreateResult = await createLocationMutation({
                 lineageKey: locationLineageKey,

@@ -5,6 +5,7 @@ import type { LineageTrackedEntity } from "./cow-history";
 import type {
   RecordRuleSetCommand,
   RuleSetCommandKind,
+  RuleSetCommandPayload,
   RuleSetCommandSnapshot,
 } from "./rule-set-replay";
 
@@ -36,6 +37,7 @@ interface RegisterLineageCreateActionParams<
   label: string;
   lineageKey: TLineageKey;
   onRecordCommand: RecordRuleSetCommand | undefined;
+  payload?: RuleSetCommandPayload;
   runCreate: () => Promise<ReplayStepResult<TEntityId>>;
   runDelete: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
   scope?: string;
@@ -54,6 +56,7 @@ interface RegisterLineageUpdateActionParams<
   label: string;
   lineageKey: TLineageKey;
   onRecordCommand: RecordRuleSetCommand | undefined;
+  payload?: RuleSetCommandPayload;
   redoMissingMessage: string;
   runRedo: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
   runUndo: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
@@ -85,6 +88,7 @@ export function registerLineageCreateHistoryAction<
     createRuleSetCommand({
       kind: params.kind,
       label: params.label,
+      ...(params.payload && { payload: params.payload }),
       replay: {
         redo: async () => {
           const existingByLineage = params.entitiesRef.current.find(
@@ -149,6 +153,7 @@ export function registerLineageUpdateHistoryAction<
     createRuleSetCommand({
       kind: params.kind,
       label: params.label,
+      ...(params.payload && { payload: params.payload }),
       replay: {
         redo: async () => {
           const resolvedCurrent = resolveReplayEntity({

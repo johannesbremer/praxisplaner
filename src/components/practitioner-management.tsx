@@ -435,6 +435,12 @@ function PractitionerDialog({
             label: "Arzt aktualisiert",
             lineageKey: practitionerLineageKey,
             onRecordCommand,
+            payload: {
+              after: { name: trimmedName },
+              before: { name: beforeName },
+              kind: "practitioner.update",
+              lineageKey: practitionerLineageKey,
+            },
             redoMissingMessage:
               "Der Arzt wurde bereits gelöscht und kann nicht erneut aktualisiert werden.",
             runRedo: async (currentPractitionerId) => {
@@ -504,6 +510,11 @@ function PractitionerDialog({
             label: "Arzt erstellt",
             lineageKey: practitionerLineageKey,
             onRecordCommand,
+            payload: {
+              kind: "practitioner.create",
+              lineageKey: practitionerLineageKey,
+              name: trimmedName,
+            },
             runCreate: async () => {
               const recreateResult = await createMutation({
                 lineageKey: practitionerLineageKey,
