@@ -40,6 +40,7 @@ import {
   findFrontendEntityByLineageKey,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
+import { createPractitionerDependencyDeleteReplayAdapter } from "../utils/practitioner-dependency-delete-replay";
 import {
   createNamedLineageCreateReplayAdapter,
   createNamedLineageUpdateReplayAdapter,
@@ -147,8 +148,8 @@ export default function PractitionerManagement({
           practitioner?.lineageKey ?? asPractitionerLineageKey(practitionerId),
       });
       handleDraftMutationResult(deleteResult);
-      let currentSnapshot = deleteResult.snapshot;
-      let currentPractitionerId = currentSnapshot.practitioner.id;
+      const currentSnapshot = deleteResult.snapshot;
+      const currentPractitionerId = currentSnapshot.practitioner.id;
       const deletedPractitionerSnapshot = encodeRuleSetSnapshot(
         deleteResult.snapshot,
       );
@@ -164,95 +165,44 @@ export default function PractitionerManagement({
         },
       });
       onRecordCommand?.(
-        attachRuleSetReplay(command, {
-          redo: async () => {
-            const existingByLineage = findFrontendEntityByLineageKey(
-              practitionersRef.current,
-              asPractitionerLineageKey(currentSnapshot.practitioner.lineageKey),
-            );
-            if (!existingByLineage) {
-              return { status: "applied" as const };
-            }
-            currentPractitionerId = existingByLineage._id;
-
-            try {
-              const redoResult = await deleteWithDependenciesMutation({
+        attachRuleSetReplay(
+          command,
+          createPractitionerDependencyDeleteReplayAdapter<
+            Id<"practitioners">,
+            Id<"practitioners">,
+            typeof currentSnapshot
+          >({
+            deleteWithDependencies: async (args) => {
+              const result = await deleteWithDependenciesMutation({
                 practiceId,
-                practitionerId: currentPractitionerId,
-                practitionerLineageKey: currentSnapshot.practitioner.lineageKey,
+                practitionerId: args.practitionerId,
+                practitionerLineageKey: args.practitionerLineageKey,
                 ...getCowMutationArgs(),
               });
-              handleDraftMutationResult(redoResult);
-              currentSnapshot = redoResult.snapshot;
-              currentPractitionerId = currentSnapshot.practitioner.id;
-              return { status: "applied" as const };
-            } catch (error: unknown) {
-              if (isMissingEntityError(error)) {
-                const currentByLineage = findFrontendEntityByLineageKey(
-                  practitionersRef.current,
-                  asPractitionerLineageKey(
-                    currentSnapshot.practitioner.lineageKey,
-                  ),
-                );
-                if (!currentByLineage) {
-                  return { status: "applied" as const };
-                }
-                try {
-                  const redoResult = await deleteWithDependenciesMutation({
-                    practiceId,
-                    practitionerId: currentByLineage._id,
-                    practitionerLineageKey:
-                      currentSnapshot.practitioner.lineageKey,
-                    ...getCowMutationArgs(),
-                  });
-                  handleDraftMutationResult(redoResult);
-                  currentSnapshot = redoResult.snapshot;
-                  currentPractitionerId = currentSnapshot.practitioner.id;
-                  return { status: "applied" as const };
-                } catch (retryError: unknown) {
-                  if (isMissingEntityError(retryError)) {
-                    return { status: "applied" as const };
-                  }
-                  return {
-                    message:
-                      retryError instanceof Error
-                        ? retryError.message
-                        : "Der Arzt konnte nicht gelöscht werden.",
-                    status: "conflict" as const,
-                  };
-                }
-              }
-              return {
-                message:
-                  error instanceof Error
-                    ? error.message
-                    : "Der Arzt konnte nicht gelöscht werden.",
-                status: "conflict" as const,
-              };
-            }
-          },
-          undo: async () => {
-            try {
-              const restoreResult = await restoreWithDependenciesMutation({
+              handleDraftMutationResult(result);
+              return { snapshot: result.snapshot };
+            },
+            findByLineage: (lineageKey) =>
+              findFrontendEntityByLineageKey(
+                practitionersRef.current,
+                asPractitionerLineageKey(lineageKey),
+              ),
+            initialEntityId: currentPractitionerId,
+            initialSnapshot: currentSnapshot,
+            isMissingEntityError,
+            restoreWithDependencies: async (snapshot) => {
+              const result = await restoreWithDependenciesMutation({
                 practiceId,
-                snapshot: currentSnapshot,
+                snapshot,
                 ...getCowMutationArgs(),
               });
-              handleDraftMutationResult(restoreResult);
-              currentPractitionerId = restoreResult.restoredPractitionerId;
-
-              return { status: "applied" as const };
-            } catch (error: unknown) {
+              handleDraftMutationResult(result);
               return {
-                message:
-                  error instanceof Error
-                    ? error.message
-                    : "Der Arzt konnte nicht wiederhergestellt werden.",
-                status: "conflict" as const,
+                restoredPractitionerId: result.restoredPractitionerId,
               };
-            }
-          },
-        }),
+            },
+          }),
+        ),
       );
       toast.success("Arzt gelöscht");
     } catch (error: unknown) {
