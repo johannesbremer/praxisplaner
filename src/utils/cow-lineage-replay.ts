@@ -20,7 +20,12 @@ import {
 
 type CowLineageRuleSetCommandKind = Exclude<
   RuleSetCommandKind,
-  "absence.create" | "absence.delete" | "absence.update"
+  | "absence.create"
+  | "absence.delete"
+  | "absence.update"
+  | "schedulingRule.create"
+  | "schedulingRule.delete"
+  | "schedulingRule.update"
 >;
 
 interface LegacyReplayConflict {

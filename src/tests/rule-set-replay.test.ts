@@ -8,6 +8,8 @@ import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor
 import {
   createRuleSetAbsenceCommand,
   createRuleSetCommandDescription,
+  createRuleSetSchedulingRuleCommand,
+  type RuleSetCommand,
   withSerializableRuleSetPayload,
 } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
@@ -21,11 +23,10 @@ describe("rule set replay commands", () => {
       name: "Dr. Test",
     });
 
-    let recordedCommand: ReturnType<typeof createRuleSetCommandDescription> =
-      createRuleSetCommandDescription({
-        kind: "practitioner.update",
-        label: "unrecorded",
-      });
+    let recordedCommand: RuleSetCommand = createRuleSetCommandDescription({
+      kind: "practitioner.update",
+      label: "unrecorded",
+    });
 
     const command = createRuleSetCommandDescription({
       kind: "practitioner.update",
@@ -49,6 +50,9 @@ describe("rule set replay commands", () => {
     }, command);
 
     expect(recordedCommand.kind).toBe("practitioner.update");
+    if (recordedCommand.kind !== "practitioner.update") {
+      throw new Error("Expected practitioner.update command");
+    }
     expect(recordedCommand.payload).toEqual({
       after: { name: "Dr. Test" },
       before: { name: "Dr. Old" },
@@ -135,6 +139,39 @@ describe("rule set replay commands", () => {
     });
     expect(command.payload.staffLineageKey).toBe("staff-lineage");
     expect(command.snapshots.before).toBe(before);
+    expect(redo).toHaveBeenCalledTimes(1);
+    expect(undo).not.toHaveBeenCalled();
+  });
+
+  it("records scheduling rule commands as a typed command family", async () => {
+    const redo = vi.fn(() => ({ status: "applied" as const }));
+    const undo = vi.fn(() => ({ status: "applied" as const }));
+    const after = encodeRuleSetSnapshot({
+      conditionTree: { type: "group" },
+      enabled: true,
+    });
+
+    const command = createRuleSetSchedulingRuleCommand({
+      kind: "schedulingRule.create",
+      label: "Regel erstellt",
+      payload: {
+        hasAfterSnapshot: true,
+        hasBeforeSnapshot: false,
+        kind: "schedulingRule.create",
+        ruleName: "Check-up nur vormittags",
+      },
+      snapshots: { after },
+      target: { entityId: "rule-1" },
+    });
+    registerRuleSetReplayAdapter(command, { redo, undo });
+
+    await expect(
+      Promise.resolve(executeRuleSetCommand(command, "redo")),
+    ).resolves.toEqual({
+      status: "applied",
+    });
+    expect(command.payload.ruleName).toBe("Check-up nur vormittags");
+    expect(command.target.entityId).toBe("rule-1");
     expect(redo).toHaveBeenCalledTimes(1);
     expect(undo).not.toHaveBeenCalled();
   });

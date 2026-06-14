@@ -30,14 +30,13 @@ import {
 } from "../utils/cow-history";
 import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
-import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
-import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor-internal";
-import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
+import { createRuleSetSchedulingRuleCommand } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
   createSchedulingRuleCreateReplayAdapter,
   createSchedulingRuleDeleteReplayAdapter,
   createSchedulingRuleUpdateReplayAdapter,
+  recordSchedulingRuleReplayCommand,
 } from "../utils/scheduling-rule-replay";
 import { RuleEditDialog } from "./rule-builder-editor";
 
@@ -295,9 +294,15 @@ export function RuleBuilder({
           conditionTree: deletedRuleLineageTree,
           enabled: deletedRule.enabled,
         });
-        const command = createRuleSetCommandDescription({
+        const command = createRuleSetSchedulingRuleCommand({
           kind: "schedulingRule.delete",
           label: "Regel gelöscht",
+          payload: {
+            hasAfterSnapshot: false,
+            hasBeforeSnapshot: true,
+            kind: "schedulingRule.delete",
+            ruleName: deletedRuleName,
+          },
           snapshots: {
             before: deletedRuleSnapshot,
           },
@@ -313,8 +318,7 @@ export function RuleBuilder({
           deletedRuleState,
           initialRuleId: ruleId,
         });
-        registerRuleSetReplayAdapter(command, replay);
-        recordRuleSetCommand(onRecordCommand, command);
+        recordSchedulingRuleReplayCommand(onRecordCommand, command, replay);
       }
     } catch (error) {
       console.error("Failed to delete rule:", error);
@@ -460,9 +464,15 @@ export function RuleBuilder({
                 conditionTree: previousRuleLineageTree,
                 enabled: previousRule.enabled,
               });
-              const command = createRuleSetCommandDescription({
+              const command = createRuleSetSchedulingRuleCommand({
                 kind: "schedulingRule.update",
                 label: "Regel aktualisiert",
+                payload: {
+                  hasAfterSnapshot: true,
+                  hasBeforeSnapshot: true,
+                  kind: "schedulingRule.update",
+                  ruleName,
+                },
                 snapshots: {
                   after: currentRuleSnapshot,
                   before: previousRuleSnapshot,
@@ -482,8 +492,11 @@ export function RuleBuilder({
                 previousRuleState,
                 ruleName,
               });
-              registerRuleSetReplayAdapter(command, replay);
-              recordRuleSetCommand(onRecordCommand, command);
+              recordSchedulingRuleReplayCommand(
+                onRecordCommand,
+                command,
+                replay,
+              );
             } else {
               const createdRuleLineageTree = normalizeConditionTreeToLineage(
                 conditionTree,
@@ -495,9 +508,15 @@ export function RuleBuilder({
                 conditionTree: createdRuleLineageTree,
                 enabled: true,
               });
-              const command = createRuleSetCommandDescription({
+              const command = createRuleSetSchedulingRuleCommand({
                 kind: "schedulingRule.create",
                 label: "Regel erstellt",
+                payload: {
+                  hasAfterSnapshot: true,
+                  hasBeforeSnapshot: false,
+                  kind: "schedulingRule.create",
+                  ruleName,
+                },
                 snapshots: {
                   after: createdRuleSnapshot,
                 },
@@ -511,8 +530,11 @@ export function RuleBuilder({
                 initialRuleId: currentRuleId,
                 ruleName,
               });
-              registerRuleSetReplayAdapter(command, replay);
-              recordRuleSetCommand(onRecordCommand, command);
+              recordSchedulingRuleReplayCommand(
+                onRecordCommand,
+                command,
+                replay,
+              );
             }
 
             closeDialog();

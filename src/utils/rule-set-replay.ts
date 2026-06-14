@@ -31,7 +31,10 @@ export interface RuleSetAbsencePayload {
   staffLineageKey: string;
 }
 
-export type RuleSetCommand = RuleSetAbsenceCommand | RuleSetLegacyCommand;
+export type RuleSetCommand =
+  | RuleSetAbsenceCommand
+  | RuleSetLegacyCommand
+  | RuleSetSchedulingRuleCommand;
 
 export type RuleSetCommandDescription = RuleSetCommand;
 
@@ -62,6 +65,7 @@ export type RuleSetCommandPayload =
   | RuleSetNamedLineageCreatePayload
   | RuleSetNamedLineageDeletePayload
   | RuleSetNamedLineageUpdatePayload
+  | RuleSetSchedulingRulePayload
   | RuleSetSnapshotCommandPayload;
 
 export interface RuleSetCommandSnapshot {
@@ -78,7 +82,12 @@ export interface RuleSetCommandTarget {
 export interface RuleSetLegacyCommand extends LedgerCommand {
   kind: Exclude<
     RuleSetCommandKind,
-    "absence.create" | "absence.delete" | "absence.update"
+    | "absence.create"
+    | "absence.delete"
+    | "absence.update"
+    | "schedulingRule.create"
+    | "schedulingRule.delete"
+    | "schedulingRule.update"
   >;
   payload?: RuleSetCommandPayload;
   snapshots?: RuleSetCommandSnapshot;
@@ -116,10 +125,32 @@ export interface RuleSetReplayAdapter {
   undo: () => LedgerExecutionResult | Promise<LedgerExecutionResult>;
 }
 
+export interface RuleSetSchedulingRuleCommand extends LedgerCommand {
+  kind: Extract<
+    RuleSetCommandKind,
+    "schedulingRule.create" | "schedulingRule.delete" | "schedulingRule.update"
+  >;
+  payload: RuleSetSchedulingRulePayload;
+  snapshots: RuleSetCommandSnapshot;
+  target: Required<Pick<RuleSetCommandTarget, "entityId">>;
+}
+
+export interface RuleSetSchedulingRulePayload {
+  hasAfterSnapshot: boolean;
+  hasBeforeSnapshot: boolean;
+  kind: RuleSetSchedulingRuleCommand["kind"];
+  ruleName: string;
+}
+
 export interface RuleSetSnapshotCommandPayload {
   kind: Exclude<
     RuleSetCommandKind,
-    "absence.create" | "absence.delete" | "absence.update"
+    | "absence.create"
+    | "absence.delete"
+    | "absence.update"
+    | "schedulingRule.create"
+    | "schedulingRule.delete"
+    | "schedulingRule.update"
   >;
   snapshots: RuleSetCommandSnapshot;
   target?: RuleSetCommandTarget;
@@ -133,6 +164,24 @@ export function createRuleSetAbsenceCommand(params: {
   snapshots: Required<RuleSetCommandSnapshot>;
   target: RuleSetAbsenceCommand["target"];
 }): RuleSetAbsenceCommand {
+  return {
+    kind: params.kind,
+    label: params.label,
+    payload: params.payload,
+    ...(params.scope && { scope: params.scope }),
+    snapshots: params.snapshots,
+    target: params.target,
+  };
+}
+
+export function createRuleSetSchedulingRuleCommand(params: {
+  kind: RuleSetSchedulingRuleCommand["kind"];
+  label: string;
+  payload: RuleSetSchedulingRulePayload;
+  scope?: string;
+  snapshots: RuleSetCommandSnapshot;
+  target: RuleSetSchedulingRuleCommand["target"];
+}): RuleSetSchedulingRuleCommand {
   return {
     kind: params.kind,
     label: params.label,
@@ -181,7 +230,7 @@ export function createRuleSetCommandDescription(params: {
   scope?: string;
   snapshots?: RuleSetCommandSnapshot;
   target?: RuleSetCommandTarget;
-}): RuleSetCommandDescription {
+}): RuleSetLegacyCommand {
   return {
     ...(params.clearHistoryBefore && { clearHistoryBefore: true }),
     kind: params.kind,

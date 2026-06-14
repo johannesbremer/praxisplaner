@@ -2,7 +2,14 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 import type { ConditionTreeNode } from "../../lib/condition-tree";
 import type { RuleFromDB } from "../components/rule-builder-types";
-import type { RuleSetReplayAdapter } from "./rule-set-replay";
+import type {
+  RecordRuleSetCommand,
+  RuleSetReplayAdapter,
+  RuleSetSchedulingRuleCommand,
+} from "./rule-set-replay";
+
+import { recordRuleSetCommand } from "./rule-set-command-executor";
+import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 
 interface DraftMutationResult {
   draftRevision: number;
@@ -315,4 +322,13 @@ export function createSchedulingRuleUpdateReplayAdapter(params: {
     currentRuleId = result.entityId;
     return { status: "applied" as const };
   }
+}
+
+export function recordSchedulingRuleReplayCommand(
+  record: RecordRuleSetCommand | undefined,
+  command: RuleSetSchedulingRuleCommand,
+  replay: RuleSetReplayAdapter,
+): void {
+  registerRuleSetReplayAdapter(command, replay);
+  recordRuleSetCommand(record, command);
 }
