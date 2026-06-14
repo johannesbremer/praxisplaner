@@ -50,6 +50,7 @@ import {
   findFrontendEntityByLineageKey,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
+import { createLocationDependencyDeleteReplayAdapter } from "../utils/location-dependency-delete-replay";
 import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
 import {
   createNamedLineageCreateReplayAdapter,
@@ -429,7 +430,6 @@ export function LocationsManagement({
       handleDraftMutationResult(deleteResult);
 
       if (deletedSnapshot) {
-        let currentLocationId = asLocationId(locationId);
         const deletedLocationSnapshot = encodeRuleSetSnapshot({
           baseSchedules: deletedScheduleSnapshots,
           location: deletedSnapshot,
@@ -445,125 +445,82 @@ export function LocationsManagement({
             lineageKey: deletedSnapshot.lineageKey,
           },
         });
-        recordRuleSetCommand(onRecordCommand, command, {
-          redo: async () => {
-            try {
+        recordRuleSetCommand(
+          onRecordCommand,
+          command,
+          createLocationDependencyDeleteReplayAdapter({
+            createBaseSchedules: async (
+              schedules: Parameters<
+                typeof createBaseScheduleBatchMutation
+              >[0]["schedules"],
+            ) => {
+              const scheduleResult = await createBaseScheduleBatchMutation({
+                practiceId,
+                schedules,
+                ...getCowMutationArgs(),
+              });
+              handleDraftMutationResult(scheduleResult);
+            },
+            createLocation: async (snapshot) => {
+              const recreateResult = await createLocationMutation({
+                lineageKey: snapshot.lineageKey,
+                name: snapshot.name,
+                practiceId,
+                ...getCowMutationArgs(),
+              });
+              handleDraftMutationResult(recreateResult);
+              return asLocationId(recreateResult.entityId);
+            },
+            deleteLocation: async (args) => {
               const redoResult = await deleteLocationMutation({
-                locationId: currentLocationId,
-                locationLineageKey: deletedSnapshot.lineageKey,
+                locationId: args.locationId,
+                locationLineageKey: args.locationLineageKey,
                 practiceId,
                 ...getCowMutationArgs(),
               });
               handleDraftMutationResult(redoResult);
-              return { status: "applied" as const };
-            } catch (error: unknown) {
-              if (isMissingEntityError(error)) {
-                return { status: "applied" as const };
-              }
-              return {
-                message:
-                  error instanceof Error
-                    ? error.message
-                    : "Der Standort konnte nicht gelöscht werden.",
-                status: "conflict" as const,
-              };
-            }
-          },
-          undo: async () => {
-            const existingByLineage = findFrontendEntityByLineageKey(
-              locationsRef.current,
-              deletedSnapshot.lineageKey,
-            );
-            if (existingByLineage) {
-              currentLocationId = existingByLineage._id;
-              return { status: "applied" as const };
-            }
-
-            const duplicate = locationsRef.current.some(
-              (location) => location.name === deletedSnapshot.name,
-            );
-            if (duplicate) {
-              return {
-                message: `[HISTORY:LOCATION_NAME_CONFLICT] Der Standort kann nicht wiederhergestellt werden, weil bereits ein anderer Standort mit dem Namen "${deletedSnapshot.name}" existiert.`,
-                status: "conflict" as const,
-              };
-            }
-
-            const recreateResult = await createLocationMutation({
-              lineageKey: deletedSnapshot.lineageKey,
-              name: deletedSnapshot.name,
-              practiceId,
-              ...getCowMutationArgs(),
-            });
-            handleDraftMutationResult(recreateResult);
-            currentLocationId = asLocationId(recreateResult.entityId);
-
-            const missingSchedules = deletedScheduleSnapshots.filter(
-              (schedule) =>
-                !baseSchedulesRef.current.some(
-                  (entry) => entry.lineageKey === schedule.lineageKey,
-                ),
-            );
-            if (missingSchedules.length > 0) {
-              const missingSchedulePayloads = Result.combine(
-                missingSchedules.map((schedule) => {
-                  const practitionerByLineage = findFrontendEntityByLineageKey(
-                    practitionersRef.current,
-                    schedule.practitionerLineageKey,
-                  );
-                  if (!practitionerByLineage) {
-                    return err(
-                      invalidStateError(
-                        `[HISTORY:LOCATION_DELETE_PRACTITIONER_LINEAGE_MISSING] Behandler mit lineageKey ${schedule.practitionerLineageKey} konnte nicht geladen werden.`,
-                        "LocationsManagement",
-                      ),
-                    );
-                  }
-
-                  return ok({
-                    ...(schedule.breakTimes && {
-                      breakTimes: schedule.breakTimes,
-                    }),
-                    dayOfWeek: schedule.dayOfWeek,
-                    endTime: schedule.endTime,
-                    lineageKey: schedule.lineageKey,
-                    locationId: currentLocationId,
-                    locationLineageId: deletedSnapshot.lineageKey,
-                    practitionerId: practitionerByLineage._id,
-                    practitionerLineageId: schedule.practitionerLineageKey,
-                    startTime: schedule.startTime,
-                  });
-                }),
-              ).match(
-                (payloads) => payloads,
-                (error) => {
-                  captureFrontendError(error, {
-                    context:
-                      "location_delete_restore_schedule_practitioner_resolution",
-                    locationId: currentLocationId,
-                    practiceId,
-                    ruleSetId,
-                  });
-                  return {
-                    message: error.message,
-                    status: "conflict" as const,
-                  };
-                },
-              );
-              if ("status" in missingSchedulePayloads) {
-                return missingSchedulePayloads;
-              }
-
-              const scheduleResult = await createBaseScheduleBatchMutation({
-                practiceId,
-                schedules: missingSchedulePayloads,
-                ...getCowMutationArgs(),
-              });
-              handleDraftMutationResult(scheduleResult);
-            }
-            return { status: "applied" as const };
-          },
-        });
+            },
+            findLocationByLineage: (lineageKey) =>
+              findFrontendEntityByLineageKey(locationsRef.current, lineageKey),
+            findPractitionerByLineage: (lineageKey) =>
+              findFrontendEntityByLineageKey(
+                practitionersRef.current,
+                lineageKey,
+              ),
+            hasBaseScheduleLineage: (lineageKey) =>
+              baseSchedulesRef.current.some(
+                (entry) => entry.lineageKey === lineageKey,
+              ),
+            hasLocationName: (locationName) =>
+              locationsRef.current.some(
+                (location) => location.name === locationName,
+              ),
+            initialEntityId: asLocationId(locationId),
+            isMissingEntityError,
+            snapshot: {
+              baseSchedules: deletedScheduleSnapshots,
+              location: deletedSnapshot,
+            },
+            toSchedulePayload: ({
+              locationId: restoredLocationId,
+              locationLineageKey,
+              practitionerId,
+              schedule,
+            }) => ({
+              ...(schedule.breakTimes && {
+                breakTimes: schedule.breakTimes,
+              }),
+              dayOfWeek: schedule.dayOfWeek,
+              endTime: schedule.endTime,
+              lineageKey: schedule.lineageKey,
+              locationId: restoredLocationId,
+              locationLineageId: locationLineageKey,
+              practitionerId,
+              practitionerLineageId: schedule.practitionerLineageKey,
+              startTime: schedule.startTime,
+            }),
+          }),
+        );
       }
 
       toast.success("Standort gelöscht", {
