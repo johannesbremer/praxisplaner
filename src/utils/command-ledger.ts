@@ -131,27 +131,28 @@ export function toLedgerConflict(params: {
   reference?: string;
   target?: string;
 }): LedgerConflict {
-  if (params.code === "nameConflict") {
+  const code = params.code ?? extractConflictCode(params.message);
+  if (code === "nameConflict") {
     return {
       code: "nameConflict",
       message: params.message,
       name: params.name ?? "unknown",
     };
   }
-  if (params.code === "occupancyConflict") {
+  if (code === "occupancyConflict") {
     return {
       code: "occupancyConflict",
       message: params.message,
     };
   }
-  if (params.code === "referenceMissing") {
+  if (code === "referenceMissing") {
     return {
       code: "referenceMissing",
       message: params.message,
       reference: params.reference ?? "unknown",
     };
   }
-  if (params.code === "targetMissing") {
+  if (code === "targetMissing") {
     return {
       code: "targetMissing",
       message: params.message,
@@ -321,7 +322,33 @@ export function useCommandLedger<TCommand extends ReplayableLedgerCommand>(
 
 function extractConflictCode(message: string): LedgerConflictCode | undefined {
   const rawCode = HISTORY_CONFLICT_CODE_REGEX.exec(message)?.[1];
-  return LEDGER_CONFLICT_CODES.find((code) => code === rawCode);
+  if (!rawCode) {
+    return undefined;
+  }
+  const directMatch = LEDGER_CONFLICT_CODES.find((code) => code === rawCode);
+  if (directMatch) {
+    return directMatch;
+  }
+  if (rawCode.includes("NAME_CONFLICT")) {
+    return "nameConflict";
+  }
+  if (rawCode.includes("OCCUPANCY")) {
+    return "occupancyConflict";
+  }
+  if (
+    rawCode.includes("REFERENCE_MISSING") ||
+    rawCode.includes("LINEAGE_MISSING") ||
+    rawCode.includes("PRACTITIONER_LINEAGE_MISSING")
+  ) {
+    return "referenceMissing";
+  }
+  if (rawCode.includes("MISSING") || rawCode.includes("NOT_FOUND")) {
+    return "targetMissing";
+  }
+  if (rawCode.includes("CONFLICT") || rawCode.includes("STALE")) {
+    return "staleState";
+  }
+  return undefined;
 }
 
 function toLedgerResult(result: LedgerExecutionResult): LedgerResult {

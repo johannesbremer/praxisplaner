@@ -75,6 +75,50 @@ describe("useCommandLedger", () => {
     expect(result.current.canRedo).toBe(false);
   });
 
+  it("normalizes legacy history name conflicts to typed conflicts", async () => {
+    const { result } = renderHook(() => useCommandLedger());
+    const recorded = command("restore location", {
+      undo: vi.fn(() => ({
+        message:
+          '[HISTORY:LOCATION_NAME_CONFLICT] Standort "Berlin" existiert bereits.',
+        status: "conflict" as const,
+      })),
+    });
+
+    act(() => {
+      result.current.record(recorded);
+    });
+    const undoResult = await act(() => result.current.undo());
+
+    expect(undoResult).toMatchObject({
+      conflict: { code: "nameConflict" },
+      conflictCode: "nameConflict",
+      status: "conflict",
+    });
+  });
+
+  it("normalizes legacy history reference misses to typed conflicts", async () => {
+    const { result } = renderHook(() => useCommandLedger());
+    const recorded = command("restore schedule", {
+      undo: vi.fn(() => ({
+        message:
+          "[HISTORY:LOCATION_DELETE_PRACTITIONER_LINEAGE_MISSING] Behandler fehlt.",
+        status: "conflict" as const,
+      })),
+    });
+
+    act(() => {
+      result.current.record(recorded);
+    });
+    const undoResult = await act(() => result.current.undo());
+
+    expect(undoResult).toMatchObject({
+      conflict: { code: "referenceMissing" },
+      conflictCode: "referenceMissing",
+      status: "conflict",
+    });
+  });
+
   it("queued operations execute sequentially", async () => {
     const order: string[] = [];
     const { result } = renderHook(() => useCommandLedger());
