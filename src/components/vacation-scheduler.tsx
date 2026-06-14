@@ -72,15 +72,14 @@ import {
   getPublicHolidayName,
   getPublicHolidaysData,
 } from "../utils/public-holidays";
-import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
-import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor-internal";
 import {
   createNamedLineageCreateReplayAdapter,
   createNamedLineageDeleteReplayAdapter,
+  recordNamedLineageReplayCommand,
 } from "../utils/rule-set-named-lineage-replay";
 import {
   createRuleSetAbsenceCommand,
-  createRuleSetCommandDescription,
+  createRuleSetNamedLineageCommand,
 } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
@@ -731,7 +730,7 @@ export function VacationScheduler({
         lineageKey,
         name: trimmed,
       });
-      const command = createRuleSetCommandDescription({
+      const command = createRuleSetNamedLineageCommand({
         kind: "mfa.create",
         label: "MFA erstellt",
         payload: {
@@ -819,8 +818,7 @@ export function VacationScheduler({
           }
         },
       });
-      registerRuleSetReplayAdapter(command, replay);
-      recordRuleSetCommand(onRecordCommand, command);
+      recordNamedLineageReplayCommand(onRecordCommand, command, replay);
       toast.success("MFA hinzugefügt");
     } catch (error) {
       toast.error("MFA konnte nicht angelegt werden", {
@@ -851,7 +849,7 @@ export function VacationScheduler({
         lineageKey,
         name: currentMfa.name,
       });
-      const command = createRuleSetCommandDescription({
+      const command = createRuleSetNamedLineageCommand({
         kind: "mfa.delete",
         label: "MFA entfernt",
         payload: {
@@ -919,8 +917,7 @@ export function VacationScheduler({
           }
         },
       });
-      registerRuleSetReplayAdapter(command, replay);
-      recordRuleSetCommand(onRecordCommand, command);
+      recordNamedLineageReplayCommand(onRecordCommand, command, replay);
       toast.success("MFA entfernt");
     } catch (error) {
       toast.error("MFA konnte nicht entfernt werden", {

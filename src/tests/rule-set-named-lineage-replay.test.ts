@@ -7,7 +7,7 @@ import {
   createNamedLineageDeleteReplayAdapter,
   createNamedLineageUpdateReplayAdapter,
 } from "../utils/rule-set-named-lineage-replay";
-import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
+import { createRuleSetNamedLineageCommand } from "../utils/rule-set-replay";
 
 interface TestEntity {
   _id: TestEntityId;
@@ -21,7 +21,7 @@ type TestLineageKey = `lineage:${string}`;
 describe("named lineage rule set replay adapter", () => {
   it("replays create commands from serializable payloads", async () => {
     const entitiesRef: RefObject<TestEntity[]> = { current: [] };
-    const command = createRuleSetCommandDescription({
+    const command = createRuleSetNamedLineageCommand({
       kind: "practitioner.create",
       label: "Arzt erstellt",
       payload: {
@@ -76,7 +76,7 @@ describe("named lineage rule set replay adapter", () => {
         },
       ],
     };
-    const command = createRuleSetCommandDescription({
+    const command = createRuleSetNamedLineageCommand({
       kind: "practitioner.update",
       label: "Arzt aktualisiert",
       payload: {
@@ -132,7 +132,7 @@ describe("named lineage rule set replay adapter", () => {
         },
       ],
     };
-    const command = createRuleSetCommandDescription({
+    const command = createRuleSetNamedLineageCommand({
       kind: "practitioner.create",
       label: "Arzt erstellt",
       payload: {
@@ -180,13 +180,17 @@ describe("named lineage rule set replay adapter", () => {
 
   it("treats redo delete as applied when the lineage is already gone", async () => {
     const entitiesRef: RefObject<TestEntity[]> = { current: [] };
-    const command = createRuleSetCommandDescription({
+    const command = createRuleSetNamedLineageCommand({
       kind: "mfa.delete",
       label: "MFA entfernt",
       payload: {
         kind: "mfa.delete",
         lineageKey: "lineage:mfa",
         name: "MFA",
+      },
+      target: {
+        entityId: "entity:mfa",
+        lineageKey: "lineage:mfa",
       },
     });
     const runDelete = vi.fn((entityId: TestEntityId) =>
@@ -226,13 +230,17 @@ describe("named lineage rule set replay adapter", () => {
         },
       ],
     };
-    const command = createRuleSetCommandDescription({
+    const command = createRuleSetNamedLineageCommand({
       kind: "mfa.delete",
       label: "MFA entfernt",
       payload: {
         kind: "mfa.delete",
         lineageKey: "lineage:mfa",
         name: "MFA",
+      },
+      target: {
+        entityId: "entity:mfa",
+        lineageKey: "lineage:mfa",
       },
     });
     const runCreate = vi.fn(() =>

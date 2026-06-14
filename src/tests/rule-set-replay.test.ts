@@ -8,6 +8,7 @@ import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor
 import {
   createRuleSetAbsenceCommand,
   createRuleSetCommandDescription,
+  createRuleSetNamedLineageCommand,
   createRuleSetSchedulingRuleCommand,
   type RuleSetCommand,
   withSerializableRuleSetPayload,
@@ -23,12 +24,22 @@ describe("rule set replay commands", () => {
       name: "Dr. Test",
     });
 
-    let recordedCommand: RuleSetCommand = createRuleSetCommandDescription({
+    let recordedCommand: RuleSetCommand = createRuleSetNamedLineageCommand({
       kind: "practitioner.update",
       label: "unrecorded",
+      payload: {
+        after: { name: "Dr. Test" },
+        before: { name: "Dr. Old" },
+        kind: "practitioner.update",
+        lineageKey: "practitioner-lineage",
+      },
+      target: {
+        entityId: "practitioner-entity",
+        lineageKey: "practitioner-lineage",
+      },
     });
 
-    const command = createRuleSetCommandDescription({
+    const command = createRuleSetNamedLineageCommand({
       kind: "practitioner.update",
       label: "Arzt aktualisiert",
       payload: {
@@ -41,6 +52,7 @@ describe("rule set replay commands", () => {
         after: snapshot,
       },
       target: {
+        entityId: "practitioner-entity",
         lineageKey: "practitioner-lineage",
       },
     });

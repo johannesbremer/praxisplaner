@@ -56,8 +56,12 @@ import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor
 import {
   createNamedLineageCreateReplayAdapter,
   createNamedLineageUpdateReplayAdapter,
+  recordNamedLineageReplayCommand,
 } from "../utils/rule-set-named-lineage-replay";
-import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
+import {
+  createRuleSetCommandDescription,
+  createRuleSetNamedLineageCommand,
+} from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 
 const isMissingEntityError = (error: unknown) =>
@@ -196,7 +200,7 @@ export function LocationsManagement({
             ...getCowMutationArgs(),
           });
           handleDraftMutationResult(updateResult);
-          const command = createRuleSetCommandDescription({
+          const command = createRuleSetNamedLineageCommand({
             kind: "location.update",
             label: "Standort aktualisiert",
             payload: {
@@ -256,8 +260,7 @@ export function LocationsManagement({
             undoMissingMessage:
               "Der Standort wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
           });
-          registerRuleSetReplayAdapter(command, replay);
-          recordRuleSetCommand(onRecordCommand, command);
+          recordNamedLineageReplayCommand(onRecordCommand, command, replay);
 
           toast.success("Standort aktualisiert", {
             description: `Standort "${value.name}" wurde erfolgreich aktualisiert.`,
@@ -274,7 +277,7 @@ export function LocationsManagement({
           const locationLineageKey = asLocationLineageKey(
             createResult.entityId,
           );
-          const command = createRuleSetCommandDescription({
+          const command = createRuleSetNamedLineageCommand({
             kind: "location.create",
             label: "Standort erstellt",
             payload: {
@@ -325,8 +328,7 @@ export function LocationsManagement({
               return { entityId: asLocationId(undoResult.entityId) };
             },
           });
-          registerRuleSetReplayAdapter(command, replay);
-          recordRuleSetCommand(onRecordCommand, command);
+          recordNamedLineageReplayCommand(onRecordCommand, command, replay);
 
           toast.success("Standort erstellt", {
             description: `Standort "${value.name}" wurde erfolgreich erstellt.`,

@@ -3,7 +3,8 @@ import type { RefObject } from "react";
 import type { LedgerResult } from "./command-ledger";
 import type { LineageTrackedEntity } from "./cow-history";
 import type {
-  RuleSetCommandDescription,
+  RecordRuleSetCommand,
+  RuleSetNamedLineageCommand,
   RuleSetNamedLineageCreatePayload,
   RuleSetNamedLineageDeletePayload,
   RuleSetNamedLineageUpdatePayload,
@@ -11,6 +12,8 @@ import type {
 } from "./rule-set-replay";
 
 import { resolveReplayEntity } from "./cow-history";
+import { recordRuleSetCommand } from "./rule-set-command-executor";
+import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 import { appliedLedgerResult, conflictLedgerResult } from "./rule-set-replay";
 import {
   encodeRuleSetSnapshot,
@@ -55,7 +58,7 @@ interface NamedLineageReplayBaseParams<
   TLineageKey extends string,
   TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
 > {
-  command: RuleSetCommandDescription;
+  command: RuleSetNamedLineageCommand;
   entitiesRef: RefObject<TEntity[]>;
   initialEntityId: TEntityId;
   lineageKey: TLineageKey;
@@ -273,6 +276,15 @@ export function createNamedLineageUpdateReplayAdapter<
       return next.historyResult;
     },
   };
+}
+
+export function recordNamedLineageReplayCommand(
+  record: RecordRuleSetCommand | undefined,
+  command: RuleSetNamedLineageCommand,
+  replay: RuleSetReplayAdapter,
+): void {
+  registerRuleSetReplayAdapter(command, replay);
+  recordRuleSetCommand(record, command);
 }
 
 function isLedgerResult<TId extends string>(

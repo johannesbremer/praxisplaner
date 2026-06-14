@@ -34,6 +34,7 @@ export interface RuleSetAbsencePayload {
 export type RuleSetCommand =
   | RuleSetAbsenceCommand
   | RuleSetLegacyCommand
+  | RuleSetNamedLineageCommand
   | RuleSetSchedulingRuleCommand;
 
 export type RuleSetCommandDescription = RuleSetCommand;
@@ -85,6 +86,12 @@ export interface RuleSetLegacyCommand extends LedgerCommand {
     | "absence.create"
     | "absence.delete"
     | "absence.update"
+    | "location.create"
+    | "location.update"
+    | "mfa.create"
+    | "mfa.delete"
+    | "practitioner.create"
+    | "practitioner.update"
     | "schedulingRule.create"
     | "schedulingRule.delete"
     | "schedulingRule.update"
@@ -92,6 +99,13 @@ export interface RuleSetLegacyCommand extends LedgerCommand {
   payload?: RuleSetCommandPayload;
   snapshots?: RuleSetCommandSnapshot;
   target?: RuleSetCommandTarget;
+}
+
+export interface RuleSetNamedLineageCommand extends LedgerCommand {
+  kind: RuleSetNamedLineagePayload["kind"];
+  payload: RuleSetNamedLineagePayload;
+  snapshots?: RuleSetCommandSnapshot;
+  target: Required<Pick<RuleSetCommandTarget, "entityId" | "lineageKey">>;
 }
 
 export interface RuleSetNamedLineageCreatePayload {
@@ -119,6 +133,11 @@ export interface RuleSetNamedLineageUpdatePayload {
   kind: Extract<RuleSetCommandKind, "location.update" | "practitioner.update">;
   lineageKey: string;
 }
+
+export type RuleSetNamedLineagePayload =
+  | RuleSetNamedLineageCreatePayload
+  | RuleSetNamedLineageDeletePayload
+  | RuleSetNamedLineageUpdatePayload;
 
 export interface RuleSetReplayAdapter {
   redo: () => LedgerExecutionResult | Promise<LedgerExecutionResult>;
@@ -148,6 +167,12 @@ export interface RuleSetSnapshotCommandPayload {
     | "absence.create"
     | "absence.delete"
     | "absence.update"
+    | "location.create"
+    | "location.update"
+    | "mfa.create"
+    | "mfa.delete"
+    | "practitioner.create"
+    | "practitioner.update"
     | "schedulingRule.create"
     | "schedulingRule.delete"
     | "schedulingRule.update"
@@ -188,6 +213,26 @@ export function createRuleSetSchedulingRuleCommand(params: {
     payload: params.payload,
     ...(params.scope && { scope: params.scope }),
     snapshots: params.snapshots,
+    target: params.target,
+  };
+}
+
+export function createRuleSetNamedLineageCommand(params: {
+  clearHistoryBefore?: boolean;
+  kind: RuleSetNamedLineageCommand["kind"];
+  label: string;
+  payload: RuleSetNamedLineagePayload;
+  scope?: string;
+  snapshots?: RuleSetCommandSnapshot;
+  target: RuleSetNamedLineageCommand["target"];
+}): RuleSetNamedLineageCommand {
+  return {
+    ...(params.clearHistoryBefore && { clearHistoryBefore: true }),
+    kind: params.kind,
+    label: params.label,
+    payload: params.payload,
+    ...(params.scope && { scope: params.scope }),
+    ...(params.snapshots && { snapshots: params.snapshots }),
     target: params.target,
   };
 }

@@ -46,8 +46,12 @@ import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor
 import {
   createNamedLineageCreateReplayAdapter,
   createNamedLineageUpdateReplayAdapter,
+  recordNamedLineageReplayCommand,
 } from "../utils/rule-set-named-lineage-replay";
-import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
+import {
+  createRuleSetCommandDescription,
+  createRuleSetNamedLineageCommand,
+} from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 
 const isMissingEntityError = (error: unknown) =>
@@ -382,7 +386,7 @@ function PractitionerDialog({
             ...getCowMutationArgs(),
           });
           handleDraftMutationResult(updateResult);
-          const command = createRuleSetCommandDescription({
+          const command = createRuleSetNamedLineageCommand({
             kind: "practitioner.update",
             label: "Arzt aktualisiert",
             payload: {
@@ -442,8 +446,7 @@ function PractitionerDialog({
             undoMissingMessage:
               "Der Arzt wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
           });
-          registerRuleSetReplayAdapter(command, replay);
-          recordRuleSetCommand(onRecordCommand, command);
+          recordNamedLineageReplayCommand(onRecordCommand, command, replay);
 
           toast.success("Arzt aktualisiert");
         } else {
@@ -458,7 +461,7 @@ function PractitionerDialog({
           const practitionerLineageKey = asPractitionerLineageKey(
             createResult.entityId,
           );
-          const command = createRuleSetCommandDescription({
+          const command = createRuleSetNamedLineageCommand({
             kind: "practitioner.create",
             label: "Arzt erstellt",
             payload: {
@@ -508,8 +511,7 @@ function PractitionerDialog({
               return { entityId: asPractitionerId(undoResult.entityId) };
             },
           });
-          registerRuleSetReplayAdapter(command, replay);
-          recordRuleSetCommand(onRecordCommand, command);
+          recordNamedLineageReplayCommand(onRecordCommand, command, replay);
           toast.success("Arzt erstellt");
         }
 

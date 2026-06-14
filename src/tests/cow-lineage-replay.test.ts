@@ -8,6 +8,7 @@ import {
   recordLineageCreateRuleSetCommand,
   recordLineageUpdateRuleSetCommand,
 } from "../utils/cow-lineage-replay";
+import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 
 interface TestEntity {
   _id: TestEntityId;
@@ -30,14 +31,15 @@ describe("cow history actions", () => {
         entitiesRef,
         initialEntityId: "entity:initial",
         isMissingEntityError: () => false,
-        kind: "practitioner.create",
-        label: "Arzt erstellt",
+        kind: "appointmentType.create",
+        label: "Terminart erstellt",
         lineageKey: "lineage:created",
         onRecordCommand: (command) => recorded.push(command),
-        payload: {
-          kind: "practitioner.create",
-          lineageKey: "lineage:created",
-          name: "Dr. Create",
+        snapshots: {
+          after: encodeRuleSetSnapshot({
+            lineageKey: "lineage:created",
+            name: "Checkup",
+          }),
         },
         runCreate: () => Promise.resolve({ entityId: "entity:created" }),
         runDelete: (entityId) => Promise.resolve({ entityId }),
@@ -46,9 +48,17 @@ describe("cow history actions", () => {
 
     expect(recorded).toHaveLength(1);
     expect(recorded[0]?.payload).toEqual({
-      kind: "practitioner.create",
-      lineageKey: "lineage:created",
-      name: "Dr. Create",
+      kind: "appointmentType.create",
+      snapshots: {
+        after: encodeRuleSetSnapshot({
+          lineageKey: "lineage:created",
+          name: "Checkup",
+        }),
+      },
+      target: {
+        entityId: "entity:initial",
+        lineageKey: "lineage:created",
+      },
     });
   });
 
@@ -68,15 +78,19 @@ describe("cow history actions", () => {
       {
         entitiesRef,
         initialEntityId: "entity:initial",
-        kind: "practitioner.update",
-        label: "Arzt aktualisiert",
+        kind: "appointmentType.update",
+        label: "Terminart aktualisiert",
         lineageKey: "lineage:updated",
         onRecordCommand: (command) => recorded.push(command),
-        payload: {
-          after: { name: "Dr. After" },
-          before: { name: "Dr. Before" },
-          kind: "practitioner.update",
-          lineageKey: "lineage:updated",
+        snapshots: {
+          after: encodeRuleSetSnapshot({
+            lineageKey: "lineage:updated",
+            name: "Checkup long",
+          }),
+          before: encodeRuleSetSnapshot({
+            lineageKey: "lineage:updated",
+            name: "Checkup",
+          }),
         },
         redoMissingMessage: "missing redo",
         runRedo: (entityId) => Promise.resolve({ entityId }),
@@ -89,10 +103,21 @@ describe("cow history actions", () => {
 
     expect(recorded).toHaveLength(1);
     expect(recorded[0]?.payload).toEqual({
-      after: { name: "Dr. After" },
-      before: { name: "Dr. Before" },
-      kind: "practitioner.update",
-      lineageKey: "lineage:updated",
+      kind: "appointmentType.update",
+      snapshots: {
+        after: encodeRuleSetSnapshot({
+          lineageKey: "lineage:updated",
+          name: "Checkup long",
+        }),
+        before: encodeRuleSetSnapshot({
+          lineageKey: "lineage:updated",
+          name: "Checkup",
+        }),
+      },
+      target: {
+        entityId: "entity:initial",
+        lineageKey: "lineage:updated",
+      },
     });
   });
 });
