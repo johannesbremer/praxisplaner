@@ -12,7 +12,7 @@ export interface CalendarPlanningCommand extends LedgerCommand {
 
 export interface CalendarPlanningCommandDescription extends LedgerCommand {
   clearHistoryBefore?: boolean;
-  kind?: CalendarPlanningCommandKind;
+  kind: CalendarPlanningCommandKind;
 }
 
 export type CalendarPlanningCommandKind =
@@ -50,8 +50,7 @@ export function createCalendarPlanningCommand(
 ): CalendarPlanningCommand {
   const command: CalendarPlanningCommand = {
     ...(description.clearHistoryBefore && { clearHistoryBefore: true }),
-    kind:
-      description.kind ?? inferCalendarPlanningCommandKind(description.label),
+    kind: description.kind,
     label: description.label,
     ...(description.scope && { scope: description.scope }),
   };
@@ -76,27 +75,6 @@ export function executeCalendarPlanningCommand(
     };
   }
   return Promise.resolve(replay[operation]()).then(toLedgerExecutionResult);
-}
-
-function inferCalendarPlanningCommandKind(
-  label: string,
-): CalendarPlanningCommandKind {
-  if (label.includes("Sperr")) {
-    if (label.includes("gelöscht") || label.includes("entfernt")) {
-      return "blockedSlot.delete";
-    }
-    if (label.includes("aktualisiert") || label.includes("verschoben")) {
-      return "blockedSlot.update";
-    }
-    return "blockedSlot.create";
-  }
-  if (label.includes("gelöscht") || label.includes("entfernt")) {
-    return "appointment.delete";
-  }
-  if (label.includes("aktualisiert") || label.includes("verschoben")) {
-    return "appointment.update";
-  }
-  return "appointment.create";
 }
 
 function toLedgerExecutionResult(
