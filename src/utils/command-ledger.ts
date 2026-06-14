@@ -338,9 +338,6 @@ function executeLedgerCommand<TCommand extends LedgerCommand>(
   if (executeCommand) {
     return Promise.resolve(executeCommand(command, operation));
   }
-  if (isReplayableLedgerCommand(command)) {
-    return Promise.resolve(command[operation]());
-  }
   return Promise.resolve({
     message: "Für diese Aktion ist kein Wiedergabe-Adapter registriert.",
     status: "conflict",
@@ -376,17 +373,6 @@ function extractConflictCode(message: string): LedgerConflictCode | undefined {
     return "staleState";
   }
   return undefined;
-}
-
-function isReplayableLedgerCommand(
-  command: LedgerCommand,
-): command is ReplayableLedgerCommand {
-  return (
-    "redo" in command &&
-    typeof command.redo === "function" &&
-    "undo" in command &&
-    typeof command.undo === "function"
-  );
 }
 
 function toLedgerResult(result: LedgerExecutionResult): LedgerResult {

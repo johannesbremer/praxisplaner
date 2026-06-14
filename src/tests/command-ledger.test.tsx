@@ -23,9 +23,20 @@ function command(
   };
 }
 
+function executeReplayableCommand(
+  recorded: ReplayableLedgerCommand,
+  operation: "redo" | "undo",
+) {
+  return recorded[operation]();
+}
+
 describe("useCommandLedger", () => {
   it("record clears the redo stack", async () => {
-    const { result } = renderHook(() => useCommandLedger());
+    const { result } = renderHook(() =>
+      useCommandLedger<ReplayableLedgerCommand>({
+        executeCommand: executeReplayableCommand,
+      }),
+    );
     const first = command("first");
     const second = command("second");
 
@@ -43,7 +54,11 @@ describe("useCommandLedger", () => {
   });
 
   it("undo and redo move commands between stacks", async () => {
-    const { result } = renderHook(() => useCommandLedger());
+    const { result } = renderHook(() =>
+      useCommandLedger<ReplayableLedgerCommand>({
+        executeCommand: executeReplayableCommand,
+      }),
+    );
     const recorded = command("change");
 
     act(() => {
@@ -63,7 +78,11 @@ describe("useCommandLedger", () => {
   });
 
   it("conflicts keep commands on their original stack", async () => {
-    const { result } = renderHook(() => useCommandLedger());
+    const { result } = renderHook(() =>
+      useCommandLedger<ReplayableLedgerCommand>({
+        executeCommand: executeReplayableCommand,
+      }),
+    );
     const recorded = command("conflicting", {
       undo: vi.fn(() => conflict),
     });
@@ -79,7 +98,11 @@ describe("useCommandLedger", () => {
   });
 
   it("normalizes legacy history name conflicts to typed conflicts", async () => {
-    const { result } = renderHook(() => useCommandLedger());
+    const { result } = renderHook(() =>
+      useCommandLedger<ReplayableLedgerCommand>({
+        executeCommand: executeReplayableCommand,
+      }),
+    );
     const recorded = command("restore location", {
       undo: vi.fn(() => ({
         message:
@@ -101,7 +124,11 @@ describe("useCommandLedger", () => {
   });
 
   it("normalizes legacy history reference misses to typed conflicts", async () => {
-    const { result } = renderHook(() => useCommandLedger());
+    const { result } = renderHook(() =>
+      useCommandLedger<ReplayableLedgerCommand>({
+        executeCommand: executeReplayableCommand,
+      }),
+    );
     const recorded = command("restore schedule", {
       undo: vi.fn(() => ({
         message:
@@ -124,7 +151,11 @@ describe("useCommandLedger", () => {
 
   it("queued operations execute sequentially", async () => {
     const order: string[] = [];
-    const { result } = renderHook(() => useCommandLedger());
+    const { result } = renderHook(() =>
+      useCommandLedger<ReplayableLedgerCommand>({
+        executeCommand: executeReplayableCommand,
+      }),
+    );
     const first = command("first", {
       undo: vi.fn(() => {
         order.push("first");
@@ -152,7 +183,11 @@ describe("useCommandLedger", () => {
   });
 
   it("scoped clear removes only matching commands", () => {
-    const { result } = renderHook(() => useCommandLedger());
+    const { result } = renderHook(() =>
+      useCommandLedger<ReplayableLedgerCommand>({
+        executeCommand: executeReplayableCommand,
+      }),
+    );
 
     act(() => {
       result.current.record(command("rule set", { scope: "rules" }));

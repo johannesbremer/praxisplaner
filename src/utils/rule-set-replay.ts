@@ -2,26 +2,16 @@ import type {
   LedgerCommand,
   LedgerConflictCode,
   LedgerExecutionResult,
+  LedgerOperation,
   LedgerResult,
-  ReplayableLedgerCommand,
 } from "./command-ledger";
 import type { EncodedRuleSetSnapshot } from "./rule-set-snapshot-codecs";
 
 import { toLedgerConflict } from "./command-ledger";
 
-export interface ExecutableRuleSetCommand extends RuleSetCommand {
-  redo: ReplayableLedgerCommand["redo"];
-  replay: RuleSetReplayAdapter;
-  undo: ReplayableLedgerCommand["undo"];
-}
-
 export type RecordRuleSetCommand = (command: RuleSetCommand) => void;
 
-export interface RuleSetCommand extends RuleSetCommandDescription {
-  redo?: ReplayableLedgerCommand["redo"];
-  replay?: RuleSetReplayAdapter;
-  undo?: ReplayableLedgerCommand["undo"];
-}
+export type RuleSetCommand = RuleSetCommandDescription;
 
 export interface RuleSetCommandDescription extends LedgerCommand {
   kind: RuleSetCommandKind;
@@ -107,6 +97,10 @@ export interface RuleSetSnapshotCommandPayload {
 }
 
 const APPLIED_RESULT: LedgerResult = { status: "applied" };
+const replayAdaptersByCommand = new WeakMap<
+  RuleSetCommand,
+  RuleSetReplayAdapter
+>();
 
 export function appliedLedgerResult(): LedgerResult {
   return APPLIED_RESULT;
@@ -115,13 +109,9 @@ export function appliedLedgerResult(): LedgerResult {
 export function attachRuleSetReplay(
   command: RuleSetCommandDescription,
   replay: RuleSetReplayAdapter,
-): ExecutableRuleSetCommand {
-  return {
-    ...command,
-    redo: replay.redo,
-    replay,
-    undo: replay.undo,
-  };
+): RuleSetCommand {
+  replayAdaptersByCommand.set(command, replay);
+  return command;
 }
 
 export function conflictLedgerResult(
@@ -148,17 +138,6 @@ export function conflictLedgerResult(
   };
 }
 
-export function createRuleSetCommand(
-  params: Parameters<typeof createRuleSetCommandDescription>[0] & {
-    replay: RuleSetReplayAdapter;
-  },
-): ExecutableRuleSetCommand {
-  return attachRuleSetReplay(createRuleSetCommandDescription(params), {
-    redo: params.replay.redo,
-    undo: params.replay.undo,
-  });
-}
-
 export function createRuleSetCommandDescription(params: {
   clearHistoryBefore?: boolean;
   kind: RuleSetCommandKind;
@@ -177,6 +156,27 @@ export function createRuleSetCommandDescription(params: {
     ...(params.snapshots && { snapshots: params.snapshots }),
     ...(params.target && { target: params.target }),
   };
+}
+
+export function executeRuleSetCommand(
+  command: RuleSetCommand,
+  operation: LedgerOperation,
+): LedgerExecutionResult | Promise<LedgerExecutionResult> {
+  const replay = replayAdaptersByCommand.get(command);
+  if (!replay) {
+    return conflictLedgerResult(
+      "Für diese Regelwerk-Aktion ist kein Wiedergabe-Adapter registriert.",
+    );
+  }
+  return replay[operation]();
+}
+
+export function recordRuleSetCommand(
+  record: RecordRuleSetCommand | undefined,
+  command: RuleSetCommandDescription,
+  replay: RuleSetReplayAdapter,
+): void {
+  record?.(attachRuleSetReplay(command, replay));
 }
 
 export function withSerializableRuleSetPayload<TCommand extends RuleSetCommand>(

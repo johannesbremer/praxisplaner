@@ -49,8 +49,8 @@ import { useErrorTracking } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
 import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
 import {
-  attachRuleSetReplay,
   createRuleSetCommandDescription,
+  recordRuleSetCommand,
 } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
@@ -295,96 +295,94 @@ export default function BaseScheduleManagement({
             ruleSetId,
           },
         });
-        onRecordCommand?.(
-          attachRuleSetReplay(command, {
-            redo: async () => {
-              const presentLineageKeys = deletedSchedulePayloads
-                .filter((payload) =>
-                  schedulesRef.current.some((currentSchedule) =>
-                    matchesSchedulePayload(currentSchedule, payload),
-                  ),
-                )
-                .map((payload) => payload.lineageKey);
-
-              if (presentLineageKeys.length === 0) {
-                return { status: "applied" as const };
-              }
-
-              try {
-                const redoResult = await replaceScheduleSetMutation({
-                  expectedPresentLineageKeys: presentLineageKeys,
-                  practiceId,
-                  replacementSchedules: [],
-                  ...getCowMutationArgs(),
-                });
-                handleDraftMutationResult(redoResult);
-                removeSchedulesFromRef(schedulesRef, presentLineageKeys);
-              } catch (error: unknown) {
-                if (isBaseScheduleMissingError(error)) {
-                  return { status: "applied" as const };
-                }
-                return {
-                  message:
-                    error instanceof Error
-                      ? error.message
-                      : "Arbeitszeiten konnten nicht erneut gelöscht werden.",
-                  status: "conflict" as const,
-                };
-              }
-
-              return { status: "applied" as const };
-            },
-            undo: async () => {
-              const missingPayloads = deletedSchedulePayloads.filter(
-                (payload) =>
-                  !schedulesRef.current.some((currentSchedule) =>
-                    matchesSchedulePayload(currentSchedule, payload),
-                  ),
-              );
-
-              if (missingPayloads.length === 0) {
-                return { status: "applied" as const };
-              }
-
-              const batchSchedules = Result.combine(
-                missingPayloads.map((payload) =>
-                  toBatchCreateScheduleInput(payload),
+        recordRuleSetCommand(onRecordCommand, command, {
+          redo: async () => {
+            const presentLineageKeys = deletedSchedulePayloads
+              .filter((payload) =>
+                schedulesRef.current.some((currentSchedule) =>
+                  matchesSchedulePayload(currentSchedule, payload),
                 ),
-              ).match(
-                (value) => value,
-                (error) => {
-                  captureFrontendError(error, {
-                    context: "base_schedule_group_delete_undo_payload",
-                    practiceId,
-                  });
-                  return null;
-                },
-              );
-              if (!batchSchedules) {
-                return {
-                  message:
-                    "Arbeitszeiten konnten nicht wiederhergestellt werden.",
-                  status: "conflict" as const,
-                };
-              }
-              const undoResult = await createScheduleBatchMutation({
+              )
+              .map((payload) => payload.lineageKey);
+
+            if (presentLineageKeys.length === 0) {
+              return { status: "applied" as const };
+            }
+
+            try {
+              const redoResult = await replaceScheduleSetMutation({
+                expectedPresentLineageKeys: presentLineageKeys,
                 practiceId,
-                schedules: batchSchedules,
+                replacementSchedules: [],
                 ...getCowMutationArgs(),
               });
-              handleDraftMutationResult(undoResult);
-              applyBatchCreateResultToRef({
-                createdScheduleIds: undoResult.createdScheduleIds,
-                practiceId,
-                ruleSetId: undoResult.ruleSetId,
-                schedules: batchSchedules,
-                schedulesRef,
-              });
+              handleDraftMutationResult(redoResult);
+              removeSchedulesFromRef(schedulesRef, presentLineageKeys);
+            } catch (error: unknown) {
+              if (isBaseScheduleMissingError(error)) {
+                return { status: "applied" as const };
+              }
+              return {
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Arbeitszeiten konnten nicht erneut gelöscht werden.",
+                status: "conflict" as const,
+              };
+            }
 
+            return { status: "applied" as const };
+          },
+          undo: async () => {
+            const missingPayloads = deletedSchedulePayloads.filter(
+              (payload) =>
+                !schedulesRef.current.some((currentSchedule) =>
+                  matchesSchedulePayload(currentSchedule, payload),
+                ),
+            );
+
+            if (missingPayloads.length === 0) {
               return { status: "applied" as const };
-            },
-          }),
-        );
+            }
+
+            const batchSchedules = Result.combine(
+              missingPayloads.map((payload) =>
+                toBatchCreateScheduleInput(payload),
+              ),
+            ).match(
+              (value) => value,
+              (error) => {
+                captureFrontendError(error, {
+                  context: "base_schedule_group_delete_undo_payload",
+                  practiceId,
+                });
+                return null;
+              },
+            );
+            if (!batchSchedules) {
+              return {
+                message:
+                  "Arbeitszeiten konnten nicht wiederhergestellt werden.",
+                status: "conflict" as const,
+              };
+            }
+            const undoResult = await createScheduleBatchMutation({
+              practiceId,
+              schedules: batchSchedules,
+              ...getCowMutationArgs(),
+            });
+            handleDraftMutationResult(undoResult);
+            applyBatchCreateResultToRef({
+              createdScheduleIds: undoResult.createdScheduleIds,
+              practiceId,
+              ruleSetId: undoResult.ruleSetId,
+              schedules: batchSchedules,
+              schedulesRef,
+            });
+
+            return { status: "applied" as const };
+          },
+        });
       }
     } catch (error: unknown) {
       captureError(error, {
@@ -1080,22 +1078,21 @@ function BaseScheduleDialog({
               ruleSetId,
             },
           });
-          onRecordCommand?.(
-            attachRuleSetReplay(
-              command,
-              createBaseScheduleReplaceSetReplay({
-                after: createdSchedulePayloads,
-                before: [],
-                getCowMutationArgs: getLocalCowMutationArgs,
-                handleDraftMutationResult,
-                isBaseScheduleMissingError,
-                label: "Arbeitszeiten",
-                practiceId,
-                replaceScheduleSet: replaceScheduleSetMutation,
-                runCreateScheduleBatch,
-                schedulesRef,
-              }),
-            ),
+          recordRuleSetCommand(
+            onRecordCommand,
+            command,
+            createBaseScheduleReplaceSetReplay({
+              after: createdSchedulePayloads,
+              before: [],
+              getCowMutationArgs: getLocalCowMutationArgs,
+              handleDraftMutationResult,
+              isBaseScheduleMissingError,
+              label: "Arbeitszeiten",
+              practiceId,
+              replaceScheduleSet: replaceScheduleSetMutation,
+              runCreateScheduleBatch,
+              schedulesRef,
+            }),
           );
         }
 
@@ -1117,22 +1114,21 @@ function BaseScheduleDialog({
               ruleSetId,
             },
           });
-          onRecordCommand?.(
-            attachRuleSetReplay(
-              command,
-              createBaseScheduleReplaceSetReplay({
-                after: createdSchedulePayloads,
-                before: oldSchedulePayloads,
-                getCowMutationArgs: getLocalCowMutationArgs,
-                handleDraftMutationResult,
-                isBaseScheduleMissingError,
-                label: "Arbeitszeiten",
-                practiceId,
-                replaceScheduleSet: replaceScheduleSetMutation,
-                runCreateScheduleBatch,
-                schedulesRef,
-              }),
-            ),
+          recordRuleSetCommand(
+            onRecordCommand,
+            command,
+            createBaseScheduleReplaceSetReplay({
+              after: createdSchedulePayloads,
+              before: oldSchedulePayloads,
+              getCowMutationArgs: getLocalCowMutationArgs,
+              handleDraftMutationResult,
+              isBaseScheduleMissingError,
+              label: "Arbeitszeiten",
+              practiceId,
+              replaceScheduleSet: replaceScheduleSetMutation,
+              runCreateScheduleBatch,
+              schedulesRef,
+            }),
           );
         }
         onClose();

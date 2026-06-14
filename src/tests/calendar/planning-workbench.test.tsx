@@ -2,11 +2,11 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { CalendarPlanningHistoryAction } from "../../components/calendar/calendar-planning-command";
 import type {
   CalendarAppointmentRecord,
   CalendarBlockedSlotRecord,
 } from "../../components/calendar/types";
-import type { LocalHistoryAction } from "../../hooks/use-local-history";
 
 import {
   asAppointmentTypeLineageKey,
@@ -26,7 +26,8 @@ const mutationQueue: {
     updater: (localStore: unknown, args: unknown) => void,
   ) => (args: unknown) => Promise<unknown>;
 }[] = [];
-const pushHistoryAction = vi.fn<(action: LocalHistoryAction) => void>();
+const pushHistoryAction =
+  vi.fn<(action: CalendarPlanningHistoryAction) => void>();
 
 vi.mock("convex/react", () => ({
   useMutation: () => {

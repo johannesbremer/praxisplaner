@@ -74,8 +74,8 @@ import {
   createNamedLineageDeleteReplayAdapter,
 } from "../utils/rule-set-named-lineage-replay";
 import {
-  attachRuleSetReplay,
   createRuleSetCommandDescription,
+  recordRuleSetCommand,
 } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
@@ -688,29 +688,28 @@ export function VacationScheduler({
         lineageKey: staff.lineageKey,
       },
     });
-    onRecordCommand?.(
-      attachRuleSetReplay(
-        command,
-        createAbsenceReplayAdapter({
-          redo: async () => {
-            await setVacationsForDay(staff, date, nextPortions, {
-              clearSnapshots: previousSnapshots,
-              createSnapshots: nextSnapshots,
-            });
-          },
-          undo: async () => {
-            await setVacationsForDay(
-              staff,
-              date,
-              previousSnapshots.map((snapshot) => snapshot.portion),
-              {
-                clearSnapshots: nextSnapshots,
-                createSnapshots: previousSnapshots,
-              },
-            );
-          },
-        }),
-      ),
+    recordRuleSetCommand(
+      onRecordCommand,
+      command,
+      createAbsenceReplayAdapter({
+        redo: async () => {
+          await setVacationsForDay(staff, date, nextPortions, {
+            clearSnapshots: previousSnapshots,
+            createSnapshots: nextSnapshots,
+          });
+        },
+        undo: async () => {
+          await setVacationsForDay(
+            staff,
+            date,
+            previousSnapshots.map((snapshot) => snapshot.portion),
+            {
+              clearSnapshots: nextSnapshots,
+              createSnapshots: previousSnapshots,
+            },
+          );
+        },
+      }),
     );
   };
 
@@ -822,7 +821,7 @@ export function VacationScheduler({
           }
         },
       });
-      onRecordCommand?.(attachRuleSetReplay(command, replay));
+      recordRuleSetCommand(onRecordCommand, command, replay);
       toast.success("MFA hinzugefügt");
     } catch (error) {
       toast.error("MFA konnte nicht angelegt werden", {
@@ -921,7 +920,7 @@ export function VacationScheduler({
           }
         },
       });
-      onRecordCommand?.(attachRuleSetReplay(command, replay));
+      recordRuleSetCommand(onRecordCommand, command, replay);
       toast.success("MFA entfernt");
     } catch (error) {
       toast.error("MFA konnte nicht entfernt werden", {

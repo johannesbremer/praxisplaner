@@ -2,16 +2,30 @@ import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 
 import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
-import { useLocalHistory } from "../../hooks/use-local-history";
+import { useCommandLedger } from "../../utils/command-ledger";
+import {
+  type CalendarPlanningHistoryAction,
+  createCalendarPlanningCommand,
+  executeCalendarPlanningCommand,
+} from "./calendar-planning-command";
 
 export function useCalendarPlanningHistory() {
   const {
     canRedo: canRedoHistoryAction,
     canUndo: canUndoHistoryAction,
-    pushAction,
+    record,
     redo,
     undo,
-  } = useLocalHistory();
+  } = useCommandLedger({
+    executeCommand: executeCalendarPlanningCommand,
+  });
+
+  const pushHistoryAction = useCallback(
+    (action: CalendarPlanningHistoryAction) => {
+      record(createCalendarPlanningCommand(action));
+    },
+    [record],
+  );
 
   const runUndo = useCallback(async () => {
     const result = await undo();
@@ -47,7 +61,7 @@ export function useCalendarPlanningHistory() {
   useRegisterGlobalUndoRedoControls(calendarUndoRedoControls);
 
   return {
-    pushHistoryAction: pushAction,
+    pushHistoryAction,
     redo: runRedo,
     undo: runUndo,
   };

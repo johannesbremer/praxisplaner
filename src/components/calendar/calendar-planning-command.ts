@@ -1,0 +1,119 @@
+import type {
+  LedgerCommand,
+  LedgerExecutionResult,
+  LedgerOperation,
+} from "../../utils/command-ledger";
+
+import { toLedgerConflict } from "../../utils/command-ledger";
+
+export interface CalendarPlanningCommand extends LedgerCommand {
+  kind: CalendarPlanningCommandKind;
+}
+
+export type CalendarPlanningCommandKind =
+  | "appointment.create"
+  | "appointment.delete"
+  | "appointment.update"
+  | "blockedSlot.create"
+  | "blockedSlot.delete"
+  | "blockedSlot.update";
+
+export interface CalendarPlanningHistoryAction extends CalendarPlanningReplayAdapter {
+  clearHistoryBefore?: boolean;
+  kind?: CalendarPlanningCommandKind;
+  label: string;
+  scope?: string;
+}
+
+export interface CalendarPlanningReplayAdapter {
+  redo: () =>
+    | CalendarPlanningReplayResult
+    | Promise<CalendarPlanningReplayResult>;
+  undo: () =>
+    | CalendarPlanningReplayResult
+    | Promise<CalendarPlanningReplayResult>;
+}
+
+const replayAdaptersByCommand = new WeakMap<
+  CalendarPlanningCommand,
+  CalendarPlanningReplayAdapter
+>();
+
+type CalendarPlanningReplayResult =
+  | LedgerExecutionResult
+  | {
+      message?: string;
+      status: "conflict";
+    };
+
+export function createCalendarPlanningCommand(
+  action: CalendarPlanningHistoryAction,
+): CalendarPlanningCommand {
+  const command: CalendarPlanningCommand = {
+    ...(action.clearHistoryBefore && { clearHistoryBefore: true }),
+    kind: action.kind ?? inferCalendarPlanningCommandKind(action.label),
+    label: action.label,
+    ...(action.scope && { scope: action.scope }),
+  };
+  replayAdaptersByCommand.set(command, {
+    redo: action.redo,
+    undo: action.undo,
+  });
+  return command;
+}
+
+export function executeCalendarPlanningCommand(
+  command: CalendarPlanningCommand,
+  operation: LedgerOperation,
+): LedgerExecutionResult | Promise<LedgerExecutionResult> {
+  const replay = replayAdaptersByCommand.get(command);
+  if (!replay) {
+    return {
+      conflict: toLedgerConflict({
+        message:
+          "Für diese Kalender-Aktion ist kein Wiedergabe-Adapter registriert.",
+      }),
+      message:
+        "Für diese Kalender-Aktion ist kein Wiedergabe-Adapter registriert.",
+      status: "conflict",
+    };
+  }
+  return Promise.resolve(replay[operation]()).then(toLedgerExecutionResult);
+}
+
+function inferCalendarPlanningCommandKind(
+  label: string,
+): CalendarPlanningCommandKind {
+  if (label.includes("Sperr")) {
+    if (label.includes("gelöscht") || label.includes("entfernt")) {
+      return "blockedSlot.delete";
+    }
+    if (label.includes("aktualisiert") || label.includes("verschoben")) {
+      return "blockedSlot.update";
+    }
+    return "blockedSlot.create";
+  }
+  if (label.includes("gelöscht") || label.includes("entfernt")) {
+    return "appointment.delete";
+  }
+  if (label.includes("aktualisiert") || label.includes("verschoben")) {
+    return "appointment.update";
+  }
+  return "appointment.create";
+}
+
+function toLedgerExecutionResult(
+  result: CalendarPlanningReplayResult,
+): LedgerExecutionResult {
+  if (result.status !== "conflict") {
+    return result;
+  }
+  if ("conflict" in result) {
+    return result;
+  }
+  return {
+    message:
+      result.message ?? "Die Kalender-Aktion konnte nicht ausgeführt werden.",
+    status: "conflict",
+  };
+}

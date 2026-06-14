@@ -66,7 +66,10 @@ import {
   type RegelnTabParam,
   useRegelnUrl,
 } from "../utils/regeln-url";
-import { withSerializableRuleSetPayload } from "../utils/rule-set-replay";
+import {
+  executeRuleSetCommand,
+  withSerializableRuleSetPayload,
+} from "../utils/rule-set-replay";
 import { dateToInstantStringResult } from "../utils/time-calculations";
 import { RuleSetDiffView, SaveDialogForm } from "./regeln/-rule-set-diff";
 import {
@@ -175,6 +178,7 @@ function LogicView() {
     redoDepth: redoRegelnCommandDepth,
     undo: undoRegelnCommand,
   } = useCommandLedger<RuleSetCommand>({
+    executeCommand: executeRuleSetCommand,
     onError: (action, operation, error) => {
       captureError(error, {
         actionLabel: action.label,
