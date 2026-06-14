@@ -1333,65 +1333,70 @@ export function useCalendarPlanningWorkbench(args: {
         title: createArgs.title,
       });
 
-      recordCalendarCommand({
-        label: "Termin erstellt",
-        redo: async () => {
-          await ensureLatestConflictData();
-          if (
-            hasAppointmentConflict({
-              end: createEnd,
+      recordCalendarCommand(
+        {
+          kind: "appointment.create",
+          label: "Termin erstellt",
+        },
+        {
+          redo: async () => {
+            await ensureLatestConflictData();
+            if (
+              hasAppointmentConflict({
+                end: createEnd,
+                isSimulation: createArgs.isSimulation,
+                placement: createCommandArgs.placement,
+                ...(createArgs.replacesAppointmentId && {
+                  replacesAppointmentId: createArgs.replacesAppointmentId,
+                }),
+                start: createArgs.start,
+              })
+            ) {
+              return {
+                message:
+                  "Der Termin kann nicht wiederhergestellt werden, weil der Zeitraum bereits belegt ist.",
+                status: "conflict",
+              };
+            }
+
+            const recreatedId = await runCreateAppointmentInternal(createArgs);
+            if (!recreatedId) {
+              return { status: "conflict" };
+            }
+
+            currentAppointmentId = recreatedId;
+            rememberCreatedAppointmentFromStrings({
+              appointmentTypeLineageKey,
+              appointmentTypeTitle: appointmentTypeInfo.name,
+              ...getAppointmentOwnerRefs(createArgs),
+              createdId: recreatedId,
+              createEnd,
+              createStart: createArgs.start,
               isSimulation: createArgs.isSimulation,
               placement: createCommandArgs.placement,
+              practiceId: createArgs.practiceId,
               ...(createArgs.replacesAppointmentId && {
                 replacesAppointmentId: createArgs.replacesAppointmentId,
               }),
-              start: createArgs.start,
-            })
-          ) {
-            return {
-              message:
-                "Der Termin kann nicht wiederhergestellt werden, weil der Zeitraum bereits belegt ist.",
-              status: "conflict",
-            };
-          }
-
-          const recreatedId = await runCreateAppointmentInternal(createArgs);
-          if (!recreatedId) {
-            return { status: "conflict" };
-          }
-
-          currentAppointmentId = recreatedId;
-          rememberCreatedAppointmentFromStrings({
-            appointmentTypeLineageKey,
-            appointmentTypeTitle: appointmentTypeInfo.name,
-            ...getAppointmentOwnerRefs(createArgs),
-            createdId: recreatedId,
-            createEnd,
-            createStart: createArgs.start,
-            isSimulation: createArgs.isSimulation,
-            placement: createCommandArgs.placement,
-            practiceId: createArgs.practiceId,
-            ...(createArgs.replacesAppointmentId && {
-              replacesAppointmentId: createArgs.replacesAppointmentId,
-            }),
-            title: createArgs.title,
-          });
-          return { status: "applied" };
-        },
-        undo: async () => {
-          try {
-            await runDeleteAppointmentInternal({ id: currentAppointmentId });
-            forgetAppointmentHistoryDoc(currentAppointmentId);
+              title: createArgs.title,
+            });
             return { status: "applied" };
-          } catch {
-            forgetAppointmentHistoryDoc(currentAppointmentId);
-            return {
-              message: "Der Termin wurde bereits entfernt.",
-              status: "conflict",
-            };
-          }
+          },
+          undo: async () => {
+            try {
+              await runDeleteAppointmentInternal({ id: currentAppointmentId });
+              forgetAppointmentHistoryDoc(currentAppointmentId);
+              return { status: "applied" };
+            } catch {
+              forgetAppointmentHistoryDoc(currentAppointmentId);
+              return {
+                message: "Der Termin wurde bereits entfernt.",
+                status: "conflict",
+              };
+            }
+          },
         },
-      });
+      );
 
       return createdId;
     },
@@ -1490,105 +1495,112 @@ export function useCalendarPlanningWorkbench(args: {
         start: state.start,
       });
 
-      recordCalendarCommand({
-        label: "Termin aktualisiert",
-        redo: async () => {
-          await ensureLatestConflictData();
-          const current = getCurrentAppointmentDoc(args.id);
-          if (!current || !matchesState(current, beforeState)) {
-            return {
-              message:
-                "Der Termin wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
-              status: "conflict",
-            };
-          }
-
-          if (hasAppointmentConflict(candidatePayload(afterState), args.id)) {
-            return {
-              message:
-                "Die Terminänderung kollidiert mit einer neueren Terminplanung.",
-              status: "conflict",
-            };
-          }
-
-          const displayRefs = resolveAppointmentReferenceDisplayIds({
-            appointmentTypeLineageKey: before.appointmentTypeLineageKey,
-            placement: afterState.placement,
-          });
-          if (!displayRefs) {
-            return {
-              message:
-                "Die Terminänderung kann nicht erneut angewendet werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
-              status: "conflict",
-            };
-          }
-
-          await runUpdateAppointmentInternal({
-            end: afterState.end,
-            id: args.id,
-            locationId: displayRefs.locationId,
-            ...(displayRefs.occupancyScope.kind === "resource"
-              ? {
-                  calendarResourceColumn:
-                    displayRefs.occupancyScope.calendarResourceColumn,
-                }
-              : {
-                  practitionerId: displayRefs.occupancyScope.practitionerId,
-                }),
-            start: afterState.start,
-          });
-          rememberAppointmentHistoryDoc(afterSnapshot);
-          return { status: "applied" };
+      recordCalendarCommand(
+        {
+          kind: "appointment.update",
+          label: "Termin aktualisiert",
         },
-        undo: async () => {
-          await ensureLatestConflictData();
-          const current = getCurrentAppointmentDoc(args.id);
-          if (!current || !matchesState(current, afterState)) {
-            return {
-              message:
-                "Der Termin wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
-              status: "conflict",
-            };
-          }
+        {
+          redo: async () => {
+            await ensureLatestConflictData();
+            const current = getCurrentAppointmentDoc(args.id);
+            if (!current || !matchesState(current, beforeState)) {
+              return {
+                message:
+                  "Der Termin wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
+                status: "conflict",
+              };
+            }
 
-          if (hasAppointmentConflict(candidatePayload(beforeState), args.id)) {
-            return {
-              message:
-                "Der ursprüngliche Termin kollidiert mit einer neueren Terminplanung.",
-              status: "conflict",
-            };
-          }
+            if (hasAppointmentConflict(candidatePayload(afterState), args.id)) {
+              return {
+                message:
+                  "Die Terminänderung kollidiert mit einer neueren Terminplanung.",
+                status: "conflict",
+              };
+            }
 
-          const displayRefs = resolveAppointmentReferenceDisplayIds({
-            appointmentTypeLineageKey: before.appointmentTypeLineageKey,
-            placement: beforeState.placement,
-          });
-          if (!displayRefs) {
-            return {
-              message:
-                "Der ursprüngliche Termin kann nicht wiederhergestellt werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
-              status: "conflict",
-            };
-          }
+            const displayRefs = resolveAppointmentReferenceDisplayIds({
+              appointmentTypeLineageKey: before.appointmentTypeLineageKey,
+              placement: afterState.placement,
+            });
+            if (!displayRefs) {
+              return {
+                message:
+                  "Die Terminänderung kann nicht erneut angewendet werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
+                status: "conflict",
+              };
+            }
 
-          await runUpdateAppointmentInternal({
-            end: beforeState.end,
-            id: args.id,
-            locationId: displayRefs.locationId,
-            ...(displayRefs.occupancyScope.kind === "resource"
-              ? {
-                  calendarResourceColumn:
-                    displayRefs.occupancyScope.calendarResourceColumn,
-                }
-              : {
-                  practitionerId: displayRefs.occupancyScope.practitionerId,
-                }),
-            start: beforeState.start,
-          });
-          rememberAppointmentHistoryDoc(before);
-          return { status: "applied" };
+            await runUpdateAppointmentInternal({
+              end: afterState.end,
+              id: args.id,
+              locationId: displayRefs.locationId,
+              ...(displayRefs.occupancyScope.kind === "resource"
+                ? {
+                    calendarResourceColumn:
+                      displayRefs.occupancyScope.calendarResourceColumn,
+                  }
+                : {
+                    practitionerId: displayRefs.occupancyScope.practitionerId,
+                  }),
+              start: afterState.start,
+            });
+            rememberAppointmentHistoryDoc(afterSnapshot);
+            return { status: "applied" };
+          },
+          undo: async () => {
+            await ensureLatestConflictData();
+            const current = getCurrentAppointmentDoc(args.id);
+            if (!current || !matchesState(current, afterState)) {
+              return {
+                message:
+                  "Der Termin wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
+                status: "conflict",
+              };
+            }
+
+            if (
+              hasAppointmentConflict(candidatePayload(beforeState), args.id)
+            ) {
+              return {
+                message:
+                  "Der ursprüngliche Termin kollidiert mit einer neueren Terminplanung.",
+                status: "conflict",
+              };
+            }
+
+            const displayRefs = resolveAppointmentReferenceDisplayIds({
+              appointmentTypeLineageKey: before.appointmentTypeLineageKey,
+              placement: beforeState.placement,
+            });
+            if (!displayRefs) {
+              return {
+                message:
+                  "Der ursprüngliche Termin kann nicht wiederhergestellt werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
+                status: "conflict",
+              };
+            }
+
+            await runUpdateAppointmentInternal({
+              end: beforeState.end,
+              id: args.id,
+              locationId: displayRefs.locationId,
+              ...(displayRefs.occupancyScope.kind === "resource"
+                ? {
+                    calendarResourceColumn:
+                      displayRefs.occupancyScope.calendarResourceColumn,
+                  }
+                : {
+                    practitionerId: displayRefs.occupancyScope.practitionerId,
+                  }),
+              start: beforeState.start,
+            });
+            rememberAppointmentHistoryDoc(before);
+            return { status: "applied" };
+          },
         },
-      });
+      );
     },
     [
       ensureLatestConflictData,
@@ -1663,51 +1675,56 @@ export function useCalendarPlanningWorkbench(args: {
         start: createArgs.start,
       });
 
-      recordCalendarCommand({
-        label: "Termin gelöscht",
-        redo: async () => {
-          try {
-            await runDeleteAppointmentInternal({ id: currentAppointmentId });
-            forgetAppointmentHistoryDoc(currentAppointmentId);
-            return { status: "applied" };
-          } catch {
-            forgetAppointmentHistoryDoc(currentAppointmentId);
-            return { status: "applied" };
-          }
+      recordCalendarCommand(
+        {
+          kind: "appointment.delete",
+          label: "Termin gelöscht",
         },
-        undo: async () => {
-          await ensureLatestConflictData();
-          if (
-            hasAppointmentConflict({
-              end: createEnd,
-              isSimulation: createArgs.isSimulation ?? false,
-              placement: deleted.placement,
-              ...(createArgs.replacesAppointmentId && {
-                replacesAppointmentId: createArgs.replacesAppointmentId,
-              }),
-              start: createArgs.start,
-            })
-          ) {
-            return {
-              message:
-                "Der gelöschte Termin kann nicht wiederhergestellt werden, weil der Zeitraum inzwischen belegt ist.",
-              status: "conflict",
-            };
-          }
+        {
+          redo: async () => {
+            try {
+              await runDeleteAppointmentInternal({ id: currentAppointmentId });
+              forgetAppointmentHistoryDoc(currentAppointmentId);
+              return { status: "applied" };
+            } catch {
+              forgetAppointmentHistoryDoc(currentAppointmentId);
+              return { status: "applied" };
+            }
+          },
+          undo: async () => {
+            await ensureLatestConflictData();
+            if (
+              hasAppointmentConflict({
+                end: createEnd,
+                isSimulation: createArgs.isSimulation ?? false,
+                placement: deleted.placement,
+                ...(createArgs.replacesAppointmentId && {
+                  replacesAppointmentId: createArgs.replacesAppointmentId,
+                }),
+                start: createArgs.start,
+              })
+            ) {
+              return {
+                message:
+                  "Der gelöschte Termin kann nicht wiederhergestellt werden, weil der Zeitraum inzwischen belegt ist.",
+                status: "conflict",
+              };
+            }
 
-          const recreatedId = await runCreateAppointmentInternal(createArgs);
-          if (!recreatedId) {
-            return { status: "conflict" };
-          }
+            const recreatedId = await runCreateAppointmentInternal(createArgs);
+            if (!recreatedId) {
+              return { status: "conflict" };
+            }
 
-          currentAppointmentId = recreatedId;
-          rememberAppointmentHistoryDoc({
-            ...deleted,
-            _id: recreatedId,
-          });
-          return { status: "applied" };
+            currentAppointmentId = recreatedId;
+            rememberAppointmentHistoryDoc({
+              ...deleted,
+              _id: recreatedId,
+            });
+            return { status: "applied" };
+          },
         },
-      });
+      );
     },
     [
       deleteAppointmentMutation,
@@ -1757,60 +1774,65 @@ export function useCalendarPlanningWorkbench(args: {
         title: createArgs.title,
       });
 
-      recordCalendarCommand({
-        label: "Sperrung erstellt",
-        redo: async () => {
-          await ensureLatestConflictData();
-          if (
-            hasBlockedSlotConflict({
+      recordCalendarCommand(
+        {
+          kind: "blockedSlot.create",
+          label: "Sperrung erstellt",
+        },
+        {
+          redo: async () => {
+            await ensureLatestConflictData();
+            if (
+              hasBlockedSlotConflict({
+                end: createArgs.end,
+                isSimulation: createArgs.isSimulation,
+                placement: blockedSlotReferences,
+                start: createArgs.start,
+              })
+            ) {
+              return {
+                message:
+                  "Die Sperrung kann nicht wiederhergestellt werden, weil der Zeitraum inzwischen belegt ist.",
+                status: "conflict",
+              };
+            }
+
+            const recreatedId = await runCreateBlockedSlotInternal(createArgs);
+            if (!recreatedId) {
+              return { status: "conflict" };
+            }
+
+            currentBlockedSlotId = recreatedId;
+            rememberCreatedBlockedSlotHistoryDoc({
+              blockedSlotId: recreatedId,
               end: createArgs.end,
               isSimulation: createArgs.isSimulation,
+              now,
               placement: blockedSlotReferences,
+              practiceId: createArgs.practiceId,
+              ...(createArgs.replacesBlockedSlotId && {
+                replacesBlockedSlotId: createArgs.replacesBlockedSlotId,
+              }),
               start: createArgs.start,
-            })
-          ) {
-            return {
-              message:
-                "Die Sperrung kann nicht wiederhergestellt werden, weil der Zeitraum inzwischen belegt ist.",
-              status: "conflict",
-            };
-          }
-
-          const recreatedId = await runCreateBlockedSlotInternal(createArgs);
-          if (!recreatedId) {
-            return { status: "conflict" };
-          }
-
-          currentBlockedSlotId = recreatedId;
-          rememberCreatedBlockedSlotHistoryDoc({
-            blockedSlotId: recreatedId,
-            end: createArgs.end,
-            isSimulation: createArgs.isSimulation,
-            now,
-            placement: blockedSlotReferences,
-            practiceId: createArgs.practiceId,
-            ...(createArgs.replacesBlockedSlotId && {
-              replacesBlockedSlotId: createArgs.replacesBlockedSlotId,
-            }),
-            start: createArgs.start,
-            title: createArgs.title,
-          });
-          return { status: "applied" };
-        },
-        undo: async () => {
-          try {
-            await runDeleteBlockedSlotInternal({ id: currentBlockedSlotId });
-            forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
+              title: createArgs.title,
+            });
             return { status: "applied" };
-          } catch {
-            forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
-            return {
-              message: "Die Sperrung wurde bereits entfernt.",
-              status: "conflict",
-            };
-          }
+          },
+          undo: async () => {
+            try {
+              await runDeleteBlockedSlotInternal({ id: currentBlockedSlotId });
+              forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
+              return { status: "applied" };
+            } catch {
+              forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
+              return {
+                message: "Die Sperrung wurde bereits entfernt.",
+                status: "conflict",
+              };
+            }
+          },
         },
-      });
+      );
 
       return createdId;
     },
@@ -1941,82 +1963,89 @@ export function useCalendarPlanningWorkbench(args: {
         title: state.title,
       });
 
-      recordCalendarCommand({
-        label: "Sperrung aktualisiert",
-        redo: async () => {
-          await ensureLatestConflictData();
-          const current = getCurrentBlockedSlotDoc(args.id);
-          if (!current || !matchesState(current, beforeState)) {
-            return {
-              message:
-                "Die Sperrung wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
-              status: "conflict",
-            };
-          }
-
-          if (hasBlockedSlotConflict(candidatePayload(afterState), args.id)) {
-            return {
-              message: "Die Sperrung kollidiert mit einer neueren Planung.",
-              status: "conflict",
-            };
-          }
-
-          const displayRefs = resolveBlockedSlotPlacementDisplayRefs(
-            afterState.placement,
-            referenceMaps,
-          );
-          if (!displayRefs) {
-            return {
-              message:
-                "Die Sperrung kann nicht erneut angewendet werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
-              status: "conflict",
-            };
-          }
-
-          await runUpdateBlockedSlotInternal(
-            updatePayloadForState(afterState, displayRefs),
-          );
-          rememberBlockedSlotHistoryDoc(afterSnapshot);
-          return { status: "applied" };
+      recordCalendarCommand(
+        {
+          kind: "blockedSlot.update",
+          label: "Sperrung aktualisiert",
         },
-        undo: async () => {
-          await ensureLatestConflictData();
-          const current = getCurrentBlockedSlotDoc(args.id);
-          if (!current || !matchesState(current, afterState)) {
-            return {
-              message:
-                "Die Sperrung wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
-              status: "conflict",
-            };
-          }
+        {
+          redo: async () => {
+            await ensureLatestConflictData();
+            const current = getCurrentBlockedSlotDoc(args.id);
+            if (!current || !matchesState(current, beforeState)) {
+              return {
+                message:
+                  "Die Sperrung wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
+                status: "conflict",
+              };
+            }
 
-          if (hasBlockedSlotConflict(candidatePayload(beforeState), args.id)) {
-            return {
-              message:
-                "Die ursprüngliche Sperrung kollidiert mit einer neueren Planung.",
-              status: "conflict",
-            };
-          }
+            if (hasBlockedSlotConflict(candidatePayload(afterState), args.id)) {
+              return {
+                message: "Die Sperrung kollidiert mit einer neueren Planung.",
+                status: "conflict",
+              };
+            }
 
-          const displayRefs = resolveBlockedSlotPlacementDisplayRefs(
-            beforeState.placement,
-            referenceMaps,
-          );
-          if (!displayRefs) {
-            return {
-              message:
-                "Die ursprüngliche Sperrung kann nicht wiederhergestellt werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
-              status: "conflict",
-            };
-          }
+            const displayRefs = resolveBlockedSlotPlacementDisplayRefs(
+              afterState.placement,
+              referenceMaps,
+            );
+            if (!displayRefs) {
+              return {
+                message:
+                  "Die Sperrung kann nicht erneut angewendet werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
+                status: "conflict",
+              };
+            }
 
-          await runUpdateBlockedSlotInternal(
-            updatePayloadForState(beforeState, displayRefs),
-          );
-          rememberBlockedSlotHistoryDoc(before);
-          return { status: "applied" };
+            await runUpdateBlockedSlotInternal(
+              updatePayloadForState(afterState, displayRefs),
+            );
+            rememberBlockedSlotHistoryDoc(afterSnapshot);
+            return { status: "applied" };
+          },
+          undo: async () => {
+            await ensureLatestConflictData();
+            const current = getCurrentBlockedSlotDoc(args.id);
+            if (!current || !matchesState(current, afterState)) {
+              return {
+                message:
+                  "Die Sperrung wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
+                status: "conflict",
+              };
+            }
+
+            if (
+              hasBlockedSlotConflict(candidatePayload(beforeState), args.id)
+            ) {
+              return {
+                message:
+                  "Die ursprüngliche Sperrung kollidiert mit einer neueren Planung.",
+                status: "conflict",
+              };
+            }
+
+            const displayRefs = resolveBlockedSlotPlacementDisplayRefs(
+              beforeState.placement,
+              referenceMaps,
+            );
+            if (!displayRefs) {
+              return {
+                message:
+                  "Die ursprüngliche Sperrung kann nicht wiederhergestellt werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
+                status: "conflict",
+              };
+            }
+
+            await runUpdateBlockedSlotInternal(
+              updatePayloadForState(beforeState, displayRefs),
+            );
+            rememberBlockedSlotHistoryDoc(before);
+            return { status: "applied" };
+          },
         },
-      });
+      );
 
       return mutationResult;
     },
@@ -2071,48 +2100,53 @@ export function useCalendarPlanningWorkbench(args: {
         title: deleted.title,
       };
 
-      recordCalendarCommand({
-        label: "Sperrung gelöscht",
-        redo: async () => {
-          try {
-            await runDeleteBlockedSlotInternal({ id: currentBlockedSlotId });
-            forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
-            return { status: "applied" };
-          } catch {
-            forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
-            return { status: "applied" };
-          }
+      recordCalendarCommand(
+        {
+          kind: "blockedSlot.delete",
+          label: "Sperrung gelöscht",
         },
-        undo: async () => {
-          await ensureLatestConflictData();
-          if (
-            hasBlockedSlotConflict({
-              end: createArgs.end,
-              isSimulation: createArgs.isSimulation ?? false,
-              placement: deleted.placement,
-              start: createArgs.start,
-            })
-          ) {
-            return {
-              message:
-                "Die gelöschte Sperrung kann nicht wiederhergestellt werden, weil der Zeitraum inzwischen belegt ist.",
-              status: "conflict",
-            };
-          }
+        {
+          redo: async () => {
+            try {
+              await runDeleteBlockedSlotInternal({ id: currentBlockedSlotId });
+              forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
+              return { status: "applied" };
+            } catch {
+              forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
+              return { status: "applied" };
+            }
+          },
+          undo: async () => {
+            await ensureLatestConflictData();
+            if (
+              hasBlockedSlotConflict({
+                end: createArgs.end,
+                isSimulation: createArgs.isSimulation ?? false,
+                placement: deleted.placement,
+                start: createArgs.start,
+              })
+            ) {
+              return {
+                message:
+                  "Die gelöschte Sperrung kann nicht wiederhergestellt werden, weil der Zeitraum inzwischen belegt ist.",
+                status: "conflict",
+              };
+            }
 
-          const recreatedId = await runCreateBlockedSlotInternal(createArgs);
-          if (!recreatedId) {
-            return { status: "conflict" };
-          }
+            const recreatedId = await runCreateBlockedSlotInternal(createArgs);
+            if (!recreatedId) {
+              return { status: "conflict" };
+            }
 
-          currentBlockedSlotId = recreatedId;
-          rememberBlockedSlotHistoryDoc({
-            ...deleted,
-            _id: recreatedId,
-          });
-          return { status: "applied" };
+            currentBlockedSlotId = recreatedId;
+            rememberBlockedSlotHistoryDoc({
+              ...deleted,
+              _id: recreatedId,
+            });
+            return { status: "applied" };
+          },
         },
-      });
+      );
 
       return mutationResult;
     },

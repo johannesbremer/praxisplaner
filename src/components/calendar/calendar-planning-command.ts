@@ -10,6 +10,11 @@ export interface CalendarPlanningCommand extends LedgerCommand {
   kind: CalendarPlanningCommandKind;
 }
 
+export interface CalendarPlanningCommandDescription extends LedgerCommand {
+  clearHistoryBefore?: boolean;
+  kind?: CalendarPlanningCommandKind;
+}
+
 export type CalendarPlanningCommandKind =
   | "appointment.create"
   | "appointment.delete"
@@ -17,13 +22,6 @@ export type CalendarPlanningCommandKind =
   | "blockedSlot.create"
   | "blockedSlot.delete"
   | "blockedSlot.update";
-
-export interface CalendarPlanningHistoryAction extends CalendarPlanningReplayAdapter {
-  clearHistoryBefore?: boolean;
-  kind?: CalendarPlanningCommandKind;
-  label: string;
-  scope?: string;
-}
 
 export interface CalendarPlanningReplayAdapter {
   redo: () =>
@@ -47,18 +45,17 @@ type CalendarPlanningReplayResult =
     };
 
 export function createCalendarPlanningCommand(
-  action: CalendarPlanningHistoryAction,
+  description: CalendarPlanningCommandDescription,
+  replay: CalendarPlanningReplayAdapter,
 ): CalendarPlanningCommand {
   const command: CalendarPlanningCommand = {
-    ...(action.clearHistoryBefore && { clearHistoryBefore: true }),
-    kind: action.kind ?? inferCalendarPlanningCommandKind(action.label),
-    label: action.label,
-    ...(action.scope && { scope: action.scope }),
+    ...(description.clearHistoryBefore && { clearHistoryBefore: true }),
+    kind:
+      description.kind ?? inferCalendarPlanningCommandKind(description.label),
+    label: description.label,
+    ...(description.scope && { scope: description.scope }),
   };
-  replayAdaptersByCommand.set(command, {
-    redo: action.redo,
-    undo: action.undo,
-  });
+  replayAdaptersByCommand.set(command, replay);
   return command;
 }
 
