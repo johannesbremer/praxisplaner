@@ -31,8 +31,7 @@ import type { RuleSetCommand } from "../utils/rule-set-replay";
 
 import {
   ruleSetIdFromReplayTarget,
-  toCowMutationArgs,
-  updateRuleSetReplayTarget,
+  useRuleSetReplayTargetController,
 } from "../utils/cow-history";
 import {
   registerLineageCreateHistoryAction,
@@ -112,29 +111,19 @@ export default function PractitionerManagement({
   useEffect(() => {
     practitionersRef.current = practitioners;
   }, [practitioners]);
-  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
-  useEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
-  }, [ruleSetReplayTarget]);
-  const getCowMutationArgs = () =>
-    toCowMutationArgs(ruleSetReplayTargetRef.current);
+  const { getCowMutationArgs, handleDraftMutationResult } =
+    useRuleSetReplayTargetController({
+      ...(onDraftMutation && { onDraftMutation }),
+      ...(onRuleSetCreated && { onRuleSetCreated }),
+      ruleSetId,
+      ruleSetReplayTarget,
+    });
   const deleteWithDependenciesMutation = useMutation(
     api.entities.deletePractitionerWithDependencies,
   );
   const restoreWithDependenciesMutation = useMutation(
     api.entities.restorePractitionerWithDependencies,
   );
-  const handleDraftMutationResult = (result: DraftMutationResult) => {
-    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
-      ruleSetReplayTargetRef.current,
-      result,
-    );
-    onDraftMutation?.(result);
-    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
-      onRuleSetCreated(result.ruleSetId);
-    }
-  };
-
   const handleEdit = (practitioner: PractitionerWithLineage) => {
     setEditingPractitioner(practitioner);
     setIsDialogOpen(true);
@@ -408,26 +397,17 @@ function PractitionerDialog({
   useEffect(() => {
     practitionersRef.current = practitioners;
   }, [practitioners]);
-  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
-  useEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
-  }, [ruleSetReplayTarget]);
-  const getCowMutationArgs = () =>
-    toCowMutationArgs(ruleSetReplayTargetRef.current);
+  const { getCowMutationArgs, handleDraftMutationResult } =
+    useRuleSetReplayTargetController({
+      ...(onDraftMutation && { onDraftMutation }),
+      ...(onRuleSetCreated && { onRuleSetCreated }),
+      ruleSetId,
+      ruleSetReplayTarget,
+    });
 
   const createMutation = useMutation(api.entities.createPractitioner);
   const deleteMutation = useMutation(api.entities.deletePractitioner);
   const updateMutation = useMutation(api.entities.updatePractitioner);
-  const handleDraftMutationResult = (result: DraftMutationResult) => {
-    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
-      ruleSetReplayTargetRef.current,
-      result,
-    );
-    onDraftMutation?.(result);
-    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
-      onRuleSetCreated(result.ruleSetId);
-    }
-  };
 
   const form = useForm({
     defaultValues: {

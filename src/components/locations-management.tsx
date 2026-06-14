@@ -37,8 +37,7 @@ import type { RuleSetCommand } from "../utils/rule-set-replay";
 
 import {
   ruleSetIdFromReplayTarget,
-  toCowMutationArgs,
-  updateRuleSetReplayTarget,
+  useRuleSetReplayTargetController,
 } from "../utils/cow-history";
 import {
   registerLineageCreateHistoryAction,
@@ -167,22 +166,13 @@ export function LocationsManagement({
   useEffect(() => {
     baseSchedulesRef.current = baseSchedules;
   }, [baseSchedules]);
-  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
-  useEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
-  }, [ruleSetReplayTarget]);
-  const getCowMutationArgs = () =>
-    toCowMutationArgs(ruleSetReplayTargetRef.current);
-  const handleDraftMutationResult = (result: DraftMutationResult) => {
-    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
-      ruleSetReplayTargetRef.current,
-      result,
-    );
-    onDraftMutation?.(result);
-    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
-      onRuleSetCreated(result.ruleSetId);
-    }
-  };
+  const { getCowMutationArgs, handleDraftMutationResult } =
+    useRuleSetReplayTargetController({
+      ...(onDraftMutation && { onDraftMutation }),
+      ...(onRuleSetCreated && { onRuleSetCreated }),
+      ruleSetId,
+      ruleSetReplayTarget,
+    });
 
   const form = useForm({
     defaultValues: {

@@ -26,8 +26,7 @@ import {
 } from "../../lib/rule-name-generator";
 import {
   ruleSetIdFromReplayTarget,
-  toCowMutationArgs,
-  updateRuleSetReplayTarget,
+  useRuleSetReplayTargetController,
 } from "../utils/cow-history";
 import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
@@ -173,22 +172,13 @@ export function RuleBuilder({
   useEffect(() => {
     rulesRef.current = existingRules;
   }, [existingRules]);
-  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
-  useEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
-  }, [ruleSetReplayTarget]);
-  const getCowMutationArgs = () =>
-    toCowMutationArgs(ruleSetReplayTargetRef.current);
-  const handleDraftMutationResult = (result: DraftMutationResult) => {
-    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
-      ruleSetReplayTargetRef.current,
-      result,
-    );
-    onDraftMutation?.(result);
-    if (onRuleCreated && result.ruleSetId !== ruleSetId) {
-      onRuleCreated(result.ruleSetId);
-    }
-  };
+  const { getCowMutationArgs, handleDraftMutationResult } =
+    useRuleSetReplayTargetController({
+      ...(onDraftMutation && { onDraftMutation }),
+      ...(onRuleCreated && { onRuleSetCreated: onRuleCreated }),
+      ruleSetId,
+      ruleSetReplayTarget,
+    });
   const runCreateRule = async (params: {
     conditionTree: ConditionTreeNode;
     copyFromId?: Id<"ruleConditions">;

@@ -1,5 +1,7 @@
 import type { Id } from "@/convex/_generated/dataModel";
 
+import { useCallback, useEffect, useRef } from "react";
+
 export interface CowMutationArgs {
   expectedDraftRevision: null | number;
   selectedRuleSetId: Id<"ruleSets">;
@@ -132,5 +134,49 @@ export function updateRuleSetReplayTarget(
     draftRuleSetId: result.ruleSetId,
     kind: "draft",
     parentRuleSetId: previous.parentRuleSetId,
+  };
+}
+
+export function useRuleSetReplayTargetController(params: {
+  onDraftMutation?: (result: DraftMutationResult) => void;
+  onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
+  ruleSetId: Id<"ruleSets">;
+  ruleSetReplayTarget: RuleSetReplayTarget;
+}) {
+  const {
+    onDraftMutation,
+    onRuleSetCreated,
+    ruleSetId,
+    ruleSetReplayTarget,
+  } = params;
+  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
+
+  useEffect(() => {
+    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
+  }, [ruleSetReplayTarget]);
+
+  const getCowMutationArgs = useCallback(
+    () => toCowMutationArgs(ruleSetReplayTargetRef.current),
+    [],
+  );
+
+  const handleDraftMutationResult = useCallback(
+    (result: DraftMutationResult) => {
+      ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
+        ruleSetReplayTargetRef.current,
+        result,
+      );
+      onDraftMutation?.(result);
+      if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
+        onRuleSetCreated(result.ruleSetId);
+      }
+    },
+    [onDraftMutation, onRuleSetCreated, ruleSetId],
+  );
+
+  return {
+    getCowMutationArgs,
+    handleDraftMutationResult,
+    ruleSetReplayTargetRef,
   };
 }
