@@ -12,8 +12,9 @@ import type {
 import { resolveReplayEntity } from "./cow-history";
 import {
   appliedLedgerResult,
+  attachRuleSetReplay,
   conflictLedgerResult,
-  createRuleSetCommand,
+  createRuleSetCommandDescription,
 } from "./rule-set-replay";
 
 interface LegacyReplayConflict {
@@ -84,54 +85,55 @@ export function registerLineageCreateHistoryAction<
   }
   let currentEntityId = params.initialEntityId;
 
+  const command = createRuleSetCommandDescription({
+    kind: params.kind,
+    label: params.label,
+    ...(params.payload && { payload: params.payload }),
+    ...(params.scope && { scope: params.scope }),
+    ...(params.snapshots && { snapshots: params.snapshots }),
+    target: {
+      entityId: params.initialEntityId,
+      lineageKey: params.lineageKey,
+    },
+  });
+
   params.onRecordCommand(
-    createRuleSetCommand({
-      kind: params.kind,
-      label: params.label,
-      ...(params.payload && { payload: params.payload }),
-      replay: {
-        redo: async () => {
-          const existingByLineage = params.entitiesRef.current.find(
-            (entity) => entity.lineageKey === params.lineageKey,
-          );
-          if (existingByLineage) {
-            currentEntityId = existingByLineage._id;
-            return appliedLedgerResult();
-          }
+    attachRuleSetReplay(command, {
+      redo: async () => {
+        const existingByLineage = params.entitiesRef.current.find(
+          (entity) => entity.lineageKey === params.lineageKey,
+        );
+        if (existingByLineage) {
+          currentEntityId = existingByLineage._id;
+          return appliedLedgerResult();
+        }
 
-          const preflightConflict = params.validateBeforeCreate?.();
-          if (preflightConflict) {
-            return conflictLedgerResult(preflightConflict);
-          }
+        const preflightConflict = params.validateBeforeCreate?.();
+        if (preflightConflict) {
+          return conflictLedgerResult(preflightConflict);
+        }
 
-          const result = await params.runCreate();
+        const result = await params.runCreate();
+        const next = withMutationResult(currentEntityId, result);
+        currentEntityId = next.currentEntityId;
+        return next.historyResult;
+      },
+      undo: async () => {
+        try {
+          const result = await params.runDelete(currentEntityId);
           const next = withMutationResult(currentEntityId, result);
           currentEntityId = next.currentEntityId;
           return next.historyResult;
-        },
-        undo: async () => {
-          try {
-            const result = await params.runDelete(currentEntityId);
-            const next = withMutationResult(currentEntityId, result);
-            currentEntityId = next.currentEntityId;
-            return next.historyResult;
-          } catch (error: unknown) {
-            if (params.isMissingEntityError(error)) {
-              return appliedLedgerResult();
-            }
-            return conflictLedgerResult(
-              error instanceof Error
-                ? error.message
-                : "Die Aktion konnte nicht ausgeführt werden.",
-            );
+        } catch (error: unknown) {
+          if (params.isMissingEntityError(error)) {
+            return appliedLedgerResult();
           }
-        },
-      },
-      ...(params.scope && { scope: params.scope }),
-      ...(params.snapshots && { snapshots: params.snapshots }),
-      target: {
-        entityId: params.initialEntityId,
-        lineageKey: params.lineageKey,
+          return conflictLedgerResult(
+            error instanceof Error
+              ? error.message
+              : "Die Aktion konnte nicht ausgeführt werden.",
+          );
+        }
       },
     }),
   );
@@ -149,64 +151,65 @@ export function registerLineageUpdateHistoryAction<
   }
   let currentEntityId = params.initialEntityId;
 
+  const command = createRuleSetCommandDescription({
+    kind: params.kind,
+    label: params.label,
+    ...(params.payload && { payload: params.payload }),
+    ...(params.scope && { scope: params.scope }),
+    ...(params.snapshots && { snapshots: params.snapshots }),
+    target: {
+      entityId: params.initialEntityId,
+      lineageKey: params.lineageKey,
+    },
+  });
+
   params.onRecordCommand(
-    createRuleSetCommand({
-      kind: params.kind,
-      label: params.label,
-      ...(params.payload && { payload: params.payload }),
-      replay: {
-        redo: async () => {
-          const resolvedCurrent = resolveReplayEntity({
-            currentEntityId,
-            entities: params.entitiesRef.current,
-            lineageKey: params.lineageKey,
-            missingMessage: params.redoMissingMessage,
-          });
-          if (resolvedCurrent.status === "conflict") {
-            return conflictLedgerResult(resolvedCurrent.message);
-          }
+    attachRuleSetReplay(command, {
+      redo: async () => {
+        const resolvedCurrent = resolveReplayEntity({
+          currentEntityId,
+          entities: params.entitiesRef.current,
+          lineageKey: params.lineageKey,
+          missingMessage: params.redoMissingMessage,
+        });
+        if (resolvedCurrent.status === "conflict") {
+          return conflictLedgerResult(resolvedCurrent.message);
+        }
 
-          const current = resolvedCurrent.entity;
-          currentEntityId = resolvedCurrent.currentEntityId;
-          const validationMessage = params.validateRedo(current);
-          if (validationMessage) {
-            return conflictLedgerResult(validationMessage);
-          }
+        const current = resolvedCurrent.entity;
+        currentEntityId = resolvedCurrent.currentEntityId;
+        const validationMessage = params.validateRedo(current);
+        if (validationMessage) {
+          return conflictLedgerResult(validationMessage);
+        }
 
-          const result = await params.runRedo(currentEntityId);
-          const next = withMutationResult(currentEntityId, result);
-          currentEntityId = next.currentEntityId;
-          return next.historyResult;
-        },
-        undo: async () => {
-          const resolvedCurrent = resolveReplayEntity({
-            currentEntityId,
-            entities: params.entitiesRef.current,
-            lineageKey: params.lineageKey,
-            missingMessage: params.undoMissingMessage,
-          });
-          if (resolvedCurrent.status === "conflict") {
-            return conflictLedgerResult(resolvedCurrent.message);
-          }
-
-          const current = resolvedCurrent.entity;
-          currentEntityId = resolvedCurrent.currentEntityId;
-          const validationMessage = params.validateUndo(current);
-          if (validationMessage) {
-            return conflictLedgerResult(validationMessage);
-          }
-
-          const result = await params.runUndo(currentEntityId);
-          const next = withMutationResult(currentEntityId, result);
-          currentEntityId = next.currentEntityId;
-          return next.historyResult;
-        },
+        const result = await params.runRedo(currentEntityId);
+        const next = withMutationResult(currentEntityId, result);
+        currentEntityId = next.currentEntityId;
+        return next.historyResult;
       },
-      ...(params.scope && { scope: params.scope }),
-      ...(params.snapshots && { snapshots: params.snapshots }),
-      target: {
-        entityId: params.initialEntityId,
-        lineageKey: params.lineageKey,
+      undo: async () => {
+        const resolvedCurrent = resolveReplayEntity({
+          currentEntityId,
+          entities: params.entitiesRef.current,
+          lineageKey: params.lineageKey,
+          missingMessage: params.undoMissingMessage,
+        });
+        if (resolvedCurrent.status === "conflict") {
+          return conflictLedgerResult(resolvedCurrent.message);
+        }
+
+        const current = resolvedCurrent.entity;
+        currentEntityId = resolvedCurrent.currentEntityId;
+        const validationMessage = params.validateUndo(current);
+        if (validationMessage) {
+          return conflictLedgerResult(validationMessage);
+        }
+
+        const result = await params.runUndo(currentEntityId);
+        const next = withMutationResult(currentEntityId, result);
+        currentEntityId = next.currentEntityId;
+        return next.historyResult;
       },
     }),
   );
