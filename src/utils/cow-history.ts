@@ -1,6 +1,6 @@
-import type { Id } from "@/convex/_generated/dataModel";
-
 import { useCallback, useEffect, useRef } from "react";
+
+import type { Id } from "@/convex/_generated/dataModel";
 
 export interface CowMutationArgs {
   expectedDraftRevision: null | number;
@@ -143,12 +143,8 @@ export function useRuleSetReplayTargetController(params: {
   ruleSetId: Id<"ruleSets">;
   ruleSetReplayTarget: RuleSetReplayTarget;
 }) {
-  const {
-    onDraftMutation,
-    onRuleSetCreated,
-    ruleSetId,
-    ruleSetReplayTarget,
-  } = params;
+  const { onDraftMutation, onRuleSetCreated, ruleSetId, ruleSetReplayTarget } =
+    params;
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
 
   useEffect(() => {
