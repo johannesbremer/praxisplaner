@@ -65,6 +65,10 @@ export interface CalendarPlanningCommandExecutorContext {
   rememberCreatedBlockedSlotHistoryDoc: (
     args: CreatedBlockedSlotHistoryArgs,
   ) => void;
+  rememberRecreatedAppointmentId: (args: {
+    currentId: Id<"appointments">;
+    originalId: Id<"appointments">;
+  }) => void;
   resolveAppointmentReferenceDisplayIds: (refs: {
     appointmentTypeLineageKey: AppointmentTypeLineageKey;
     placement: CalendarAppointmentPlacement;
@@ -75,6 +79,7 @@ export interface CalendarPlanningCommandExecutorContext {
       | { calendarResourceColumn: "ekg" | "labor"; kind: "resource" }
       | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
   };
+  resolveCurrentAppointmentId: (id: Id<"appointments">) => Id<"appointments">;
   runCreateAppointmentInternal: (
     args: CreateAppointmentMutationArgs,
   ) => Promise<Id<"appointments"> | null>;
@@ -247,6 +252,7 @@ async function executeAppointmentCreateCommand(
       };
     }
 
+    const originalAppointmentId = payload.currentAppointmentId;
     const recreatedId = await context.runCreateAppointmentInternal(
       payload.createArgs,
     );
@@ -255,6 +261,10 @@ async function executeAppointmentCreateCommand(
     }
 
     payload.currentAppointmentId = recreatedId;
+    context.rememberRecreatedAppointmentId({
+      currentId: recreatedId,
+      originalId: originalAppointmentId,
+    });
     context.rememberCreatedAppointmentFromStrings({
       appointmentTypeLineageKey: payload.appointmentTypeLineageKey,
       appointmentTypeTitle: payload.appointmentTypeTitle,
@@ -348,6 +358,9 @@ async function executeAppointmentUpdateCommand(
   context: CalendarPlanningCommandExecutorContext,
 ): Promise<CalendarPlanningReplayResult> {
   const { payload } = command;
+  const currentAppointmentId = context.resolveCurrentAppointmentId(
+    payload.appointmentId,
+  );
   const candidatePayload = (state: AppointmentState): AppointmentCandidate => ({
     end: state.end,
     isSimulation: payload.before.isSimulation ?? false,
@@ -366,7 +379,7 @@ async function executeAppointmentUpdateCommand(
 
     await context.runUpdateAppointmentInternal({
       end: state.end,
-      id: payload.appointmentId,
+      id: currentAppointmentId,
       locationId: displayRefs.locationId,
       ...(displayRefs.occupancyScope.kind === "resource"
         ? {
@@ -383,7 +396,7 @@ async function executeAppointmentUpdateCommand(
 
   if (operation === "redo") {
     await context.ensureLatestConflictData();
-    const current = context.getCurrentAppointmentDoc(payload.appointmentId);
+    const current = context.getCurrentAppointmentDoc(currentAppointmentId);
     if (!current) {
       return {
         message:
@@ -406,7 +419,7 @@ async function executeAppointmentUpdateCommand(
     if (
       context.hasAppointmentConflict(
         candidatePayload(payload.afterState),
-        payload.appointmentId,
+        currentAppointmentId,
       )
     ) {
       return {
@@ -429,7 +442,7 @@ async function executeAppointmentUpdateCommand(
   }
 
   await context.ensureLatestConflictData();
-  const current = context.getCurrentAppointmentDoc(payload.appointmentId);
+  const current = context.getCurrentAppointmentDoc(currentAppointmentId);
   if (!current) {
     return {
       message:
@@ -452,7 +465,7 @@ async function executeAppointmentUpdateCommand(
   if (
     context.hasAppointmentConflict(
       candidatePayload(payload.beforeState),
-      payload.appointmentId,
+      currentAppointmentId,
     )
   ) {
     return {

@@ -244,6 +244,9 @@ export function useCalendarPlanningWorkbench(args: {
   const appointmentHistoryDocMapRef = useRef(
     new Map<Id<"appointments">, CalendarAppointmentRecord>(),
   );
+  const recreatedAppointmentIdByOriginalIdRef = useRef(
+    new Map<Id<"appointments">, Id<"appointments">>(),
+  );
   const deletedAppointmentIdsRef = useRef(new Set<Id<"appointments">>());
   const appointmentUpdateQueueRef = useRef(Promise.resolve());
   const blockedSlotHistoryDocMapRef = useRef(
@@ -293,19 +296,41 @@ export function useCalendarPlanningWorkbench(args: {
     }
   }, [args.allPracticeBlockedSlotMap, args.allPracticeBlockedSlotsLoaded]);
 
+  const resolveCurrentAppointmentId = useCallback((id: Id<"appointments">) => {
+    return recreatedAppointmentIdByOriginalIdRef.current.get(id) ?? id;
+  }, []);
+
   const getAppointmentHistoryDoc = useCallback(
     (id: Id<"appointments">) => {
-      if (deletedAppointmentIdsRef.current.has(id)) {
+      const currentId = resolveCurrentAppointmentId(id);
+      if (deletedAppointmentIdsRef.current.has(currentId)) {
         return;
       }
 
       return (
-        appointmentHistoryDocMapRef.current.get(id) ??
-        args.activeDayAppointmentMapRef.current.get(id) ??
-        args.allPracticeAppointmentMapRef.current.get(id)
+        appointmentHistoryDocMapRef.current.get(currentId) ??
+        args.activeDayAppointmentMapRef.current.get(currentId) ??
+        args.allPracticeAppointmentMapRef.current.get(currentId)
       );
     },
-    [args.activeDayAppointmentMapRef, args.allPracticeAppointmentMapRef],
+    [
+      args.activeDayAppointmentMapRef,
+      args.allPracticeAppointmentMapRef,
+      resolveCurrentAppointmentId,
+    ],
+  );
+
+  const rememberRecreatedAppointmentId = useCallback(
+    (args: {
+      currentId: Id<"appointments">;
+      originalId: Id<"appointments">;
+    }) => {
+      recreatedAppointmentIdByOriginalIdRef.current.set(
+        args.originalId,
+        args.currentId,
+      );
+    },
+    [],
   );
 
   const getCurrentAppointmentDoc = useCallback(
@@ -1825,7 +1850,9 @@ export function useCalendarPlanningWorkbench(args: {
       rememberBlockedSlotHistoryDoc,
       rememberCreatedAppointmentFromStrings,
       rememberCreatedBlockedSlotHistoryDoc,
+      rememberRecreatedAppointmentId,
       resolveAppointmentReferenceDisplayIds,
+      resolveCurrentAppointmentId,
       runCreateAppointmentInternal,
       runCreateBlockedSlotInternal,
       runDeleteAppointmentInternal,
@@ -1843,10 +1870,12 @@ export function useCalendarPlanningWorkbench(args: {
     hasBlockedSlotConflict,
     referenceMaps,
     rememberAppointmentHistoryDoc,
+    rememberRecreatedAppointmentId,
     rememberBlockedSlotHistoryDoc,
     rememberCreatedAppointmentFromStrings,
     rememberCreatedBlockedSlotHistoryDoc,
     resolveAppointmentReferenceDisplayIds,
+    resolveCurrentAppointmentId,
     runCreateAppointmentInternal,
     runCreateBlockedSlotInternal,
     runDeleteAppointmentInternal,
