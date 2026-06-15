@@ -269,6 +269,7 @@ describe("calendar planning replay", () => {
       ...before,
       _id: recreatedAppointmentId,
     };
+    let currentAppointmentDoc = recreatedBefore;
     const afterState = {
       end: "2026-04-25T10:00:00+02:00[Europe/Berlin]" as const,
       placement,
@@ -280,6 +281,10 @@ describe("calendar planning replay", () => {
     >(({ currentId, originalId }) => {
       idMap.set(originalId, currentId);
     });
+    const rememberAppointmentHistoryDoc =
+      vi.fn<
+        CalendarPlanningCommandExecutorContext["rememberAppointmentHistoryDoc"]
+      >();
     const runUpdateAppointmentInternal = vi.fn(() => Promise.resolve(null));
     const createCommand = {
       kind: "appointment.create" as const,
@@ -324,7 +329,7 @@ describe("calendar planning replay", () => {
       forgetAppointmentHistoryDoc: vi.fn(),
       forgetBlockedSlotHistoryDoc: vi.fn(),
       getCurrentAppointmentDoc: (id) =>
-        id === recreatedAppointmentId ? recreatedBefore : undefined,
+        id === recreatedAppointmentId ? currentAppointmentDoc : undefined,
       getCurrentBlockedSlotDoc: vi.fn(),
       hasAppointmentConflict: () => false,
       hasBlockedSlotConflict: () => false,
@@ -340,7 +345,7 @@ describe("calendar planning replay", () => {
         practitionerIdByLineageKey: new Map(),
         practitionerLineageKeyById: new Map(),
       },
-      rememberAppointmentHistoryDoc: vi.fn(),
+      rememberAppointmentHistoryDoc,
       rememberBlockedSlotHistoryDoc: vi.fn(),
       rememberCreatedAppointmentFromStrings: vi.fn(() => true),
       rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
@@ -372,6 +377,13 @@ describe("calendar planning replay", () => {
     await expect(
       executeCalendarPlanningCommand(updateCommand, "redo", context),
     ).resolves.toEqual({ status: "applied" });
+    currentAppointmentDoc = {
+      ...updateCommand.payload.afterSnapshot,
+      _id: recreatedAppointmentId,
+    };
+    await expect(
+      executeCalendarPlanningCommand(updateCommand, "undo", context),
+    ).resolves.toEqual({ status: "applied" });
 
     expect(rememberRecreatedAppointmentId).toHaveBeenCalledWith({
       currentId: recreatedAppointmentId,
@@ -379,6 +391,14 @@ describe("calendar planning replay", () => {
     });
     expect(runUpdateAppointmentInternal).toHaveBeenCalledWith(
       expect.objectContaining({ id: recreatedAppointmentId }),
+    );
+    expect(rememberAppointmentHistoryDoc).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ _id: recreatedAppointmentId }),
+    );
+    expect(rememberAppointmentHistoryDoc).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ _id: recreatedAppointmentId }),
     );
   });
 
@@ -408,6 +428,7 @@ describe("calendar planning replay", () => {
       ...before,
       _id: recreatedBlockedSlotId,
     };
+    let currentBlockedSlotDoc = recreatedBefore;
     const afterState = {
       end: "2026-04-25T10:00:00+02:00[Europe/Berlin]" as const,
       placement,
@@ -420,6 +441,10 @@ describe("calendar planning replay", () => {
     >(({ currentId, originalId }) => {
       idMap.set(originalId, currentId);
     });
+    const rememberBlockedSlotHistoryDoc =
+      vi.fn<
+        CalendarPlanningCommandExecutorContext["rememberBlockedSlotHistoryDoc"]
+      >();
     const runUpdateBlockedSlotInternal = vi.fn(() => Promise.resolve(null));
     const createCommand = {
       kind: "blockedSlot.create" as const,
@@ -465,7 +490,7 @@ describe("calendar planning replay", () => {
       forgetBlockedSlotHistoryDoc: vi.fn(),
       getCurrentAppointmentDoc: vi.fn(),
       getCurrentBlockedSlotDoc: (id) =>
-        id === recreatedBlockedSlotId ? recreatedBefore : undefined,
+        id === recreatedBlockedSlotId ? currentBlockedSlotDoc : undefined,
       hasAppointmentConflict: () => false,
       hasBlockedSlotConflict: () => false,
       referenceMaps: {
@@ -477,7 +502,7 @@ describe("calendar planning replay", () => {
         practitionerLineageKeyById: new Map(),
       },
       rememberAppointmentHistoryDoc: vi.fn(),
-      rememberBlockedSlotHistoryDoc: vi.fn(),
+      rememberBlockedSlotHistoryDoc,
       rememberCreatedAppointmentFromStrings: vi.fn(),
       rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
       rememberRecreatedAppointmentId: vi.fn(),
@@ -501,6 +526,13 @@ describe("calendar planning replay", () => {
     await expect(
       executeCalendarPlanningCommand(updateCommand, "redo", context),
     ).resolves.toEqual({ status: "applied" });
+    currentBlockedSlotDoc = {
+      ...updateCommand.payload.afterSnapshot,
+      _id: recreatedBlockedSlotId,
+    };
+    await expect(
+      executeCalendarPlanningCommand(updateCommand, "undo", context),
+    ).resolves.toEqual({ status: "applied" });
 
     expect(rememberRecreatedBlockedSlotId).toHaveBeenCalledWith({
       currentId: recreatedBlockedSlotId,
@@ -508,6 +540,14 @@ describe("calendar planning replay", () => {
     });
     expect(runUpdateBlockedSlotInternal).toHaveBeenCalledWith(
       expect.objectContaining({ id: recreatedBlockedSlotId }),
+    );
+    expect(rememberBlockedSlotHistoryDoc).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ _id: recreatedBlockedSlotId }),
+    );
+    expect(rememberBlockedSlotHistoryDoc).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ _id: recreatedBlockedSlotId }),
     );
   });
 

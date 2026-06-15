@@ -178,25 +178,42 @@ const blockedSlotMatchesState = (
   ) &&
   slot.title === expected.title;
 
-const withFreshLastModified = <TRecord extends { lastModified: bigint }>(
-  record: TRecord,
-): TRecord => ({
-  ...record,
+const withFreshAppointmentHistoryIdentity = (
+  appointment: CalendarAppointmentRecord,
+  id: Id<"appointments">,
+): CalendarAppointmentRecord => ({
+  ...appointment,
+  _id: id,
+  lastModified: BigInt(Date.now()),
+});
+
+const withFreshBlockedSlotHistoryIdentity = (
+  blockedSlot: CalendarBlockedSlotRecord,
+  id: Id<"blockedSlots">,
+): CalendarBlockedSlotRecord => ({
+  ...blockedSlot,
+  _id: id,
   lastModified: BigInt(Date.now()),
 });
 
 const rememberFreshAppointment = (
   context: CalendarPlanningCommandExecutorContext,
   appointment: CalendarAppointmentRecord,
+  id: Id<"appointments">,
 ) => {
-  context.rememberAppointmentHistoryDoc(withFreshLastModified(appointment));
+  context.rememberAppointmentHistoryDoc(
+    withFreshAppointmentHistoryIdentity(appointment, id),
+  );
 };
 
 const rememberFreshBlockedSlot = (
   context: CalendarPlanningCommandExecutorContext,
   blockedSlot: CalendarBlockedSlotRecord,
+  id: Id<"blockedSlots">,
 ) => {
-  context.rememberBlockedSlotHistoryDoc(withFreshLastModified(blockedSlot));
+  context.rememberBlockedSlotHistoryDoc(
+    withFreshBlockedSlotHistoryIdentity(blockedSlot, id),
+  );
 };
 
 export function executeCalendarPlanningCommand(
@@ -415,7 +432,11 @@ async function executeAppointmentUpdateCommand(
       };
     }
     if (appointmentMatchesState(current, payload.afterState)) {
-      rememberFreshAppointment(context, payload.afterSnapshot);
+      rememberFreshAppointment(
+        context,
+        payload.afterSnapshot,
+        currentAppointmentId,
+      );
       return { status: "applied" };
     }
     if (!appointmentMatchesState(current, payload.beforeState)) {
@@ -447,7 +468,11 @@ async function executeAppointmentUpdateCommand(
         status: "conflict",
       };
     }
-    rememberFreshAppointment(context, payload.afterSnapshot);
+    rememberFreshAppointment(
+      context,
+      payload.afterSnapshot,
+      currentAppointmentId,
+    );
     return { status: "applied" };
   }
 
@@ -461,7 +486,7 @@ async function executeAppointmentUpdateCommand(
     };
   }
   if (appointmentMatchesState(current, payload.beforeState)) {
-    rememberFreshAppointment(context, payload.before);
+    rememberFreshAppointment(context, payload.before, currentAppointmentId);
     return { status: "applied" };
   }
   if (!appointmentMatchesState(current, payload.afterState)) {
@@ -493,7 +518,7 @@ async function executeAppointmentUpdateCommand(
       status: "conflict",
     };
   }
-  rememberFreshAppointment(context, payload.before);
+  rememberFreshAppointment(context, payload.before, currentAppointmentId);
   return { status: "applied" };
 }
 
@@ -668,7 +693,11 @@ async function executeBlockedSlotUpdateCommand(
       };
     }
     if (blockedSlotMatchesState(current, payload.afterState)) {
-      rememberFreshBlockedSlot(context, payload.afterSnapshot);
+      rememberFreshBlockedSlot(
+        context,
+        payload.afterSnapshot,
+        currentBlockedSlotId,
+      );
       return { status: "applied" };
     }
     if (!blockedSlotMatchesState(current, payload.beforeState)) {
@@ -699,7 +728,11 @@ async function executeBlockedSlotUpdateCommand(
         status: "conflict",
       };
     }
-    rememberFreshBlockedSlot(context, payload.afterSnapshot);
+    rememberFreshBlockedSlot(
+      context,
+      payload.afterSnapshot,
+      currentBlockedSlotId,
+    );
     return { status: "applied" };
   }
 
@@ -713,7 +746,7 @@ async function executeBlockedSlotUpdateCommand(
     };
   }
   if (blockedSlotMatchesState(current, payload.beforeState)) {
-    rememberFreshBlockedSlot(context, payload.before);
+    rememberFreshBlockedSlot(context, payload.before, currentBlockedSlotId);
     return { status: "applied" };
   }
   if (!blockedSlotMatchesState(current, payload.afterState)) {
@@ -745,7 +778,7 @@ async function executeBlockedSlotUpdateCommand(
       status: "conflict",
     };
   }
-  rememberFreshBlockedSlot(context, payload.before);
+  rememberFreshBlockedSlot(context, payload.before, currentBlockedSlotId);
   return { status: "applied" };
 }
 
