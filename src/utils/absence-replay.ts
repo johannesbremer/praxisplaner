@@ -5,7 +5,6 @@ import type {
 } from "./rule-set-replay";
 
 import { recordRuleSetCommand } from "./rule-set-command-executor";
-import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 
 export function createAbsenceDayReplayAdapter<
   TStaff,
@@ -75,6 +74,5 @@ export function recordAbsenceReplayCommand(
   command: RuleSetAbsenceCommand,
   replay: RuleSetReplayAdapter,
 ): void {
-  registerRuleSetReplayAdapter(command, replay);
-  recordRuleSetCommand(record, command);
+  recordRuleSetCommand(record, { ...command, replay });
 }

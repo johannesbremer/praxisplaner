@@ -4,18 +4,24 @@ import {
   executeRuleSetCommand,
   recordRuleSetCommand,
 } from "../utils/rule-set-command-executor";
-import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor-internal";
 import {
   createRuleSetAbsenceCommand,
   createRuleSetNamedLineageCommand,
   createRuleSetSchedulingRuleCommand,
   createRuleSetSnapshotCommand,
   type RuleSetCommand,
+  type RuleSetCommandDescription,
+  type RuleSetReplayAdapter,
   withSerializableRuleSetPayload,
 } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 
 describe("rule set replay commands", () => {
+  const executableCommand = (
+    command: RuleSetCommandDescription,
+    replay: RuleSetReplayAdapter,
+  ): RuleSetCommand => ({ ...command, replay });
+
   it("preserves command kind, target, snapshots, and executes through the rule set adapter", async () => {
     const redo = vi.fn(() => ({ status: "applied" as const }));
     const undo = vi.fn(() => ({ status: "applied" as const }));
@@ -24,20 +30,23 @@ describe("rule set replay commands", () => {
       name: "Dr. Test",
     });
 
-    let recordedCommand: RuleSetCommand = createRuleSetNamedLineageCommand({
-      kind: "practitioner.update",
-      label: "unrecorded",
-      payload: {
-        after: { name: "Dr. Test" },
-        before: { name: "Dr. Old" },
+    let recordedCommand: RuleSetCommand = executableCommand(
+      createRuleSetNamedLineageCommand({
         kind: "practitioner.update",
-        lineageKey: "practitioner-lineage",
-      },
-      target: {
-        entityId: "practitioner-entity",
-        lineageKey: "practitioner-lineage",
-      },
-    });
+        label: "unrecorded",
+        payload: {
+          after: { name: "Dr. Test" },
+          before: { name: "Dr. Old" },
+          kind: "practitioner.update",
+          lineageKey: "practitioner-lineage",
+        },
+        target: {
+          entityId: "practitioner-entity",
+          lineageKey: "practitioner-lineage",
+        },
+      }),
+      { redo, undo },
+    );
 
     const command = createRuleSetNamedLineageCommand({
       kind: "practitioner.update",
@@ -56,10 +65,12 @@ describe("rule set replay commands", () => {
         lineageKey: "practitioner-lineage",
       },
     });
-    registerRuleSetReplayAdapter(command, { redo, undo });
-    recordRuleSetCommand((recorded) => {
-      recordedCommand = recorded;
-    }, command);
+    recordRuleSetCommand(
+      (recorded) => {
+        recordedCommand = recorded;
+      },
+      executableCommand(command, { redo, undo }),
+    );
 
     expect(recordedCommand.kind).toBe("practitioner.update");
     if (recordedCommand.kind !== "practitioner.update") {
@@ -142,10 +153,10 @@ describe("rule set replay commands", () => {
       snapshots: { after, before },
       target: { lineageKey: "staff-lineage" },
     });
-    registerRuleSetReplayAdapter(command, { redo, undo });
+    const executable = executableCommand(command, { redo, undo });
 
     await expect(
-      Promise.resolve(executeRuleSetCommand(command, "redo")),
+      Promise.resolve(executeRuleSetCommand(executable, "redo")),
     ).resolves.toEqual({
       status: "applied",
     });
@@ -175,10 +186,10 @@ describe("rule set replay commands", () => {
       snapshots: { after },
       target: { entityId: "rule-1" },
     });
-    registerRuleSetReplayAdapter(command, { redo, undo });
+    const executable = executableCommand(command, { redo, undo });
 
     await expect(
-      Promise.resolve(executeRuleSetCommand(command, "redo")),
+      Promise.resolve(executeRuleSetCommand(executable, "redo")),
     ).resolves.toEqual({
       status: "applied",
     });

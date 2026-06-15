@@ -5,7 +5,6 @@ import type {
 } from "./rule-set-replay";
 
 import { recordRuleSetCommand } from "./rule-set-command-executor";
-import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 
 export function createAppointmentTypeFolderSubtreeDeleteReplayAdapter<
   TFolderId extends string,
@@ -76,6 +75,5 @@ export function recordAppointmentTypeFolderSubtreeReplayCommand(
   command: RuleSetCommandDescription,
   replay: RuleSetReplayAdapter,
 ): void {
-  registerRuleSetReplayAdapter(command, replay);
-  recordRuleSetCommand(record, command);
+  recordRuleSetCommand(record, { ...command, replay });
 }

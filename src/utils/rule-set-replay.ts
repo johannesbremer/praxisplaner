@@ -31,13 +31,15 @@ export interface RuleSetAbsencePayload {
   staffLineageKey: string;
 }
 
-export type RuleSetCommand =
+export type RuleSetCommand = RuleSetCommandDescription & {
+  replay: RuleSetReplayAdapter;
+};
+
+export type RuleSetCommandDescription =
   | RuleSetAbsenceCommand
   | RuleSetNamedLineageCommand
   | RuleSetSchedulingRuleCommand
   | RuleSetSnapshotCommand;
-
-export type RuleSetCommandDescription = RuleSetCommand;
 
 export type RuleSetCommandKind =
   | "absence.create"
@@ -287,9 +289,9 @@ export function createRuleSetSnapshotCommand(params: {
   };
 }
 
-export function withSerializableRuleSetPayload<TCommand extends RuleSetCommand>(
-  command: TCommand,
-): TCommand {
+export function withSerializableRuleSetPayload<
+  TCommand extends RuleSetCommandDescription,
+>(command: TCommand): TCommand {
   if (command.payload || !command.snapshots) {
     return command;
   }

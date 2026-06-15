@@ -5,7 +5,6 @@ import type {
 } from "./rule-set-replay";
 
 import { recordRuleSetCommand } from "./rule-set-command-executor";
-import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 
 export interface LocationDependencyDeleteSnapshot<
   TLocationId extends string,
@@ -157,6 +156,5 @@ export function recordLocationDependencyDeleteReplayCommand(
   command: RuleSetCommandDescription,
   replay: RuleSetReplayAdapter,
 ): void {
-  registerRuleSetReplayAdapter(command, replay);
-  recordRuleSetCommand(record, command);
+  recordRuleSetCommand(record, { ...command, replay });
 }

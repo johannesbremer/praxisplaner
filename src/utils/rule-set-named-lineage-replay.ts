@@ -13,7 +13,6 @@ import type {
 
 import { resolveReplayEntity } from "./cow-history";
 import { recordRuleSetCommand } from "./rule-set-command-executor";
-import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 import { appliedLedgerResult, conflictLedgerResult } from "./rule-set-replay";
 import {
   encodeRuleSetSnapshot,
@@ -283,8 +282,7 @@ export function recordNamedLineageReplayCommand(
   command: RuleSetNamedLineageCommand,
   replay: RuleSetReplayAdapter,
 ): void {
-  registerRuleSetReplayAdapter(command, replay);
-  recordRuleSetCommand(record, command);
+  recordRuleSetCommand(record, { ...command, replay });
 }
 
 function isLedgerResult<TId extends string>(

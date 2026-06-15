@@ -11,7 +11,6 @@ import type {
 
 import { resolveReplayEntity } from "./cow-history";
 import { recordRuleSetCommand } from "./rule-set-command-executor";
-import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 import {
   appliedLedgerResult,
   conflictLedgerResult,
@@ -152,8 +151,7 @@ export function recordLineageCreateRuleSetCommand<
       }
     },
   };
-  registerRuleSetReplayAdapter(command, replay);
-  recordRuleSetCommand(params.onRecordCommand, command);
+  recordRuleSetCommand(params.onRecordCommand, { ...command, replay });
 }
 
 export function recordLineageUpdateRuleSetCommand<
@@ -228,8 +226,7 @@ export function recordLineageUpdateRuleSetCommand<
       return next.historyResult;
     },
   };
-  registerRuleSetReplayAdapter(command, replay);
-  recordRuleSetCommand(params.onRecordCommand, command);
+  recordRuleSetCommand(params.onRecordCommand, { ...command, replay });
 }
 
 function isLedgerResult<TId extends string>(

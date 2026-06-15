@@ -25,7 +25,6 @@ import {
 } from "../components/base-schedule-management-shared";
 import { captureFrontendError } from "./frontend-errors";
 import { recordRuleSetCommand } from "./rule-set-command-executor";
-import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 
 interface CreateScheduleBatchResult {
   createdScheduleIds: Id<"baseSchedules">[];
@@ -198,6 +197,5 @@ export function recordBaseScheduleReplayCommand(
   command: RuleSetCommandDescription,
   replay: RuleSetReplayAdapter,
 ): void {
-  registerRuleSetReplayAdapter(command, replay);
-  recordRuleSetCommand(record, command);
+  recordRuleSetCommand(record, { ...command, replay });
 }

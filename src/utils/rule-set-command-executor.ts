@@ -1,12 +1,5 @@
 import type { LedgerExecutionResult, LedgerOperation } from "./command-ledger";
-import type {
-  RecordRuleSetCommand,
-  RuleSetCommand,
-  RuleSetCommandDescription,
-} from "./rule-set-replay";
-
-import { getRegisteredRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
-import { conflictLedgerResult } from "./rule-set-replay";
+import type { RecordRuleSetCommand, RuleSetCommand } from "./rule-set-replay";
 
 export function executeRuleSetCommand(
   command: RuleSetCommand,
@@ -33,27 +26,14 @@ export function executeRuleSetCommand(
     case "schedulingRule.create":
     case "schedulingRule.delete":
     case "schedulingRule.update": {
-      return executeRegisteredRuleSetReplay(command, operation);
+      return command.replay[operation]();
     }
   }
 }
 
 export function recordRuleSetCommand(
   record: RecordRuleSetCommand | undefined,
-  command: RuleSetCommandDescription,
+  command: RuleSetCommand,
 ): void {
   record?.(command);
-}
-
-function executeRegisteredRuleSetReplay(
-  command: RuleSetCommand,
-  operation: LedgerOperation,
-): LedgerExecutionResult | Promise<LedgerExecutionResult> {
-  const replay = getRegisteredRuleSetReplayAdapter(command);
-  if (!replay) {
-    return conflictLedgerResult(
-      "Für diese Regelwerk-Aktion ist kein Wiedergabe-Adapter registriert.",
-    );
-  }
-  return replay[operation]();
 }
