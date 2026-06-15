@@ -157,6 +157,8 @@ const blockedSlotHistoryMatchesQuery = (
     queryDoc.placement.occupancyScope,
   );
 
+const clearQueuedAppointmentUpdate = () => void 0;
+
 interface CalendarRecordRef<T> {
   current: T;
 }
@@ -243,6 +245,7 @@ export function useCalendarPlanningWorkbench(args: {
     new Map<Id<"appointments">, CalendarAppointmentRecord>(),
   );
   const deletedAppointmentIdsRef = useRef(new Set<Id<"appointments">>());
+  const appointmentUpdateQueueRef = useRef(Promise.resolve());
   const blockedSlotHistoryDocMapRef = useRef(
     new Map<Id<"blockedSlots">, CalendarBlockedSlotRecord>(),
   );
@@ -495,6 +498,21 @@ export function useCalendarPlanningWorkbench(args: {
       return Temporal.ZonedDateTime.from(args.start)
         .add({ minutes: args.durationMinutes })
         .toString();
+    },
+    [],
+  );
+
+  const enqueueAppointmentUpdate = useCallback(
+    <TResult>(operation: () => Promise<TResult>) => {
+      const queued = appointmentUpdateQueueRef.current.then(
+        operation,
+        operation,
+      );
+      appointmentUpdateQueueRef.current = queued.then(
+        clearQueuedAppointmentUpdate,
+        clearQueuedAppointmentUpdate,
+      );
+      return queued;
     },
     [],
   );
@@ -1419,75 +1437,78 @@ export function useCalendarPlanningWorkbench(args: {
 
   const runUpdateAppointment = useCallback(
     async (args: CalendarAppointmentUpdateCommandArgs) => {
-      const mutationArgs = updateAppointmentMutationArgsFromCommand(args);
-      if (mutationArgs === null) {
-        toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
-        return;
-      }
-      const before = getAppointmentHistoryDoc(args.id);
-      if (before?.seriesId) {
-        await getAppointmentUpdateMutation(before)(mutationArgs);
-        return;
-      }
+      await enqueueAppointmentUpdate(async () => {
+        const mutationArgs = updateAppointmentMutationArgsFromCommand(args);
+        if (mutationArgs === null) {
+          toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
+          return;
+        }
+        const before = getAppointmentHistoryDoc(args.id);
+        if (before?.seriesId) {
+          await getAppointmentUpdateMutation(before)(mutationArgs);
+          return;
+        }
 
-      await runUpdateAppointmentInternal(mutationArgs);
+        await runUpdateAppointmentInternal(mutationArgs);
 
-      if (!before) {
-        return;
-      }
+        if (!before) {
+          return;
+        }
 
-      const beforeState = {
-        end: before.end,
-        placement: before.placement,
-        start: before.start,
-      };
-      const typedEnd =
-        args.end === undefined
-          ? undefined
-          : parseZonedDateTime(
-              args.end,
-              "useCalendarPlanningWorkbench.afterState.end",
-            );
-      const typedStart =
-        args.start === undefined
-          ? undefined
-          : parseZonedDateTime(
-              args.start,
-              "useCalendarPlanningWorkbench.afterState.start",
-            );
-      if (
-        (args.end !== undefined && typedEnd === null) ||
-        (args.start !== undefined && typedStart === null)
-      ) {
-        return;
-      }
-      const afterState = {
-        end: typedEnd ?? before.end,
-        placement: args.placement ?? before.placement,
-        start: typedStart ?? before.start,
-      };
-      const afterSnapshot: CalendarAppointmentRecord = {
-        ...before,
-        end: afterState.end,
-        lastModified: BigInt(Date.now()),
-        placement: afterState.placement,
-        start: afterState.start,
-      };
-      rememberAppointmentHistoryDoc(afterSnapshot);
+        const beforeState = {
+          end: before.end,
+          placement: before.placement,
+          start: before.start,
+        };
+        const typedEnd =
+          args.end === undefined
+            ? undefined
+            : parseZonedDateTime(
+                args.end,
+                "useCalendarPlanningWorkbench.afterState.end",
+              );
+        const typedStart =
+          args.start === undefined
+            ? undefined
+            : parseZonedDateTime(
+                args.start,
+                "useCalendarPlanningWorkbench.afterState.start",
+              );
+        if (
+          (args.end !== undefined && typedEnd === null) ||
+          (args.start !== undefined && typedStart === null)
+        ) {
+          return;
+        }
+        const afterState = {
+          end: typedEnd ?? before.end,
+          placement: args.placement ?? before.placement,
+          start: typedStart ?? before.start,
+        };
+        const afterSnapshot: CalendarAppointmentRecord = {
+          ...before,
+          end: afterState.end,
+          lastModified: BigInt(Date.now()),
+          placement: afterState.placement,
+          start: afterState.start,
+        };
+        rememberAppointmentHistoryDoc(afterSnapshot);
 
-      recordCalendarCommand({
-        kind: "appointment.update",
-        label: "Termin aktualisiert",
-        payload: {
-          afterSnapshot,
-          afterState,
-          appointmentId: args.id,
-          before,
-          beforeState,
-        },
+        recordCalendarCommand({
+          kind: "appointment.update",
+          label: "Termin aktualisiert",
+          payload: {
+            afterSnapshot,
+            afterState,
+            appointmentId: args.id,
+            before,
+            beforeState,
+          },
+        });
       });
     },
     [
+      enqueueAppointmentUpdate,
       getAppointmentHistoryDoc,
       getAppointmentUpdateMutation,
       parseZonedDateTime,
