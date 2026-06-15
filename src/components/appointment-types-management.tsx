@@ -20,6 +20,7 @@ import * as z from "zod";
 
 import type { Id } from "@/convex/_generated/dataModel";
 import type {
+  AppointmentTypeId,
   AppointmentTypeLineageKey,
   PractitionerLineageKey,
 } from "@/convex/identity";
@@ -889,6 +890,32 @@ export function AppointmentTypesManagement({
     }),
     [practiceId],
   );
+  const createAppointmentTypeRefSnapshot = useCallback(
+    (params: {
+      allowedPractitionerLineageKeys: AppointmentType["allowedPractitionerLineageKeys"];
+      duration: number;
+      followUpPlan: NonNullable<AppointmentType["followUpPlan"]>;
+      id: AppointmentTypeId;
+      lineageKey: AppointmentTypeLineageKey;
+      name: string;
+      ruleSetId: Id<"ruleSets">;
+      treeFolderId?: Id<"appointmentTypeFolders"> | undefined;
+    }): AppointmentType => ({
+      _creationTime: 0,
+      _id: params.id,
+      allowedPractitionerLineageKeys: params.allowedPractitionerLineageKeys,
+      createdAt: 0n,
+      duration: params.duration,
+      followUpPlan: params.followUpPlan,
+      lastModified: 0n,
+      lineageKey: params.lineageKey,
+      name: params.name,
+      practiceId,
+      ruleSetId: params.ruleSetId,
+      ...(params.treeFolderId && { treeFolderId: params.treeFolderId }),
+    }),
+    [practiceId],
+  );
   const hideAppointmentTypeTreeSubtreeOptimistically = useCallback(
     (params: {
       appointmentTypeLineageKeys: AppointmentTypeLineageKey[];
@@ -1308,22 +1335,19 @@ export function AppointmentTypesManagement({
           const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
             createResult.entityId,
           );
-          upsertAppointmentTypeRef({
-            _creationTime: 0,
-            _id: asAppointmentTypeId(createResult.entityId),
+          const createdAppointmentType = createAppointmentTypeRefSnapshot({
             allowedPractitionerLineageKeys: toSnapshotLineageIds(
               formPractitionerSnapshots,
             ),
-            createdAt: 0n,
             duration: parsedValue.duration,
             followUpPlan: normalizedFollowUpPlan ?? [],
-            lastModified: 0n,
+            id: asAppointmentTypeId(createResult.entityId),
             lineageKey: appointmentTypeLineageKey,
             name: normalizedName,
-            practiceId,
             ruleSetId: createResult.ruleSetId,
-            ...createTreeFolderArg(newAppointmentTypeFolderId),
+            treeFolderId: newAppointmentTypeFolderId,
           });
+          upsertAppointmentTypeRef(createdAppointmentType);
           const { entityId } = createResult;
           const createdSnapshot = encodeRuleSetSnapshot({
             duration: parsedValue.duration,
@@ -1355,6 +1379,25 @@ export function AppointmentTypesManagement({
                 ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
               });
               handleDraftMutationResult(recreateResult);
+              const restoredAppointmentType = createAppointmentTypeRefSnapshot({
+                allowedPractitionerLineageKeys: toSnapshotLineageIds(
+                  formPractitionerSnapshots,
+                ),
+                duration: parsedValue.duration,
+                followUpPlan: normalizedFollowUpPlan ?? [],
+                id: asAppointmentTypeId(recreateResult.entityId),
+                lineageKey: appointmentTypeLineageKey,
+                name: normalizedName,
+                ruleSetId: recreateResult.ruleSetId,
+                treeFolderId: newAppointmentTypeFolderId,
+              });
+              upsertAppointmentTypeRef(restoredAppointmentType, {
+                previousLineageKey: appointmentTypeLineageKey,
+              });
+              restoreAppointmentTypeTreeSubtreeOptimistically({
+                appointmentTypes: [restoredAppointmentType],
+                folders: [],
+              });
               return { entityId: recreateResult.entityId };
             },
             runDelete: async (currentAppointmentTypeId) => {
@@ -1368,6 +1411,10 @@ export function AppointmentTypesManagement({
               hideAppointmentTypeTreeSubtreeOptimistically({
                 appointmentTypeLineageKeys: [appointmentTypeLineageKey],
                 folderLineageKeys: [],
+              });
+              removeAppointmentTypeFromRef({
+                id: currentAppointmentTypeId,
+                lineageKey: appointmentTypeLineageKey,
               });
               return { entityId: undoResult.entityId };
             },
