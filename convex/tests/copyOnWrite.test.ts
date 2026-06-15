@@ -1211,6 +1211,82 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     ]);
   });
 
+  test("should replace a schedule set with overlapping replacement lineage keys", async () => {
+    const t = createAuthedTestContext();
+    const { initialRuleSetId, locationId, practiceId, practitionerId } =
+      await setupBaseScheduleEntities(t);
+
+    const created = await t.mutation(api.entities.createBaseScheduleBatch, {
+      expectedDraftRevision: null,
+      practiceId,
+      schedules: [
+        {
+          dayOfWeek: 1,
+          endTime: "12:00",
+          locationLineageId: locationId,
+          practitionerLineageId: practitionerId,
+          startTime: "08:00",
+        },
+      ],
+      selectedRuleSetId: initialRuleSetId,
+    });
+    const mondayLineageKey = created.createdScheduleIds[0];
+    assertDefined(mondayLineageKey, "Expected created Monday schedule id");
+
+    const updated = await t.mutation(api.entities.updateBaseScheduleSet, {
+      expectedDraftRevision: created.draftRevision,
+      expectedPresentLineageKeys: [mondayLineageKey],
+      practiceId,
+      schedules: [
+        {
+          dayOfWeek: 1,
+          endTime: "12:00",
+          lineageKey: mondayLineageKey,
+          locationLineageId: locationId,
+          practitionerLineageId: practitionerId,
+          startTime: "08:00",
+        },
+        {
+          dayOfWeek: 2,
+          endTime: "12:00",
+          locationLineageId: locationId,
+          practitionerLineageId: practitionerId,
+          startTime: "08:00",
+        },
+      ],
+      selectedRuleSetId: initialRuleSetId,
+    });
+
+    const tuesdayLineageKey = updated.createdScheduleIds[0];
+    assertDefined(tuesdayLineageKey, "Expected created Tuesday schedule id");
+
+    const replaced = await t.mutation(api.entities.replaceBaseScheduleSet, {
+      expectedDraftRevision: updated.draftRevision,
+      expectedPresentLineageKeys: [mondayLineageKey, tuesdayLineageKey],
+      practiceId,
+      replacementSchedules: [
+        {
+          dayOfWeek: 1,
+          endTime: "12:00",
+          lineageKey: mondayLineageKey,
+          locationLineageId: locationId,
+          practitionerLineageId: practitionerId,
+          startTime: "08:00",
+        },
+      ],
+      selectedRuleSetId: initialRuleSetId,
+    });
+
+    expect(replaced.createdScheduleIds).toHaveLength(1);
+    expect(replaced.deletedScheduleIds).toHaveLength(2);
+    expect(replaced.appliedSchedules).toMatchObject([
+      {
+        dayOfWeek: 1,
+        lineageKey: mondayLineageKey,
+      },
+    ]);
+  });
+
   test("should reject duplicate lineage keys within a base schedule batch", async () => {
     const t = createAuthedTestContext();
     const { initialRuleSetId, locationId, practiceId, practitionerId } =

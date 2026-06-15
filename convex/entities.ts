@@ -3309,8 +3309,12 @@ export const replaceBaseScheduleSet = mutation({
     }
 
     await verifyEntityInUnsavedRuleSet(ctx.db, ruleSetId, "base schedule");
-    for (const scheduleId of expectedPresentIds) {
+    for (const [index, scheduleId] of expectedPresentIds.entries()) {
       await ctx.db.delete("baseSchedules", scheduleId);
+      const lineageKey = args.expectedPresentLineageKeys[index];
+      if (lineageKey) {
+        existingSchedulesByLineage.delete(lineageKey);
+      }
     }
 
     const appliedSchedules: {
