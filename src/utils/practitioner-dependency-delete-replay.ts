@@ -1,4 +1,11 @@
-import type { RuleSetReplayAdapter } from "./rule-set-replay";
+import type {
+  RecordRuleSetCommand,
+  RuleSetCommandDescription,
+  RuleSetReplayAdapter,
+} from "./rule-set-replay";
+
+import { recordRuleSetCommand } from "./rule-set-command-executor";
+import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 
 export function createPractitionerDependencyDeleteReplayAdapter<
   TPractitionerId extends string,
@@ -99,4 +106,13 @@ export function createPractitionerDependencyDeleteReplayAdapter<
       }
     },
   };
+}
+
+export function recordPractitionerDependencyDeleteReplayCommand(
+  record: RecordRuleSetCommand | undefined,
+  command: RuleSetCommandDescription,
+  replay: RuleSetReplayAdapter,
+): void {
+  registerRuleSetReplayAdapter(command, replay);
+  recordRuleSetCommand(record, command);
 }

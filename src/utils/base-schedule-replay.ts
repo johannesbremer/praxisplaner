@@ -8,7 +8,11 @@ import type {
   SchedulePayload,
   SchedulesRef,
 } from "../components/base-schedule-management-shared";
-import type { RuleSetReplayAdapter } from "./rule-set-replay";
+import type {
+  RecordRuleSetCommand,
+  RuleSetCommandDescription,
+  RuleSetReplayAdapter,
+} from "./rule-set-replay";
 
 import {
   applyBatchCreateResultToRef,
@@ -20,6 +24,8 @@ import {
   toMutationSchedulePayload,
 } from "../components/base-schedule-management-shared";
 import { captureFrontendError } from "./frontend-errors";
+import { recordRuleSetCommand } from "./rule-set-command-executor";
+import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 
 interface CreateScheduleBatchResult {
   createdScheduleIds: Id<"baseSchedules">[];
@@ -185,4 +191,13 @@ export function createBaseScheduleReplaceSetReplay(params: {
         `${params.label} konnten nicht wiederhergestellt werden.`,
       ),
   };
+}
+
+export function recordBaseScheduleReplayCommand(
+  record: RecordRuleSetCommand | undefined,
+  command: RuleSetCommandDescription,
+  replay: RuleSetReplayAdapter,
+): void {
+  registerRuleSetReplayAdapter(command, replay);
+  recordRuleSetCommand(record, command);
 }

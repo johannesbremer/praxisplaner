@@ -1,4 +1,11 @@
-import type { RuleSetReplayAdapter } from "./rule-set-replay";
+import type {
+  RecordRuleSetCommand,
+  RuleSetCommandDescription,
+  RuleSetReplayAdapter,
+} from "./rule-set-replay";
+
+import { recordRuleSetCommand } from "./rule-set-command-executor";
+import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-internal";
 
 export interface LocationDependencyDeleteSnapshot<
   TLocationId extends string,
@@ -143,4 +150,13 @@ export function createLocationDependencyDeleteReplayAdapter<
       return { status: "applied" };
     },
   };
+}
+
+export function recordLocationDependencyDeleteReplayCommand(
+  record: RecordRuleSetCommand | undefined,
+  command: RuleSetCommandDescription,
+  replay: RuleSetReplayAdapter,
+): void {
+  registerRuleSetReplayAdapter(command, replay);
+  recordRuleSetCommand(record, command);
 }

@@ -50,9 +50,10 @@ import {
   findFrontendEntityByLineageKey,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
-import { createLocationDependencyDeleteReplayAdapter } from "../utils/location-dependency-delete-replay";
-import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
-import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor-internal";
+import {
+  createLocationDependencyDeleteReplayAdapter,
+  recordLocationDependencyDeleteReplayCommand,
+} from "../utils/location-dependency-delete-replay";
 import {
   createNamedLineageCreateReplayAdapter,
   createNamedLineageUpdateReplayAdapter,
@@ -522,8 +523,11 @@ export function LocationsManagement({
             startTime: schedule.startTime,
           }),
         });
-        registerRuleSetReplayAdapter(command, replay);
-        recordRuleSetCommand(onRecordCommand, command);
+        recordLocationDependencyDeleteReplayCommand(
+          onRecordCommand,
+          command,
+          replay,
+        );
       }
 
       toast.success("Standort gelöscht", {

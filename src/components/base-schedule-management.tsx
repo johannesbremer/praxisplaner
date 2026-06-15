@@ -40,7 +40,10 @@ import {
 import { api } from "@/convex/_generated/api";
 import { asBaseScheduleId, asBaseScheduleLineageKey } from "@/convex/identity";
 
-import { createBaseScheduleReplaceSetReplay } from "../utils/base-schedule-replay";
+import {
+  createBaseScheduleReplaceSetReplay,
+  recordBaseScheduleReplayCommand,
+} from "../utils/base-schedule-replay";
 import {
   ruleSetIdFromReplayTarget,
   useRuleSetReplayTargetController,
@@ -48,8 +51,6 @@ import {
 import { useErrorTracking } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
 import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
-import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
-import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor-internal";
 import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
@@ -309,8 +310,7 @@ export default function BaseScheduleManagement({
             }),
           schedulesRef,
         });
-        registerRuleSetReplayAdapter(command, replay);
-        recordRuleSetCommand(onRecordCommand, command);
+        recordBaseScheduleReplayCommand(onRecordCommand, command, replay);
       }
     } catch (error: unknown) {
       captureError(error, {
@@ -1018,8 +1018,7 @@ function BaseScheduleDialog({
             runCreateScheduleBatch,
             schedulesRef,
           });
-          registerRuleSetReplayAdapter(command, replay);
-          recordRuleSetCommand(onRecordCommand, command);
+          recordBaseScheduleReplayCommand(onRecordCommand, command, replay);
         }
 
         if (schedule && createdSchedulePayloads.length > 0) {
@@ -1052,8 +1051,7 @@ function BaseScheduleDialog({
             runCreateScheduleBatch,
             schedulesRef,
           });
-          registerRuleSetReplayAdapter(command, replay);
-          recordRuleSetCommand(onRecordCommand, command);
+          recordBaseScheduleReplayCommand(onRecordCommand, command, replay);
         }
         onClose();
       } catch (error: unknown) {

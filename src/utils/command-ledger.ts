@@ -78,11 +78,6 @@ export type LedgerResult =
 
 export type LedgerStatus = "applied" | "conflict" | "noop";
 
-export interface ReplayableLedgerCommand extends LedgerCommand {
-  redo: () => LedgerExecutionResult | Promise<LedgerExecutionResult>;
-  undo: () => LedgerExecutionResult | Promise<LedgerExecutionResult>;
-}
-
 interface CommandLedgerState {
   canRedo: boolean;
   canUndo: boolean;
@@ -92,7 +87,7 @@ interface CommandLedgerState {
 }
 
 interface UseCommandLedgerOptions<TCommand extends LedgerCommand> {
-  executeCommand?: LedgerCommandExecutor<TCommand>;
+  executeCommand: LedgerCommandExecutor<TCommand>;
   maxDepth?: number;
   onConflict?: (command: TCommand, result: LedgerResult) => void;
   onError?: (
@@ -115,7 +110,6 @@ const DEFAULT_STATE: CommandLedgerState = {
   undoDepth: 0,
 };
 
-const EMPTY_OPTIONS: UseCommandLedgerOptions<LedgerCommand> = {};
 const DEFAULT_ERROR_MESSAGE = "Aktion konnte nicht ausgeführt werden.";
 const DEFAULT_MAX_DEPTH = 100;
 const clearQueueResult = () => null;
@@ -172,10 +166,9 @@ export function toLedgerConflict(params: {
 }
 
 export function useCommandLedger<TCommand extends LedgerCommand>(
-  options?: UseCommandLedgerOptions<TCommand>,
+  options: UseCommandLedgerOptions<TCommand>,
 ) {
-  const resolvedOptions = options ?? EMPTY_OPTIONS;
-  const optionsRef = useRef(resolvedOptions);
+  const optionsRef = useRef(options);
   const undoRef = useRef<TCommand[]>([]);
   const redoRef = useRef<TCommand[]>([]);
   const queuedOperationCountRef = useRef(0);
@@ -183,8 +176,8 @@ export function useCommandLedger<TCommand extends LedgerCommand>(
   const [state, setState] = useState(DEFAULT_STATE);
 
   useEffect(() => {
-    optionsRef.current = resolvedOptions;
-  }, [resolvedOptions]);
+    optionsRef.current = options;
+  }, [options]);
 
   const syncState = useCallback(() => {
     setState({
@@ -333,15 +326,9 @@ export function useCommandLedger<TCommand extends LedgerCommand>(
 function executeLedgerCommand<TCommand extends LedgerCommand>(
   command: TCommand,
   operation: LedgerOperation,
-  executeCommand: LedgerCommandExecutor<TCommand> | undefined,
+  executeCommand: LedgerCommandExecutor<TCommand>,
 ): Promise<LedgerExecutionResult> {
-  if (executeCommand) {
-    return Promise.resolve(executeCommand(command, operation));
-  }
-  return Promise.resolve({
-    message: "Für diese Aktion ist kein Wiedergabe-Adapter registriert.",
-    status: "conflict",
-  });
+  return Promise.resolve(executeCommand(command, operation));
 }
 
 function extractConflictCode(message: string): LedgerConflictCode | undefined {

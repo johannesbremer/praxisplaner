@@ -40,9 +40,10 @@ import {
   findFrontendEntityByLineageKey,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
-import { createPractitionerDependencyDeleteReplayAdapter } from "../utils/practitioner-dependency-delete-replay";
-import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
-import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor-internal";
+import {
+  createPractitionerDependencyDeleteReplayAdapter,
+  recordPractitionerDependencyDeleteReplayCommand,
+} from "../utils/practitioner-dependency-delete-replay";
 import {
   createNamedLineageCreateReplayAdapter,
   createNamedLineageUpdateReplayAdapter,
@@ -202,8 +203,11 @@ export default function PractitionerManagement({
           };
         },
       });
-      registerRuleSetReplayAdapter(command, replay);
-      recordRuleSetCommand(onRecordCommand, command);
+      recordPractitionerDependencyDeleteReplayCommand(
+        onRecordCommand,
+        command,
+        replay,
+      );
       toast.success("Arzt gelöscht");
     } catch (error: unknown) {
       captureError(error, {

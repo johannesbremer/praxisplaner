@@ -74,8 +74,14 @@ import type {
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 import type { RuleSetCommand } from "../utils/rule-set-replay";
 
-import { createAppointmentTypeDeleteReplayAdapter } from "../utils/appointment-type-delete-replay";
-import { createAppointmentTypeFolderSubtreeDeleteReplayAdapter } from "../utils/appointment-type-folder-subtree-replay";
+import {
+  createAppointmentTypeDeleteReplayAdapter,
+  recordAppointmentTypeDeleteReplayCommand,
+} from "../utils/appointment-type-delete-replay";
+import {
+  createAppointmentTypeFolderSubtreeDeleteReplayAdapter,
+  recordAppointmentTypeFolderSubtreeReplayCommand,
+} from "../utils/appointment-type-folder-subtree-replay";
 import {
   type AppointmentTypeTreeOverlay,
   createAppointmentTypeTreeDeleteOverlay,
@@ -98,8 +104,6 @@ import {
   findFrontendEntityByEntityId,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
-import { recordRuleSetCommand } from "../utils/rule-set-command-executor";
-import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor-internal";
 import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 type AppointmentTreeItem =
@@ -2314,8 +2318,11 @@ export function AppointmentTypesManagement({
           folderLineageKeys: deletedFolderLineageKeys,
         },
       });
-      registerRuleSetReplayAdapter(command, replay);
-      recordRuleSetCommand(onRecordCommand, command);
+      recordAppointmentTypeFolderSubtreeReplayCommand(
+        onRecordCommand,
+        command,
+        replay,
+      );
       toast.success("Ordner gelöscht", {
         description: `Ordner "${folder.name}" wurde gelöscht.`,
       });
@@ -2779,8 +2786,11 @@ export function AppointmentTypesManagement({
         }),
         upsertRestoredRef: upsertAppointmentTypeRef,
       });
-      registerRuleSetReplayAdapter(command, replay);
-      recordRuleSetCommand(onRecordCommand, command);
+      recordAppointmentTypeDeleteReplayCommand(
+        onRecordCommand,
+        command,
+        replay,
+      );
 
       toast.success("Terminart gelöscht", {
         description: `Terminart "${appointmentType.name}" wurde erfolgreich gelöscht.`,

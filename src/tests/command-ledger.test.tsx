@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type {
   LedgerCommand,
-  ReplayableLedgerCommand,
+  LedgerExecutionResult,
 } from "../utils/command-ledger";
 
 import { useCommandLedger } from "../utils/command-ledger";
@@ -11,10 +11,15 @@ import { useCommandLedger } from "../utils/command-ledger";
 const applied = { status: "applied" } as const;
 const conflict = { message: "stale", status: "conflict" } as const;
 
+interface TestLedgerCommand extends LedgerCommand {
+  redo: () => LedgerExecutionResult | Promise<LedgerExecutionResult>;
+  undo: () => LedgerExecutionResult | Promise<LedgerExecutionResult>;
+}
+
 function command(
   label: string,
-  overrides?: Partial<ReplayableLedgerCommand>,
-): ReplayableLedgerCommand {
+  overrides?: Partial<TestLedgerCommand>,
+): TestLedgerCommand {
   return {
     label,
     redo: vi.fn(() => applied),
@@ -24,7 +29,7 @@ function command(
 }
 
 function executeReplayableCommand(
-  recorded: ReplayableLedgerCommand,
+  recorded: TestLedgerCommand,
   operation: "redo" | "undo",
 ) {
   return recorded[operation]();
@@ -33,7 +38,7 @@ function executeReplayableCommand(
 describe("useCommandLedger", () => {
   it("record clears the redo stack", async () => {
     const { result } = renderHook(() =>
-      useCommandLedger<ReplayableLedgerCommand>({
+      useCommandLedger<TestLedgerCommand>({
         executeCommand: executeReplayableCommand,
       }),
     );
@@ -55,7 +60,7 @@ describe("useCommandLedger", () => {
 
   it("undo and redo move commands between stacks", async () => {
     const { result } = renderHook(() =>
-      useCommandLedger<ReplayableLedgerCommand>({
+      useCommandLedger<TestLedgerCommand>({
         executeCommand: executeReplayableCommand,
       }),
     );
@@ -79,7 +84,7 @@ describe("useCommandLedger", () => {
 
   it("conflicts keep commands on their original stack", async () => {
     const { result } = renderHook(() =>
-      useCommandLedger<ReplayableLedgerCommand>({
+      useCommandLedger<TestLedgerCommand>({
         executeCommand: executeReplayableCommand,
       }),
     );
@@ -99,7 +104,7 @@ describe("useCommandLedger", () => {
 
   it("normalizes legacy history name conflicts to typed conflicts", async () => {
     const { result } = renderHook(() =>
-      useCommandLedger<ReplayableLedgerCommand>({
+      useCommandLedger<TestLedgerCommand>({
         executeCommand: executeReplayableCommand,
       }),
     );
@@ -125,7 +130,7 @@ describe("useCommandLedger", () => {
 
   it("normalizes legacy history reference misses to typed conflicts", async () => {
     const { result } = renderHook(() =>
-      useCommandLedger<ReplayableLedgerCommand>({
+      useCommandLedger<TestLedgerCommand>({
         executeCommand: executeReplayableCommand,
       }),
     );
@@ -152,7 +157,7 @@ describe("useCommandLedger", () => {
   it("queued operations execute sequentially", async () => {
     const order: string[] = [];
     const { result } = renderHook(() =>
-      useCommandLedger<ReplayableLedgerCommand>({
+      useCommandLedger<TestLedgerCommand>({
         executeCommand: executeReplayableCommand,
       }),
     );
@@ -184,7 +189,7 @@ describe("useCommandLedger", () => {
 
   it("scoped clear removes only matching commands", () => {
     const { result } = renderHook(() =>
-      useCommandLedger<ReplayableLedgerCommand>({
+      useCommandLedger<TestLedgerCommand>({
         executeCommand: executeReplayableCommand,
       }),
     );
@@ -229,20 +234,5 @@ describe("useCommandLedger", () => {
       "undo",
     );
     expect(result.current.canRedo).toBe(true);
-  });
-
-  it("keeps a non-executable command on conflict when no adapter is registered", async () => {
-    const { result } = renderHook(() => useCommandLedger<LedgerCommand>());
-
-    act(() => {
-      result.current.record({ label: "Data command" });
-    });
-    const undoResult = await act(() => result.current.undo());
-
-    expect(undoResult).toMatchObject({
-      conflict: { code: "staleState" },
-      status: "conflict",
-    });
-    expect(result.current.canUndo).toBe(true);
   });
 });
