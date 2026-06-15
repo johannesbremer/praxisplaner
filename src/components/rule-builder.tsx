@@ -33,6 +33,7 @@ import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
 import { createRuleSetSchedulingRuleCommand } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
+  getSchedulingRuleCopySource,
   recordSchedulingRuleCreateReplayCommand,
   recordSchedulingRuleDeleteReplayCommand,
   recordSchedulingRuleUpdateReplayCommand,
@@ -81,17 +82,6 @@ type RulePractitioner = FrontendLineageEntity<
 
 const isMissingEntityError = (error: unknown) =>
   isMissingRuleSetEntityError(error, RULE_MISSING_ENTITY_REGEX);
-
-function isSerializableRecord(
-  value: unknown,
-): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-const getReplayCopySource = (
-  rule: Pick<RuleFromDB, "_id" | "copyFromId">,
-): { copyFromId?: Id<"ruleConditions"> } =>
-  rule.copyFromId ? { copyFromId: rule.copyFromId } : {};
 
 export function RuleBuilder({
   onDraftMutation,
@@ -208,7 +198,9 @@ export function RuleBuilder({
         ruleId,
         ...getCowMutationArgs(),
       }),
-    getCopySource: getReplayCopySource,
+    getCopySource: (
+      rule: Pick<RuleFromDB, "_id" | "copyFromId" | "ruleSetId">,
+    ) => getSchedulingRuleCopySource(rule, ruleSetReplayTarget.parentRuleSetId),
     handleDraftMutationResult,
     isMissingEntityError,
     prepareRule: (conditionTree: ConditionTreeNode) =>
@@ -419,7 +411,12 @@ export function RuleBuilder({
 
             const createResult = await runCreateRule({
               conditionTree,
-              ...(previousRule ? getReplayCopySource(previousRule) : {}),
+              ...(previousRule
+                ? getSchedulingRuleCopySource(
+                    previousRule,
+                    ruleSetReplayTarget.parentRuleSetId,
+                  )
+                : {}),
               enabled: true,
               name: ruleName,
             });
@@ -573,6 +570,12 @@ function createLineageKeyResolver(
   );
 
   return (id) => lineageKeyById.get(id) ?? id;
+}
+
+function isSerializableRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizeConditionTreeForComparison(

@@ -18,7 +18,9 @@ interface DraftMutationResult {
 
 interface RuleReplayContext {
   deleteRule: (ruleId: Id<"ruleConditions">) => Promise<DraftMutationResult>;
-  getCopySource: (rule: Pick<RuleFromDB, "_id" | "copyFromId">) => {
+  getCopySource: (
+    rule: Pick<RuleFromDB, "_id" | "copyFromId" | "ruleSetId">,
+  ) => {
     copyFromId?: Id<"ruleConditions">;
   };
   handleDraftMutationResult: (result: DraftMutationResult) => void;
@@ -321,6 +323,19 @@ export function createSchedulingRuleUpdateReplayAdapter(params: {
     currentRuleId = result.entityId;
     return { status: "applied" as const };
   }
+}
+
+export function getSchedulingRuleCopySource(
+  rule: Pick<RuleFromDB, "_id" | "copyFromId" | "ruleSetId">,
+  parentRuleSetId: Id<"ruleSets">,
+): { copyFromId?: Id<"ruleConditions"> } {
+  if (rule.copyFromId) {
+    return { copyFromId: rule.copyFromId };
+  }
+  if (rule.ruleSetId === parentRuleSetId) {
+    return { copyFromId: rule._id };
+  }
+  return {};
 }
 
 export function recordSchedulingRuleCreateReplayCommand(
