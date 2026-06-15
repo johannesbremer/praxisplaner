@@ -111,11 +111,16 @@ export function createBaseScheduleReplaceSetReplay(params: {
     const expectedPresentLineageKeys = expectedPayloads.map(
       (payload) => payload.lineageKey,
     );
-    const hasMissingExpectedPayload = expectedPayloads.some(
-      (payload) =>
-        !params.schedulesRef.current.some((scheduleItem) =>
-          currentScheduleMatchesPayload(scheduleItem, payload),
-        ),
+    const expectedLineageKeySet = new Set(expectedPresentLineageKeys);
+    const hasEditedExpectedPayload = expectedPayloads.some((payload) =>
+      params.schedulesRef.current.some(
+        (scheduleItem) =>
+          scheduleItem.lineageKey === payload.lineageKey &&
+          !currentScheduleMatchesPayload(scheduleItem, payload),
+      ),
+    );
+    const hasPresentExpectedPayload = params.schedulesRef.current.some(
+      (scheduleItem) => expectedLineageKeySet.has(scheduleItem.lineageKey),
     );
     const replacementMissingPayloads = replacementPayloads.filter(
       (payload) =>
@@ -124,14 +129,11 @@ export function createBaseScheduleReplaceSetReplay(params: {
         ),
     );
 
-    if (hasMissingExpectedPayload) {
+    if (hasEditedExpectedPayload) {
       return { message: conflictMessage, status: "conflict" as const };
     }
 
-    if (
-      expectedPresentLineageKeys.length === 0 &&
-      replacementMissingPayloads.length === 0
-    ) {
+    if (!hasPresentExpectedPayload && replacementMissingPayloads.length === 0) {
       return { status: "applied" as const };
     }
 

@@ -134,4 +134,31 @@ describe("base schedule replay", () => {
     });
     expect(replaceScheduleSet).not.toHaveBeenCalled();
   });
+
+  it("treats already removed created schedules as an applied undo", async () => {
+    const monday = schedulePayload(toTableId<"baseSchedules">("monday"), 1);
+    const schedulesRef = {
+      current: [],
+    };
+    const replaceScheduleSet = vi.fn();
+
+    const replay = createBaseScheduleReplaceSetReplay({
+      after: [monday],
+      before: [],
+      getCowMutationArgs: () => ({
+        expectedDraftRevision: 1,
+        selectedRuleSetId: ruleSetId,
+      }),
+      handleDraftMutationResult: vi.fn(),
+      isBaseScheduleMissingError: () => false,
+      label: "Arbeitszeiten",
+      practiceId,
+      replaceScheduleSet,
+      runCreateScheduleBatch: vi.fn(),
+      schedulesRef,
+    });
+
+    await expect(replay.undo()).resolves.toEqual({ status: "applied" });
+    expect(replaceScheduleSet).not.toHaveBeenCalled();
+  });
 });
