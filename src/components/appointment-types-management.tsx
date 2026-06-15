@@ -443,7 +443,13 @@ const practitionerIdsFromSnapshots = (
 
   for (const snapshot of snapshots) {
     const practitionerId = practitionerIdByLineageKey.get(snapshot.lineageId);
-    if (!practitionerId || seen.has(practitionerId)) {
+    if (!practitionerId) {
+      return {
+        message: `[HISTORY:APPOINTMENT_TYPE_PRACTITIONER_LINEAGE_MISSING] Behandler "${snapshot.name}" mit lineageKey ${snapshot.lineageId} konnte nicht geladen werden.`,
+        status: "conflict",
+      };
+    }
+    if (seen.has(practitionerId)) {
       continue;
     }
     seen.add(practitionerId);

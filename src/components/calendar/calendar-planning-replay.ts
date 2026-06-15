@@ -349,7 +349,12 @@ async function executeAppointmentDeleteCommand(
     return { status: "conflict" };
   }
 
+  const originalAppointmentId = payload.currentAppointmentId;
   payload.currentAppointmentId = recreatedId;
+  context.rememberRecreatedAppointmentId({
+    currentId: recreatedId,
+    originalId: originalAppointmentId,
+  });
   context.rememberAppointmentHistoryDoc({
     ...payload.deleted,
     _id: recreatedId,
@@ -603,7 +608,12 @@ async function executeBlockedSlotDeleteCommand(
     return { status: "conflict" };
   }
 
+  const originalBlockedSlotId = payload.currentBlockedSlotId;
   payload.currentBlockedSlotId = recreatedId;
+  context.rememberRecreatedBlockedSlotId({
+    currentId: recreatedId,
+    originalId: originalBlockedSlotId,
+  });
   context.rememberBlockedSlotHistoryDoc({
     ...payload.deleted,
     _id: recreatedId,

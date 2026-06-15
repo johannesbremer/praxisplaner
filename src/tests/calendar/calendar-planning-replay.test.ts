@@ -510,4 +510,189 @@ describe("calendar planning replay", () => {
       expect.objectContaining({ id: recreatedBlockedSlotId }),
     );
   });
+
+  it("registers an appointment alias when undoing an appointment deletion", async () => {
+    const originalAppointmentId = toTableId<"appointments">("appointment_old");
+    const recreatedAppointmentId = toTableId<"appointments">("appointment_new");
+    const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
+    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("type_lineage_1"),
+    );
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const placement = createCalendarPlacement({
+      locationLineageKey,
+      occupancyScope: {
+        calendarResourceColumn: "ekg",
+        kind: "resource",
+      },
+    });
+    const deleted = buildCalendarAppointmentRecord({
+      _id: originalAppointmentId,
+      appointmentTypeLineageKey,
+      appointmentTypeTitle: "Check-up",
+      end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      placement,
+      practiceId,
+      start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+      title: "Check-up",
+    });
+    const rememberRecreatedAppointmentId =
+      vi.fn<
+        CalendarPlanningCommandExecutorContext["rememberRecreatedAppointmentId"]
+      >();
+
+    const result = await executeCalendarPlanningCommand(
+      {
+        kind: "appointment.delete",
+        label: "Termin gelöscht",
+        payload: {
+          createArgs: {
+            appointmentTypeId,
+            isSimulation: false,
+            locationId,
+            practiceId,
+            start: deleted.start,
+            title: deleted.title,
+          },
+          createEnd: deleted.end,
+          currentAppointmentId: originalAppointmentId,
+          deleted,
+        },
+      },
+      "undo",
+      {
+        ensureLatestConflictData: vi.fn(() => Promise.resolve()),
+        forgetAppointmentHistoryDoc: vi.fn(),
+        forgetBlockedSlotHistoryDoc: vi.fn(),
+        getCurrentAppointmentDoc: vi.fn(),
+        getCurrentBlockedSlotDoc: vi.fn(),
+        hasAppointmentConflict: () => false,
+        hasBlockedSlotConflict: () => false,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map(),
+          appointmentTypeLineageKeyById: new Map(),
+          locationIdByLineageKey: new Map(),
+          locationLineageKeyById: new Map(),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        rememberAppointmentHistoryDoc: vi.fn(),
+        rememberBlockedSlotHistoryDoc: vi.fn(),
+        rememberCreatedAppointmentFromStrings: vi.fn(),
+        rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
+        rememberRecreatedAppointmentId,
+        rememberRecreatedBlockedSlotId: vi.fn(),
+        resolveAppointmentReferenceDisplayIds: vi.fn(),
+        resolveCurrentAppointmentId: (id) => id,
+        resolveCurrentBlockedSlotId: (id) => id,
+        runCreateAppointmentInternal: vi.fn(() =>
+          Promise.resolve(recreatedAppointmentId),
+        ),
+        runCreateBlockedSlotInternal: vi.fn(),
+        runDeleteAppointmentInternal: vi.fn(),
+        runDeleteBlockedSlotInternal: vi.fn(),
+        runUpdateAppointmentInternal: vi.fn(),
+        runUpdateBlockedSlotInternal: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({ status: "applied" });
+    expect(rememberRecreatedAppointmentId).toHaveBeenCalledWith({
+      currentId: recreatedAppointmentId,
+      originalId: originalAppointmentId,
+    });
+  });
+
+  it("registers a blocked-slot alias when undoing a blocked-slot deletion", async () => {
+    const originalBlockedSlotId = toTableId<"blockedSlots">("blocked_old");
+    const recreatedBlockedSlotId = toTableId<"blockedSlots">("blocked_new");
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const placement = createCalendarPlacement({
+      locationLineageKey,
+      occupancyScope: {
+        kind: "location-wide",
+      },
+    });
+    const deleted = buildCalendarBlockedSlotRecord({
+      _id: originalBlockedSlotId,
+      end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      placement,
+      practiceId,
+      start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+      title: "Block",
+    });
+    const rememberRecreatedBlockedSlotId =
+      vi.fn<
+        CalendarPlanningCommandExecutorContext["rememberRecreatedBlockedSlotId"]
+      >();
+
+    const result = await executeCalendarPlanningCommand(
+      {
+        kind: "blockedSlot.delete",
+        label: "Sperrung gelöscht",
+        payload: {
+          createArgs: {
+            end: deleted.end,
+            isSimulation: false,
+            locationId,
+            occupancyScope: { kind: "location-wide" },
+            practiceId,
+            start: deleted.start,
+            title: deleted.title,
+          },
+          currentBlockedSlotId: originalBlockedSlotId,
+          deleted,
+        },
+      },
+      "undo",
+      {
+        ensureLatestConflictData: vi.fn(() => Promise.resolve()),
+        forgetAppointmentHistoryDoc: vi.fn(),
+        forgetBlockedSlotHistoryDoc: vi.fn(),
+        getCurrentAppointmentDoc: vi.fn(),
+        getCurrentBlockedSlotDoc: vi.fn(),
+        hasAppointmentConflict: () => false,
+        hasBlockedSlotConflict: () => false,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map(),
+          appointmentTypeLineageKeyById: new Map(),
+          locationIdByLineageKey: new Map(),
+          locationLineageKeyById: new Map(),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        rememberAppointmentHistoryDoc: vi.fn(),
+        rememberBlockedSlotHistoryDoc: vi.fn(),
+        rememberCreatedAppointmentFromStrings: vi.fn(),
+        rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
+        rememberRecreatedAppointmentId: vi.fn(),
+        rememberRecreatedBlockedSlotId,
+        resolveAppointmentReferenceDisplayIds: vi.fn(),
+        resolveCurrentAppointmentId: (id) => id,
+        resolveCurrentBlockedSlotId: (id) => id,
+        runCreateAppointmentInternal: vi.fn(),
+        runCreateBlockedSlotInternal: vi.fn(() =>
+          Promise.resolve(recreatedBlockedSlotId),
+        ),
+        runDeleteAppointmentInternal: vi.fn(),
+        runDeleteBlockedSlotInternal: vi.fn(),
+        runUpdateAppointmentInternal: vi.fn(),
+        runUpdateBlockedSlotInternal: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({ status: "applied" });
+    expect(rememberRecreatedBlockedSlotId).toHaveBeenCalledWith({
+      currentId: recreatedBlockedSlotId,
+      originalId: originalBlockedSlotId,
+    });
+  });
 });

@@ -161,4 +161,44 @@ describe("base schedule replay", () => {
     await expect(replay.undo()).resolves.toEqual({ status: "applied" });
     expect(replaceScheduleSet).not.toHaveBeenCalled();
   });
+
+  it("deletes remaining created schedules when only part of a created batch is already gone", async () => {
+    const monday = schedulePayload(toTableId<"baseSchedules">("monday"), 1);
+    const tuesday = schedulePayload(toTableId<"baseSchedules">("tuesday"), 2);
+    const schedulesRef = {
+      current: [materializedSchedule(monday)],
+    };
+    const replaceScheduleSet = vi.fn(() =>
+      Promise.resolve({
+        appliedSchedules: [],
+        createdScheduleIds: [],
+        draftRevision: 2,
+        ruleSetId,
+      }),
+    );
+
+    const replay = createBaseScheduleReplaceSetReplay({
+      after: [monday, tuesday],
+      before: [],
+      getCowMutationArgs: () => ({
+        expectedDraftRevision: 1,
+        selectedRuleSetId: ruleSetId,
+      }),
+      handleDraftMutationResult: vi.fn(),
+      isBaseScheduleMissingError: () => false,
+      label: "Arbeitszeiten",
+      practiceId,
+      replaceScheduleSet,
+      runCreateScheduleBatch: vi.fn(),
+      schedulesRef,
+    });
+
+    await expect(replay.undo()).resolves.toEqual({ status: "applied" });
+    expect(replaceScheduleSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedPresentLineageKeys: [monday.lineageKey],
+        replacementSchedules: [],
+      }),
+    );
+  });
 });

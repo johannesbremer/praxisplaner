@@ -108,9 +108,16 @@ export function createBaseScheduleReplaceSetReplay(params: {
     replacementPayloads: SchedulePayload[],
     conflictMessage: string,
   ) => {
-    const expectedPresentLineageKeys = expectedPayloads.map(
-      (payload) => payload.lineageKey,
-    );
+    const expectedPresentLineageKeys =
+      replacementPayloads.length === 0
+        ? expectedPayloads
+            .filter((payload) =>
+              params.schedulesRef.current.some((scheduleItem) =>
+                currentScheduleMatchesPayload(scheduleItem, payload),
+              ),
+            )
+            .map((payload) => payload.lineageKey)
+        : expectedPayloads.map((payload) => payload.lineageKey);
     const expectedLineageKeySet = new Set(expectedPresentLineageKeys);
     const hasEditedExpectedPayload = expectedPayloads.some((payload) =>
       params.schedulesRef.current.some(
@@ -200,6 +207,7 @@ export function createBaseScheduleReplaceSetReplay(params: {
     } catch (error: unknown) {
       if (
         replacementPayloads.length === 0 &&
+        expectedPresentLineageKeys.length === 0 &&
         params.isBaseScheduleMissingError(error)
       ) {
         return { status: "applied" as const };
