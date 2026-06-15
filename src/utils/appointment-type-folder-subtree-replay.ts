@@ -75,5 +75,5 @@ export function recordAppointmentTypeFolderSubtreeReplayCommand(
   command: RuleSetCommandDescription,
   replay: RuleSetReplayAdapter,
 ): void {
-  recordRuleSetCommand(record, { ...command, replay });
+  recordRuleSetCommand(record, command, replay);
 }

@@ -9,7 +9,7 @@ import {
   createRuleSetNamedLineageCommand,
   createRuleSetSchedulingRuleCommand,
   createRuleSetSnapshotCommand,
-  type RuleSetCommand,
+  type ExecutableRuleSetCommand,
   type RuleSetCommandDescription,
   type RuleSetReplayAdapter,
   withSerializableRuleSetPayload,
@@ -20,7 +20,7 @@ describe("rule set replay commands", () => {
   const executableCommand = (
     command: RuleSetCommandDescription,
     replay: RuleSetReplayAdapter,
-  ): RuleSetCommand => ({ ...command, replay });
+  ): ExecutableRuleSetCommand => ({ ...command, replay });
 
   it("preserves command kind, target, snapshots, and executes through the rule set adapter", async () => {
     const redo = vi.fn(() => ({ status: "applied" as const }));
@@ -30,7 +30,7 @@ describe("rule set replay commands", () => {
       name: "Dr. Test",
     });
 
-    let recordedCommand: RuleSetCommand = executableCommand(
+    let recordedCommand: ExecutableRuleSetCommand = executableCommand(
       createRuleSetNamedLineageCommand({
         kind: "practitioner.update",
         label: "unrecorded",
@@ -69,7 +69,8 @@ describe("rule set replay commands", () => {
       (recorded) => {
         recordedCommand = recorded;
       },
-      executableCommand(command, { redo, undo }),
+      command,
+      { redo, undo },
     );
 
     expect(recordedCommand.kind).toBe("practitioner.update");

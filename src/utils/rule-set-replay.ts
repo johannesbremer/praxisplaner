@@ -8,7 +8,11 @@ import type { EncodedRuleSetSnapshot } from "./rule-set-snapshot-codecs";
 
 import { toLedgerConflict } from "./command-ledger";
 
-export type RecordRuleSetCommand = (command: RuleSetCommand) => void;
+export type ExecutableRuleSetCommand = RuleSetCommand & {
+  replay: RuleSetReplayAdapter;
+};
+
+export type RecordRuleSetCommand = (command: ExecutableRuleSetCommand) => void;
 
 export interface RuleSetAbsenceCommand extends LedgerCommand {
   kind: Extract<
@@ -31,9 +35,7 @@ export interface RuleSetAbsencePayload {
   staffLineageKey: string;
 }
 
-export type RuleSetCommand = RuleSetCommandDescription & {
-  replay: RuleSetReplayAdapter;
-};
+export type RuleSetCommand = RuleSetCommandDescription;
 
 export type RuleSetCommandDescription =
   | RuleSetAbsenceCommand

@@ -1,8 +1,13 @@
 import type { LedgerExecutionResult, LedgerOperation } from "./command-ledger";
-import type { RecordRuleSetCommand, RuleSetCommand } from "./rule-set-replay";
+import type {
+  ExecutableRuleSetCommand,
+  RecordRuleSetCommand,
+  RuleSetCommand,
+  RuleSetReplayAdapter,
+} from "./rule-set-replay";
 
 export function executeRuleSetCommand(
-  command: RuleSetCommand,
+  command: ExecutableRuleSetCommand,
   operation: LedgerOperation,
 ): LedgerExecutionResult | Promise<LedgerExecutionResult> {
   switch (command.kind) {
@@ -34,6 +39,7 @@ export function executeRuleSetCommand(
 export function recordRuleSetCommand(
   record: RecordRuleSetCommand | undefined,
   command: RuleSetCommand,
+  replay: RuleSetReplayAdapter,
 ): void {
-  record?.(command);
+  record?.({ ...command, replay });
 }

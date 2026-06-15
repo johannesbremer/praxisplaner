@@ -50,7 +50,7 @@ import type {
   RuleSetReplayTarget,
 } from "../utils/cow-history";
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
-import type { RuleSetCommand } from "../utils/rule-set-replay";
+import type { RecordRuleSetCommand } from "../utils/rule-set-replay";
 
 import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
 import {
@@ -141,7 +141,7 @@ interface VacationSchedulerProps {
   editable: boolean;
   onDateChange?: (date: Temporal.PlainDate) => void;
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRecordCommand?: (action: RuleSetCommand) => void;
+  onRecordCommand?: RecordRuleSetCommand;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
   selectedDate: Temporal.PlainDate;

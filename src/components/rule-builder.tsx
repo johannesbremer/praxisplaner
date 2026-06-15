@@ -12,7 +12,7 @@ import type {
   RuleSetReplayTarget,
 } from "../utils/cow-history";
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
-import type { RuleSetCommand } from "../utils/rule-set-replay";
+import type { RecordRuleSetCommand } from "../utils/rule-set-replay";
 import type { RuleFromDB } from "./rule-builder-types";
 
 import { api } from "../../convex/_generated/api";
@@ -55,7 +55,7 @@ type RuleAppointmentType = FrontendLineageEntity<
 
 interface RuleBuilderProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRecordCommand?: (action: RuleSetCommand) => void;
+  onRecordCommand?: RecordRuleSetCommand;
   onRuleCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;

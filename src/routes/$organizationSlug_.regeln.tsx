@@ -35,7 +35,7 @@ import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
 import type { VersionNode } from "../components/version-graph/types";
 import type { SchedulingSimulatedContext } from "../types";
 import type { RuleSetReplayTarget } from "../utils/cow-history";
-import type { RuleSetCommand } from "../utils/rule-set-replay";
+import type { ExecutableRuleSetCommand } from "../utils/rule-set-replay";
 
 import { createSimulatedContext } from "../../lib/utils";
 import { PraxismanagerAuthGate } from "../auth/access-control";
@@ -175,7 +175,7 @@ function LogicView() {
     redo: redoRegelnCommand,
     redoDepth: redoRegelnCommandDepth,
     undo: undoRegelnCommand,
-  } = useCommandLedger<RuleSetCommand>({
+  } = useCommandLedger<ExecutableRuleSetCommand>({
     executeCommand: executeRuleSetCommand,
     onError: (action, operation, error) => {
       captureError(error, {
@@ -617,7 +617,7 @@ function LogicView() {
   }, [currentWorkingRuleSet?._id, ruleSetIdFromUrl, unsavedRuleSet]);
   const lastHistoryScopeRef = useRef<null | string>(historyScopeKey);
   const recordRegelnCommand = useCallback(
-    (command: RuleSetCommand) => {
+    (command: ExecutableRuleSetCommand) => {
       const serializableCommand = withSerializableRuleSetPayload(command);
       if (command.scope || !historyScopeKey) {
         recordRegelnCommandInLedger(serializableCommand);

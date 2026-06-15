@@ -197,5 +197,5 @@ export function recordBaseScheduleReplayCommand(
   command: RuleSetCommandDescription,
   replay: RuleSetReplayAdapter,
 ): void {
-  recordRuleSetCommand(record, { ...command, replay });
+  recordRuleSetCommand(record, command, replay);
 }

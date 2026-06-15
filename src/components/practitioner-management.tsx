@@ -27,7 +27,7 @@ import type {
   RuleSetReplayTarget,
 } from "../utils/cow-history";
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
-import type { RuleSetCommand } from "../utils/rule-set-replay";
+import type { RecordRuleSetCommand } from "../utils/rule-set-replay";
 
 import {
   ruleSetIdFromReplayTarget,
@@ -62,7 +62,7 @@ interface PractitionerDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRecordCommand?: (action: RuleSetCommand) => void;
+  onRecordCommand?: RecordRuleSetCommand;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   practitioner?: PractitionerWithLineage | undefined;
@@ -71,7 +71,7 @@ interface PractitionerDialogProps {
 
 interface PractitionerManagementProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRecordCommand?: (action: RuleSetCommand) => void;
+  onRecordCommand?: RecordRuleSetCommand;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;

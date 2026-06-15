@@ -151,7 +151,7 @@ export function recordLineageCreateRuleSetCommand<
       }
     },
   };
-  recordRuleSetCommand(params.onRecordCommand, { ...command, replay });
+  recordRuleSetCommand(params.onRecordCommand, command, replay);
 }
 
 export function recordLineageUpdateRuleSetCommand<
@@ -226,7 +226,7 @@ export function recordLineageUpdateRuleSetCommand<
       return next.historyResult;
     },
   };
-  recordRuleSetCommand(params.onRecordCommand, { ...command, replay });
+  recordRuleSetCommand(params.onRecordCommand, command, replay);
 }
 
 function isLedgerResult<TId extends string>(

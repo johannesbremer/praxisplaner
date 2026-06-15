@@ -282,7 +282,7 @@ export function recordNamedLineageReplayCommand(
   command: RuleSetNamedLineageCommand,
   replay: RuleSetReplayAdapter,
 ): void {
-  recordRuleSetCommand(record, { ...command, replay });
+  recordRuleSetCommand(record, command, replay);
 }
 
 function isLedgerResult<TId extends string>(

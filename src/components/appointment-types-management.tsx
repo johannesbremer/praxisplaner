@@ -72,7 +72,7 @@ import type {
   RuleSetReplayTarget,
 } from "../utils/cow-history";
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
-import type { RuleSetCommand } from "../utils/rule-set-replay";
+import type { RecordRuleSetCommand } from "../utils/rule-set-replay";
 
 import {
   createAppointmentTypeDeleteReplayAdapter,
@@ -146,7 +146,7 @@ type AppointmentTypeQueryResult =
   (typeof api.entities.getAppointmentTypes)["_returnType"];
 interface AppointmentTypesManagementProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRecordCommand?: (action: RuleSetCommand) => void;
+  onRecordCommand?: RecordRuleSetCommand;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;

@@ -74,5 +74,5 @@ export function recordAbsenceReplayCommand(
   command: RuleSetAbsenceCommand,
   replay: RuleSetReplayAdapter,
 ): void {
-  recordRuleSetCommand(record, { ...command, replay });
+  recordRuleSetCommand(record, command, replay);
 }
