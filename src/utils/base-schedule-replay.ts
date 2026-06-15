@@ -18,7 +18,6 @@ import {
   applyBatchCreateResultToRef,
   applyReplaceResultToRef,
   getAbsentLineageKeysForReplacement,
-  matchesSchedulePayload,
   removeSchedulesFromRef,
   toBatchCreateScheduleInput,
   toMutationSchedulePayload,
@@ -38,6 +37,36 @@ interface ReplaceScheduleSetResult {
   draftRevision: number;
   ruleSetId: Id<"ruleSets">;
 }
+
+const breakTimesMatch = (
+  left: undefined | { end: string; start: string }[],
+  right: undefined | { end: string; start: string }[],
+) => {
+  const leftBreakTimes = left ?? [];
+  const rightBreakTimes = right ?? [];
+  return (
+    leftBreakTimes.length === rightBreakTimes.length &&
+    leftBreakTimes.every((breakTime, index) => {
+      const rightBreakTime = rightBreakTimes[index];
+      return (
+        breakTime.start === rightBreakTime?.start &&
+        breakTime.end === rightBreakTime.end
+      );
+    })
+  );
+};
+
+const currentScheduleMatchesPayload = (
+  scheduleItem: SchedulesRef["current"][number],
+  payload: SchedulePayload,
+) =>
+  scheduleItem.lineageKey === payload.lineageKey &&
+  scheduleItem.dayOfWeek === payload.dayOfWeek &&
+  scheduleItem.startTime === payload.startTime &&
+  scheduleItem.endTime === payload.endTime &&
+  scheduleItem.locationLineageKey === payload.locationLineageId &&
+  scheduleItem.practitionerLineageKey === payload.practitionerLineageId &&
+  breakTimesMatch(scheduleItem.breakTimes, payload.breakTimes);
 
 export function createBaseScheduleReplaceSetReplay(params: {
   after: SchedulePayload[];
@@ -79,19 +108,25 @@ export function createBaseScheduleReplaceSetReplay(params: {
     replacementPayloads: SchedulePayload[],
     conflictMessage: string,
   ) => {
-    const expectedPresentLineageKeys = expectedPayloads
-      .filter((payload) =>
-        params.schedulesRef.current.some((scheduleItem) =>
-          matchesSchedulePayload(scheduleItem, payload),
+    const expectedPresentLineageKeys = expectedPayloads.map(
+      (payload) => payload.lineageKey,
+    );
+    const hasMissingExpectedPayload = expectedPayloads.some(
+      (payload) =>
+        !params.schedulesRef.current.some((scheduleItem) =>
+          currentScheduleMatchesPayload(scheduleItem, payload),
         ),
-      )
-      .map((payload) => payload.lineageKey);
+    );
     const replacementMissingPayloads = replacementPayloads.filter(
       (payload) =>
         !params.schedulesRef.current.some((scheduleItem) =>
-          matchesSchedulePayload(scheduleItem, payload),
+          currentScheduleMatchesPayload(scheduleItem, payload),
         ),
     );
+
+    if (hasMissingExpectedPayload) {
+      return { message: conflictMessage, status: "conflict" as const };
+    }
 
     if (
       expectedPresentLineageKeys.length === 0 &&

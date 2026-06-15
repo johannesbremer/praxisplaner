@@ -101,21 +101,18 @@ export function createLocationDependencyDeleteReplayAdapter<
       );
       if (existingByLineage) {
         currentLocationId = existingByLineage._id;
-        return { status: "applied" };
-      }
-
-      if (params.hasLocationName(params.snapshot.location.name)) {
+      } else if (params.hasLocationName(params.snapshot.location.name)) {
         return {
           message: `[HISTORY:LOCATION_NAME_CONFLICT] Der Standort kann nicht wiederhergestellt werden, weil bereits ein anderer Standort mit dem Namen "${params.snapshot.location.name}" existiert.`,
           status: "conflict" as const,
         };
+      } else {
+        const restoredLocationId = await params.createLocation({
+          lineageKey: params.snapshot.location.lineageKey,
+          name: params.snapshot.location.name,
+        });
+        currentLocationId = restoredLocationId;
       }
-
-      const restoredLocationId = await params.createLocation({
-        lineageKey: params.snapshot.location.lineageKey,
-        name: params.snapshot.location.name,
-      });
-      currentLocationId = restoredLocationId;
 
       const missingSchedules = params.snapshot.baseSchedules.filter(
         (schedule) => !params.hasBaseScheduleLineage(schedule.lineageKey),

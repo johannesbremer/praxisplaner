@@ -28,6 +28,17 @@ function command(
   };
 }
 
+function deferred<TValue>() {
+  let resolve: ((value: TValue) => void) | undefined;
+  const promise = new Promise<TValue>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  if (!resolve) {
+    throw new Error("Deferred promise resolver was not initialized.");
+  }
+  return { promise, resolve };
+}
+
 function executeReplayableCommand(
   recorded: TestLedgerCommand,
   operation: "redo" | "undo",
@@ -185,6 +196,66 @@ describe("useCommandLedger", () => {
     expect(order).toEqual(["second", "first"]);
     expect(result.current.undoDepth).toBe(0);
     expect(result.current.redoDepth).toBe(2);
+  });
+
+  it("moves the captured command when a new command is recorded during undo", async () => {
+    const pendingUndo = deferred<LedgerExecutionResult>();
+    const { result } = renderHook(() =>
+      useCommandLedger<TestLedgerCommand>({
+        executeCommand: executeReplayableCommand,
+      }),
+    );
+    const first = command("first", {
+      undo: vi.fn(() => pendingUndo.promise),
+    });
+    const second = command("second");
+
+    act(() => {
+      result.current.record(first);
+    });
+    await act(async () => {
+      const undoPromise = result.current.undo();
+      await Promise.resolve();
+      result.current.record(second);
+      pendingUndo.resolve(applied);
+      await undoPromise;
+    });
+
+    expect(result.current.undoDepth).toBe(1);
+    expect(result.current.redoDepth).toBe(1);
+
+    await act(() => result.current.undo());
+
+    expect(second.undo).toHaveBeenCalledTimes(1);
+    expect(first.undo).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not resurrect a scoped command cleared during undo", async () => {
+    const pendingUndo = deferred<LedgerExecutionResult>();
+    const { result } = renderHook(() =>
+      useCommandLedger<TestLedgerCommand>({
+        executeCommand: executeReplayableCommand,
+      }),
+    );
+    const recorded = command("rule set", {
+      scope: "rules",
+      undo: vi.fn(() => pendingUndo.promise),
+    });
+
+    act(() => {
+      result.current.record(recorded);
+    });
+    await act(async () => {
+      const undoPromise = result.current.undo();
+      await Promise.resolve();
+      result.current.clear("rules");
+      pendingUndo.resolve(applied);
+      await undoPromise;
+    });
+
+    expect(result.current.undoDepth).toBe(0);
+    expect(result.current.redoDepth).toBe(0);
+    expect(recorded.undo).toHaveBeenCalledTimes(1);
   });
 
   it("scoped clear removes only matching commands", () => {

@@ -253,8 +253,11 @@ export function useCommandLedger<TCommand extends LedgerCommand>(
           );
 
           if (result.status === "applied") {
-            from.current = from.current.slice(0, -1);
-            to.current = [...to.current, command];
+            const commandIndex = from.current.lastIndexOf(command);
+            if (commandIndex !== -1) {
+              from.current = removeAt(from.current, commandIndex);
+              to.current = [...to.current, command];
+            }
             optionsRef.current.onSuccess?.(command, operation, result);
           } else if (result.status === "conflict") {
             optionsRef.current.onConflict?.(command, result);
@@ -360,6 +363,10 @@ function extractConflictCode(message: string): LedgerConflictCode | undefined {
     return "staleState";
   }
   return undefined;
+}
+
+function removeAt<TItem>(items: TItem[], index: number): TItem[] {
+  return [...items.slice(0, index), ...items.slice(index + 1)];
 }
 
 function toLedgerResult(result: LedgerExecutionResult): LedgerResult {
