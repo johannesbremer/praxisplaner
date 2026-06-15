@@ -4,9 +4,7 @@ import { toast } from "sonner";
 import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
 import { useCommandLedger } from "../../utils/command-ledger";
 import {
-  type CalendarPlanningCommandDescription,
-  type CalendarPlanningReplayAdapter,
-  createCalendarPlanningCommand,
+  type CalendarPlanningCommand,
   executeCalendarPlanningCommand,
 } from "./calendar-planning-command";
 
@@ -16,11 +14,8 @@ export function useCalendarPlanningHistory() {
   });
 
   const recordCalendarCommand = useCallback(
-    (
-      command: CalendarPlanningCommandDescription,
-      replay: CalendarPlanningReplayAdapter,
-    ) => {
-      record(createCalendarPlanningCommand(command, replay));
+    (command: CalendarPlanningCommand) => {
+      record(command);
     },
     [record],
   );

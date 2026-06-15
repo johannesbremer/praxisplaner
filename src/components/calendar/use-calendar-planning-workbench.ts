@@ -41,6 +41,7 @@ import {
   matchesCalendarDayQueryEntity,
   shouldCollapseOptimisticReplacementInDayQuery,
 } from "./calendar-day-query-membership";
+import { createCalendarPlanningCommand } from "./calendar-planning-command";
 import {
   getCurrentCalendarRecordById,
   hasCalendarOccupancyConflictInRecords,
@@ -1336,24 +1337,26 @@ export function useCalendarPlanningWorkbench(args: {
       });
 
       recordCalendarCommand(
-        {
-          kind: "appointment.create",
-          label: "Termin erstellt",
-        },
-        createAppointmentCreateReplay({
-          appointmentTypeLineageKey,
-          appointmentTypeTitle: appointmentTypeInfo.name,
-          createArgs,
-          createdId,
-          createEnd,
-          ensureLatestConflictData,
-          forgetAppointmentHistoryDoc,
-          hasAppointmentConflict,
-          placement: createCommandArgs.placement,
-          rememberCreatedAppointmentFromStrings,
-          runCreateAppointmentInternal,
-          runDeleteAppointmentInternal,
-        }),
+        createCalendarPlanningCommand(
+          {
+            kind: "appointment.create",
+            label: "Termin erstellt",
+          },
+          createAppointmentCreateReplay({
+            appointmentTypeLineageKey,
+            appointmentTypeTitle: appointmentTypeInfo.name,
+            createArgs,
+            createdId,
+            createEnd,
+            ensureLatestConflictData,
+            forgetAppointmentHistoryDoc,
+            hasAppointmentConflict,
+            placement: createCommandArgs.placement,
+            rememberCreatedAppointmentFromStrings,
+            runCreateAppointmentInternal,
+            runDeleteAppointmentInternal,
+          }),
+        ),
       );
 
       return createdId;
@@ -1432,23 +1435,25 @@ export function useCalendarPlanningWorkbench(args: {
       rememberAppointmentHistoryDoc(afterSnapshot);
 
       recordCalendarCommand(
-        {
-          kind: "appointment.update",
-          label: "Termin aktualisiert",
-        },
-        createAppointmentUpdateReplay({
-          afterSnapshot,
-          afterState,
-          appointmentId: args.id,
-          before,
-          beforeState,
-          ensureLatestConflictData,
-          getCurrentAppointmentDoc,
-          hasAppointmentConflict,
-          rememberAppointmentHistoryDoc,
-          resolveAppointmentReferenceDisplayIds,
-          runUpdateAppointmentInternal,
-        }),
+        createCalendarPlanningCommand(
+          {
+            kind: "appointment.update",
+            label: "Termin aktualisiert",
+          },
+          createAppointmentUpdateReplay({
+            afterSnapshot,
+            afterState,
+            appointmentId: args.id,
+            before,
+            beforeState,
+            ensureLatestConflictData,
+            getCurrentAppointmentDoc,
+            hasAppointmentConflict,
+            rememberAppointmentHistoryDoc,
+            resolveAppointmentReferenceDisplayIds,
+            runUpdateAppointmentInternal,
+          }),
+        ),
       );
     },
     [
@@ -1524,22 +1529,24 @@ export function useCalendarPlanningWorkbench(args: {
       });
 
       recordCalendarCommand(
-        {
-          kind: "appointment.delete",
-          label: "Termin gelöscht",
-        },
-        createAppointmentDeleteReplay({
-          createArgs,
-          createEnd,
-          deleted,
-          deletedId: args.id,
-          ensureLatestConflictData,
-          forgetAppointmentHistoryDoc,
-          hasAppointmentConflict,
-          rememberAppointmentHistoryDoc,
-          runCreateAppointmentInternal,
-          runDeleteAppointmentInternal,
-        }),
+        createCalendarPlanningCommand(
+          {
+            kind: "appointment.delete",
+            label: "Termin gelöscht",
+          },
+          createAppointmentDeleteReplay({
+            createArgs,
+            createEnd,
+            deleted,
+            deletedId: args.id,
+            ensureLatestConflictData,
+            forgetAppointmentHistoryDoc,
+            hasAppointmentConflict,
+            rememberAppointmentHistoryDoc,
+            runCreateAppointmentInternal,
+            runDeleteAppointmentInternal,
+          }),
+        ),
       );
     },
     [
@@ -1590,22 +1597,24 @@ export function useCalendarPlanningWorkbench(args: {
       });
 
       recordCalendarCommand(
-        {
-          kind: "blockedSlot.create",
-          label: "Sperrung erstellt",
-        },
-        createBlockedSlotCreateReplay({
-          blockedSlotReferences,
-          createArgs,
-          createdId,
-          ensureLatestConflictData,
-          forgetBlockedSlotHistoryDoc,
-          hasBlockedSlotConflict,
-          now,
-          rememberCreatedBlockedSlotHistoryDoc,
-          runCreateBlockedSlotInternal,
-          runDeleteBlockedSlotInternal,
-        }),
+        createCalendarPlanningCommand(
+          {
+            kind: "blockedSlot.create",
+            label: "Sperrung erstellt",
+          },
+          createBlockedSlotCreateReplay({
+            blockedSlotReferences,
+            createArgs,
+            createdId,
+            ensureLatestConflictData,
+            forgetBlockedSlotHistoryDoc,
+            hasBlockedSlotConflict,
+            now,
+            rememberCreatedBlockedSlotHistoryDoc,
+            runCreateBlockedSlotInternal,
+            runDeleteBlockedSlotInternal,
+          }),
+        ),
       );
 
       return createdId;
@@ -1701,23 +1710,25 @@ export function useCalendarPlanningWorkbench(args: {
       rememberBlockedSlotHistoryDoc(afterSnapshot);
 
       recordCalendarCommand(
-        {
-          kind: "blockedSlot.update",
-          label: "Sperrung aktualisiert",
-        },
-        createBlockedSlotUpdateReplay({
-          afterSnapshot,
-          afterState,
-          before,
-          beforeState,
-          blockedSlotId: args.id,
-          ensureLatestConflictData,
-          getCurrentBlockedSlotDoc,
-          hasBlockedSlotConflict,
-          referenceMaps,
-          rememberBlockedSlotHistoryDoc,
-          runUpdateBlockedSlotInternal,
-        }),
+        createCalendarPlanningCommand(
+          {
+            kind: "blockedSlot.update",
+            label: "Sperrung aktualisiert",
+          },
+          createBlockedSlotUpdateReplay({
+            afterSnapshot,
+            afterState,
+            before,
+            beforeState,
+            blockedSlotId: args.id,
+            ensureLatestConflictData,
+            getCurrentBlockedSlotDoc,
+            hasBlockedSlotConflict,
+            referenceMaps,
+            rememberBlockedSlotHistoryDoc,
+            runUpdateBlockedSlotInternal,
+          }),
+        ),
       );
 
       return mutationResult;
@@ -1773,21 +1784,23 @@ export function useCalendarPlanningWorkbench(args: {
       };
 
       recordCalendarCommand(
-        {
-          kind: "blockedSlot.delete",
-          label: "Sperrung gelöscht",
-        },
-        createBlockedSlotDeleteReplay({
-          createArgs,
-          deleted,
-          deletedId: args.id,
-          ensureLatestConflictData,
-          forgetBlockedSlotHistoryDoc,
-          hasBlockedSlotConflict,
-          rememberBlockedSlotHistoryDoc,
-          runCreateBlockedSlotInternal,
-          runDeleteBlockedSlotInternal,
-        }),
+        createCalendarPlanningCommand(
+          {
+            kind: "blockedSlot.delete",
+            label: "Sperrung gelöscht",
+          },
+          createBlockedSlotDeleteReplay({
+            createArgs,
+            deleted,
+            deletedId: args.id,
+            ensureLatestConflictData,
+            forgetBlockedSlotHistoryDoc,
+            hasBlockedSlotConflict,
+            rememberBlockedSlotHistoryDoc,
+            runCreateBlockedSlotInternal,
+            runDeleteBlockedSlotInternal,
+          }),
+        ),
       );
 
       return mutationResult;

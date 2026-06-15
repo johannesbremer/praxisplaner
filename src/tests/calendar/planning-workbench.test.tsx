@@ -2,10 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Id } from "../../../convex/_generated/dataModel";
-import type {
-  CalendarPlanningCommandDescription,
-  CalendarPlanningReplayAdapter,
-} from "../../components/calendar/calendar-planning-command";
+import type { CalendarPlanningCommand } from "../../components/calendar/calendar-planning-command";
 import type {
   CalendarAppointmentRecord,
   CalendarBlockedSlotRecord,
@@ -17,6 +14,7 @@ import {
   toTableId,
 } from "../../../convex/identity";
 import { createCalendarPlacement } from "../../../lib/calendar-occupancy";
+import { executeCalendarPlanningCommand } from "../../components/calendar/calendar-planning-command";
 import { useCalendarPlanningWorkbench } from "../../components/calendar/use-calendar-planning-workbench";
 import { zonedDateTimeStringResult } from "../../utils/time-calculations";
 import {
@@ -30,12 +28,7 @@ const mutationQueue: {
   ) => (args: unknown) => Promise<unknown>;
 }[] = [];
 const recordCalendarCommand =
-  vi.fn<
-    (
-      command: CalendarPlanningCommandDescription,
-      replay: CalendarPlanningReplayAdapter,
-    ) => void
-  >();
+  vi.fn<(command: CalendarPlanningCommand) => void>();
 
 vi.mock("convex/react", () => ({
   useMutation: () => {
@@ -166,10 +159,6 @@ describe("calendar planning workbench", () => {
     );
     expect(recordCalendarCommand).toHaveBeenCalledWith(
       expect.objectContaining({ label: "Termin erstellt" }),
-      expect.objectContaining({
-        redo: expect.any(Function),
-        undo: expect.any(Function),
-      }),
     );
   });
 
@@ -249,9 +238,11 @@ describe("calendar planning workbench", () => {
     });
 
     const command = recordCalendarCommand.mock.calls[0]?.[0];
-    const replay = recordCalendarCommand.mock.calls[0]?.[1];
     expect(command?.label).toBe("Sperrung erstellt");
-    const redoResult = await replay?.redo();
+    if (!command) {
+      throw new Error("Expected a recorded calendar command");
+    }
+    const redoResult = await executeCalendarPlanningCommand(command, "redo");
     expect(redoResult).toEqual(
       expect.objectContaining({
         status: "conflict",
