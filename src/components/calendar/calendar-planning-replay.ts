@@ -69,6 +69,10 @@ export interface CalendarPlanningCommandExecutorContext {
     currentId: Id<"appointments">;
     originalId: Id<"appointments">;
   }) => void;
+  rememberRecreatedBlockedSlotId: (args: {
+    currentId: Id<"blockedSlots">;
+    originalId: Id<"blockedSlots">;
+  }) => void;
   resolveAppointmentReferenceDisplayIds: (refs: {
     appointmentTypeLineageKey: AppointmentTypeLineageKey;
     placement: CalendarAppointmentPlacement;
@@ -80,6 +84,7 @@ export interface CalendarPlanningCommandExecutorContext {
       | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
   };
   resolveCurrentAppointmentId: (id: Id<"appointments">) => Id<"appointments">;
+  resolveCurrentBlockedSlotId: (id: Id<"blockedSlots">) => Id<"blockedSlots">;
   runCreateAppointmentInternal: (
     args: CreateAppointmentMutationArgs,
   ) => Promise<Id<"appointments"> | null>;
@@ -511,6 +516,7 @@ async function executeBlockedSlotCreateCommand(
       };
     }
 
+    const originalBlockedSlotId = payload.currentBlockedSlotId;
     const recreatedId = await context.runCreateBlockedSlotInternal(
       payload.createArgs,
     );
@@ -519,6 +525,10 @@ async function executeBlockedSlotCreateCommand(
     }
 
     payload.currentBlockedSlotId = recreatedId;
+    context.rememberRecreatedBlockedSlotId({
+      currentId: recreatedId,
+      originalId: originalBlockedSlotId,
+    });
     context.rememberCreatedBlockedSlotHistoryDoc({
       blockedSlotId: recreatedId,
       end: payload.createArgs.end,
@@ -607,6 +617,9 @@ async function executeBlockedSlotUpdateCommand(
   context: CalendarPlanningCommandExecutorContext,
 ): Promise<CalendarPlanningReplayResult> {
   const { payload } = command;
+  const currentBlockedSlotId = context.resolveCurrentBlockedSlotId(
+    payload.blockedSlotId,
+  );
   const candidatePayload = (state: BlockedSlotState): BlockedSlotCandidate => ({
     end: state.end,
     isSimulation: payload.before.isSimulation ?? false,
@@ -625,7 +638,7 @@ async function executeBlockedSlotUpdateCommand(
 
     await context.runUpdateBlockedSlotInternal({
       end: state.end,
-      id: payload.blockedSlotId,
+      id: currentBlockedSlotId,
       locationId: displayRefs.locationId,
       occupancyScope: displayRefs.occupancyScope,
       start: state.start,
@@ -636,7 +649,7 @@ async function executeBlockedSlotUpdateCommand(
 
   if (operation === "redo") {
     await context.ensureLatestConflictData();
-    const current = context.getCurrentBlockedSlotDoc(payload.blockedSlotId);
+    const current = context.getCurrentBlockedSlotDoc(currentBlockedSlotId);
     if (!current) {
       return {
         message:
@@ -659,7 +672,7 @@ async function executeBlockedSlotUpdateCommand(
     if (
       context.hasBlockedSlotConflict(
         candidatePayload(payload.afterState),
-        payload.blockedSlotId,
+        currentBlockedSlotId,
       )
     ) {
       return {
@@ -681,7 +694,7 @@ async function executeBlockedSlotUpdateCommand(
   }
 
   await context.ensureLatestConflictData();
-  const current = context.getCurrentBlockedSlotDoc(payload.blockedSlotId);
+  const current = context.getCurrentBlockedSlotDoc(currentBlockedSlotId);
   if (!current) {
     return {
       message:
@@ -704,7 +717,7 @@ async function executeBlockedSlotUpdateCommand(
   if (
     context.hasBlockedSlotConflict(
       candidatePayload(payload.beforeState),
-      payload.blockedSlotId,
+      currentBlockedSlotId,
     )
   ) {
     return {

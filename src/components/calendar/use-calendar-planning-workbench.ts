@@ -252,6 +252,9 @@ export function useCalendarPlanningWorkbench(args: {
   const blockedSlotHistoryDocMapRef = useRef(
     new Map<Id<"blockedSlots">, CalendarBlockedSlotRecord>(),
   );
+  const recreatedBlockedSlotIdByOriginalIdRef = useRef(
+    new Map<Id<"blockedSlots">, Id<"blockedSlots">>(),
+  );
   const deletedBlockedSlotIdsRef = useRef(new Set<Id<"blockedSlots">>());
 
   useEffect(() => {
@@ -333,6 +336,23 @@ export function useCalendarPlanningWorkbench(args: {
     [],
   );
 
+  const resolveCurrentBlockedSlotId = useCallback((id: Id<"blockedSlots">) => {
+    return recreatedBlockedSlotIdByOriginalIdRef.current.get(id) ?? id;
+  }, []);
+
+  const rememberRecreatedBlockedSlotId = useCallback(
+    (args: {
+      currentId: Id<"blockedSlots">;
+      originalId: Id<"blockedSlots">;
+    }) => {
+      recreatedBlockedSlotIdByOriginalIdRef.current.set(
+        args.originalId,
+        args.currentId,
+      );
+    },
+    [],
+  );
+
   const getCurrentAppointmentDoc = useCallback(
     (id: Id<"appointments">) =>
       getCurrentCalendarRecordById({
@@ -347,17 +367,22 @@ export function useCalendarPlanningWorkbench(args: {
 
   const getBlockedSlotHistoryDoc = useCallback(
     (id: Id<"blockedSlots">) => {
-      if (deletedBlockedSlotIdsRef.current.has(id)) {
+      const currentId = resolveCurrentBlockedSlotId(id);
+      if (deletedBlockedSlotIdsRef.current.has(currentId)) {
         return;
       }
 
       return (
-        blockedSlotHistoryDocMapRef.current.get(id) ??
-        args.activeDayBlockedSlotMapRef.current.get(id) ??
-        args.allPracticeBlockedSlotMapRef.current.get(id)
+        blockedSlotHistoryDocMapRef.current.get(currentId) ??
+        args.activeDayBlockedSlotMapRef.current.get(currentId) ??
+        args.allPracticeBlockedSlotMapRef.current.get(currentId)
       );
     },
-    [args.activeDayBlockedSlotMapRef, args.allPracticeBlockedSlotMapRef],
+    [
+      args.activeDayBlockedSlotMapRef,
+      args.allPracticeBlockedSlotMapRef,
+      resolveCurrentBlockedSlotId,
+    ],
   );
 
   const getCurrentBlockedSlotDoc = useCallback(
@@ -1851,8 +1876,10 @@ export function useCalendarPlanningWorkbench(args: {
       rememberCreatedAppointmentFromStrings,
       rememberCreatedBlockedSlotHistoryDoc,
       rememberRecreatedAppointmentId,
+      rememberRecreatedBlockedSlotId,
       resolveAppointmentReferenceDisplayIds,
       resolveCurrentAppointmentId,
+      resolveCurrentBlockedSlotId,
       runCreateAppointmentInternal,
       runCreateBlockedSlotInternal,
       runDeleteAppointmentInternal,
@@ -1871,11 +1898,13 @@ export function useCalendarPlanningWorkbench(args: {
     referenceMaps,
     rememberAppointmentHistoryDoc,
     rememberRecreatedAppointmentId,
+    rememberRecreatedBlockedSlotId,
     rememberBlockedSlotHistoryDoc,
     rememberCreatedAppointmentFromStrings,
     rememberCreatedBlockedSlotHistoryDoc,
     resolveAppointmentReferenceDisplayIds,
     resolveCurrentAppointmentId,
+    resolveCurrentBlockedSlotId,
     runCreateAppointmentInternal,
     runCreateBlockedSlotInternal,
     runDeleteAppointmentInternal,
