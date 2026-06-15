@@ -40,14 +40,10 @@ import {
   findFrontendEntityByLineageKey,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
+import { recordPractitionerDependencyDeleteReplayCommand } from "../utils/practitioner-dependency-delete-replay";
 import {
-  createPractitionerDependencyDeleteReplayAdapter,
-  recordPractitionerDependencyDeleteReplayCommand,
-} from "../utils/practitioner-dependency-delete-replay";
-import {
-  createNamedLineageCreateReplayAdapter,
-  createNamedLineageUpdateReplayAdapter,
-  recordNamedLineageReplayCommand,
+  recordNamedLineageCreateRuleSetCommand,
+  recordNamedLineageUpdateRuleSetCommand,
 } from "../utils/rule-set-named-lineage-replay";
 import {
   createRuleSetNamedLineageCommand,
@@ -168,11 +164,11 @@ export default function PractitionerManagement({
           lineageKey: currentSnapshot.practitioner.lineageKey,
         },
       });
-      const replay = createPractitionerDependencyDeleteReplayAdapter<
+      recordPractitionerDependencyDeleteReplayCommand<
         Id<"practitioners">,
         Id<"practitioners">,
         typeof currentSnapshot
-      >({
+      >(onRecordCommand, command, {
         deleteWithDependencies: async (args) => {
           const result = await deleteWithDependenciesMutation({
             practiceId,
@@ -203,11 +199,6 @@ export default function PractitionerManagement({
           };
         },
       });
-      recordPractitionerDependencyDeleteReplayCommand(
-        onRecordCommand,
-        command,
-        replay,
-      );
       toast.success("Arzt gelöscht");
     } catch (error: unknown) {
       captureError(error, {
@@ -414,7 +405,7 @@ function PractitionerDialog({
               lineageKey: practitionerLineageKey,
             },
           });
-          const replay = createNamedLineageUpdateReplayAdapter({
+          recordNamedLineageUpdateRuleSetCommand(onRecordCommand, {
             command,
             entitiesRef: practitionersRef,
             initialEntityId: asPractitionerId(updateResult.entityId),
@@ -450,7 +441,6 @@ function PractitionerDialog({
             undoMissingMessage:
               "Der Arzt wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
           });
-          recordNamedLineageReplayCommand(onRecordCommand, command, replay);
 
           toast.success("Arzt aktualisiert");
         } else {
@@ -484,7 +474,7 @@ function PractitionerDialog({
               lineageKey: practitionerLineageKey,
             },
           });
-          const replay = createNamedLineageCreateReplayAdapter({
+          recordNamedLineageCreateRuleSetCommand(onRecordCommand, {
             command,
             entitiesRef: practitionersRef,
             initialEntityId: entityId,
@@ -515,7 +505,6 @@ function PractitionerDialog({
               return { entityId: asPractitionerId(undoResult.entityId) };
             },
           });
-          recordNamedLineageReplayCommand(onRecordCommand, command, replay);
           toast.success("Arzt erstellt");
         }
 

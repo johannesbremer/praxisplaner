@@ -107,10 +107,26 @@ export function createPractitionerDependencyDeleteReplayAdapter<
   };
 }
 
-export function recordPractitionerDependencyDeleteReplayCommand(
+export function recordPractitionerDependencyDeleteReplayCommand<
+  TPractitionerId extends string,
+  TPractitionerLineageKey extends string,
+  TSnapshot extends {
+    practitioner: {
+      id: TPractitionerId;
+      lineageKey: TPractitionerLineageKey;
+    };
+  },
+>(
   record: RecordRuleSetCommand | undefined,
   command: RuleSetCommandDescription,
-  replay: RuleSetReplayAdapter,
+  params: Parameters<
+    typeof createPractitionerDependencyDeleteReplayAdapter<
+      TPractitionerId,
+      TPractitionerLineageKey,
+      TSnapshot
+    >
+  >[0],
 ): void {
+  const replay = createPractitionerDependencyDeleteReplayAdapter(params);
   recordRuleSetCommand(record, command, replay);
 }

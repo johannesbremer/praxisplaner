@@ -40,10 +40,7 @@ import {
 import { api } from "@/convex/_generated/api";
 import { asBaseScheduleId, asBaseScheduleLineageKey } from "@/convex/identity";
 
-import {
-  createBaseScheduleReplaceSetReplay,
-  recordBaseScheduleReplayCommand,
-} from "../utils/base-schedule-replay";
+import { recordBaseScheduleReplayCommand } from "../utils/base-schedule-replay";
 import {
   ruleSetIdFromReplayTarget,
   useRuleSetReplayTargetController,
@@ -293,7 +290,7 @@ export default function BaseScheduleManagement({
             ruleSetId,
           },
         });
-        const replay = createBaseScheduleReplaceSetReplay({
+        recordBaseScheduleReplayCommand(onRecordCommand, command, {
           after: [],
           before: deletedSchedulePayloads,
           getCowMutationArgs,
@@ -310,7 +307,6 @@ export default function BaseScheduleManagement({
             }),
           schedulesRef,
         });
-        recordBaseScheduleReplayCommand(onRecordCommand, command, replay);
       }
     } catch (error: unknown) {
       captureError(error, {
@@ -1006,7 +1002,7 @@ function BaseScheduleDialog({
               ruleSetId,
             },
           });
-          const replay = createBaseScheduleReplaceSetReplay({
+          recordBaseScheduleReplayCommand(onRecordCommand, command, {
             after: createdSchedulePayloads,
             before: [],
             getCowMutationArgs: getLocalCowMutationArgs,
@@ -1018,7 +1014,6 @@ function BaseScheduleDialog({
             runCreateScheduleBatch,
             schedulesRef,
           });
-          recordBaseScheduleReplayCommand(onRecordCommand, command, replay);
         }
 
         if (schedule && createdSchedulePayloads.length > 0) {
@@ -1039,7 +1034,7 @@ function BaseScheduleDialog({
               ruleSetId,
             },
           });
-          const replay = createBaseScheduleReplaceSetReplay({
+          recordBaseScheduleReplayCommand(onRecordCommand, command, {
             after: createdSchedulePayloads,
             before: oldSchedulePayloads,
             getCowMutationArgs: getLocalCowMutationArgs,
@@ -1051,7 +1046,6 @@ function BaseScheduleDialog({
             runCreateScheduleBatch,
             schedulesRef,
           });
-          recordBaseScheduleReplayCommand(onRecordCommand, command, replay);
         }
         onClose();
       } catch (error: unknown) {

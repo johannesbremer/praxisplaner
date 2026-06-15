@@ -53,10 +53,7 @@ import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 import type { RecordRuleSetCommand } from "../utils/rule-set-replay";
 
 import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
-import {
-  createAbsenceDayReplayAdapter,
-  recordAbsenceReplayCommand,
-} from "../utils/absence-replay";
+import { recordAbsenceReplayCommand } from "../utils/absence-replay";
 import { dispatchCustomEvent } from "../utils/browser-api";
 import {
   ruleSetIdFromReplayTarget,
@@ -73,9 +70,8 @@ import {
   getPublicHolidaysData,
 } from "../utils/public-holidays";
 import {
-  createNamedLineageCreateReplayAdapter,
-  createNamedLineageDeleteReplayAdapter,
-  recordNamedLineageReplayCommand,
+  recordNamedLineageCreateRuleSetCommand,
+  recordNamedLineageDeleteRuleSetCommand,
 } from "../utils/rule-set-named-lineage-replay";
 import {
   createRuleSetAbsenceCommand,
@@ -699,7 +695,7 @@ export function VacationScheduler({
         lineageKey: staff.lineageKey,
       },
     });
-    const replay = createAbsenceDayReplayAdapter({
+    recordAbsenceReplayCommand(onRecordCommand, command, {
       date,
       nextPortions,
       nextSnapshots,
@@ -707,7 +703,6 @@ export function VacationScheduler({
       setAbsencesForDay: setVacationsForDay,
       staff,
     });
-    recordAbsenceReplayCommand(onRecordCommand, command, replay);
   };
 
   const handleCreateMfa = async () => {
@@ -746,7 +741,7 @@ export function VacationScheduler({
           lineageKey,
         },
       });
-      const replay = createNamedLineageCreateReplayAdapter({
+      recordNamedLineageCreateRuleSetCommand(onRecordCommand, {
         command,
         entitiesRef: mfasRef,
         initialEntityId: asMfaId(result.entityId),
@@ -818,7 +813,6 @@ export function VacationScheduler({
           }
         },
       });
-      recordNamedLineageReplayCommand(onRecordCommand, command, replay);
       toast.success("MFA hinzugefügt");
     } catch (error) {
       toast.error("MFA konnte nicht angelegt werden", {
@@ -865,7 +859,7 @@ export function VacationScheduler({
           lineageKey,
         },
       });
-      const replay = createNamedLineageDeleteReplayAdapter({
+      recordNamedLineageDeleteRuleSetCommand(onRecordCommand, {
         command,
         entitiesRef: mfasRef,
         initialEntityId: currentMfa._id,
@@ -917,7 +911,6 @@ export function VacationScheduler({
           }
         },
       });
-      recordNamedLineageReplayCommand(onRecordCommand, command, replay);
       toast.success("MFA entfernt");
     } catch (error) {
       toast.error("MFA konnte nicht entfernt werden", {

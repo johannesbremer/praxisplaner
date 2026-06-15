@@ -151,10 +151,27 @@ export function createLocationDependencyDeleteReplayAdapter<
   };
 }
 
-export function recordLocationDependencyDeleteReplayCommand(
+export function recordLocationDependencyDeleteReplayCommand<
+  TLocationId extends string,
+  TLocationLineageKey extends string,
+  TScheduleLineageKey extends string,
+  TPractitionerId extends string,
+  TPractitionerLineageKey extends string,
+  TSchedulePayload,
+>(
   record: RecordRuleSetCommand | undefined,
   command: RuleSetCommandDescription,
-  replay: RuleSetReplayAdapter,
+  params: Parameters<
+    typeof createLocationDependencyDeleteReplayAdapter<
+      TLocationId,
+      TLocationLineageKey,
+      TScheduleLineageKey,
+      TPractitionerId,
+      TPractitionerLineageKey,
+      TSchedulePayload
+    >
+  >[0],
 ): void {
+  const replay = createLocationDependencyDeleteReplayAdapter(params);
   recordRuleSetCommand(record, command, replay);
 }

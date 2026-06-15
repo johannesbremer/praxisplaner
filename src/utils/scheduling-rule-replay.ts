@@ -323,10 +323,29 @@ export function createSchedulingRuleUpdateReplayAdapter(params: {
   }
 }
 
-export function recordSchedulingRuleReplayCommand(
+export function recordSchedulingRuleCreateReplayCommand(
   record: RecordRuleSetCommand | undefined,
   command: RuleSetSchedulingRuleCommand,
-  replay: RuleSetReplayAdapter,
+  params: Parameters<typeof createSchedulingRuleCreateReplayAdapter>[0],
 ): void {
+  const replay = createSchedulingRuleCreateReplayAdapter(params);
+  recordRuleSetCommand(record, command, replay);
+}
+
+export function recordSchedulingRuleDeleteReplayCommand(
+  record: RecordRuleSetCommand | undefined,
+  command: RuleSetSchedulingRuleCommand,
+  params: Parameters<typeof createSchedulingRuleDeleteReplayAdapter>[0],
+): void {
+  const replay = createSchedulingRuleDeleteReplayAdapter(params);
+  recordRuleSetCommand(record, command, replay);
+}
+
+export function recordSchedulingRuleUpdateReplayCommand(
+  record: RecordRuleSetCommand | undefined,
+  command: RuleSetSchedulingRuleCommand,
+  params: Parameters<typeof createSchedulingRuleUpdateReplayAdapter>[0],
+): void {
+  const replay = createSchedulingRuleUpdateReplayAdapter(params);
   recordRuleSetCommand(record, command, replay);
 }

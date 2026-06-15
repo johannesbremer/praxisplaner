@@ -69,10 +69,18 @@ export function createAbsenceReplayAdapter(params: {
   };
 }
 
-export function recordAbsenceReplayCommand(
+export function recordAbsenceReplayCommand<
+  TStaff,
+  TDate,
+  TPortion,
+  TSnapshot extends { portion: TPortion },
+>(
   record: RecordRuleSetCommand | undefined,
   command: RuleSetAbsenceCommand,
-  replay: RuleSetReplayAdapter,
+  params: Parameters<
+    typeof createAbsenceDayReplayAdapter<TStaff, TDate, TPortion, TSnapshot>
+  >[0],
 ): void {
+  const replay = createAbsenceDayReplayAdapter(params);
   recordRuleSetCommand(record, command, replay);
 }

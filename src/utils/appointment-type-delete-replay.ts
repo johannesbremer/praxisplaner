@@ -118,10 +118,31 @@ export function createAppointmentTypeDeleteReplayAdapter<
   };
 }
 
-export function recordAppointmentTypeDeleteReplayCommand(
+export function recordAppointmentTypeDeleteReplayCommand<
+  TAppointmentTypeId extends string,
+  TAppointmentTypeLineageKey extends string,
+  TPractitionerId extends string,
+  TFolderId extends string,
+  TRuleSetId extends string,
+  TSnapshot,
+  TCreateArgs,
+  TRestoredAppointmentType extends { _id: TAppointmentTypeId },
+>(
   record: RecordRuleSetCommand | undefined,
   command: RuleSetCommandDescription,
-  replay: RuleSetReplayAdapter,
+  params: Parameters<
+    typeof createAppointmentTypeDeleteReplayAdapter<
+      TAppointmentTypeId,
+      TAppointmentTypeLineageKey,
+      TPractitionerId,
+      TFolderId,
+      TRuleSetId,
+      TSnapshot,
+      TCreateArgs,
+      TRestoredAppointmentType
+    >
+  >[0],
 ): void {
+  const replay = createAppointmentTypeDeleteReplayAdapter(params);
   recordRuleSetCommand(record, command, replay);
 }

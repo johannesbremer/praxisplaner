@@ -70,10 +70,21 @@ export function createAppointmentTypeFolderSubtreeDeleteReplayAdapter<
   };
 }
 
-export function recordAppointmentTypeFolderSubtreeReplayCommand(
+export function recordAppointmentTypeFolderSubtreeReplayCommand<
+  TFolderId extends string,
+  TFolderLineageKey extends string,
+  TAppointmentTypeLineageKey extends string,
+>(
   record: RecordRuleSetCommand | undefined,
   command: RuleSetCommandDescription,
-  replay: RuleSetReplayAdapter,
+  params: Parameters<
+    typeof createAppointmentTypeFolderSubtreeDeleteReplayAdapter<
+      TFolderId,
+      TFolderLineageKey,
+      TAppointmentTypeLineageKey
+    >
+  >[0],
 ): void {
+  const replay = createAppointmentTypeFolderSubtreeDeleteReplayAdapter(params);
   recordRuleSetCommand(record, command, replay);
 }

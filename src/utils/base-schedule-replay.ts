@@ -195,7 +195,8 @@ export function createBaseScheduleReplaceSetReplay(params: {
 export function recordBaseScheduleReplayCommand(
   record: RecordRuleSetCommand | undefined,
   command: RuleSetCommandDescription,
-  replay: RuleSetReplayAdapter,
+  params: Parameters<typeof createBaseScheduleReplaceSetReplay>[0],
 ): void {
+  const replay = createBaseScheduleReplaceSetReplay(params);
   recordRuleSetCommand(record, command, replay);
 }

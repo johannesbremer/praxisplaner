@@ -50,14 +50,10 @@ import {
   findFrontendEntityByLineageKey,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
+import { recordLocationDependencyDeleteReplayCommand } from "../utils/location-dependency-delete-replay";
 import {
-  createLocationDependencyDeleteReplayAdapter,
-  recordLocationDependencyDeleteReplayCommand,
-} from "../utils/location-dependency-delete-replay";
-import {
-  createNamedLineageCreateReplayAdapter,
-  createNamedLineageUpdateReplayAdapter,
-  recordNamedLineageReplayCommand,
+  recordNamedLineageCreateRuleSetCommand,
+  recordNamedLineageUpdateRuleSetCommand,
 } from "../utils/rule-set-named-lineage-replay";
 import {
   createRuleSetNamedLineageCommand,
@@ -225,7 +221,7 @@ export function LocationsManagement({
               lineageKey: editingLocation.lineageKey,
             },
           });
-          const replay = createNamedLineageUpdateReplayAdapter({
+          recordNamedLineageUpdateRuleSetCommand(onRecordCommand, {
             command,
             entitiesRef: locationsRef,
             initialEntityId: asLocationId(updateResult.entityId),
@@ -261,7 +257,6 @@ export function LocationsManagement({
             undoMissingMessage:
               "Der Standort wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
           });
-          recordNamedLineageReplayCommand(onRecordCommand, command, replay);
 
           toast.success("Standort aktualisiert", {
             description: `Standort "${value.name}" wurde erfolgreich aktualisiert.`,
@@ -297,7 +292,7 @@ export function LocationsManagement({
               lineageKey: locationLineageKey,
             },
           });
-          const replay = createNamedLineageCreateReplayAdapter({
+          recordNamedLineageCreateRuleSetCommand(onRecordCommand, {
             command,
             entitiesRef: locationsRef,
             initialEntityId: entityId,
@@ -329,7 +324,6 @@ export function LocationsManagement({
               return { entityId: asLocationId(undoResult.entityId) };
             },
           });
-          recordNamedLineageReplayCommand(onRecordCommand, command, replay);
 
           toast.success("Standort erstellt", {
             description: `Standort "${value.name}" wurde erfolgreich erstellt.`,
@@ -451,7 +445,7 @@ export function LocationsManagement({
             lineageKey: deletedSnapshot.lineageKey,
           },
         });
-        const replay = createLocationDependencyDeleteReplayAdapter({
+        recordLocationDependencyDeleteReplayCommand(onRecordCommand, command, {
           createBaseSchedules: async (
             schedules: Parameters<
               typeof createBaseScheduleBatchMutation
@@ -523,11 +517,6 @@ export function LocationsManagement({
             startTime: schedule.startTime,
           }),
         });
-        recordLocationDependencyDeleteReplayCommand(
-          onRecordCommand,
-          command,
-          replay,
-        );
       }
 
       toast.success("Standort gelöscht", {

@@ -33,10 +33,9 @@ import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
 import { createRuleSetSchedulingRuleCommand } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
-  createSchedulingRuleCreateReplayAdapter,
-  createSchedulingRuleDeleteReplayAdapter,
-  createSchedulingRuleUpdateReplayAdapter,
-  recordSchedulingRuleReplayCommand,
+  recordSchedulingRuleCreateReplayCommand,
+  recordSchedulingRuleDeleteReplayCommand,
+  recordSchedulingRuleUpdateReplayCommand,
 } from "../utils/scheduling-rule-replay";
 import { RuleEditDialog } from "./rule-builder-editor";
 
@@ -310,7 +309,7 @@ export function RuleBuilder({
             entityId: ruleId,
           },
         });
-        const replay = createSchedulingRuleDeleteReplayAdapter({
+        recordSchedulingRuleDeleteReplayCommand(onRecordCommand, command, {
           context: createRuleReplayContext(),
           deletedRule,
           deletedRuleLineageTree,
@@ -318,7 +317,6 @@ export function RuleBuilder({
           deletedRuleState,
           initialRuleId: ruleId,
         });
-        recordSchedulingRuleReplayCommand(onRecordCommand, command, replay);
       }
     } catch (error) {
       console.error("Failed to delete rule:", error);
@@ -481,21 +479,20 @@ export function RuleBuilder({
                   entityId: currentRuleId,
                 },
               });
-              const replay = createSchedulingRuleUpdateReplayAdapter({
-                context: createRuleReplayContext(),
-                currentRuleLineageTree,
-                currentRuleState,
-                initialRuleId: currentRuleId,
-                previousRule,
-                previousRuleLineageTree,
-                previousRuleName,
-                previousRuleState,
-                ruleName,
-              });
-              recordSchedulingRuleReplayCommand(
+              recordSchedulingRuleUpdateReplayCommand(
                 onRecordCommand,
                 command,
-                replay,
+                {
+                  context: createRuleReplayContext(),
+                  currentRuleLineageTree,
+                  currentRuleState,
+                  initialRuleId: currentRuleId,
+                  previousRule,
+                  previousRuleLineageTree,
+                  previousRuleName,
+                  previousRuleState,
+                  ruleName,
+                },
               );
             } else {
               const createdRuleLineageTree = normalizeConditionTreeToLineage(
@@ -524,16 +521,15 @@ export function RuleBuilder({
                   entityId: currentRuleId,
                 },
               });
-              const replay = createSchedulingRuleCreateReplayAdapter({
-                context: createRuleReplayContext(),
-                createdRuleLineageTree,
-                initialRuleId: currentRuleId,
-                ruleName,
-              });
-              recordSchedulingRuleReplayCommand(
+              recordSchedulingRuleCreateReplayCommand(
                 onRecordCommand,
                 command,
-                replay,
+                {
+                  context: createRuleReplayContext(),
+                  createdRuleLineageTree,
+                  initialRuleId: currentRuleId,
+                  ruleName,
+                },
               );
             }
 

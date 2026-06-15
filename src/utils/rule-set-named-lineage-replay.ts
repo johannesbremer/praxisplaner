@@ -277,12 +277,53 @@ export function createNamedLineageUpdateReplayAdapter<
   };
 }
 
-export function recordNamedLineageReplayCommand(
+export function recordNamedLineageCreateRuleSetCommand<
+  TEntityId extends string,
+  TLineageKey extends string,
+  TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
+>(
   record: RecordRuleSetCommand | undefined,
-  command: RuleSetNamedLineageCommand,
-  replay: RuleSetReplayAdapter,
+  params: NamedLineageCreateReplayParams<TEntityId, TLineageKey, TEntity>,
 ): void {
-  recordRuleSetCommand(record, command, replay);
+  recordRuleSetCommand(
+    record,
+    params.command,
+    createNamedLineageCreateReplayAdapter(params),
+  );
+}
+
+export function recordNamedLineageDeleteRuleSetCommand<
+  TEntityId extends string,
+  TLineageKey extends string,
+  TEntity extends LineageTrackedEntity<TEntityId, TLineageKey> & {
+    name: string;
+  },
+>(
+  record: RecordRuleSetCommand | undefined,
+  params: NamedLineageDeleteReplayParams<TEntityId, TLineageKey, TEntity>,
+): void {
+  recordRuleSetCommand(
+    record,
+    params.command,
+    createNamedLineageDeleteReplayAdapter(params),
+  );
+}
+
+export function recordNamedLineageUpdateRuleSetCommand<
+  TEntityId extends string,
+  TLineageKey extends string,
+  TEntity extends LineageTrackedEntity<TEntityId, TLineageKey> & {
+    name: string;
+  },
+>(
+  record: RecordRuleSetCommand | undefined,
+  params: NamedLineageUpdateReplayParams<TEntityId, TLineageKey, TEntity>,
+): void {
+  recordRuleSetCommand(
+    record,
+    params.command,
+    createNamedLineageUpdateReplayAdapter(params),
+  );
 }
 
 function isLedgerResult<TId extends string>(
