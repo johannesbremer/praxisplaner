@@ -499,20 +499,18 @@ export function LocationsManagement({
             location: deletedSnapshot,
           },
           toSchedulePayload: ({
-            locationId: restoredLocationId,
             locationLineageKey,
-            practitionerId,
             schedule,
-          }) => ({
+          }): Parameters<
+            typeof createBaseScheduleBatchMutation
+          >[0]["schedules"][number] => ({
             ...(schedule.breakTimes && {
               breakTimes: schedule.breakTimes,
             }),
             dayOfWeek: schedule.dayOfWeek,
             endTime: schedule.endTime,
             lineageKey: schedule.lineageKey,
-            locationId: restoredLocationId,
             locationLineageId: locationLineageKey,
-            practitionerId,
             practitionerLineageId: schedule.practitionerLineageKey,
             startTime: schedule.startTime,
           }),
