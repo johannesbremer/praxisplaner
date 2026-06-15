@@ -66,6 +66,32 @@ interface ResolveReplayEntitySuccess<
   status: "ok";
 }
 
+export function keepFreshestRuleSetReplayTarget(
+  current: RuleSetReplayTarget,
+  incoming: RuleSetReplayTarget,
+): RuleSetReplayTarget {
+  if (current.kind !== "draft") {
+    return incoming;
+  }
+
+  if (
+    incoming.kind === "saved-parent" &&
+    incoming.parentRuleSetId === current.parentRuleSetId
+  ) {
+    return current;
+  }
+
+  if (
+    incoming.kind === "draft" &&
+    incoming.draftRuleSetId === current.draftRuleSetId &&
+    incoming.draftRevision < current.draftRevision
+  ) {
+    return current;
+  }
+
+  return incoming;
+}
+
 export function resolveReplayEntity<
   TEntityId extends string,
   TLineageKey extends string,
@@ -148,7 +174,10 @@ export function useRuleSetReplayTargetController(params: {
   const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
 
   useEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
+    ruleSetReplayTargetRef.current = keepFreshestRuleSetReplayTarget(
+      ruleSetReplayTargetRef.current,
+      ruleSetReplayTarget,
+    );
   }, [ruleSetReplayTarget]);
 
   const getCowMutationArgs = useCallback(
