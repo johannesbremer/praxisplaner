@@ -223,8 +223,13 @@ export function useCalendarPlanningWorkbench(args: {
       return;
     }
 
-    for (const id of appointmentHistoryDocMapRef.current.keys()) {
-      if (isOptimisticId(id) || args.allPracticeAppointmentMap.has(id)) {
+    for (const [id, historyDoc] of appointmentHistoryDocMapRef.current) {
+      const queryDoc = args.allPracticeAppointmentMap.get(id);
+      if (
+        isOptimisticId(id) ||
+        (queryDoc !== undefined &&
+          queryDoc.lastModified >= historyDoc.lastModified)
+      ) {
         appointmentHistoryDocMapRef.current.delete(id);
       }
     }
@@ -239,8 +244,13 @@ export function useCalendarPlanningWorkbench(args: {
       return;
     }
 
-    for (const id of blockedSlotHistoryDocMapRef.current.keys()) {
-      if (isOptimisticId(id) || args.allPracticeBlockedSlotMap.has(id)) {
+    for (const [id, historyDoc] of blockedSlotHistoryDocMapRef.current) {
+      const queryDoc = args.allPracticeBlockedSlotMap.get(id);
+      if (
+        isOptimisticId(id) ||
+        (queryDoc !== undefined &&
+          queryDoc.lastModified >= historyDoc.lastModified)
+      ) {
         blockedSlotHistoryDocMapRef.current.delete(id);
       }
     }

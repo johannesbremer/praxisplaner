@@ -49,9 +49,9 @@ export function getCurrentCalendarRecordById<T extends { _id: string }>(args: {
   }
 
   return (
-    args.allPracticeMap.get(args.id) ??
+    args.historyMap.get(args.id) ??
     args.activeDayMap?.get(args.id) ??
-    args.historyMap.get(args.id)
+    args.allPracticeMap.get(args.id)
   );
 }
 
@@ -126,7 +126,7 @@ export function mergeCurrentConflictRecordsByIdExcluding<
   historyMap: ReadonlyMap<string, T>;
 }): T[] {
   return mergeConflictRecordsByIdExcluding({
-    maps: [args.historyMap, args.allPracticeMap],
+    maps: [args.allPracticeMap, args.historyMap],
     ...(args.excludedIds === undefined
       ? {}
       : { excludedIds: args.excludedIds }),
