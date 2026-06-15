@@ -72,6 +72,47 @@ import { useCalendarPlanningHistory } from "./use-calendar-planning-history";
 const appointmentQueryRef = api.appointments.getCalendarDayAppointments;
 const blockedSlotQueryRef = api.appointments.getCalendarDayBlockedSlots;
 
+export const resolveCurrentAliasId = <TId extends string>(
+  aliasesByOriginalId: ReadonlyMap<TId, TId>,
+  id: TId,
+): TId => {
+  const seen = new Set<TId>();
+  let current = id;
+
+  while (!seen.has(current)) {
+    seen.add(current);
+    const next = aliasesByOriginalId.get(current);
+    if (next === undefined) {
+      return current;
+    }
+    current = next;
+  }
+
+  return current;
+};
+
+export const rememberRecreatedAliasId = <TId extends string>(
+  aliasesByOriginalId: Map<TId, TId>,
+  args: { currentId: TId; originalId: TId },
+) => {
+  const previousCurrentId = resolveCurrentAliasId(
+    aliasesByOriginalId,
+    args.originalId,
+  );
+
+  for (const [originalId, currentId] of aliasesByOriginalId) {
+    if (
+      resolveCurrentAliasId(aliasesByOriginalId, currentId) ===
+      previousCurrentId
+    ) {
+      aliasesByOriginalId.set(originalId, args.currentId);
+    }
+  }
+
+  aliasesByOriginalId.set(args.originalId, args.currentId);
+  aliasesByOriginalId.set(previousCurrentId, args.currentId);
+};
+
 export type CalendarAppointmentCreateCommandArgs =
   CalendarAppointmentCreateCommandBase &
     (
@@ -158,6 +199,7 @@ const blockedSlotHistoryMatchesQuery = (
   );
 
 const clearQueuedAppointmentUpdate = () => void 0;
+const clearQueuedBlockedSlotUpdate = () => void 0;
 
 interface CalendarRecordRef<T> {
   current: T;
@@ -256,6 +298,7 @@ export function useCalendarPlanningWorkbench(args: {
     new Map<Id<"blockedSlots">, Id<"blockedSlots">>(),
   );
   const deletedBlockedSlotIdsRef = useRef(new Set<Id<"blockedSlots">>());
+  const blockedSlotUpdateQueueRef = useRef(Promise.resolve());
 
   useEffect(() => {
     if (!args.allPracticeAppointmentsLoaded) {
@@ -300,7 +343,10 @@ export function useCalendarPlanningWorkbench(args: {
   }, [args.allPracticeBlockedSlotMap, args.allPracticeBlockedSlotsLoaded]);
 
   const resolveCurrentAppointmentId = useCallback((id: Id<"appointments">) => {
-    return recreatedAppointmentIdByOriginalIdRef.current.get(id) ?? id;
+    return resolveCurrentAliasId(
+      recreatedAppointmentIdByOriginalIdRef.current,
+      id,
+    );
   }, []);
 
   const getAppointmentHistoryDoc = useCallback(
@@ -328,16 +374,19 @@ export function useCalendarPlanningWorkbench(args: {
       currentId: Id<"appointments">;
       originalId: Id<"appointments">;
     }) => {
-      recreatedAppointmentIdByOriginalIdRef.current.set(
-        args.originalId,
-        args.currentId,
+      rememberRecreatedAliasId(
+        recreatedAppointmentIdByOriginalIdRef.current,
+        args,
       );
     },
     [],
   );
 
   const resolveCurrentBlockedSlotId = useCallback((id: Id<"blockedSlots">) => {
-    return recreatedBlockedSlotIdByOriginalIdRef.current.get(id) ?? id;
+    return resolveCurrentAliasId(
+      recreatedBlockedSlotIdByOriginalIdRef.current,
+      id,
+    );
   }, []);
 
   const rememberRecreatedBlockedSlotId = useCallback(
@@ -345,9 +394,9 @@ export function useCalendarPlanningWorkbench(args: {
       currentId: Id<"blockedSlots">;
       originalId: Id<"blockedSlots">;
     }) => {
-      recreatedBlockedSlotIdByOriginalIdRef.current.set(
-        args.originalId,
-        args.currentId,
+      rememberRecreatedAliasId(
+        recreatedBlockedSlotIdByOriginalIdRef.current,
+        args,
       );
     },
     [],
@@ -561,6 +610,21 @@ export function useCalendarPlanningWorkbench(args: {
       appointmentUpdateQueueRef.current = queued.then(
         clearQueuedAppointmentUpdate,
         clearQueuedAppointmentUpdate,
+      );
+      return queued;
+    },
+    [],
+  );
+
+  const enqueueBlockedSlotUpdate = useCallback(
+    <TResult>(operation: () => Promise<TResult>) => {
+      const queued = blockedSlotUpdateQueueRef.current.then(
+        operation,
+        operation,
+      );
+      blockedSlotUpdateQueueRef.current = queued.then(
+        clearQueuedBlockedSlotUpdate,
+        clearQueuedBlockedSlotUpdate,
       );
       return queued;
     },
@@ -1703,98 +1767,101 @@ export function useCalendarPlanningWorkbench(args: {
 
   const runUpdateBlockedSlot = useCallback(
     async (args: Parameters<typeof updateBlockedSlotMutation>[0]) => {
-      const before = getBlockedSlotHistoryDoc(args.id);
-      const nextLocationLineageKey =
-        args.locationId === undefined
-          ? before?.placement.locationLineageKey
-          : getLocationLineageKeyForDisplayId(args.locationId);
-      if (
-        args.locationId !== undefined &&
-        nextLocationLineageKey === undefined
-      ) {
-        toast.error("Standort konnte nicht aufgelöst werden.");
-        return;
-      }
-      const beforePractitionerLineageKey =
-        before === undefined
-          ? undefined
-          : getPractitionerLineageKeyFromOccupancy(
-              before.placement.occupancyScope,
-            );
-      const nextPractitionerLineageKey =
-        args.occupancyScope?.kind === "location-wide"
-          ? undefined
-          : args.occupancyScope?.kind === "practitioner"
-            ? getPractitionerLineageKeyForDisplayId(
-                args.occupancyScope.practitionerId,
-              )
-            : beforePractitionerLineageKey;
-      if (
-        args.occupancyScope?.kind === "practitioner" &&
-        nextPractitionerLineageKey === undefined
-      ) {
-        toast.error("Behandler konnte nicht aufgelöst werden.");
-        return;
-      }
-      const mutationResult = await runUpdateBlockedSlotInternal(args);
+      return await enqueueBlockedSlotUpdate(async () => {
+        const before = getBlockedSlotHistoryDoc(args.id);
+        const nextLocationLineageKey =
+          args.locationId === undefined
+            ? before?.placement.locationLineageKey
+            : getLocationLineageKeyForDisplayId(args.locationId);
+        if (
+          args.locationId !== undefined &&
+          nextLocationLineageKey === undefined
+        ) {
+          toast.error("Standort konnte nicht aufgelöst werden.");
+          return;
+        }
+        const beforePractitionerLineageKey =
+          before === undefined
+            ? undefined
+            : getPractitionerLineageKeyFromOccupancy(
+                before.placement.occupancyScope,
+              );
+        const nextPractitionerLineageKey =
+          args.occupancyScope?.kind === "location-wide"
+            ? undefined
+            : args.occupancyScope?.kind === "practitioner"
+              ? getPractitionerLineageKeyForDisplayId(
+                  args.occupancyScope.practitionerId,
+                )
+              : beforePractitionerLineageKey;
+        if (
+          args.occupancyScope?.kind === "practitioner" &&
+          nextPractitionerLineageKey === undefined
+        ) {
+          toast.error("Behandler konnte nicht aufgelöst werden.");
+          return;
+        }
+        const mutationResult = await runUpdateBlockedSlotInternal(args);
 
-      if (!before) {
+        if (!before) {
+          return mutationResult;
+        }
+
+        const beforeState = {
+          end: before.end,
+          placement: before.placement,
+          start: before.start,
+          title: before.title,
+        };
+
+        const afterPlacement = createBlockedSlotPlacement({
+          locationLineageKey:
+            nextLocationLineageKey ?? before.placement.locationLineageKey,
+          occupancyScope:
+            args.occupancyScope === undefined
+              ? before.placement.occupancyScope
+              : args.occupancyScope.kind === "location-wide"
+                ? { kind: "location-wide" }
+                : nextPractitionerLineageKey === undefined
+                  ? before.placement.occupancyScope
+                  : {
+                      kind: "practitioner",
+                      practitionerLineageKey: nextPractitionerLineageKey,
+                    },
+        });
+        const afterState = {
+          end: args.end ?? before.end,
+          placement: afterPlacement,
+          start: args.start ?? before.start,
+          title: args.title ?? before.title,
+        };
+        const afterSnapshot: CalendarBlockedSlotRecord = {
+          ...before,
+          end: afterState.end,
+          lastModified: BigInt(Date.now()),
+          placement: afterState.placement,
+          start: afterState.start,
+          title: afterState.title,
+        };
+        rememberBlockedSlotHistoryDoc(afterSnapshot);
+
+        recordCalendarCommand({
+          kind: "blockedSlot.update",
+          label: "Sperrung aktualisiert",
+          payload: {
+            afterSnapshot,
+            afterState,
+            before,
+            beforeState,
+            blockedSlotId: args.id,
+          },
+        });
+
         return mutationResult;
-      }
-
-      const beforeState = {
-        end: before.end,
-        placement: before.placement,
-        start: before.start,
-        title: before.title,
-      };
-
-      const afterPlacement = createBlockedSlotPlacement({
-        locationLineageKey:
-          nextLocationLineageKey ?? before.placement.locationLineageKey,
-        occupancyScope:
-          args.occupancyScope === undefined
-            ? before.placement.occupancyScope
-            : args.occupancyScope.kind === "location-wide"
-              ? { kind: "location-wide" }
-              : nextPractitionerLineageKey === undefined
-                ? before.placement.occupancyScope
-                : {
-                    kind: "practitioner",
-                    practitionerLineageKey: nextPractitionerLineageKey,
-                  },
       });
-      const afterState = {
-        end: args.end ?? before.end,
-        placement: afterPlacement,
-        start: args.start ?? before.start,
-        title: args.title ?? before.title,
-      };
-      const afterSnapshot: CalendarBlockedSlotRecord = {
-        ...before,
-        end: afterState.end,
-        lastModified: BigInt(Date.now()),
-        placement: afterState.placement,
-        start: afterState.start,
-        title: afterState.title,
-      };
-      rememberBlockedSlotHistoryDoc(afterSnapshot);
-
-      recordCalendarCommand({
-        kind: "blockedSlot.update",
-        label: "Sperrung aktualisiert",
-        payload: {
-          afterSnapshot,
-          afterState,
-          before,
-          beforeState,
-          blockedSlotId: args.id,
-        },
-      });
-
-      return mutationResult;
     },
     [
+      enqueueBlockedSlotUpdate,
       getBlockedSlotHistoryDoc,
       getLocationLineageKeyForDisplayId,
       getPractitionerLineageKeyForDisplayId,
