@@ -15,7 +15,7 @@ import { registerRuleSetReplayAdapter } from "./rule-set-command-executor-intern
 import {
   appliedLedgerResult,
   conflictLedgerResult,
-  createRuleSetCommandDescription,
+  createRuleSetSnapshotCommand,
 } from "./rule-set-replay";
 
 type CowLineageRuleSetCommandKind = Exclude<
@@ -102,7 +102,7 @@ export function recordLineageCreateRuleSetCommand<
   }
   let currentEntityId = params.initialEntityId;
 
-  const command = createRuleSetCommandDescription({
+  const command = createRuleSetSnapshotCommand({
     kind: params.kind,
     label: params.label,
     ...(params.payload && { payload: params.payload }),
@@ -168,7 +168,7 @@ export function recordLineageUpdateRuleSetCommand<
   }
   let currentEntityId = params.initialEntityId;
 
-  const command = createRuleSetCommandDescription({
+  const command = createRuleSetSnapshotCommand({
     kind: params.kind,
     label: params.label,
     ...(params.payload && { payload: params.payload }),

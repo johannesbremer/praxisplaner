@@ -104,7 +104,7 @@ import {
   findFrontendEntityByEntityId,
   requireFrontendLineageEntities,
 } from "../utils/frontend-lineage";
-import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
+import { createRuleSetSnapshotCommand } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 type AppointmentTreeItem =
   | {
@@ -2041,7 +2041,7 @@ export function AppointmentTypesManagement({
         folders: folderSnapshots,
         rootFolderLineageKey,
       });
-      const command = createRuleSetCommandDescription({
+      const command = createRuleSetSnapshotCommand({
         kind: "appointmentType.delete",
         label: "Ordner gelöscht",
         snapshots: {
@@ -2675,7 +2675,7 @@ export function AppointmentTypesManagement({
         practitionerSnapshots: deletedPractitionerSnapshots,
       });
 
-      const command = createRuleSetCommandDescription({
+      const command = createRuleSetSnapshotCommand({
         kind: "appointmentType.delete",
         label: "Terminart gelöscht",
         snapshots: {

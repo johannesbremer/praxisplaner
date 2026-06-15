@@ -51,7 +51,7 @@ import {
 import { useErrorTracking } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
 import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
-import { createRuleSetCommandDescription } from "../utils/rule-set-replay";
+import { createRuleSetSnapshotCommand } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
   applyBatchCreateResultToRef,
@@ -283,7 +283,7 @@ export default function BaseScheduleManagement({
         const deletedSchedulesSnapshot = encodeRuleSetSnapshot(
           deletedSchedulePayloads,
         );
-        const command = createRuleSetCommandDescription({
+        const command = createRuleSetSnapshotCommand({
           kind: "baseSchedule.replaceSet",
           label: "Arbeitszeiten gelöscht",
           snapshots: {
@@ -996,7 +996,7 @@ function BaseScheduleDialog({
           const createdSchedulesSnapshot = encodeRuleSetSnapshot(
             createdSchedulePayloads,
           );
-          const command = createRuleSetCommandDescription({
+          const command = createRuleSetSnapshotCommand({
             kind: "baseSchedule.replaceSet",
             label: "Arbeitszeiten erstellt",
             snapshots: {
@@ -1028,7 +1028,7 @@ function BaseScheduleDialog({
           const oldSchedulesSnapshot =
             encodeRuleSetSnapshot(oldSchedulePayloads);
 
-          const command = createRuleSetCommandDescription({
+          const command = createRuleSetSnapshotCommand({
             kind: "baseSchedule.replaceSet",
             label: "Arbeitszeiten aktualisiert",
             snapshots: {

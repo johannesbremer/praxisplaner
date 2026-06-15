@@ -7,9 +7,9 @@ import {
 import { registerRuleSetReplayAdapter } from "../utils/rule-set-command-executor-internal";
 import {
   createRuleSetAbsenceCommand,
-  createRuleSetCommandDescription,
   createRuleSetNamedLineageCommand,
   createRuleSetSchedulingRuleCommand,
+  createRuleSetSnapshotCommand,
   type RuleSetCommand,
   withSerializableRuleSetPayload,
 } from "../utils/rule-set-replay";
@@ -93,7 +93,7 @@ describe("rule set replay commands", () => {
       lineageKey: "appointment-type-lineage",
       name: "Checkup",
     });
-    const command = createRuleSetCommandDescription({
+    const command = createRuleSetSnapshotCommand({
       kind: "appointmentType.update",
       label: "Terminart aktualisiert",
       snapshots: {

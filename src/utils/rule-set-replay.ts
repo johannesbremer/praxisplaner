@@ -33,9 +33,9 @@ export interface RuleSetAbsencePayload {
 
 export type RuleSetCommand =
   | RuleSetAbsenceCommand
-  | RuleSetLegacyCommand
   | RuleSetNamedLineageCommand
-  | RuleSetSchedulingRuleCommand;
+  | RuleSetSchedulingRuleCommand
+  | RuleSetSnapshotCommand;
 
 export type RuleSetCommandDescription = RuleSetCommand;
 
@@ -78,27 +78,6 @@ export interface RuleSetCommandTarget {
   entityId?: string;
   lineageKey?: string;
   ruleSetId?: string;
-}
-
-export interface RuleSetLegacyCommand extends LedgerCommand {
-  kind: Exclude<
-    RuleSetCommandKind,
-    | "absence.create"
-    | "absence.delete"
-    | "absence.update"
-    | "location.create"
-    | "location.update"
-    | "mfa.create"
-    | "mfa.delete"
-    | "practitioner.create"
-    | "practitioner.update"
-    | "schedulingRule.create"
-    | "schedulingRule.delete"
-    | "schedulingRule.update"
-  >;
-  payload?: RuleSetCommandPayload;
-  snapshots?: RuleSetCommandSnapshot;
-  target?: RuleSetCommandTarget;
 }
 
 export interface RuleSetNamedLineageCommand extends LedgerCommand {
@@ -159,6 +138,27 @@ export interface RuleSetSchedulingRulePayload {
   hasBeforeSnapshot: boolean;
   kind: RuleSetSchedulingRuleCommand["kind"];
   ruleName: string;
+}
+
+export interface RuleSetSnapshotCommand extends LedgerCommand {
+  kind: Exclude<
+    RuleSetCommandKind,
+    | "absence.create"
+    | "absence.delete"
+    | "absence.update"
+    | "location.create"
+    | "location.update"
+    | "mfa.create"
+    | "mfa.delete"
+    | "practitioner.create"
+    | "practitioner.update"
+    | "schedulingRule.create"
+    | "schedulingRule.delete"
+    | "schedulingRule.update"
+  >;
+  payload?: RuleSetCommandPayload;
+  snapshots?: RuleSetCommandSnapshot;
+  target?: RuleSetCommandTarget;
 }
 
 export interface RuleSetSnapshotCommandPayload {
@@ -267,15 +267,15 @@ export function conflictLedgerResult(
   };
 }
 
-export function createRuleSetCommandDescription(params: {
+export function createRuleSetSnapshotCommand(params: {
   clearHistoryBefore?: boolean;
-  kind: RuleSetLegacyCommand["kind"];
+  kind: RuleSetSnapshotCommand["kind"];
   label: string;
   payload?: RuleSetCommandPayload;
   scope?: string;
   snapshots?: RuleSetCommandSnapshot;
   target?: RuleSetCommandTarget;
-}): RuleSetLegacyCommand {
+}): RuleSetSnapshotCommand {
   return {
     ...(params.clearHistoryBefore && { clearHistoryBefore: true }),
     kind: params.kind,

@@ -50,8 +50,8 @@ import {
   recordNamedLineageReplayCommand,
 } from "../utils/rule-set-named-lineage-replay";
 import {
-  createRuleSetCommandDescription,
   createRuleSetNamedLineageCommand,
+  createRuleSetSnapshotCommand,
 } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 
@@ -157,7 +157,7 @@ export default function PractitionerManagement({
       const deletedPractitionerSnapshot = encodeRuleSetSnapshot(
         deleteResult.snapshot,
       );
-      const command = createRuleSetCommandDescription({
+      const command = createRuleSetSnapshotCommand({
         kind: "practitioner.deleteWithDependencies",
         label: "Arzt gelöscht",
         snapshots: {
