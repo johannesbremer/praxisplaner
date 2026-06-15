@@ -4,10 +4,9 @@ import type {
   LedgerOperation,
 } from "../../utils/command-ledger";
 
-import { toLedgerConflict } from "../../utils/command-ledger";
-
 export interface CalendarPlanningCommand extends LedgerCommand {
   kind: CalendarPlanningCommandKind;
+  replay: CalendarPlanningReplayAdapter;
 }
 
 export interface CalendarPlanningCommandDescription extends LedgerCommand {
@@ -32,11 +31,6 @@ export interface CalendarPlanningReplayAdapter {
     | Promise<CalendarPlanningReplayResult>;
 }
 
-const replayAdaptersByCommand = new WeakMap<
-  CalendarPlanningCommand,
-  CalendarPlanningReplayAdapter
->();
-
 type CalendarPlanningReplayResult =
   | LedgerExecutionResult
   | {
@@ -52,9 +46,9 @@ export function createCalendarPlanningCommand(
     ...(description.clearHistoryBefore && { clearHistoryBefore: true }),
     kind: description.kind,
     label: description.label,
+    replay,
     ...(description.scope && { scope: description.scope }),
   };
-  replayAdaptersByCommand.set(command, replay);
   return command;
 }
 
@@ -62,19 +56,9 @@ export function executeCalendarPlanningCommand(
   command: CalendarPlanningCommand,
   operation: LedgerOperation,
 ): LedgerExecutionResult | Promise<LedgerExecutionResult> {
-  const replay = replayAdaptersByCommand.get(command);
-  if (!replay) {
-    return {
-      conflict: toLedgerConflict({
-        message:
-          "Für diese Kalender-Aktion ist kein Wiedergabe-Adapter registriert.",
-      }),
-      message:
-        "Für diese Kalender-Aktion ist kein Wiedergabe-Adapter registriert.",
-      status: "conflict",
-    };
-  }
-  return Promise.resolve(replay[operation]()).then(toLedgerExecutionResult);
+  return Promise.resolve(command.replay[operation]()).then(
+    toLedgerExecutionResult,
+  );
 }
 
 function toLedgerExecutionResult(
