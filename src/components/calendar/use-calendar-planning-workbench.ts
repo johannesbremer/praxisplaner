@@ -29,6 +29,7 @@ import {
   createCalendarPlacement,
   getCalendarResourceColumnFromOccupancy,
   getPractitionerLineageKeyFromOccupancy,
+  sameCalendarOccupancyScope,
 } from "../../../lib/calendar-occupancy";
 import {
   createOptimisticId,
@@ -126,6 +127,35 @@ type CalendarAppointmentCreateCommandBase = AppointmentOwnerRefs &
   > & {
     placement: CalendarAppointmentPlacement;
   };
+
+const appointmentHistoryMatchesQuery = (
+  historyDoc: CalendarAppointmentRecord,
+  queryDoc: CalendarAppointmentRecord,
+) =>
+  historyDoc.start === queryDoc.start &&
+  historyDoc.end === queryDoc.end &&
+  historyDoc.title === queryDoc.title &&
+  historyDoc.appointmentTypeLineageKey === queryDoc.appointmentTypeLineageKey &&
+  historyDoc.placement.locationLineageKey ===
+    queryDoc.placement.locationLineageKey &&
+  sameCalendarOccupancyScope(
+    historyDoc.placement.occupancyScope,
+    queryDoc.placement.occupancyScope,
+  );
+
+const blockedSlotHistoryMatchesQuery = (
+  historyDoc: CalendarBlockedSlotRecord,
+  queryDoc: CalendarBlockedSlotRecord,
+) =>
+  historyDoc.start === queryDoc.start &&
+  historyDoc.end === queryDoc.end &&
+  historyDoc.title === queryDoc.title &&
+  historyDoc.placement.locationLineageKey ===
+    queryDoc.placement.locationLineageKey &&
+  sameCalendarOccupancyScope(
+    historyDoc.placement.occupancyScope,
+    queryDoc.placement.occupancyScope,
+  );
 
 interface CalendarRecordRef<T> {
   current: T;
@@ -228,7 +258,7 @@ export function useCalendarPlanningWorkbench(args: {
       if (
         isOptimisticId(id) ||
         (queryDoc !== undefined &&
-          queryDoc.lastModified > historyDoc.lastModified)
+          appointmentHistoryMatchesQuery(historyDoc, queryDoc))
       ) {
         appointmentHistoryDocMapRef.current.delete(id);
       }
@@ -249,7 +279,7 @@ export function useCalendarPlanningWorkbench(args: {
       if (
         isOptimisticId(id) ||
         (queryDoc !== undefined &&
-          queryDoc.lastModified > historyDoc.lastModified)
+          blockedSlotHistoryMatchesQuery(historyDoc, queryDoc))
       ) {
         blockedSlotHistoryDocMapRef.current.delete(id);
       }
