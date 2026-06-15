@@ -12,7 +12,10 @@ export type ExecutableRuleSetCommand = RuleSetCommand & {
   replay: RuleSetReplayAdapter;
 };
 
-export type RecordRuleSetCommand = (command: ExecutableRuleSetCommand) => void;
+export type RecordRuleSetCommand = (
+  command: RuleSetCommand,
+  replay: RuleSetReplayAdapter,
+) => void;
 
 export interface RuleSetAbsenceCommand extends LedgerCommand {
   kind: Extract<

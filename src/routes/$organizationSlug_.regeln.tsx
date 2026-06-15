@@ -35,7 +35,11 @@ import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
 import type { VersionNode } from "../components/version-graph/types";
 import type { SchedulingSimulatedContext } from "../types";
 import type { RuleSetReplayTarget } from "../utils/cow-history";
-import type { ExecutableRuleSetCommand } from "../utils/rule-set-replay";
+import type {
+  ExecutableRuleSetCommand,
+  RuleSetCommand,
+  RuleSetReplayAdapter,
+} from "../utils/rule-set-replay";
 
 import { createSimulatedContext } from "../../lib/utils";
 import { PraxismanagerAuthGate } from "../auth/access-control";
@@ -617,14 +621,15 @@ function LogicView() {
   }, [currentWorkingRuleSet?._id, ruleSetIdFromUrl, unsavedRuleSet]);
   const lastHistoryScopeRef = useRef<null | string>(historyScopeKey);
   const recordRegelnCommand = useCallback(
-    (command: ExecutableRuleSetCommand) => {
+    (command: RuleSetCommand, replay: RuleSetReplayAdapter) => {
       const serializableCommand = withSerializableRuleSetPayload(command);
+      const executableCommand = { ...serializableCommand, replay };
       if (command.scope || !historyScopeKey) {
-        recordRegelnCommandInLedger(serializableCommand);
+        recordRegelnCommandInLedger(executableCommand);
         return;
       }
       recordRegelnCommandInLedger({
-        ...serializableCommand,
+        ...executableCommand,
         scope: historyScopeKey,
       });
     },

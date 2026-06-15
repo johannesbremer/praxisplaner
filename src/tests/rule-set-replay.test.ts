@@ -11,6 +11,7 @@ import {
   createRuleSetSnapshotCommand,
   type ExecutableRuleSetCommand,
   type RuleSetCommandDescription,
+  type RuleSetNamedLineageCommand,
   type RuleSetReplayAdapter,
   withSerializableRuleSetPayload,
 } from "../utils/rule-set-replay";
@@ -30,7 +31,7 @@ describe("rule set replay commands", () => {
       name: "Dr. Test",
     });
 
-    let recordedCommand: ExecutableRuleSetCommand = executableCommand(
+    let recordedCommand: RuleSetCommandDescription =
       createRuleSetNamedLineageCommand({
         kind: "practitioner.update",
         label: "unrecorded",
@@ -44,9 +45,8 @@ describe("rule set replay commands", () => {
           entityId: "practitioner-entity",
           lineageKey: "practitioner-lineage",
         },
-      }),
-      { redo, undo },
-    );
+      });
+    let recordedReplay: RuleSetReplayAdapter = { redo, undo };
 
     const command = createRuleSetNamedLineageCommand({
       kind: "practitioner.update",
@@ -66,8 +66,9 @@ describe("rule set replay commands", () => {
       },
     });
     recordRuleSetCommand(
-      (recorded) => {
+      (recorded, replay) => {
         recordedCommand = recorded;
+        recordedReplay = replay;
       },
       command,
       { redo, undo },
@@ -77,22 +78,30 @@ describe("rule set replay commands", () => {
     if (recordedCommand.kind !== "practitioner.update") {
       throw new Error("Expected practitioner.update command");
     }
-    expect(recordedCommand.payload).toEqual({
+    const recordedNamedLineageCommand: RuleSetNamedLineageCommand =
+      recordedCommand;
+    expect(recordedNamedLineageCommand.payload).toEqual({
       after: { name: "Dr. Test" },
       before: { name: "Dr. Old" },
       kind: "practitioner.update",
       lineageKey: "practitioner-lineage",
     });
-    expect(recordedCommand.target.lineageKey).toBe("practitioner-lineage");
-    expect(recordedCommand.snapshots?.after).toBe(snapshot);
+    expect(recordedNamedLineageCommand.target.lineageKey).toBe(
+      "practitioner-lineage",
+    );
+    expect(recordedNamedLineageCommand.snapshots?.after).toBe(snapshot);
 
+    const executableRecordedCommand = executableCommand(
+      recordedCommand,
+      recordedReplay,
+    );
     await expect(
-      Promise.resolve(executeRuleSetCommand(recordedCommand, "redo")),
+      Promise.resolve(executeRuleSetCommand(executableRecordedCommand, "redo")),
     ).resolves.toEqual({
       status: "applied",
     });
     await expect(
-      Promise.resolve(executeRuleSetCommand(recordedCommand, "undo")),
+      Promise.resolve(executeRuleSetCommand(executableRecordedCommand, "undo")),
     ).resolves.toEqual({
       status: "applied",
     });

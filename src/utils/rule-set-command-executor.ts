@@ -41,5 +41,5 @@ export function recordRuleSetCommand(
   command: RuleSetCommand,
   replay: RuleSetReplayAdapter,
 ): void {
-  record?.({ ...command, replay });
+  record?.(command, replay);
 }
