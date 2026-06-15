@@ -175,6 +175,20 @@ const withFreshLastModified = <TRecord extends { lastModified: bigint }>(
   lastModified: BigInt(Date.now()),
 });
 
+const rememberFreshAppointment = (
+  context: CalendarPlanningCommandExecutorContext,
+  appointment: CalendarAppointmentRecord,
+) => {
+  context.rememberAppointmentHistoryDoc(withFreshLastModified(appointment));
+};
+
+const rememberFreshBlockedSlot = (
+  context: CalendarPlanningCommandExecutorContext,
+  blockedSlot: CalendarBlockedSlotRecord,
+) => {
+  context.rememberBlockedSlotHistoryDoc(withFreshLastModified(blockedSlot));
+};
+
 export function executeCalendarPlanningCommand(
   command: CalendarPlanningCommand,
   operation: LedgerOperation,
@@ -370,7 +384,18 @@ async function executeAppointmentUpdateCommand(
   if (operation === "redo") {
     await context.ensureLatestConflictData();
     const current = context.getCurrentAppointmentDoc(payload.appointmentId);
-    if (!current || !appointmentMatchesState(current, payload.beforeState)) {
+    if (!current) {
+      return {
+        message:
+          "Der Termin wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
+        status: "conflict",
+      };
+    }
+    if (appointmentMatchesState(current, payload.afterState)) {
+      rememberFreshAppointment(context, payload.afterSnapshot);
+      return { status: "applied" };
+    }
+    if (!appointmentMatchesState(current, payload.beforeState)) {
       return {
         message:
           "Der Termin wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
@@ -399,15 +424,24 @@ async function executeAppointmentUpdateCommand(
         status: "conflict",
       };
     }
-    context.rememberAppointmentHistoryDoc(
-      withFreshLastModified(payload.afterSnapshot),
-    );
+    rememberFreshAppointment(context, payload.afterSnapshot);
     return { status: "applied" };
   }
 
   await context.ensureLatestConflictData();
   const current = context.getCurrentAppointmentDoc(payload.appointmentId);
-  if (!current || !appointmentMatchesState(current, payload.afterState)) {
+  if (!current) {
+    return {
+      message:
+        "Der Termin wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
+      status: "conflict",
+    };
+  }
+  if (appointmentMatchesState(current, payload.beforeState)) {
+    rememberFreshAppointment(context, payload.before);
+    return { status: "applied" };
+  }
+  if (!appointmentMatchesState(current, payload.afterState)) {
     return {
       message:
         "Der Termin wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
@@ -436,7 +470,7 @@ async function executeAppointmentUpdateCommand(
       status: "conflict",
     };
   }
-  context.rememberAppointmentHistoryDoc(withFreshLastModified(payload.before));
+  rememberFreshAppointment(context, payload.before);
   return { status: "applied" };
 }
 
@@ -590,7 +624,18 @@ async function executeBlockedSlotUpdateCommand(
   if (operation === "redo") {
     await context.ensureLatestConflictData();
     const current = context.getCurrentBlockedSlotDoc(payload.blockedSlotId);
-    if (!current || !blockedSlotMatchesState(current, payload.beforeState)) {
+    if (!current) {
+      return {
+        message:
+          "Die Sperrung wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
+        status: "conflict",
+      };
+    }
+    if (blockedSlotMatchesState(current, payload.afterState)) {
+      rememberFreshBlockedSlot(context, payload.afterSnapshot);
+      return { status: "applied" };
+    }
+    if (!blockedSlotMatchesState(current, payload.beforeState)) {
       return {
         message:
           "Die Sperrung wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
@@ -618,15 +663,24 @@ async function executeBlockedSlotUpdateCommand(
         status: "conflict",
       };
     }
-    context.rememberBlockedSlotHistoryDoc(
-      withFreshLastModified(payload.afterSnapshot),
-    );
+    rememberFreshBlockedSlot(context, payload.afterSnapshot);
     return { status: "applied" };
   }
 
   await context.ensureLatestConflictData();
   const current = context.getCurrentBlockedSlotDoc(payload.blockedSlotId);
-  if (!current || !blockedSlotMatchesState(current, payload.afterState)) {
+  if (!current) {
+    return {
+      message:
+        "Die Sperrung wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
+      status: "conflict",
+    };
+  }
+  if (blockedSlotMatchesState(current, payload.beforeState)) {
+    rememberFreshBlockedSlot(context, payload.before);
+    return { status: "applied" };
+  }
+  if (!blockedSlotMatchesState(current, payload.afterState)) {
     return {
       message:
         "Die Sperrung wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
@@ -655,7 +709,7 @@ async function executeBlockedSlotUpdateCommand(
       status: "conflict",
     };
   }
-  context.rememberBlockedSlotHistoryDoc(withFreshLastModified(payload.before));
+  rememberFreshBlockedSlot(context, payload.before);
   return { status: "applied" };
 }
 

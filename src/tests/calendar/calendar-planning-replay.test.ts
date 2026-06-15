@@ -130,4 +130,98 @@ describe("calendar planning replay", () => {
       }),
     );
   });
+
+  it("treats already-applied appointment update redo as applied", async () => {
+    const appointmentId = toTableId<"appointments">("appointment_1");
+    const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
+    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("type_lineage_1"),
+    );
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const placement = createCalendarPlacement({
+      locationLineageKey,
+      occupancyScope: {
+        calendarResourceColumn: "ekg",
+        kind: "resource",
+      },
+    });
+    const before = buildCalendarAppointmentRecord({
+      _id: appointmentId,
+      appointmentTypeLineageKey,
+      appointmentTypeTitle: "Check-up",
+      end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      placement,
+      practiceId,
+      start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+      title: "Check-up",
+    });
+    const afterState = {
+      end: "2026-04-25T10:00:00+02:00[Europe/Berlin]" as const,
+      placement,
+      start: "2026-04-25T09:30:00+02:00[Europe/Berlin]" as const,
+    };
+    const afterSnapshot = {
+      ...before,
+      ...afterState,
+    };
+    const runUpdateAppointmentInternal = vi.fn(() => Promise.resolve(null));
+
+    const result = await executeCalendarPlanningCommand(
+      {
+        kind: "appointment.update",
+        label: "Termin aktualisiert",
+        payload: {
+          afterSnapshot,
+          afterState,
+          appointmentId,
+          before,
+          beforeState: {
+            end: before.end,
+            placement,
+            start: before.start,
+          },
+        },
+      },
+      "redo",
+      {
+        ensureLatestConflictData: vi.fn(() => Promise.resolve()),
+        forgetAppointmentHistoryDoc: vi.fn(),
+        forgetBlockedSlotHistoryDoc: vi.fn(),
+        getCurrentAppointmentDoc: () => afterSnapshot,
+        getCurrentBlockedSlotDoc: vi.fn(),
+        hasAppointmentConflict: () => false,
+        hasBlockedSlotConflict: () => false,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map([
+            [appointmentTypeLineageKey, appointmentTypeId],
+          ]),
+          appointmentTypeLineageKeyById: new Map([
+            [appointmentTypeId, appointmentTypeLineageKey],
+          ]),
+          locationIdByLineageKey: new Map([[locationLineageKey, locationId]]),
+          locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        rememberAppointmentHistoryDoc: vi.fn(),
+        rememberBlockedSlotHistoryDoc: vi.fn(),
+        rememberCreatedAppointmentFromStrings: vi.fn(),
+        rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
+        resolveAppointmentReferenceDisplayIds: vi.fn(),
+        runCreateAppointmentInternal: vi.fn(),
+        runCreateBlockedSlotInternal: vi.fn(),
+        runDeleteAppointmentInternal: vi.fn(),
+        runDeleteBlockedSlotInternal: vi.fn(),
+        runUpdateAppointmentInternal,
+        runUpdateBlockedSlotInternal: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({ status: "applied" });
+    expect(runUpdateAppointmentInternal).not.toHaveBeenCalled();
+  });
 });
