@@ -11,7 +11,7 @@ import type {
 import type {
   RecordRuleSetCommand,
   RuleSetCommandDescription,
-  RuleSetReplayAdapter,
+  RuleSetCommandRuntimeAdapter,
 } from "./rule-set-replay";
 
 import {
@@ -73,7 +73,7 @@ export function createBaseScheduleReplaceSetReplay(params: {
     schedules: BatchCreateScheduleInput[],
   ) => Promise<CreateScheduleBatchResult>;
   schedulesRef: SchedulesRef;
-}): RuleSetReplayAdapter {
+}): RuleSetCommandRuntimeAdapter {
   const applyState = async (
     expectedPayloads: SchedulePayload[],
     replacementPayloads: SchedulePayload[],

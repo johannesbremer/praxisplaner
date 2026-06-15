@@ -9,19 +9,26 @@ import {
   createRuleSetNamedLineageCommand,
   createRuleSetSchedulingRuleCommand,
   createRuleSetSnapshotCommand,
-  type ExecutableRuleSetCommand,
+  type RecordedRuleSetCommand,
   type RuleSetCommandDescription,
+  type RuleSetCommandRuntimeAdapter,
   type RuleSetNamedLineageCommand,
-  type RuleSetReplayAdapter,
   withSerializableRuleSetPayload,
 } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 
 describe("rule set replay commands", () => {
-  const executableCommand = (
+  const makeRecordedCommand = (
     command: RuleSetCommandDescription,
-    replay: RuleSetReplayAdapter,
-  ): ExecutableRuleSetCommand => ({ ...command, replay });
+    executionId: string,
+  ): RecordedRuleSetCommand => ({ ...command, executionId });
+
+  const executorContext = (
+    adapters: Map<string, RuleSetCommandRuntimeAdapter>,
+  ) => ({
+    getRuntimeAdapter: (command: RecordedRuleSetCommand) =>
+      adapters.get(command.executionId),
+  });
 
   it("preserves command kind, target, snapshots, and executes through the rule set adapter", async () => {
     const redo = vi.fn(() => ({ status: "applied" as const }));
@@ -46,7 +53,7 @@ describe("rule set replay commands", () => {
           lineageKey: "practitioner-lineage",
         },
       });
-    let recordedReplay: RuleSetReplayAdapter = { redo, undo };
+    let recordedReplay: RuleSetCommandRuntimeAdapter = { redo, undo };
 
     const command = createRuleSetNamedLineageCommand({
       kind: "practitioner.update",
@@ -91,17 +98,30 @@ describe("rule set replay commands", () => {
     );
     expect(recordedNamedLineageCommand.snapshots?.after).toBe(snapshot);
 
-    const executableRecordedCommand = executableCommand(
+    const adapters = new Map([["test-command", recordedReplay]]);
+    const executableRecordedCommand = makeRecordedCommand(
       recordedCommand,
-      recordedReplay,
+      "test-command",
     );
     await expect(
-      Promise.resolve(executeRuleSetCommand(executableRecordedCommand, "redo")),
+      Promise.resolve(
+        executeRuleSetCommand(
+          executableRecordedCommand,
+          "redo",
+          executorContext(adapters),
+        ),
+      ),
     ).resolves.toEqual({
       status: "applied",
     });
     await expect(
-      Promise.resolve(executeRuleSetCommand(executableRecordedCommand, "undo")),
+      Promise.resolve(
+        executeRuleSetCommand(
+          executableRecordedCommand,
+          "undo",
+          executorContext(adapters),
+        ),
+      ),
     ).resolves.toEqual({
       status: "applied",
     });
@@ -163,10 +183,13 @@ describe("rule set replay commands", () => {
       snapshots: { after, before },
       target: { lineageKey: "staff-lineage" },
     });
-    const executable = executableCommand(command, { redo, undo });
+    const adapters = new Map([["absence-command", { redo, undo }]]);
+    const recorded = makeRecordedCommand(command, "absence-command");
 
     await expect(
-      Promise.resolve(executeRuleSetCommand(executable, "redo")),
+      Promise.resolve(
+        executeRuleSetCommand(recorded, "redo", executorContext(adapters)),
+      ),
     ).resolves.toEqual({
       status: "applied",
     });
@@ -196,10 +219,13 @@ describe("rule set replay commands", () => {
       snapshots: { after },
       target: { entityId: "rule-1" },
     });
-    const executable = executableCommand(command, { redo, undo });
+    const adapters = new Map([["scheduling-rule-command", { redo, undo }]]);
+    const recorded = makeRecordedCommand(command, "scheduling-rule-command");
 
     await expect(
-      Promise.resolve(executeRuleSetCommand(executable, "redo")),
+      Promise.resolve(
+        executeRuleSetCommand(recorded, "redo", executorContext(adapters)),
+      ),
     ).resolves.toEqual({
       status: "applied",
     });

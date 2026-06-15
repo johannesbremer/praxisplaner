@@ -1,7 +1,7 @@
 import type {
   RecordRuleSetCommand,
   RuleSetCommandDescription,
-  RuleSetReplayAdapter,
+  RuleSetCommandRuntimeAdapter,
 } from "./rule-set-replay";
 
 import { recordRuleSetCommand } from "./rule-set-command-executor";
@@ -71,7 +71,7 @@ export function createLocationDependencyDeleteReplayAdapter<
       TPractitionerLineageKey
     >["baseSchedules"][number];
   }) => TSchedulePayload;
-}): RuleSetReplayAdapter {
+}): RuleSetCommandRuntimeAdapter {
   let currentLocationId = params.initialEntityId;
 
   return {

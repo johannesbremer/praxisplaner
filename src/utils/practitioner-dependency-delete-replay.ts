@@ -1,7 +1,7 @@
 import type {
   RecordRuleSetCommand,
   RuleSetCommandDescription,
-  RuleSetReplayAdapter,
+  RuleSetCommandRuntimeAdapter,
 } from "./rule-set-replay";
 
 import { recordRuleSetCommand } from "./rule-set-command-executor";
@@ -29,7 +29,7 @@ export function createPractitionerDependencyDeleteReplayAdapter<
   restoreWithDependencies: (
     snapshot: TSnapshot,
   ) => Promise<{ restoredPractitionerId: TPractitionerId }>;
-}): RuleSetReplayAdapter {
+}): RuleSetCommandRuntimeAdapter {
   let currentSnapshot = params.initialSnapshot;
   let currentPractitionerId = params.initialEntityId;
 

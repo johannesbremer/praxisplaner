@@ -1,7 +1,7 @@
 import type {
   RecordRuleSetCommand,
   RuleSetAbsenceCommand,
-  RuleSetReplayAdapter,
+  RuleSetCommandRuntimeAdapter,
 } from "./rule-set-replay";
 
 import { recordRuleSetCommand } from "./rule-set-command-executor";
@@ -26,7 +26,7 @@ export function createAbsenceDayReplayAdapter<
     },
   ) => Promise<TSnapshot[]>;
   staff: TStaff;
-}): RuleSetReplayAdapter {
+}): RuleSetCommandRuntimeAdapter {
   return createAbsenceReplayAdapter({
     redo: async () => {
       await params.setAbsencesForDay(
@@ -56,7 +56,7 @@ export function createAbsenceDayReplayAdapter<
 export function createAbsenceReplayAdapter(params: {
   redo: () => Promise<void>;
   undo: () => Promise<void>;
-}): RuleSetReplayAdapter {
+}): RuleSetCommandRuntimeAdapter {
   return {
     redo: async () => {
       await params.redo();

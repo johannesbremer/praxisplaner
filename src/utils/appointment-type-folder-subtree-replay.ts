@@ -1,7 +1,7 @@
 import type {
   RecordRuleSetCommand,
   RuleSetCommandDescription,
-  RuleSetReplayAdapter,
+  RuleSetCommandRuntimeAdapter,
 } from "./rule-set-replay";
 
 import { recordRuleSetCommand } from "./rule-set-command-executor";
@@ -34,7 +34,7 @@ export function createAppointmentTypeFolderSubtreeDeleteReplayAdapter<
     appointmentTypeLineageKeys: TAppointmentTypeLineageKey[];
     folderLineageKeys: TFolderLineageKey[];
   };
-}): RuleSetReplayAdapter {
+}): RuleSetCommandRuntimeAdapter {
   let currentFolderId = params.initialFolderId;
 
   return {

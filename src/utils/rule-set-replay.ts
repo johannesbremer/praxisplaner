@@ -8,13 +8,13 @@ import type { EncodedRuleSetSnapshot } from "./rule-set-snapshot-codecs";
 
 import { toLedgerConflict } from "./command-ledger";
 
-export type ExecutableRuleSetCommand = RuleSetCommand & {
-  replay: RuleSetReplayAdapter;
+export type RecordedRuleSetCommand = RuleSetCommand & {
+  executionId: string;
 };
 
 export type RecordRuleSetCommand = (
   command: RuleSetCommand,
-  replay: RuleSetReplayAdapter,
+  runtime: RuleSetCommandRuntimeAdapter,
 ) => void;
 
 export interface RuleSetAbsenceCommand extends LedgerCommand {
@@ -76,6 +76,11 @@ export type RuleSetCommandPayload =
   | RuleSetSchedulingRulePayload
   | RuleSetSnapshotCommandPayload;
 
+export interface RuleSetCommandRuntimeAdapter {
+  redo: () => LedgerExecutionResult | Promise<LedgerExecutionResult>;
+  undo: () => LedgerExecutionResult | Promise<LedgerExecutionResult>;
+}
+
 export interface RuleSetCommandSnapshot {
   after?: EncodedRuleSetSnapshot<unknown>;
   before?: EncodedRuleSetSnapshot<unknown>;
@@ -123,11 +128,6 @@ export interface RuleSetNamedLineageUpdatePayload {
   before: RuleSetNamedLineageSnapshot;
   kind: Extract<RuleSetCommandKind, "location.update" | "practitioner.update">;
   lineageKey: string;
-}
-
-export interface RuleSetReplayAdapter {
-  redo: () => LedgerExecutionResult | Promise<LedgerExecutionResult>;
-  undo: () => LedgerExecutionResult | Promise<LedgerExecutionResult>;
 }
 
 export interface RuleSetSchedulingRuleCommand extends LedgerCommand {

@@ -4,11 +4,11 @@ import type { LedgerResult } from "./command-ledger";
 import type { LineageTrackedEntity } from "./cow-history";
 import type {
   RecordRuleSetCommand,
+  RuleSetCommandRuntimeAdapter,
   RuleSetNamedLineageCommand,
   RuleSetNamedLineageCreatePayload,
   RuleSetNamedLineageDeletePayload,
   RuleSetNamedLineageUpdatePayload,
-  RuleSetReplayAdapter,
 } from "./rule-set-replay";
 
 import { resolveReplayEntity } from "./cow-history";
@@ -88,7 +88,7 @@ export function createNamedLineageCreateReplayAdapter<
   TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
 >(
   params: NamedLineageCreateReplayParams<TEntityId, TLineageKey, TEntity>,
-): RuleSetReplayAdapter {
+): RuleSetCommandRuntimeAdapter {
   let currentEntityId = params.initialEntityId;
 
   return {
@@ -147,7 +147,7 @@ export function createNamedLineageDeleteReplayAdapter<
   },
 >(
   params: NamedLineageDeleteReplayParams<TEntityId, TLineageKey, TEntity>,
-): RuleSetReplayAdapter {
+): RuleSetCommandRuntimeAdapter {
   let currentEntityId = params.initialEntityId;
 
   return {
@@ -214,7 +214,7 @@ export function createNamedLineageUpdateReplayAdapter<
   },
 >(
   params: NamedLineageUpdateReplayParams<TEntityId, TLineageKey, TEntity>,
-): RuleSetReplayAdapter {
+): RuleSetCommandRuntimeAdapter {
   let currentEntityId = params.initialEntityId;
 
   return {

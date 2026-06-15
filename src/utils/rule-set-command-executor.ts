@@ -1,15 +1,30 @@
 import type { LedgerExecutionResult, LedgerOperation } from "./command-ledger";
 import type {
-  ExecutableRuleSetCommand,
+  RecordedRuleSetCommand,
   RecordRuleSetCommand,
   RuleSetCommand,
-  RuleSetReplayAdapter,
+  RuleSetCommandRuntimeAdapter,
 } from "./rule-set-replay";
 
+export interface RuleSetCommandExecutorContext {
+  getRuntimeAdapter: (
+    command: RecordedRuleSetCommand,
+  ) => RuleSetCommandRuntimeAdapter | undefined;
+}
+
 export function executeRuleSetCommand(
-  command: ExecutableRuleSetCommand,
+  command: RecordedRuleSetCommand,
   operation: LedgerOperation,
+  context: RuleSetCommandExecutorContext,
 ): LedgerExecutionResult | Promise<LedgerExecutionResult> {
+  const runtime = context.getRuntimeAdapter(command);
+  if (!runtime) {
+    return {
+      message: "Die Regelset-Aktion kann nicht erneut ausgeführt werden.",
+      status: "conflict",
+    };
+  }
+
   switch (command.kind) {
     case "absence.create":
     case "absence.delete":
@@ -31,7 +46,7 @@ export function executeRuleSetCommand(
     case "schedulingRule.create":
     case "schedulingRule.delete":
     case "schedulingRule.update": {
-      return command.replay[operation]();
+      return runtime[operation]();
     }
   }
 }
@@ -39,7 +54,7 @@ export function executeRuleSetCommand(
 export function recordRuleSetCommand(
   record: RecordRuleSetCommand | undefined,
   command: RuleSetCommand,
-  replay: RuleSetReplayAdapter,
+  runtime: RuleSetCommandRuntimeAdapter,
 ): void {
-  record?.(command, replay);
+  record?.(command, runtime);
 }

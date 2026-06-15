@@ -4,7 +4,7 @@ import type { ConditionTreeNode } from "../../lib/condition-tree";
 import type { RuleFromDB } from "../components/rule-builder-types";
 import type {
   RecordRuleSetCommand,
-  RuleSetReplayAdapter,
+  RuleSetCommandRuntimeAdapter,
   RuleSetSchedulingRuleCommand,
 } from "./rule-set-replay";
 
@@ -43,7 +43,7 @@ export function createSchedulingRuleCreateReplayAdapter(params: {
   createdRuleLineageTree: ConditionTreeNode;
   initialRuleId: Id<"ruleConditions">;
   ruleName: string;
-}): RuleSetReplayAdapter {
+}): RuleSetCommandRuntimeAdapter {
   let currentRuleId = params.initialRuleId;
 
   return {
@@ -94,7 +94,7 @@ export function createSchedulingRuleDeleteReplayAdapter(params: {
   deletedRuleName: string;
   deletedRuleState: string;
   initialRuleId: Id<"ruleConditions">;
-}): RuleSetReplayAdapter {
+}): RuleSetCommandRuntimeAdapter {
   let currentRuleId = params.initialRuleId;
 
   return {
@@ -174,7 +174,7 @@ export function createSchedulingRuleUpdateReplayAdapter(params: {
   previousRuleName: string;
   previousRuleState: string;
   ruleName: string;
-}): RuleSetReplayAdapter {
+}): RuleSetCommandRuntimeAdapter {
   let currentRuleId = params.initialRuleId;
 
   const findRuleIdsBySerializedState = (

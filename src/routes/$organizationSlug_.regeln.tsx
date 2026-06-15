@@ -36,9 +36,9 @@ import type { VersionNode } from "../components/version-graph/types";
 import type { SchedulingSimulatedContext } from "../types";
 import type { RuleSetReplayTarget } from "../utils/cow-history";
 import type {
-  ExecutableRuleSetCommand,
+  RecordedRuleSetCommand,
   RuleSetCommand,
-  RuleSetReplayAdapter,
+  RuleSetCommandRuntimeAdapter,
 } from "../utils/rule-set-replay";
 
 import { createSimulatedContext } from "../../lib/utils";
@@ -171,6 +171,18 @@ function LogicView() {
   const pendingDraftRuleSetNavigationIdRef = useRef<Id<"ruleSets"> | null>(
     null,
   );
+  const ruleSetCommandRuntimesRef = useRef(
+    new Map<string, RuleSetCommandRuntimeAdapter>(),
+  );
+  const nextRuleSetExecutionIdRef = useRef(0);
+  const executeRecordedRuleSetCommand = useCallback(
+    (command: RecordedRuleSetCommand, operation: "redo" | "undo") =>
+      executeRuleSetCommand(command, operation, {
+        getRuntimeAdapter: (recordedCommand) =>
+          ruleSetCommandRuntimesRef.current.get(recordedCommand.executionId),
+      }),
+    [],
+  );
   const {
     canRedo: canRedoRegelnCommand,
     canUndo: canUndoRegelnCommand,
@@ -179,8 +191,8 @@ function LogicView() {
     redo: redoRegelnCommand,
     redoDepth: redoRegelnCommandDepth,
     undo: undoRegelnCommand,
-  } = useCommandLedger<ExecutableRuleSetCommand>({
-    executeCommand: executeRuleSetCommand,
+  } = useCommandLedger<RecordedRuleSetCommand>({
+    executeCommand: executeRecordedRuleSetCommand,
     onError: (action, operation, error) => {
       captureError(error, {
         actionLabel: action.label,
@@ -621,15 +633,18 @@ function LogicView() {
   }, [currentWorkingRuleSet?._id, ruleSetIdFromUrl, unsavedRuleSet]);
   const lastHistoryScopeRef = useRef<null | string>(historyScopeKey);
   const recordRegelnCommand = useCallback(
-    (command: RuleSetCommand, replay: RuleSetReplayAdapter) => {
+    (command: RuleSetCommand, runtime: RuleSetCommandRuntimeAdapter) => {
       const serializableCommand = withSerializableRuleSetPayload(command);
-      const executableCommand = { ...serializableCommand, replay };
+      const executionId = `rule-set-command:${nextRuleSetExecutionIdRef.current}`;
+      nextRuleSetExecutionIdRef.current += 1;
+      ruleSetCommandRuntimesRef.current.set(executionId, runtime);
+      const recordedCommand = { ...serializableCommand, executionId };
       if (command.scope || !historyScopeKey) {
-        recordRegelnCommandInLedger(executableCommand);
+        recordRegelnCommandInLedger(recordedCommand);
         return;
       }
       recordRegelnCommandInLedger({
-        ...executableCommand,
+        ...recordedCommand,
         scope: historyScopeKey,
       });
     },
