@@ -1,16 +1,25 @@
 import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 
+import type {
+  LedgerExecutionResult,
+  LedgerOperation,
+} from "../../utils/command-ledger";
+import type { CalendarPlanningCommand } from "./calendar-planning-command";
+
 import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
 import { useCommandLedger } from "../../utils/command-ledger";
-import {
-  type CalendarPlanningCommand,
-  executeCalendarPlanningCommand,
-} from "./calendar-planning-command";
 
-export function useCalendarPlanningHistory() {
+export type CalendarPlanningCommandExecutor = (
+  command: CalendarPlanningCommand,
+  operation: LedgerOperation,
+) => LedgerExecutionResult | Promise<LedgerExecutionResult>;
+
+export function useCalendarPlanningHistory(
+  executeCommand: CalendarPlanningCommandExecutor,
+) {
   const { canRedo, canUndo, record, redo, undo } = useCommandLedger({
-    executeCommand: executeCalendarPlanningCommand,
+    executeCommand,
   });
 
   const recordCalendarCommand = useCallback(

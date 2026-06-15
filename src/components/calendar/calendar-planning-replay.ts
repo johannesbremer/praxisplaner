@@ -1,8 +1,26 @@
-import type { FunctionArgs } from "convex/server";
-
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { AppointmentTypeLineageKey } from "../../../convex/identity";
-import type { CalendarPlanningReplayAdapter } from "./calendar-planning-command";
+import type {
+  LedgerExecutionResult,
+  LedgerOperation,
+} from "../../utils/command-ledger";
+import type {
+  AppointmentState,
+  BlockedSlotState,
+  CalendarAppointmentCreateCommand,
+  CalendarAppointmentDeleteCommand,
+  CalendarAppointmentUpdateCommand,
+  CalendarBlockedSlotCreateCommand,
+  CalendarBlockedSlotDeleteCommand,
+  CalendarBlockedSlotUpdateCommand,
+  CalendarPlanningCommand,
+  CreateAppointmentMutationArgs,
+  CreateBlockedSlotMutationArgs,
+  DeleteAppointmentMutationArgs,
+  DeleteBlockedSlotMutationArgs,
+  UpdateAppointmentMutationArgs,
+  UpdateBlockedSlotMutationArgs,
+} from "./calendar-planning-command";
 import type { CalendarReferenceMaps } from "./calendar-reference-adapters";
 import type {
   CalendarAppointmentPlacement,
@@ -11,13 +29,71 @@ import type {
   CalendarBlockedSlotRecord,
 } from "./types";
 
-import { api } from "../../../convex/_generated/api";
 import { sameCalendarOccupancyScope } from "../../../lib/calendar-occupancy";
 import {
   type AppointmentOwnerRefs,
   getAppointmentOwnerRefs,
 } from "./appointment-owner-refs";
 import { resolveBlockedSlotPlacementDisplayRefs } from "./calendar-reference-adapters";
+
+export interface CalendarPlanningCommandExecutorContext {
+  ensureLatestConflictData: () => Promise<void>;
+  forgetAppointmentHistoryDoc: (id: Id<"appointments">) => void;
+  forgetBlockedSlotHistoryDoc: (id: Id<"blockedSlots">) => void;
+  getCurrentAppointmentDoc: (
+    id: Id<"appointments">,
+  ) => CalendarAppointmentRecord | undefined;
+  getCurrentBlockedSlotDoc: (
+    id: Id<"blockedSlots">,
+  ) => CalendarBlockedSlotRecord | undefined;
+  hasAppointmentConflict: (
+    candidate: AppointmentCandidate,
+    excludeId?: Id<"appointments">,
+  ) => boolean;
+  hasBlockedSlotConflict: (
+    candidate: BlockedSlotCandidate,
+    excludeId?: Id<"blockedSlots">,
+  ) => boolean;
+  referenceMaps: CalendarReferenceMaps;
+  rememberAppointmentHistoryDoc: (
+    appointment: CalendarAppointmentRecord,
+  ) => void;
+  rememberBlockedSlotHistoryDoc: (slot: CalendarBlockedSlotRecord) => void;
+  rememberCreatedAppointmentFromStrings: (
+    args: CreatedAppointmentHistoryArgs,
+  ) => boolean;
+  rememberCreatedBlockedSlotHistoryDoc: (
+    args: CreatedBlockedSlotHistoryArgs,
+  ) => void;
+  resolveAppointmentReferenceDisplayIds: (refs: {
+    appointmentTypeLineageKey: AppointmentTypeLineageKey;
+    placement: CalendarAppointmentPlacement;
+  }) => null | {
+    appointmentTypeId: Id<"appointmentTypes">;
+    locationId: Id<"locations">;
+    occupancyScope:
+      | { calendarResourceColumn: "ekg" | "labor"; kind: "resource" }
+      | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
+  };
+  runCreateAppointmentInternal: (
+    args: CreateAppointmentMutationArgs,
+  ) => Promise<Id<"appointments"> | null>;
+  runCreateBlockedSlotInternal: (
+    args: CreateBlockedSlotMutationArgs,
+  ) => Promise<Id<"blockedSlots"> | null>;
+  runDeleteAppointmentInternal: (
+    args: DeleteAppointmentMutationArgs,
+  ) => Promise<unknown>;
+  runDeleteBlockedSlotInternal: (
+    args: DeleteBlockedSlotMutationArgs,
+  ) => Promise<unknown>;
+  runUpdateAppointmentInternal: (
+    args: UpdateAppointmentMutationArgs,
+  ) => Promise<unknown>;
+  runUpdateBlockedSlotInternal: (
+    args: UpdateBlockedSlotMutationArgs,
+  ) => Promise<unknown>;
+}
 
 interface AppointmentCandidate {
   end: string;
@@ -27,11 +103,6 @@ interface AppointmentCandidate {
   start: string;
 }
 
-type AppointmentState = Pick<
-  CalendarAppointmentRecord,
-  "end" | "placement" | "start"
->;
-
 interface BlockedSlotCandidate {
   end: string;
   isSimulation: boolean;
@@ -39,18 +110,12 @@ interface BlockedSlotCandidate {
   start: string;
 }
 
-type BlockedSlotState = Pick<
-  CalendarBlockedSlotRecord,
-  "end" | "placement" | "start" | "title"
->;
-
-type CreateAppointmentMutationArgs = FunctionArgs<
-  typeof api.appointments.createAppointment
->;
-
-type CreateBlockedSlotMutationArgs = FunctionArgs<
-  typeof api.appointments.createBlockedSlot
->;
+type CalendarPlanningReplayResult =
+  | LedgerExecutionResult
+  | {
+      message?: string;
+      status: "conflict";
+    };
 
 interface CreatedAppointmentHistoryArgs extends AppointmentOwnerRefs {
   appointmentTypeLineageKey: AppointmentTypeLineageKey;
@@ -77,241 +142,210 @@ interface CreatedBlockedSlotHistoryArgs {
   title: string;
 }
 
-type DeleteAppointmentMutationArgs = FunctionArgs<
-  typeof api.appointments.deleteAppointment
->;
+const appointmentMatchesState = (
+  appointment: CalendarAppointmentRecord,
+  expected: AppointmentState,
+) =>
+  appointment.start === expected.start &&
+  appointment.end === expected.end &&
+  appointment.placement.locationLineageKey ===
+    expected.placement.locationLineageKey &&
+  sameCalendarOccupancyScope(
+    appointment.placement.occupancyScope,
+    expected.placement.occupancyScope,
+  );
 
-type DeleteBlockedSlotMutationArgs = FunctionArgs<
-  typeof api.appointments.deleteBlockedSlot
->;
+const blockedSlotMatchesState = (
+  slot: CalendarBlockedSlotRecord,
+  expected: BlockedSlotState,
+) =>
+  slot.start === expected.start &&
+  slot.end === expected.end &&
+  slot.placement.locationLineageKey === expected.placement.locationLineageKey &&
+  sameCalendarOccupancyScope(
+    slot.placement.occupancyScope,
+    expected.placement.occupancyScope,
+  ) &&
+  slot.title === expected.title;
 
-type UpdateAppointmentMutationArgs = FunctionArgs<
-  typeof api.appointments.updateAppointment
->;
-
-type UpdateBlockedSlotMutationArgs = FunctionArgs<
-  typeof api.appointments.updateBlockedSlot
->;
-
-export function createAppointmentCreateReplay(params: {
-  appointmentTypeLineageKey: AppointmentTypeLineageKey;
-  appointmentTypeTitle: string;
-  createArgs: CreateAppointmentMutationArgs & { isSimulation: boolean };
-  createdId: Id<"appointments">;
-  createEnd: string;
-  ensureLatestConflictData: () => Promise<void>;
-  forgetAppointmentHistoryDoc: (id: Id<"appointments">) => void;
-  hasAppointmentConflict: (candidate: AppointmentCandidate) => boolean;
-  placement: CalendarAppointmentPlacement;
-  rememberCreatedAppointmentFromStrings: (
-    args: CreatedAppointmentHistoryArgs,
-  ) => boolean;
-  runCreateAppointmentInternal: (
-    args: CreateAppointmentMutationArgs,
-  ) => Promise<Id<"appointments"> | null>;
-  runDeleteAppointmentInternal: (
-    args: DeleteAppointmentMutationArgs,
-  ) => Promise<unknown>;
-}): CalendarPlanningReplayAdapter {
-  let currentAppointmentId = params.createdId;
-
-  return {
-    redo: async () => {
-      await params.ensureLatestConflictData();
-      if (
-        params.hasAppointmentConflict({
-          end: params.createEnd,
-          isSimulation: params.createArgs.isSimulation,
-          placement: params.placement,
-          ...(params.createArgs.replacesAppointmentId && {
-            replacesAppointmentId: params.createArgs.replacesAppointmentId,
-          }),
-          start: params.createArgs.start,
-        })
-      ) {
-        return {
-          message:
-            "Der Termin kann nicht wiederhergestellt werden, weil der Zeitraum bereits belegt ist.",
-          status: "conflict",
-        };
+export function executeCalendarPlanningCommand(
+  command: CalendarPlanningCommand,
+  operation: LedgerOperation,
+  context: CalendarPlanningCommandExecutorContext,
+): Promise<LedgerExecutionResult> {
+  const result = (() => {
+    switch (command.kind) {
+      case "appointment.create": {
+        return executeAppointmentCreateCommand(command, operation, context);
       }
-
-      const recreatedId = await params.runCreateAppointmentInternal(
-        params.createArgs,
-      );
-      if (!recreatedId) {
-        return { status: "conflict" };
+      case "appointment.delete": {
+        return executeAppointmentDeleteCommand(command, operation, context);
       }
+      case "appointment.update": {
+        return executeAppointmentUpdateCommand(command, operation, context);
+      }
+      case "blockedSlot.create": {
+        return executeBlockedSlotCreateCommand(command, operation, context);
+      }
+      case "blockedSlot.delete": {
+        return executeBlockedSlotDeleteCommand(command, operation, context);
+      }
+      case "blockedSlot.update": {
+        return executeBlockedSlotUpdateCommand(command, operation, context);
+      }
+    }
+  })();
 
-      currentAppointmentId = recreatedId;
-      params.rememberCreatedAppointmentFromStrings({
-        appointmentTypeLineageKey: params.appointmentTypeLineageKey,
-        appointmentTypeTitle: params.appointmentTypeTitle,
-        ...getAppointmentOwnerRefs(params.createArgs),
-        createdId: recreatedId,
-        createEnd: params.createEnd,
-        createStart: params.createArgs.start,
-        isSimulation: params.createArgs.isSimulation,
-        placement: params.placement,
-        practiceId: params.createArgs.practiceId,
-        ...(params.createArgs.replacesAppointmentId && {
-          replacesAppointmentId: params.createArgs.replacesAppointmentId,
+  return Promise.resolve(result).then(toLedgerExecutionResult);
+}
+
+async function executeAppointmentCreateCommand(
+  command: CalendarAppointmentCreateCommand,
+  operation: LedgerOperation,
+  context: CalendarPlanningCommandExecutorContext,
+): Promise<CalendarPlanningReplayResult> {
+  const { payload } = command;
+
+  if (operation === "redo") {
+    await context.ensureLatestConflictData();
+    if (
+      context.hasAppointmentConflict({
+        end: payload.createEnd,
+        isSimulation: payload.createArgs.isSimulation,
+        placement: payload.placement,
+        ...(payload.createArgs.replacesAppointmentId && {
+          replacesAppointmentId: payload.createArgs.replacesAppointmentId,
         }),
-        title: params.createArgs.title,
-      });
-      return { status: "applied" };
-    },
-    undo: async () => {
-      try {
-        await params.runDeleteAppointmentInternal({
-          id: currentAppointmentId,
-        });
-        params.forgetAppointmentHistoryDoc(currentAppointmentId);
-        return { status: "applied" };
-      } catch {
-        params.forgetAppointmentHistoryDoc(currentAppointmentId);
-        return {
-          message: "Der Termin wurde bereits entfernt.",
-          status: "conflict",
-        };
-      }
-    },
-  };
-}
+        start: payload.createArgs.start,
+      })
+    ) {
+      return {
+        message:
+          "Der Termin kann nicht wiederhergestellt werden, weil der Zeitraum bereits belegt ist.",
+        status: "conflict",
+      };
+    }
 
-export function createAppointmentDeleteReplay(params: {
-  createArgs: CreateAppointmentMutationArgs;
-  createEnd: string;
-  deleted: CalendarAppointmentRecord;
-  deletedId: Id<"appointments">;
-  ensureLatestConflictData: () => Promise<void>;
-  forgetAppointmentHistoryDoc: (id: Id<"appointments">) => void;
-  hasAppointmentConflict: (candidate: AppointmentCandidate) => boolean;
-  rememberAppointmentHistoryDoc: (
-    appointment: CalendarAppointmentRecord,
-  ) => void;
-  runCreateAppointmentInternal: (
-    args: CreateAppointmentMutationArgs,
-  ) => Promise<Id<"appointments"> | null>;
-  runDeleteAppointmentInternal: (
-    args: DeleteAppointmentMutationArgs,
-  ) => Promise<unknown>;
-}): CalendarPlanningReplayAdapter {
-  let currentAppointmentId = params.deletedId;
-
-  return {
-    redo: async () => {
-      try {
-        await params.runDeleteAppointmentInternal({
-          id: currentAppointmentId,
-        });
-        params.forgetAppointmentHistoryDoc(currentAppointmentId);
-        return { status: "applied" };
-      } catch {
-        params.forgetAppointmentHistoryDoc(currentAppointmentId);
-        return { status: "applied" };
-      }
-    },
-    undo: async () => {
-      await params.ensureLatestConflictData();
-      if (
-        params.hasAppointmentConflict({
-          end: params.createEnd,
-          isSimulation: params.createArgs.isSimulation ?? false,
-          placement: params.deleted.placement,
-          ...(params.createArgs.replacesAppointmentId && {
-            replacesAppointmentId: params.createArgs.replacesAppointmentId,
-          }),
-          start: params.createArgs.start,
-        })
-      ) {
-        return {
-          message:
-            "Der gelöschte Termin kann nicht wiederhergestellt werden, weil der Zeitraum inzwischen belegt ist.",
-          status: "conflict",
-        };
-      }
-
-      const recreatedId = await params.runCreateAppointmentInternal(
-        params.createArgs,
-      );
-      if (!recreatedId) {
-        return { status: "conflict" };
-      }
-
-      currentAppointmentId = recreatedId;
-      params.rememberAppointmentHistoryDoc({
-        ...params.deleted,
-        _id: recreatedId,
-      });
-      return { status: "applied" };
-    },
-  };
-}
-
-export function createAppointmentUpdateReplay(params: {
-  afterSnapshot: CalendarAppointmentRecord;
-  afterState: AppointmentState;
-  appointmentId: Id<"appointments">;
-  before: CalendarAppointmentRecord;
-  beforeState: AppointmentState;
-  ensureLatestConflictData: () => Promise<void>;
-  getCurrentAppointmentDoc: (
-    id: Id<"appointments">,
-  ) => CalendarAppointmentRecord | undefined;
-  hasAppointmentConflict: (
-    candidate: AppointmentCandidate,
-    excludeId?: Id<"appointments">,
-  ) => boolean;
-  rememberAppointmentHistoryDoc: (
-    appointment: CalendarAppointmentRecord,
-  ) => void;
-  resolveAppointmentReferenceDisplayIds: (refs: {
-    appointmentTypeLineageKey: AppointmentTypeLineageKey;
-    placement: CalendarAppointmentPlacement;
-  }) => null | {
-    appointmentTypeId: Id<"appointmentTypes">;
-    locationId: Id<"locations">;
-    occupancyScope:
-      | { calendarResourceColumn: "ekg" | "labor"; kind: "resource" }
-      | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
-  };
-  runUpdateAppointmentInternal: (
-    args: UpdateAppointmentMutationArgs,
-  ) => Promise<unknown>;
-}): CalendarPlanningReplayAdapter {
-  const matchesState = (
-    appointment: CalendarAppointmentRecord,
-    expected: AppointmentState,
-  ) =>
-    appointment.start === expected.start &&
-    appointment.end === expected.end &&
-    appointment.placement.locationLineageKey ===
-      expected.placement.locationLineageKey &&
-    sameCalendarOccupancyScope(
-      appointment.placement.occupancyScope,
-      expected.placement.occupancyScope,
+    const recreatedId = await context.runCreateAppointmentInternal(
+      payload.createArgs,
     );
+    if (!recreatedId) {
+      return { status: "conflict" };
+    }
 
+    payload.currentAppointmentId = recreatedId;
+    context.rememberCreatedAppointmentFromStrings({
+      appointmentTypeLineageKey: payload.appointmentTypeLineageKey,
+      appointmentTypeTitle: payload.appointmentTypeTitle,
+      ...getAppointmentOwnerRefs(payload.createArgs),
+      createdId: recreatedId,
+      createEnd: payload.createEnd,
+      createStart: payload.createArgs.start,
+      isSimulation: payload.createArgs.isSimulation,
+      placement: payload.placement,
+      practiceId: payload.createArgs.practiceId,
+      ...(payload.createArgs.replacesAppointmentId && {
+        replacesAppointmentId: payload.createArgs.replacesAppointmentId,
+      }),
+      title: payload.createArgs.title,
+    });
+    return { status: "applied" };
+  }
+
+  try {
+    await context.runDeleteAppointmentInternal({
+      id: payload.currentAppointmentId,
+    });
+    context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
+    return { status: "applied" };
+  } catch {
+    context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
+    return {
+      message: "Der Termin wurde bereits entfernt.",
+      status: "conflict",
+    };
+  }
+}
+
+async function executeAppointmentDeleteCommand(
+  command: CalendarAppointmentDeleteCommand,
+  operation: LedgerOperation,
+  context: CalendarPlanningCommandExecutorContext,
+): Promise<CalendarPlanningReplayResult> {
+  const { payload } = command;
+
+  if (operation === "redo") {
+    try {
+      await context.runDeleteAppointmentInternal({
+        id: payload.currentAppointmentId,
+      });
+      context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
+      return { status: "applied" };
+    } catch {
+      context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
+      return { status: "applied" };
+    }
+  }
+
+  await context.ensureLatestConflictData();
+  if (
+    context.hasAppointmentConflict({
+      end: payload.createEnd,
+      isSimulation: payload.createArgs.isSimulation ?? false,
+      placement: payload.deleted.placement,
+      ...(payload.createArgs.replacesAppointmentId && {
+        replacesAppointmentId: payload.createArgs.replacesAppointmentId,
+      }),
+      start: payload.createArgs.start,
+    })
+  ) {
+    return {
+      message:
+        "Der gelöschte Termin kann nicht wiederhergestellt werden, weil der Zeitraum inzwischen belegt ist.",
+      status: "conflict",
+    };
+  }
+
+  const recreatedId = await context.runCreateAppointmentInternal(
+    payload.createArgs,
+  );
+  if (!recreatedId) {
+    return { status: "conflict" };
+  }
+
+  payload.currentAppointmentId = recreatedId;
+  context.rememberAppointmentHistoryDoc({
+    ...payload.deleted,
+    _id: recreatedId,
+  });
+  return { status: "applied" };
+}
+
+async function executeAppointmentUpdateCommand(
+  command: CalendarAppointmentUpdateCommand,
+  operation: LedgerOperation,
+  context: CalendarPlanningCommandExecutorContext,
+): Promise<CalendarPlanningReplayResult> {
+  const { payload } = command;
   const candidatePayload = (state: AppointmentState): AppointmentCandidate => ({
     end: state.end,
-    isSimulation: params.before.isSimulation ?? false,
+    isSimulation: payload.before.isSimulation ?? false,
     placement: state.placement,
     start: state.start,
   });
 
   const updateToState = async (state: AppointmentState) => {
-    const displayRefs = params.resolveAppointmentReferenceDisplayIds({
-      appointmentTypeLineageKey: params.before.appointmentTypeLineageKey,
+    const displayRefs = context.resolveAppointmentReferenceDisplayIds({
+      appointmentTypeLineageKey: payload.before.appointmentTypeLineageKey,
       placement: state.placement,
     });
     if (!displayRefs) {
       return false;
     }
 
-    await params.runUpdateAppointmentInternal({
+    await context.runUpdateAppointmentInternal({
       end: state.end,
-      id: params.appointmentId,
+      id: payload.appointmentId,
       locationId: displayRefs.locationId,
       ...(displayRefs.occupancyScope.kind === "resource"
         ? {
@@ -326,260 +360,200 @@ export function createAppointmentUpdateReplay(params: {
     return true;
   };
 
-  return {
-    redo: async () => {
-      await params.ensureLatestConflictData();
-      const current = params.getCurrentAppointmentDoc(params.appointmentId);
-      if (!current || !matchesState(current, params.beforeState)) {
-        return {
-          message:
-            "Der Termin wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
-          status: "conflict",
-        };
-      }
+  if (operation === "redo") {
+    await context.ensureLatestConflictData();
+    const current = context.getCurrentAppointmentDoc(payload.appointmentId);
+    if (!current || !appointmentMatchesState(current, payload.beforeState)) {
+      return {
+        message:
+          "Der Termin wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
+        status: "conflict",
+      };
+    }
 
-      if (
-        params.hasAppointmentConflict(
-          candidatePayload(params.afterState),
-          params.appointmentId,
-        )
-      ) {
-        return {
-          message:
-            "Die Terminänderung kollidiert mit einer neueren Terminplanung.",
-          status: "conflict",
-        };
-      }
+    if (
+      context.hasAppointmentConflict(
+        candidatePayload(payload.afterState),
+        payload.appointmentId,
+      )
+    ) {
+      return {
+        message:
+          "Die Terminänderung kollidiert mit einer neueren Terminplanung.",
+        status: "conflict",
+      };
+    }
 
-      const applied = await updateToState(params.afterState);
-      if (!applied) {
-        return {
-          message:
-            "Die Terminänderung kann nicht erneut angewendet werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
-          status: "conflict",
-        };
-      }
-      params.rememberAppointmentHistoryDoc(params.afterSnapshot);
-      return { status: "applied" };
-    },
-    undo: async () => {
-      await params.ensureLatestConflictData();
-      const current = params.getCurrentAppointmentDoc(params.appointmentId);
-      if (!current || !matchesState(current, params.afterState)) {
-        return {
-          message:
-            "Der Termin wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
-          status: "conflict",
-        };
-      }
+    const applied = await updateToState(payload.afterState);
+    if (!applied) {
+      return {
+        message:
+          "Die Terminänderung kann nicht erneut angewendet werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
+        status: "conflict",
+      };
+    }
+    context.rememberAppointmentHistoryDoc(payload.afterSnapshot);
+    return { status: "applied" };
+  }
 
-      if (
-        params.hasAppointmentConflict(
-          candidatePayload(params.beforeState),
-          params.appointmentId,
-        )
-      ) {
-        return {
-          message:
-            "Der ursprüngliche Termin kollidiert mit einer neueren Terminplanung.",
-          status: "conflict",
-        };
-      }
+  await context.ensureLatestConflictData();
+  const current = context.getCurrentAppointmentDoc(payload.appointmentId);
+  if (!current || !appointmentMatchesState(current, payload.afterState)) {
+    return {
+      message:
+        "Der Termin wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
+      status: "conflict",
+    };
+  }
 
-      const applied = await updateToState(params.beforeState);
-      if (!applied) {
-        return {
-          message:
-            "Der ursprüngliche Termin kann nicht wiederhergestellt werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
-          status: "conflict",
-        };
-      }
-      params.rememberAppointmentHistoryDoc(params.before);
-      return { status: "applied" };
-    },
-  };
+  if (
+    context.hasAppointmentConflict(
+      candidatePayload(payload.beforeState),
+      payload.appointmentId,
+    )
+  ) {
+    return {
+      message:
+        "Der ursprüngliche Termin kollidiert mit einer neueren Terminplanung.",
+      status: "conflict",
+    };
+  }
+
+  const applied = await updateToState(payload.beforeState);
+  if (!applied) {
+    return {
+      message:
+        "Der ursprüngliche Termin kann nicht wiederhergestellt werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
+      status: "conflict",
+    };
+  }
+  context.rememberAppointmentHistoryDoc(payload.before);
+  return { status: "applied" };
 }
 
-export function createBlockedSlotCreateReplay(params: {
-  blockedSlotReferences: CalendarBlockedSlotPlacement;
-  createArgs: CreateBlockedSlotMutationArgs & { isSimulation: boolean };
-  createdId: Id<"blockedSlots">;
-  ensureLatestConflictData: () => Promise<void>;
-  forgetBlockedSlotHistoryDoc: (id: Id<"blockedSlots">) => void;
-  hasBlockedSlotConflict: (candidate: BlockedSlotCandidate) => boolean;
-  now: number;
-  rememberCreatedBlockedSlotHistoryDoc: (
-    args: CreatedBlockedSlotHistoryArgs,
-  ) => void;
-  runCreateBlockedSlotInternal: (
-    args: CreateBlockedSlotMutationArgs,
-  ) => Promise<Id<"blockedSlots"> | null>;
-  runDeleteBlockedSlotInternal: (
-    args: DeleteBlockedSlotMutationArgs,
-  ) => Promise<unknown>;
-}): CalendarPlanningReplayAdapter {
-  let currentBlockedSlotId = params.createdId;
+async function executeBlockedSlotCreateCommand(
+  command: CalendarBlockedSlotCreateCommand,
+  operation: LedgerOperation,
+  context: CalendarPlanningCommandExecutorContext,
+): Promise<CalendarPlanningReplayResult> {
+  const { payload } = command;
 
-  return {
-    redo: async () => {
-      await params.ensureLatestConflictData();
-      if (
-        params.hasBlockedSlotConflict({
-          end: params.createArgs.end,
-          isSimulation: params.createArgs.isSimulation,
-          placement: params.blockedSlotReferences,
-          start: params.createArgs.start,
-        })
-      ) {
-        return {
-          message:
-            "Die Sperrung kann nicht wiederhergestellt werden, weil der Zeitraum inzwischen belegt ist.",
-          status: "conflict",
-        };
-      }
+  if (operation === "redo") {
+    await context.ensureLatestConflictData();
+    if (
+      context.hasBlockedSlotConflict({
+        end: payload.createArgs.end,
+        isSimulation: payload.createArgs.isSimulation,
+        placement: payload.blockedSlotReferences,
+        start: payload.createArgs.start,
+      })
+    ) {
+      return {
+        message:
+          "Die Sperrung kann nicht wiederhergestellt werden, weil der Zeitraum inzwischen belegt ist.",
+        status: "conflict",
+      };
+    }
 
-      const recreatedId = await params.runCreateBlockedSlotInternal(
-        params.createArgs,
-      );
-      if (!recreatedId) {
-        return { status: "conflict" };
-      }
+    const recreatedId = await context.runCreateBlockedSlotInternal(
+      payload.createArgs,
+    );
+    if (!recreatedId) {
+      return { status: "conflict" };
+    }
 
-      currentBlockedSlotId = recreatedId;
-      params.rememberCreatedBlockedSlotHistoryDoc({
-        blockedSlotId: recreatedId,
-        end: params.createArgs.end,
-        isSimulation: params.createArgs.isSimulation,
-        now: params.now,
-        placement: params.blockedSlotReferences,
-        practiceId: params.createArgs.practiceId,
-        ...(params.createArgs.replacesBlockedSlotId && {
-          replacesBlockedSlotId: params.createArgs.replacesBlockedSlotId,
-        }),
-        start: params.createArgs.start,
-        title: params.createArgs.title,
+    payload.currentBlockedSlotId = recreatedId;
+    context.rememberCreatedBlockedSlotHistoryDoc({
+      blockedSlotId: recreatedId,
+      end: payload.createArgs.end,
+      isSimulation: payload.createArgs.isSimulation,
+      now: payload.now,
+      placement: payload.blockedSlotReferences,
+      practiceId: payload.createArgs.practiceId,
+      ...(payload.createArgs.replacesBlockedSlotId && {
+        replacesBlockedSlotId: payload.createArgs.replacesBlockedSlotId,
+      }),
+      start: payload.createArgs.start,
+      title: payload.createArgs.title,
+    });
+    return { status: "applied" };
+  }
+
+  try {
+    await context.runDeleteBlockedSlotInternal({
+      id: payload.currentBlockedSlotId,
+    });
+    context.forgetBlockedSlotHistoryDoc(payload.currentBlockedSlotId);
+    return { status: "applied" };
+  } catch {
+    context.forgetBlockedSlotHistoryDoc(payload.currentBlockedSlotId);
+    return {
+      message: "Die Sperrung wurde bereits entfernt.",
+      status: "conflict",
+    };
+  }
+}
+
+async function executeBlockedSlotDeleteCommand(
+  command: CalendarBlockedSlotDeleteCommand,
+  operation: LedgerOperation,
+  context: CalendarPlanningCommandExecutorContext,
+): Promise<CalendarPlanningReplayResult> {
+  const { payload } = command;
+
+  if (operation === "redo") {
+    try {
+      await context.runDeleteBlockedSlotInternal({
+        id: payload.currentBlockedSlotId,
       });
+      context.forgetBlockedSlotHistoryDoc(payload.currentBlockedSlotId);
       return { status: "applied" };
-    },
-    undo: async () => {
-      try {
-        await params.runDeleteBlockedSlotInternal({
-          id: currentBlockedSlotId,
-        });
-        params.forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
-        return { status: "applied" };
-      } catch {
-        params.forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
-        return {
-          message: "Die Sperrung wurde bereits entfernt.",
-          status: "conflict",
-        };
-      }
-    },
-  };
+    } catch {
+      context.forgetBlockedSlotHistoryDoc(payload.currentBlockedSlotId);
+      return { status: "applied" };
+    }
+  }
+
+  await context.ensureLatestConflictData();
+  if (
+    context.hasBlockedSlotConflict({
+      end: payload.createArgs.end,
+      isSimulation: payload.createArgs.isSimulation ?? false,
+      placement: payload.deleted.placement,
+      start: payload.createArgs.start,
+    })
+  ) {
+    return {
+      message:
+        "Die gelöschte Sperrung kann nicht wiederhergestellt werden, weil der Zeitraum inzwischen belegt ist.",
+      status: "conflict",
+    };
+  }
+
+  const recreatedId = await context.runCreateBlockedSlotInternal(
+    payload.createArgs,
+  );
+  if (!recreatedId) {
+    return { status: "conflict" };
+  }
+
+  payload.currentBlockedSlotId = recreatedId;
+  context.rememberBlockedSlotHistoryDoc({
+    ...payload.deleted,
+    _id: recreatedId,
+  });
+  return { status: "applied" };
 }
 
-export function createBlockedSlotDeleteReplay(params: {
-  createArgs: CreateBlockedSlotMutationArgs;
-  deleted: CalendarBlockedSlotRecord;
-  deletedId: Id<"blockedSlots">;
-  ensureLatestConflictData: () => Promise<void>;
-  forgetBlockedSlotHistoryDoc: (id: Id<"blockedSlots">) => void;
-  hasBlockedSlotConflict: (candidate: BlockedSlotCandidate) => boolean;
-  rememberBlockedSlotHistoryDoc: (slot: CalendarBlockedSlotRecord) => void;
-  runCreateBlockedSlotInternal: (
-    args: CreateBlockedSlotMutationArgs,
-  ) => Promise<Id<"blockedSlots"> | null>;
-  runDeleteBlockedSlotInternal: (
-    args: DeleteBlockedSlotMutationArgs,
-  ) => Promise<unknown>;
-}): CalendarPlanningReplayAdapter {
-  let currentBlockedSlotId = params.deletedId;
-
-  return {
-    redo: async () => {
-      try {
-        await params.runDeleteBlockedSlotInternal({
-          id: currentBlockedSlotId,
-        });
-        params.forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
-        return { status: "applied" };
-      } catch {
-        params.forgetBlockedSlotHistoryDoc(currentBlockedSlotId);
-        return { status: "applied" };
-      }
-    },
-    undo: async () => {
-      await params.ensureLatestConflictData();
-      if (
-        params.hasBlockedSlotConflict({
-          end: params.createArgs.end,
-          isSimulation: params.createArgs.isSimulation ?? false,
-          placement: params.deleted.placement,
-          start: params.createArgs.start,
-        })
-      ) {
-        return {
-          message:
-            "Die gelöschte Sperrung kann nicht wiederhergestellt werden, weil der Zeitraum inzwischen belegt ist.",
-          status: "conflict",
-        };
-      }
-
-      const recreatedId = await params.runCreateBlockedSlotInternal(
-        params.createArgs,
-      );
-      if (!recreatedId) {
-        return { status: "conflict" };
-      }
-
-      currentBlockedSlotId = recreatedId;
-      params.rememberBlockedSlotHistoryDoc({
-        ...params.deleted,
-        _id: recreatedId,
-      });
-      return { status: "applied" };
-    },
-  };
-}
-
-export function createBlockedSlotUpdateReplay(params: {
-  afterSnapshot: CalendarBlockedSlotRecord;
-  afterState: BlockedSlotState;
-  before: CalendarBlockedSlotRecord;
-  beforeState: BlockedSlotState;
-  blockedSlotId: Id<"blockedSlots">;
-  ensureLatestConflictData: () => Promise<void>;
-  getCurrentBlockedSlotDoc: (
-    id: Id<"blockedSlots">,
-  ) => CalendarBlockedSlotRecord | undefined;
-  hasBlockedSlotConflict: (
-    candidate: BlockedSlotCandidate,
-    excludeId?: Id<"blockedSlots">,
-  ) => boolean;
-  referenceMaps: CalendarReferenceMaps;
-  rememberBlockedSlotHistoryDoc: (slot: CalendarBlockedSlotRecord) => void;
-  runUpdateBlockedSlotInternal: (
-    args: UpdateBlockedSlotMutationArgs,
-  ) => Promise<unknown>;
-}): CalendarPlanningReplayAdapter {
-  const matchesState = (
-    slot: CalendarBlockedSlotRecord,
-    expected: BlockedSlotState,
-  ) =>
-    slot.start === expected.start &&
-    slot.end === expected.end &&
-    slot.placement.locationLineageKey ===
-      expected.placement.locationLineageKey &&
-    sameCalendarOccupancyScope(
-      slot.placement.occupancyScope,
-      expected.placement.occupancyScope,
-    ) &&
-    slot.title === expected.title;
-
+async function executeBlockedSlotUpdateCommand(
+  command: CalendarBlockedSlotUpdateCommand,
+  operation: LedgerOperation,
+  context: CalendarPlanningCommandExecutorContext,
+): Promise<CalendarPlanningReplayResult> {
+  const { payload } = command;
   const candidatePayload = (state: BlockedSlotState): BlockedSlotCandidate => ({
     end: state.end,
-    isSimulation: params.before.isSimulation ?? false,
+    isSimulation: payload.before.isSimulation ?? false,
     placement: state.placement,
     start: state.start,
   });
@@ -587,15 +561,15 @@ export function createBlockedSlotUpdateReplay(params: {
   const updateToState = async (state: BlockedSlotState) => {
     const displayRefs = resolveBlockedSlotPlacementDisplayRefs(
       state.placement,
-      params.referenceMaps,
+      context.referenceMaps,
     );
     if (!displayRefs) {
       return false;
     }
 
-    await params.runUpdateBlockedSlotInternal({
+    await context.runUpdateBlockedSlotInternal({
       end: state.end,
-      id: params.blockedSlotId,
+      id: payload.blockedSlotId,
       locationId: displayRefs.locationId,
       occupancyScope: displayRefs.occupancyScope,
       start: state.start,
@@ -604,75 +578,88 @@ export function createBlockedSlotUpdateReplay(params: {
     return true;
   };
 
+  if (operation === "redo") {
+    await context.ensureLatestConflictData();
+    const current = context.getCurrentBlockedSlotDoc(payload.blockedSlotId);
+    if (!current || !blockedSlotMatchesState(current, payload.beforeState)) {
+      return {
+        message:
+          "Die Sperrung wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
+        status: "conflict",
+      };
+    }
+
+    if (
+      context.hasBlockedSlotConflict(
+        candidatePayload(payload.afterState),
+        payload.blockedSlotId,
+      )
+    ) {
+      return {
+        message: "Die Sperrung kollidiert mit einer neueren Planung.",
+        status: "conflict",
+      };
+    }
+
+    const applied = await updateToState(payload.afterState);
+    if (!applied) {
+      return {
+        message:
+          "Die Sperrung kann nicht erneut angewendet werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
+        status: "conflict",
+      };
+    }
+    context.rememberBlockedSlotHistoryDoc(payload.afterSnapshot);
+    return { status: "applied" };
+  }
+
+  await context.ensureLatestConflictData();
+  const current = context.getCurrentBlockedSlotDoc(payload.blockedSlotId);
+  if (!current || !blockedSlotMatchesState(current, payload.afterState)) {
+    return {
+      message:
+        "Die Sperrung wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
+      status: "conflict",
+    };
+  }
+
+  if (
+    context.hasBlockedSlotConflict(
+      candidatePayload(payload.beforeState),
+      payload.blockedSlotId,
+    )
+  ) {
+    return {
+      message:
+        "Die ursprüngliche Sperrung kollidiert mit einer neueren Planung.",
+      status: "conflict",
+    };
+  }
+
+  const applied = await updateToState(payload.beforeState);
+  if (!applied) {
+    return {
+      message:
+        "Die ursprüngliche Sperrung kann nicht wiederhergestellt werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
+      status: "conflict",
+    };
+  }
+  context.rememberBlockedSlotHistoryDoc(payload.before);
+  return { status: "applied" };
+}
+
+function toLedgerExecutionResult(
+  result: CalendarPlanningReplayResult,
+): LedgerExecutionResult {
+  if (result.status !== "conflict") {
+    return result;
+  }
+  if ("conflict" in result) {
+    return result;
+  }
   return {
-    redo: async () => {
-      await params.ensureLatestConflictData();
-      const current = params.getCurrentBlockedSlotDoc(params.blockedSlotId);
-      if (!current || !matchesState(current, params.beforeState)) {
-        return {
-          message:
-            "Die Sperrung wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
-          status: "conflict",
-        };
-      }
-
-      if (
-        params.hasBlockedSlotConflict(
-          candidatePayload(params.afterState),
-          params.blockedSlotId,
-        )
-      ) {
-        return {
-          message: "Die Sperrung kollidiert mit einer neueren Planung.",
-          status: "conflict",
-        };
-      }
-
-      const applied = await updateToState(params.afterState);
-      if (!applied) {
-        return {
-          message:
-            "Die Sperrung kann nicht erneut angewendet werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
-          status: "conflict",
-        };
-      }
-      params.rememberBlockedSlotHistoryDoc(params.afterSnapshot);
-      return { status: "applied" };
-    },
-    undo: async () => {
-      await params.ensureLatestConflictData();
-      const current = params.getCurrentBlockedSlotDoc(params.blockedSlotId);
-      if (!current || !matchesState(current, params.afterState)) {
-        return {
-          message:
-            "Die Sperrung wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
-          status: "conflict",
-        };
-      }
-
-      if (
-        params.hasBlockedSlotConflict(
-          candidatePayload(params.beforeState),
-          params.blockedSlotId,
-        )
-      ) {
-        return {
-          message:
-            "Die ursprüngliche Sperrung kollidiert mit einer neueren Planung.",
-          status: "conflict",
-        };
-      }
-
-      const applied = await updateToState(params.beforeState);
-      if (!applied) {
-        return {
-          message:
-            "Die ursprüngliche Sperrung kann nicht wiederhergestellt werden, weil die Referenzen nicht mehr aufgelöst werden konnten.",
-          status: "conflict",
-        };
-      }
-      params.rememberBlockedSlotHistoryDoc(params.before);
-      return { status: "applied" };
-    },
+    message:
+      result.message ?? "Die Kalender-Aktion konnte nicht ausgeführt werden.",
+    status: "conflict",
   };
 }

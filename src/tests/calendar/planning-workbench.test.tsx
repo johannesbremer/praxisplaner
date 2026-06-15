@@ -7,6 +7,7 @@ import type {
   CalendarAppointmentRecord,
   CalendarBlockedSlotRecord,
 } from "../../components/calendar/types";
+import type { CalendarPlanningCommandExecutor } from "../../components/calendar/use-calendar-planning-history";
 
 import {
   asAppointmentTypeLineageKey,
@@ -14,7 +15,6 @@ import {
   toTableId,
 } from "../../../convex/identity";
 import { createCalendarPlacement } from "../../../lib/calendar-occupancy";
-import { executeCalendarPlanningCommand } from "../../components/calendar/calendar-planning-command";
 import { useCalendarPlanningWorkbench } from "../../components/calendar/use-calendar-planning-workbench";
 import { zonedDateTimeStringResult } from "../../utils/time-calculations";
 import {
@@ -29,6 +29,8 @@ const mutationQueue: {
 }[] = [];
 const recordCalendarCommand =
   vi.fn<(command: CalendarPlanningCommand) => void>();
+let executeRecordedCalendarCommand: CalendarPlanningCommandExecutor | null =
+  null;
 
 vi.mock("convex/react", () => ({
   useMutation: () => {
@@ -41,9 +43,12 @@ vi.mock("convex/react", () => ({
 }));
 
 vi.mock("../../components/calendar/use-calendar-planning-history", () => ({
-  useCalendarPlanningHistory: () => ({
-    recordCalendarCommand,
-  }),
+  useCalendarPlanningHistory: (executor: CalendarPlanningCommandExecutor) => {
+    executeRecordedCalendarCommand = executor;
+    return {
+      recordCalendarCommand,
+    };
+  },
 }));
 
 const makeMutation = (result: unknown) => {
@@ -69,6 +74,7 @@ describe("calendar planning workbench", () => {
   beforeEach(() => {
     mutationQueue.length = 0;
     recordCalendarCommand.mockReset();
+    executeRecordedCalendarCommand = null;
   });
 
   it("creates an Appointment through the deep Workbench Interface and owns history snapshots", async () => {
@@ -242,7 +248,10 @@ describe("calendar planning workbench", () => {
     if (!command) {
       throw new Error("Expected a recorded calendar command");
     }
-    const redoResult = await executeCalendarPlanningCommand(command, "redo");
+    if (!executeRecordedCalendarCommand) {
+      throw new Error("Expected a calendar command executor");
+    }
+    const redoResult = await executeRecordedCalendarCommand(command, "redo");
     expect(redoResult).toEqual(
       expect.objectContaining({
         status: "conflict",
