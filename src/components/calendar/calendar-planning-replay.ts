@@ -168,6 +168,13 @@ const blockedSlotMatchesState = (
   ) &&
   slot.title === expected.title;
 
+const withFreshLastModified = <TRecord extends { lastModified: bigint }>(
+  record: TRecord,
+): TRecord => ({
+  ...record,
+  lastModified: BigInt(Date.now()),
+});
+
 export function executeCalendarPlanningCommand(
   command: CalendarPlanningCommand,
   operation: LedgerOperation,
@@ -392,7 +399,9 @@ async function executeAppointmentUpdateCommand(
         status: "conflict",
       };
     }
-    context.rememberAppointmentHistoryDoc(payload.afterSnapshot);
+    context.rememberAppointmentHistoryDoc(
+      withFreshLastModified(payload.afterSnapshot),
+    );
     return { status: "applied" };
   }
 
@@ -427,7 +436,7 @@ async function executeAppointmentUpdateCommand(
       status: "conflict",
     };
   }
-  context.rememberAppointmentHistoryDoc(payload.before);
+  context.rememberAppointmentHistoryDoc(withFreshLastModified(payload.before));
   return { status: "applied" };
 }
 
@@ -609,7 +618,9 @@ async function executeBlockedSlotUpdateCommand(
         status: "conflict",
       };
     }
-    context.rememberBlockedSlotHistoryDoc(payload.afterSnapshot);
+    context.rememberBlockedSlotHistoryDoc(
+      withFreshLastModified(payload.afterSnapshot),
+    );
     return { status: "applied" };
   }
 
@@ -644,7 +655,7 @@ async function executeBlockedSlotUpdateCommand(
       status: "conflict",
     };
   }
-  context.rememberBlockedSlotHistoryDoc(payload.before);
+  context.rememberBlockedSlotHistoryDoc(withFreshLastModified(payload.before));
   return { status: "applied" };
 }
 

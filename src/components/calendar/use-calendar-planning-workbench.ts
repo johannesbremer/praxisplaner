@@ -228,7 +228,7 @@ export function useCalendarPlanningWorkbench(args: {
       if (
         isOptimisticId(id) ||
         (queryDoc !== undefined &&
-          queryDoc.lastModified >= historyDoc.lastModified)
+          queryDoc.lastModified > historyDoc.lastModified)
       ) {
         appointmentHistoryDocMapRef.current.delete(id);
       }
@@ -249,7 +249,7 @@ export function useCalendarPlanningWorkbench(args: {
       if (
         isOptimisticId(id) ||
         (queryDoc !== undefined &&
-          queryDoc.lastModified >= historyDoc.lastModified)
+          queryDoc.lastModified > historyDoc.lastModified)
       ) {
         blockedSlotHistoryDocMapRef.current.delete(id);
       }
@@ -1439,6 +1439,7 @@ export function useCalendarPlanningWorkbench(args: {
       const afterSnapshot: CalendarAppointmentRecord = {
         ...before,
         end: afterState.end,
+        lastModified: BigInt(Date.now()),
         placement: afterState.placement,
         start: afterState.start,
       };
@@ -1671,6 +1672,7 @@ export function useCalendarPlanningWorkbench(args: {
       const afterSnapshot: CalendarBlockedSlotRecord = {
         ...before,
         end: afterState.end,
+        lastModified: BigInt(Date.now()),
         placement: afterState.placement,
         start: afterState.start,
         title: afterState.title,
