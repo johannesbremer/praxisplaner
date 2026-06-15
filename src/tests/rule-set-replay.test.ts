@@ -71,7 +71,7 @@ describe("rule set replay commands", () => {
       kind: "practitioner.update",
       lineageKey: "practitioner-lineage",
     });
-    expect(recordedCommand.target?.lineageKey).toBe("practitioner-lineage");
+    expect(recordedCommand.target.lineageKey).toBe("practitioner-lineage");
     expect(recordedCommand.snapshots?.after).toBe(snapshot);
 
     await expect(

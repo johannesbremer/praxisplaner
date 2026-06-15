@@ -123,6 +123,11 @@ export interface RuleSetNamedLineageDeletePayload {
   name: string;
 }
 
+export type RuleSetNamedLineagePayload =
+  | RuleSetNamedLineageCreatePayload
+  | RuleSetNamedLineageDeletePayload
+  | RuleSetNamedLineageUpdatePayload;
+
 export interface RuleSetNamedLineageSnapshot {
   name: string;
 }
@@ -133,11 +138,6 @@ export interface RuleSetNamedLineageUpdatePayload {
   kind: Extract<RuleSetCommandKind, "location.update" | "practitioner.update">;
   lineageKey: string;
 }
-
-export type RuleSetNamedLineagePayload =
-  | RuleSetNamedLineageCreatePayload
-  | RuleSetNamedLineageDeletePayload
-  | RuleSetNamedLineageUpdatePayload;
 
 export interface RuleSetReplayAdapter {
   redo: () => LedgerExecutionResult | Promise<LedgerExecutionResult>;
@@ -199,24 +199,6 @@ export function createRuleSetAbsenceCommand(params: {
   };
 }
 
-export function createRuleSetSchedulingRuleCommand(params: {
-  kind: RuleSetSchedulingRuleCommand["kind"];
-  label: string;
-  payload: RuleSetSchedulingRulePayload;
-  scope?: string;
-  snapshots: RuleSetCommandSnapshot;
-  target: RuleSetSchedulingRuleCommand["target"];
-}): RuleSetSchedulingRuleCommand {
-  return {
-    kind: params.kind,
-    label: params.label,
-    payload: params.payload,
-    ...(params.scope && { scope: params.scope }),
-    snapshots: params.snapshots,
-    target: params.target,
-  };
-}
-
 export function createRuleSetNamedLineageCommand(params: {
   clearHistoryBefore?: boolean;
   kind: RuleSetNamedLineageCommand["kind"];
@@ -233,6 +215,24 @@ export function createRuleSetNamedLineageCommand(params: {
     payload: params.payload,
     ...(params.scope && { scope: params.scope }),
     ...(params.snapshots && { snapshots: params.snapshots }),
+    target: params.target,
+  };
+}
+
+export function createRuleSetSchedulingRuleCommand(params: {
+  kind: RuleSetSchedulingRuleCommand["kind"];
+  label: string;
+  payload: RuleSetSchedulingRulePayload;
+  scope?: string;
+  snapshots: RuleSetCommandSnapshot;
+  target: RuleSetSchedulingRuleCommand["target"];
+}): RuleSetSchedulingRuleCommand {
+  return {
+    kind: params.kind,
+    label: params.label,
+    payload: params.payload,
+    ...(params.scope && { scope: params.scope }),
+    snapshots: params.snapshots,
     target: params.target,
   };
 }

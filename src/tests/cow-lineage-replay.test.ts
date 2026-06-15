@@ -20,7 +20,7 @@ type TestEntityId = `entity:${string}`;
 type TestLineageKey = `lineage:${string}`;
 
 describe("cow history actions", () => {
-  it("preserves serializable create payloads on recorded commands", () => {
+  it("preserves create snapshots and target on recorded commands", () => {
     const recorded: RuleSetCommand[] = [];
     const entitiesRef: RefObject<TestEntity[]> = {
       current: [],
@@ -35,19 +35,19 @@ describe("cow history actions", () => {
         label: "Terminart erstellt",
         lineageKey: "lineage:created",
         onRecordCommand: (command) => recorded.push(command),
+        runCreate: () => Promise.resolve({ entityId: "entity:created" }),
+        runDelete: (entityId) => Promise.resolve({ entityId }),
         snapshots: {
           after: encodeRuleSetSnapshot({
             lineageKey: "lineage:created",
             name: "Checkup",
           }),
         },
-        runCreate: () => Promise.resolve({ entityId: "entity:created" }),
-        runDelete: (entityId) => Promise.resolve({ entityId }),
       },
     );
 
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.payload).toEqual({
+    expect(recorded[0]).toMatchObject({
       kind: "appointmentType.create",
       snapshots: {
         after: encodeRuleSetSnapshot({
@@ -62,7 +62,7 @@ describe("cow history actions", () => {
     });
   });
 
-  it("preserves serializable update payloads on recorded commands", () => {
+  it("preserves update snapshots and target on recorded commands", () => {
     const recorded: RuleSetCommand[] = [];
     const entitiesRef: RefObject<TestEntity[]> = {
       current: [
@@ -82,6 +82,9 @@ describe("cow history actions", () => {
         label: "Terminart aktualisiert",
         lineageKey: "lineage:updated",
         onRecordCommand: (command) => recorded.push(command),
+        redoMissingMessage: "missing redo",
+        runRedo: (entityId) => Promise.resolve({ entityId }),
+        runUndo: (entityId) => Promise.resolve({ entityId }),
         snapshots: {
           after: encodeRuleSetSnapshot({
             lineageKey: "lineage:updated",
@@ -92,9 +95,6 @@ describe("cow history actions", () => {
             name: "Checkup",
           }),
         },
-        redoMissingMessage: "missing redo",
-        runRedo: (entityId) => Promise.resolve({ entityId }),
-        runUndo: (entityId) => Promise.resolve({ entityId }),
         undoMissingMessage: "missing undo",
         validateRedo: () => null,
         validateUndo: () => null,
@@ -102,7 +102,7 @@ describe("cow history actions", () => {
     );
 
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.payload).toEqual({
+    expect(recorded[0]).toMatchObject({
       kind: "appointmentType.update",
       snapshots: {
         after: encodeRuleSetSnapshot({
