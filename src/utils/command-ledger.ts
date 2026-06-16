@@ -171,6 +171,8 @@ export function useCommandLedger<TCommand extends LedgerCommand>(
   const optionsRef = useRef(options);
   const undoRef = useRef<TCommand[]>([]);
   const redoRef = useRef<TCommand[]>([]);
+  const undoStackVersionRef = useRef(0);
+  const redoStackVersionRef = useRef(0);
   const queuedOperationCountRef = useRef(0);
   const operationQueueRef = useRef(Promise.resolve(null));
   const [state, setState] = useState(DEFAULT_STATE);
@@ -199,7 +201,9 @@ export function useCommandLedger<TCommand extends LedgerCommand>(
       const baseUndo = command.clearHistoryBefore ? [] : undoRef.current;
       const nextUndo = [...baseUndo, command];
       undoRef.current = nextUndo.slice(-maxDepth);
+      undoStackVersionRef.current += 1;
       redoRef.current = [];
+      redoStackVersionRef.current += 1;
       syncState();
     },
     [syncState],
@@ -209,7 +213,9 @@ export function useCommandLedger<TCommand extends LedgerCommand>(
     (scope?: string) => {
       if (!scope) {
         undoRef.current = [];
+        undoStackVersionRef.current += 1;
         redoRef.current = [];
+        redoStackVersionRef.current += 1;
         syncState();
         return;
       }
@@ -217,9 +223,11 @@ export function useCommandLedger<TCommand extends LedgerCommand>(
       undoRef.current = undoRef.current.filter(
         (command) => command.scope !== scope,
       );
+      undoStackVersionRef.current += 1;
       redoRef.current = redoRef.current.filter(
         (command) => command.scope !== scope,
       );
+      redoStackVersionRef.current += 1;
       syncState();
     },
     [syncState],
@@ -230,6 +238,7 @@ export function useCommandLedger<TCommand extends LedgerCommand>(
       operation: LedgerOperation,
       from: RefObject<TCommand[]>,
       to: RefObject<TCommand[]>,
+      destinationStackVersionRef: RefObject<number>,
     ): Promise<LedgerResult> => {
       queuedOperationCountRef.current += 1;
       syncState();
@@ -239,6 +248,8 @@ export function useCommandLedger<TCommand extends LedgerCommand>(
         if (!command) {
           return withLedgerState({ status: "noop" }, undoRef, redoRef);
         }
+        const destinationStackVersionAtStart =
+          destinationStackVersionRef.current;
 
         try {
           const rawResult = await executeLedgerCommand(
@@ -256,7 +267,18 @@ export function useCommandLedger<TCommand extends LedgerCommand>(
             const commandIndex = from.current.lastIndexOf(command);
             if (commandIndex !== -1) {
               from.current = removeAt(from.current, commandIndex);
-              to.current = [...to.current, command];
+              if (operation === "undo") {
+                undoStackVersionRef.current += 1;
+              } else {
+                redoStackVersionRef.current += 1;
+              }
+              if (
+                destinationStackVersionRef.current ===
+                destinationStackVersionAtStart
+              ) {
+                to.current = [...to.current, command];
+                destinationStackVersionRef.current += 1;
+              }
             }
             optionsRef.current.onSuccess?.(command, operation, result);
           } else if (result.status === "conflict") {
@@ -304,12 +326,12 @@ export function useCommandLedger<TCommand extends LedgerCommand>(
   );
 
   const undo = useCallback(
-    async () => execute("undo", undoRef, redoRef),
+    async () => execute("undo", undoRef, redoRef, redoStackVersionRef),
     [execute],
   );
 
   const redo = useCallback(
-    async () => execute("redo", redoRef, undoRef),
+    async () => execute("redo", redoRef, undoRef, undoStackVersionRef),
     [execute],
   );
 

@@ -198,7 +198,7 @@ describe("useCommandLedger", () => {
     expect(result.current.redoDepth).toBe(2);
   });
 
-  it("moves the captured command when a new command is recorded during undo", async () => {
+  it("does not append an undone command to redo when a new command is recorded during undo", async () => {
     const pendingUndo = deferred<LedgerExecutionResult>();
     const { result } = renderHook(() =>
       useCommandLedger<TestLedgerCommand>({
@@ -222,7 +222,8 @@ describe("useCommandLedger", () => {
     });
 
     expect(result.current.undoDepth).toBe(1);
-    expect(result.current.redoDepth).toBe(1);
+    expect(result.current.redoDepth).toBe(0);
+    expect(result.current.canRedo).toBe(false);
 
     await act(() => result.current.undo());
 
