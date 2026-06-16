@@ -359,9 +359,8 @@ function RightSidebarContent({
                 selectedPatientId ??
                 (patient?.userId
                   ? `user:${patient.userId}`
-                  : patient?.recordType === "temporary" &&
-                      patient.convexPatientId === undefined
-                    ? `draft:${patient.name}:${patient.phoneNumber}`
+                  : patient?.recordType === "pvs"
+                    ? `pvs:${patient.convexPatientId}`
                     : "empty")
               }
               onPatientSelected={onPatientSelected}
