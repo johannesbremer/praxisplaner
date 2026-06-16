@@ -1,14 +1,13 @@
 // convex/auth.config.ts
 const clientId = process.env["WORKOS_CLIENT_ID"];
-const authBypassEnabled = process.env["AUTH_BYPASS_ENABLED"] === "true";
 
-if (!clientId && !authBypassEnabled) {
+if (!clientId) {
   throw new Error(
     "Missing WORKOS_CLIENT_ID environment variable. Auth configuration requires this to be set.",
   );
 }
 
-const workOSClientId = clientId ?? "client_local_preview_placeholder";
+const workOSClientId = clientId;
 
 const workOSProviders = [
   {
@@ -34,7 +33,9 @@ const devAuthProvider = {
   type: "customJwt" as const,
 };
 
-const providers = authBypassEnabled
+const devAuthProviderEnabled = workOSClientId.startsWith("client_local_");
+
+const providers = devAuthProviderEnabled
   ? [...workOSProviders, devAuthProvider]
   : workOSProviders;
 
