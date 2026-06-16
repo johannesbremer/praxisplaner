@@ -21,7 +21,14 @@ import {
 import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
 
 export const appointmentSmileyValidator = v.string();
+export const appointmentSmileyOptionValidator = v.object({
+  emoji: appointmentSmileyValidator,
+  name: v.string(),
+});
 export type AppointmentSmiley = Infer<typeof appointmentSmileyValidator>;
+export type AppointmentSmileyOption = Infer<
+  typeof appointmentSmileyOptionValidator
+>;
 
 export {
   beihilfeStatusValidator,
@@ -888,7 +895,9 @@ export default defineSchema({
     .index("by_practiceId_phoneNumber", ["practiceId", "phoneNumber"]),
 
   practices: defineTable({
-    appointmentSmileyOptions: v.optional(v.array(appointmentSmileyValidator)),
+    appointmentSmileyOptions: v.optional(
+      v.array(appointmentSmileyOptionValidator),
+    ),
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
     name: v.string(),
     slug: v.optional(v.string()),

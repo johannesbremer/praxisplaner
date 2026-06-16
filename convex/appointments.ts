@@ -661,7 +661,7 @@ async function requireConfiguredAppointmentSmiley(
 ) {
   const practice = await db.get("practices", args.practiceId);
   const options = practice?.appointmentSmileyOptions ?? [];
-  if (!options.includes(args.smiley)) {
+  if (!options.some((option) => option.emoji === args.smiley)) {
     throw new Error(
       "Der gewählte Termin-Smiley ist für diese Praxis nicht konfiguriert.",
     );

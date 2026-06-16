@@ -7,6 +7,8 @@ import {
   ExternalLink,
   Link2,
   PanelRightIcon,
+  Plus,
+  X,
 } from "lucide-react";
 import { err, ok, type Result } from "neverthrow";
 import * as React from "react";
@@ -14,6 +16,11 @@ import * as React from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -47,6 +54,9 @@ import {
   getPatientSelectionPanelInitialSelection,
   PatientSelectionPanel,
 } from "./patient-selection-panel";
+
+type AppointmentSmileyOption =
+  (typeof api.practices.getAppointmentSmileyOptions)["_returnType"][number];
 
 // Appointment type for the sidebar list
 export type SidebarAppointment = AppointmentResult;
@@ -342,44 +352,106 @@ function AppointmentSmileyEditor({
   appointment: SidebarAppointment;
   disabled: boolean;
   onChange: (smiley: AppointmentSmiley | null) => void;
-  options: readonly AppointmentSmiley[];
+  options: readonly AppointmentSmileyOption[];
 }) {
-  const editorOptions = [
-    { label: "Leer", value: null },
-    ...options.map((option) => ({ label: option, value: option })),
-  ];
+  const selectedOption =
+    appointment.smiley === undefined
+      ? undefined
+      : options.find((option) => option.emoji === appointment.smiley);
 
   return (
-    <div
-      aria-label="Termin-Smiley"
-      className="mt-2 flex flex-wrap gap-1"
-      role="group"
-    >
-      {editorOptions.map((option) => {
-        const selected =
-          option.value === null
-            ? appointment.smiley === undefined
-            : appointment.smiley === option.value;
-        return (
-          <Button
-            aria-pressed={selected}
-            className="h-7 px-2 text-xs"
-            disabled={disabled}
-            key={option.label}
+    <div className="mt-2 space-y-2">
+      <div className="flex items-start gap-2">
+        {appointment.smiley === undefined ? null : (
+          <div className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1.5">
+            <div className="flex items-start gap-2">
+              <span aria-hidden="true" className="text-base leading-none">
+                {appointment.smiley}
+              </span>
+              <div className="min-w-0 text-xs">
+                <div className="truncate font-medium">
+                  {selectedOption?.name ?? "Unbekannter Termin-Smiley"}
+                </div>
+                {selectedOption === undefined ? (
+                  <div className="text-muted-foreground">
+                    Nicht mehr konfiguriert
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        )}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              aria-label="Termin-Smiley auswählen"
+              className="h-8 w-8 shrink-0"
+              disabled={disabled}
+              onClick={(event) => {
+                event.stopPropagation();
+              }}
+              size="icon"
+              type="button"
+              variant="outline"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-64 p-2"
             onClick={(event) => {
               event.stopPropagation();
-              if (!selected) {
-                onChange(option.value);
-              }
             }}
-            size="sm"
-            type="button"
-            variant={selected ? "default" : "outline"}
           >
-            {option.label}
-          </Button>
-        );
-      })}
+            <div className="space-y-1">
+              {options.length === 0 ? (
+                <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                  Keine Smileys konfiguriert.
+                </p>
+              ) : (
+                options.map((option) => (
+                  <Button
+                    className="h-auto w-full justify-start gap-2 px-2 py-1.5 text-left"
+                    disabled={disabled}
+                    key={option.emoji}
+                    onClick={() => {
+                      onChange(option.emoji);
+                    }}
+                    type="button"
+                    variant={
+                      appointment.smiley === option.emoji
+                        ? "secondary"
+                        : "ghost"
+                    }
+                  >
+                    <span aria-hidden="true" className="text-base">
+                      {option.emoji}
+                    </span>
+                    <span className="min-w-0 truncate text-sm">
+                      {option.name}
+                    </span>
+                  </Button>
+                ))
+              )}
+              {appointment.smiley === undefined ? null : (
+                <Button
+                  className="h-8 w-full justify-start gap-2 px-2 text-sm"
+                  disabled={disabled}
+                  onClick={() => {
+                    onChange(null);
+                  }}
+                  type="button"
+                  variant="ghost"
+                >
+                  <X className="h-4 w-4" />
+                  Entfernen
+                </Button>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
     </div>
   );
 }

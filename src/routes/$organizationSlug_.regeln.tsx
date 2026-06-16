@@ -43,6 +43,7 @@ import type {
 
 import { createSimulatedContext } from "../../lib/utils";
 import { PraxismanagerAuthGate } from "../auth/access-control";
+import { AppointmentSmileyOptionsManagement } from "../components/appointment-smiley-options-management";
 import { AppointmentTypesManagement } from "../components/appointment-types-management";
 import BaseScheduleManagement from "../components/base-schedule-management";
 import { LocationsManagement } from "../components/locations-management";
@@ -1386,6 +1387,10 @@ function LogicView() {
                       ruleSetReplayTarget={ruleSetReplayTarget}
                     />
                   )}
+
+                  <AppointmentSmileyOptionsManagement
+                    practiceId={currentPractice._id}
+                  />
                 </div>
               </div>
 

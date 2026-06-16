@@ -15,6 +15,10 @@ import {
 import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
 import { allocateUniquePracticeSlug } from "./practiceSlugs";
 import {
+  type AppointmentSmileyOption,
+  appointmentSmileyOptionValidator,
+} from "./schema";
+import {
   ensureAuthenticatedUserId,
   getAuthenticatedUserIdForQueryOrNull,
   requireAuthenticatedUserIdForQuery,
@@ -23,7 +27,9 @@ import {
 const practiceListItemValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("practices"),
-  appointmentSmileyOptions: v.optional(v.array(v.string())),
+  appointmentSmileyOptions: v.optional(
+    v.array(appointmentSmileyOptionValidator),
+  ),
   currentActiveRuleSetId: v.optional(v.id("ruleSets")),
   name: v.string(),
   slug: v.optional(v.string()),
@@ -31,17 +37,23 @@ const practiceListItemValidator = v.object({
 });
 const MAX_APPOINTMENT_SMILEY_OPTIONS = 24;
 
-function normalizeAppointmentSmileyOptions(options: string[]): string[] {
-  const normalized: string[] = [];
+function normalizeAppointmentSmileyOptions(
+  options: AppointmentSmileyOption[],
+): AppointmentSmileyOption[] {
+  const normalized: AppointmentSmileyOption[] = [];
   const seen = new Set<string>();
 
   for (const option of options) {
-    const trimmed = option.trim();
-    if (trimmed.length === 0 || seen.has(trimmed)) {
+    const emoji = option.emoji.trim();
+    const name = option.name.trim();
+    if (emoji.length === 0 || name.length === 0) {
+      throw new Error("Termin-Smileys benötigen Emoji und Name.");
+    }
+    if (seen.has(emoji)) {
       continue;
     }
-    seen.add(trimmed);
-    normalized.push(trimmed);
+    seen.add(emoji);
+    normalized.push({ emoji, name });
   }
 
   if (normalized.length > MAX_APPOINTMENT_SMILEY_OPTIONS) {
@@ -153,7 +165,7 @@ export const getAllPractices = query({
     const practices: {
       _creationTime: number;
       _id: Id<"practices">;
-      appointmentSmileyOptions?: string[];
+      appointmentSmileyOptions?: AppointmentSmileyOption[];
       currentActiveRuleSetId?: Id<"ruleSets">;
       name: string;
       slug?: string;
@@ -173,7 +185,9 @@ export const getAllPractices = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("practices"),
-      appointmentSmileyOptions: v.optional(v.array(v.string())),
+      appointmentSmileyOptions: v.optional(
+        v.array(appointmentSmileyOptionValidator),
+      ),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
       slug: v.optional(v.string()),
@@ -240,7 +254,9 @@ export const getPractice = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("practices"),
-      appointmentSmileyOptions: v.optional(v.array(v.string())),
+      appointmentSmileyOptions: v.optional(
+        v.array(appointmentSmileyOptionValidator),
+      ),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
       slug: v.optional(v.string()),
@@ -270,7 +286,9 @@ export const getAccessiblePracticeBySlug = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("practices"),
-      appointmentSmileyOptions: v.optional(v.array(v.string())),
+      appointmentSmileyOptions: v.optional(
+        v.array(appointmentSmileyOptionValidator),
+      ),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
       slug: v.optional(v.string()),
@@ -308,12 +326,12 @@ export const getAppointmentSmileyOptions = query({
     const practice = await ctx.db.get("practices", args.practiceId);
     return practice?.appointmentSmileyOptions ?? [];
   },
-  returns: v.array(v.string()),
+  returns: v.array(appointmentSmileyOptionValidator),
 });
 
 export const updateAppointmentSmileyOptions = mutation({
   args: {
-    options: v.array(v.string()),
+    options: v.array(appointmentSmileyOptionValidator),
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
@@ -324,7 +342,7 @@ export const updateAppointmentSmileyOptions = mutation({
     });
     return options;
   },
-  returns: v.array(v.string()),
+  returns: v.array(appointmentSmileyOptionValidator),
 });
 
 export const listPracticePhoneNumbers = query({
