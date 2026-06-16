@@ -155,6 +155,8 @@ function LogicView() {
   const [draftRevisionOverride, setDraftRevisionOverride] = useState<
     null | number
   >(null);
+  const [discardedReplayDraftRuleSetId, setDiscardedReplayDraftRuleSetId] =
+    useState<Id<"ruleSets"> | null>(null);
   const justSavedRuleSetDescriptionRef = useRef<null | string>(null);
   const [isDraftEquivalentToParent, setIsDraftEquivalentToParent] =
     useState(false);
@@ -615,10 +617,18 @@ function LogicView() {
       };
     }
     return {
+      ...(discardedReplayDraftRuleSetId
+        ? { discardedDraftRuleSetId: discardedReplayDraftRuleSetId }
+        : {}),
       kind: "saved-parent",
       parentRuleSetId: resolvedCurrentWorkingRuleSet._id,
     };
-  }, [draftRevisionOverride, resolvedCurrentWorkingRuleSet, unsavedRuleSet]);
+  }, [
+    discardedReplayDraftRuleSetId,
+    draftRevisionOverride,
+    resolvedCurrentWorkingRuleSet,
+    unsavedRuleSet,
+  ]);
 
   const historyScopeKey = useMemo(() => {
     const isWorkingOnUnsavedRuleSet =
@@ -707,7 +717,10 @@ function LogicView() {
             ruleSetId: draftToDiscard._id,
           });
 
-          if (!discardResult.deleted) {
+          if (discardResult.deleted) {
+            setDiscardedReplayDraftRuleSetId(draftToDiscard._id);
+          } else {
+            setDiscardedReplayDraftRuleSetId(null);
             setUnsavedRuleSetId(draftToDiscard._id);
             setDraftRevisionOverride(previousDraftRevision);
             setIsDraftEquivalentToParent(false);
@@ -715,6 +728,7 @@ function LogicView() {
           }
         } catch (error: unknown) {
           discardingUnsavedRuleSetIdRef.current = null;
+          setDiscardedReplayDraftRuleSetId(null);
           setUnsavedRuleSetId(draftToDiscard._id);
           setDraftRevisionOverride(previousDraftRevision);
           setIsDraftEquivalentToParent(false);
@@ -812,6 +826,7 @@ function LogicView() {
 
   const handleDraftMutation = useCallback(
     (result: { draftRevision: number; ruleSetId: Id<"ruleSets"> }) => {
+      setDiscardedReplayDraftRuleSetId(null);
       setUnsavedRuleSetId(result.ruleSetId);
       setIsDraftEquivalentToParent(false);
       setIsSaveDialogOpen(false);

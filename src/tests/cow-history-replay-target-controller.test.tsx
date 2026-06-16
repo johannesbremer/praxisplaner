@@ -105,4 +105,47 @@ describe("useRuleSetReplayTargetController", () => {
       selectedRuleSetId: draftRuleSetId,
     });
   });
+
+  it("resets to saved parent props when the preserved draft was discarded", () => {
+    const parentRuleSetId = toTableId<"ruleSets">("parent-rule-set");
+    const draftRuleSetId = toTableId<"ruleSets">("draft-rule-set");
+    const { rerender, result } = renderHook(
+      ({
+        discardedDraftRuleSetId,
+      }: {
+        discardedDraftRuleSetId?: typeof draftRuleSetId;
+      }) =>
+        useRuleSetReplayTargetController({
+          ruleSetId: parentRuleSetId,
+          ruleSetReplayTarget: {
+            ...(discardedDraftRuleSetId ? { discardedDraftRuleSetId } : {}),
+            kind: "saved-parent",
+            parentRuleSetId,
+          },
+        }),
+      {
+        initialProps: {},
+      },
+    );
+
+    act(() => {
+      result.current.handleDraftMutationResult({
+        draftRevision: 1,
+        ruleSetId: draftRuleSetId,
+      });
+    });
+    rerender({});
+
+    expect(result.current.getCowMutationArgs()).toEqual({
+      expectedDraftRevision: 1,
+      selectedRuleSetId: draftRuleSetId,
+    });
+
+    rerender({ discardedDraftRuleSetId: draftRuleSetId });
+
+    expect(result.current.getCowMutationArgs()).toEqual({
+      expectedDraftRevision: null,
+      selectedRuleSetId: parentRuleSetId,
+    });
+  });
 });

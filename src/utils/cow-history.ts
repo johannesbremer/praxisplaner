@@ -22,13 +22,14 @@ export interface LineageTrackedEntity<
 
 export type RuleSetReplayTarget =
   | {
-      draftRevision: number;
-      draftRuleSetId: Id<"ruleSets">;
-      kind: "draft";
+      discardedDraftRuleSetId?: Id<"ruleSets">;
+      kind: "saved-parent";
       parentRuleSetId: Id<"ruleSets">;
     }
   | {
-      kind: "saved-parent";
+      draftRevision: number;
+      draftRuleSetId: Id<"ruleSets">;
+      kind: "draft";
       parentRuleSetId: Id<"ruleSets">;
     };
 
@@ -78,6 +79,9 @@ export function keepFreshestRuleSetReplayTarget(
     incoming.kind === "saved-parent" &&
     incoming.parentRuleSetId === current.parentRuleSetId
   ) {
+    if (incoming.discardedDraftRuleSetId === current.draftRuleSetId) {
+      return incoming;
+    }
     return current;
   }
 
