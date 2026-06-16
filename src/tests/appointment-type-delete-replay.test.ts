@@ -82,4 +82,30 @@ describe("appointment type delete replay", () => {
       appointmentTypeLineageKey: "type-lineage",
     });
   });
+
+  it("conflicts when same-lineage restore candidate differs from the deleted definition", async () => {
+    const existingAppointmentType = { _id: "deleted-type" } as const;
+    const replay = createAppointmentTypeDeleteReplayAdapter({
+      createAppointmentType: vi.fn(),
+      deleteAppointmentType: vi.fn(),
+      findExistingByLineage: vi.fn(() => existingAppointmentType),
+      initialEntityId: "deleted-type",
+      isMissingEntityError: () => false,
+      isSameDefinition: () => false,
+      lineageKey: "type-lineage",
+      removeRestoredRef: vi.fn(),
+      resolvePractitionerIds: () => ({ ids: [], status: "ok" }),
+      resolveTreeFolderId: () => ({ folderId: null, status: "ok" }),
+      selectedRuleSetId: () => "draft-2",
+      snapshot: {},
+      toRestoredRef: () => ({}),
+      upsertRestoredRef: vi.fn(),
+    });
+
+    await expect(replay.undo()).resolves.toEqual({
+      message:
+        "[HISTORY:APPOINTMENT_TYPE_LINEAGE_CONFLICT] Die Terminart mit lineageKey type-lineage existiert bereits, hat aber abweichende Einstellungen.",
+      status: "conflict",
+    });
+  });
 });

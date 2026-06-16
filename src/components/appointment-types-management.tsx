@@ -2867,6 +2867,11 @@ export function AppointmentTypesManagement({
         initialEntityId: appointmentType._id,
         isMissingEntityError,
         isSameDefinition: (existingByLineage, snapshot) => {
+          const resolvedFolder =
+            resolveFolderHistoryTarget(deletedFolderTarget);
+          if (resolvedFolder.status === "conflict") {
+            return false;
+          }
           const existingPractitionerLineageIds =
             existingByLineage.allowedPractitionerLineageKeys
               .map((lineageKey) => asPractitionerLineageKey(lineageKey))
@@ -2875,6 +2880,8 @@ export function AppointmentTypesManagement({
             deletedPractitionerSnapshots,
           );
           return (
+            existingByLineage.name === snapshot.name &&
+            existingByLineage.treeFolderId === resolvedFolder.folderId &&
             existingByLineage.duration === snapshot.duration &&
             serializeFollowUpPlan(existingByLineage.followUpPlan) ===
               serializeFollowUpPlan(snapshot.followUpPlan) &&
