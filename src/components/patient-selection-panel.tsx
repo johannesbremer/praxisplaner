@@ -12,11 +12,13 @@ import {
   useRef,
   useState,
 } from "react";
+import { z } from "zod";
 
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 import { PhoneInput } from "@/components/phone-input";
 import { Button } from "@/components/ui/button";
+import { Field, FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
@@ -67,6 +69,14 @@ const EMPTY_DRAFT: DraftPatientState = {
   name: "",
   phoneNumber: "",
 };
+
+const temporaryPatientFormSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(3, "Der Name muss mindestens 3 Zeichen lang sein."),
+  phoneNumber: z.e164("Bitte gültige Telefonnummer im Format +49... eingeben"),
+});
 
 export function getPatientSelectionPanelInitialSelection({
   patient,
@@ -142,8 +152,23 @@ export function PatientSelectionPanel({
   );
   const form = useForm({
     defaultValues: activeDraftPatient,
-    onSubmit: () => {
-      emitDraftPatientSelection(onPatientSelected, activeDraftPatient);
+    onSubmit: ({ value }) => {
+      const temporaryPatient = {
+        name: value.name.trim(),
+        phoneNumber: value.phoneNumber,
+      };
+
+      emitDraftPatientSelection(onPatientSelected, temporaryPatient);
+      setSelectedExistingPatientId(undefined);
+      setDraftPatient(EMPTY_DRAFT);
+      setIgnoredExternalSelectionSignature(
+        getDraftPatientSignature(temporaryPatient),
+      );
+      form.reset(EMPTY_DRAFT);
+      setIsOpen(false);
+    },
+    validators: {
+      onSubmit: temporaryPatientFormSchema,
     },
   });
 
@@ -230,85 +255,105 @@ export function PatientSelectionPanel({
 
   return (
     <div className="space-y-2" ref={panelRef}>
-      <div className="space-y-2">
-        <Label htmlFor={`${panelId}-patient-name`}>Patient</Label>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            autoComplete="off"
-            className="pl-9"
-            id={`${panelId}-patient-name`}
-            onChange={handleNameChange}
-            onFocus={() => {
-              setIsOpen(true);
-            }}
-            placeholder="Patient suchen oder neuen Namen eingeben"
-            value={patientNameValue}
-          />
-          {isOpen && patientOptions.length > 0 ? (
-            <div className="absolute inset-x-0 top-[calc(100%+0.375rem)] z-50 rounded-md border bg-popover shadow-md">
-              <div className="max-h-64 overflow-y-auto p-1">
-                {patientOptions.map((option) => {
-                  const isSelected = option.id === selectedExistingPatientId;
+      <form.Field name="name">
+        {(field) => {
+          const isInvalid =
+            field.state.meta.isTouched && !field.state.meta.isValid;
 
-                  return (
-                    <button
-                      className={cn(
-                        "flex w-full items-start justify-between gap-3 rounded-sm px-3 py-2 text-left text-sm transition-colors",
-                        isSelected
-                          ? "bg-accent text-accent-foreground"
-                          : "hover:bg-accent hover:text-accent-foreground",
-                      )}
-                      key={option.id}
-                      onClick={() => {
-                        selectExistingPatient(option);
-                      }}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                      }}
-                      type="button"
-                    >
-                      <div className="min-w-0 truncate font-medium">
-                        {option.name}
-                      </div>
-                      {isSelected ? (
-                        <UserRoundCheck className="mt-0.5 size-4 shrink-0 text-foreground" />
-                      ) : null}
-                    </button>
-                  );
-                })}
+          return (
+            <Field className="space-y-2" data-invalid={isInvalid}>
+              <Label htmlFor={`${panelId}-patient-name`}>Patient</Label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  aria-invalid={isInvalid}
+                  autoComplete="off"
+                  className="pl-9"
+                  id={`${panelId}-patient-name`}
+                  name={field.name}
+                  onBlur={field.handleBlur}
+                  onChange={handleNameChange}
+                  onFocus={() => {
+                    setIsOpen(true);
+                  }}
+                  placeholder="Patient suchen oder neuen Namen eingeben"
+                  value={patientNameValue}
+                />
+                {isOpen && patientOptions.length > 0 ? (
+                  <div className="absolute inset-x-0 top-[calc(100%+0.375rem)] z-50 rounded-md border bg-popover shadow-md">
+                    <div className="max-h-64 overflow-y-auto p-1">
+                      {patientOptions.map((option) => {
+                        const isSelected =
+                          option.id === selectedExistingPatientId;
+
+                        return (
+                          <button
+                            className={cn(
+                              "flex w-full items-start justify-between gap-3 rounded-sm px-3 py-2 text-left text-sm transition-colors",
+                              isSelected
+                                ? "bg-accent text-accent-foreground"
+                                : "hover:bg-accent hover:text-accent-foreground",
+                            )}
+                            key={option.id}
+                            onClick={() => {
+                              selectExistingPatient(option);
+                            }}
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                            }}
+                            type="button"
+                          >
+                            <div className="min-w-0 truncate font-medium">
+                              {option.name}
+                            </div>
+                            {isSelected ? (
+                              <UserRoundCheck className="mt-0.5 size-4 shrink-0 text-foreground" />
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            </div>
-          ) : null}
-        </div>
-      </div>
+              {isInvalid ? (
+                <FieldError errors={field.state.meta.errors} />
+              ) : null}
+            </Field>
+          );
+        }}
+      </form.Field>
 
       {showPhoneField ? (
-        <form
-          className="space-y-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void form.handleSubmit();
-          }}
-        >
+        <div className="space-y-3">
           <form.Field name="phoneNumber">
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor={`${panelId}-temporary-patient-phone-number`}>
-                  Telefonnummer
-                </Label>
-                <PhoneInput
-                  id={`${panelId}-temporary-patient-phone-number`}
-                  onChange={handlePhoneNumberChange}
-                  value={
-                    externalDraftPatient === undefined
-                      ? field.state.value
-                      : activeDraftPatient.phoneNumber
-                  }
-                />
-              </div>
-            )}
+            {(field) => {
+              const isInvalid =
+                field.state.meta.isTouched && !field.state.meta.isValid;
+
+              return (
+                <Field className="space-y-2" data-invalid={isInvalid}>
+                  <Label htmlFor={`${panelId}-temporary-patient-phone-number`}>
+                    Telefonnummer
+                  </Label>
+                  <PhoneInput
+                    aria-invalid={isInvalid}
+                    id={`${panelId}-temporary-patient-phone-number`}
+                    name={field.name}
+                    onBlur={field.handleBlur}
+                    onChange={handlePhoneNumberChange}
+                    value={
+                      externalDraftPatient === undefined
+                        ? field.state.value
+                        : activeDraftPatient.phoneNumber
+                    }
+                  />
+                  {isInvalid ? (
+                    <FieldError errors={field.state.meta.errors} />
+                  ) : null}
+                </Field>
+              );
+            }}
           </form.Field>
 
           <Button
@@ -316,11 +361,16 @@ export function PatientSelectionPanel({
               activeDraftPatient.name.trim().length === 0 ||
               activeDraftPatient.phoneNumber.trim().length === 0
             }
-            type="submit"
+            onClick={() => {
+              form.setFieldValue("name", activeDraftPatient.name);
+              form.setFieldValue("phoneNumber", activeDraftPatient.phoneNumber);
+              void form.handleSubmit();
+            }}
+            type="button"
           >
             Erstellen
           </Button>
-        </form>
+        </div>
       ) : null}
     </div>
   );
@@ -346,6 +396,10 @@ function emitDraftPatientSelection(
       recordType: "temporary",
     },
   });
+}
+
+function getDraftPatientSignature(draftPatient: DraftPatientState): string {
+  return `draft:${draftPatient.name}:${draftPatient.phoneNumber}`;
 }
 
 function getInitialDraftPatient(
