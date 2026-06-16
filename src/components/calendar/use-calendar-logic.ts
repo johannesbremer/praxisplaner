@@ -1313,6 +1313,9 @@ export function useCalendarLogic({
         ...(simulatedContext.appointmentTypeLineageKey && {
           appointmentTypeLineageKey: simulatedContext.appointmentTypeLineageKey,
         }),
+        ...(simulatedContext.clientType !== undefined && {
+          clientType: simulatedContext.clientType,
+        }),
         isNewPatient: simulatedContext.patient.isNew,
         ...(patientDateOfBirth !== undefined && {
           patientDateOfBirth,

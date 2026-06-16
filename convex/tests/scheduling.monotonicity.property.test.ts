@@ -140,6 +140,7 @@ async function querySlotStatus(blockers: ReadonlySet<BlockerKind>) {
     ruleSetId: fixture.ruleSetId,
     simulatedContext: {
       appointmentTypeLineageKey: fixture.appointmentTypeId,
+      clientType: "MFA",
       locationLineageKey: fixture.locationId,
       patient: { isNew: true },
     },

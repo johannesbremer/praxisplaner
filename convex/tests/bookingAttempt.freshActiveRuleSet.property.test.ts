@@ -117,6 +117,7 @@ describe("booking attempt freshness properties", () => {
             practiceId: fixture.practiceId,
             simulatedContext: {
               appointmentTypeLineageKey: fixture.appointmentTypeId,
+              clientType: "MFA",
               locationLineageKey: fixture.locationId,
               patient: { isNew: true },
             },
@@ -128,6 +129,7 @@ describe("booking attempt freshness properties", () => {
             ruleSetId: fixture.ruleSetId,
             simulatedContext: {
               appointmentTypeLineageKey: fixture.appointmentTypeId,
+              clientType: "MFA",
               locationLineageKey: fixture.locationId,
               patient: { isNew: true },
             },

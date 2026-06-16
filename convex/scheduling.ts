@@ -440,6 +440,7 @@ async function getSlotsForDayImpl(
       "appointmentTypeLineageKey is required in simulatedContext for scheduling queries",
     );
   }
+  requireSchedulingClientType(args.simulatedContext);
 
   // Parse the date directly as a Temporal.PlainDate to avoid timezone issues
   const targetPlainDate = Temporal.PlainDate.from(args.date);
@@ -739,6 +740,7 @@ export const getNextAvailableSlot = query({
         "appointmentTypeLineageKey is required in simulatedContext for scheduling queries",
       );
     }
+    requireSchedulingClientType(simulatedContext);
 
     const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
       ctx.db,
@@ -841,6 +843,18 @@ export const getNextAvailableSlot = query({
   },
   returns: v.union(v.null(), schedulingResultSlotValidator),
 });
+
+function requireSchedulingClientType(
+  simulatedContext: SimulatedContextInput,
+): string {
+  if (!simulatedContext.clientType) {
+    throw new Error(
+      "clientType is required in simulatedContext for scheduling rule evaluation",
+    );
+  }
+
+  return simulatedContext.clientType;
+}
 
 export const getSlotsForDayInternal = internalQuery({
   args: getSlotsForDayArgs,

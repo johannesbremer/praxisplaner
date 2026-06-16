@@ -2828,6 +2828,7 @@ describe("vacations", () => {
       ruleSetId: unsavedRuleSet._id,
       simulatedContext: {
         appointmentTypeLineageKey: unsavedAppointmentType.lineageKey,
+        clientType: "MFA",
         locationLineageKey: unsavedLocation.lineageKey,
         patient: { isNew: true },
       },
@@ -2883,6 +2884,7 @@ describe("vacations", () => {
       ruleSetId: refreshedUnsavedRuleSet._id,
       simulatedContext: {
         appointmentTypeLineageKey: refreshedAppointmentType.lineageKey,
+        clientType: "MFA",
         locationLineageKey: refreshedLocation.lineageKey,
         patient: { isNew: true },
       },

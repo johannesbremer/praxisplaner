@@ -524,6 +524,7 @@ export function useCalendarData(args: {
                         appointmentTypeLineageKey,
                       ),
                     }),
+                clientType: "MFA",
                 isNewPatient: args.patient?.isNewPatient ?? false,
                 ...(locationLineageKey === undefined
                   ? {}

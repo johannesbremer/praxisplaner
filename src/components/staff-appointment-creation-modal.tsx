@@ -203,6 +203,7 @@ export function StaffAppointmentCreationModal({
           scope: isSimulation ? "simulation" : "real",
           simulatedContext: {
             appointmentTypeLineageKey: appointmentType.lineageKey,
+            clientType: "MFA",
             locationLineageKey: location.lineageKey,
             patient: {
               ...(effectivePatient?.dateOfBirth && {

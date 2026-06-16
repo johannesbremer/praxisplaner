@@ -293,6 +293,7 @@ async function previewPractitionerCoverageForAppointment(
       ruleSetId: args.ruleSetId,
       simulatedContext: {
         appointmentTypeLineageKey,
+        clientType: "MFA",
         locationLineageKey: selectedLocationLineageKey,
         patient: {
           ...(patientDateOfBirth ? { dateOfBirth: patientDateOfBirth } : {}),

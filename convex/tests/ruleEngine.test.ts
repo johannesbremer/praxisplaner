@@ -2987,6 +2987,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: generalTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3061,6 +3062,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: generalTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3139,6 +3141,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3162,6 +3165,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3248,6 +3252,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: generalTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3365,6 +3370,7 @@ describe("E2E: Slot Generation with Rules", () => {
       ruleSetId: copiedRuleSetId,
       simulatedContext: {
         appointmentTypeLineageKey: baseAppointmentTypeId,
+        clientType: "MFA",
         patient: { isNew: false },
       },
     });
@@ -3653,6 +3659,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3672,6 +3679,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3691,6 +3699,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3813,6 +3822,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           locationLineageKey: mainOfficeId,
           patient: { isNew: false },
         },
@@ -3836,6 +3846,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           locationLineageKey: branchId,
           patient: { isNew: false },
         },
@@ -3859,6 +3870,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           locationLineageKey: mainOfficeId,
           patient: { isNew: false },
         },
@@ -3882,6 +3894,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           locationLineageKey: mainOfficeId,
           patient: { isNew: false },
         },
@@ -3971,6 +3984,7 @@ describe("E2E: Slot Generation with Rules", () => {
       ruleSetId,
       simulatedContext: {
         appointmentTypeLineageKey: generalTypeId,
+        clientType: "MFA",
         patient: { isNew: false },
         requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Fixed request time for consistent test
       },
@@ -3990,6 +4004,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: generalTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
           requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Fixed request time for consistent test
         },
@@ -4076,6 +4091,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4095,6 +4111,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4114,6 +4131,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4133,6 +4151,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4210,6 +4229,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: emergencyTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4229,6 +4249,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4346,6 +4367,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: generalTypeId,
+          clientType: "MFA",
           locationLineageKey: branchId,
           patient: { isNew: false },
         },
@@ -4372,6 +4394,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: generalTypeId,
+          clientType: "MFA",
           locationLineageKey: mainOfficeId,
           patient: { isNew: false },
         },
@@ -4507,6 +4530,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
           requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
@@ -4656,6 +4680,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
           requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Reference date
         },
@@ -4687,6 +4712,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
           requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Reference date
         },
@@ -4787,6 +4813,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4809,6 +4836,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: emergencyTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4828,6 +4856,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },

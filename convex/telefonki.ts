@@ -77,7 +77,7 @@ interface AvailabilityArgs {
   practiceId: Id<"practices">;
   simulatedContext: {
     appointmentTypeLineageKey?: Id<"appointmentTypes">;
-    clientType?: string;
+    clientType: string;
     locationLineageKey?: Id<"locations">;
     patient: {
       dateOfBirth?: string;
@@ -87,6 +87,12 @@ interface AvailabilityArgs {
     requestedAt?: string;
   };
 }
+
+type AvailabilityArgsInput = Omit<AvailabilityArgs, "simulatedContext"> & {
+  simulatedContext: Omit<AvailabilityArgs["simulatedContext"], "clientType"> & {
+    clientType?: string;
+  };
+};
 
 interface AvailableSlot {
   duration: number;
@@ -404,6 +410,25 @@ async function requirePhoneBookingIdentity(
   return identity;
 }
 
+function requireTelefonkiAvailabilityArgs(
+  args: AvailabilityArgsInput,
+): AvailabilityArgs {
+  const { clientType } = args.simulatedContext;
+  if (!clientType) {
+    throw new Error(
+      "clientType is required in simulatedContext for TelefonKI availability",
+    );
+  }
+
+  return {
+    ...args,
+    simulatedContext: {
+      ...args.simulatedContext,
+      clientType,
+    },
+  };
+}
+
 function toTelefonkiAppointment(appointment: Doc<"appointments">): null | {
   appointmentId: Id<"appointments">;
   appointmentTypeTitle: string;
@@ -640,10 +665,11 @@ export const getActiveConfig = query({
 export const nextAvailableSlot = query({
   args: availabilityArgs,
   handler: async (ctx, args) => {
+    const search = requireTelefonkiAvailabilityArgs(args);
     const slots = await getAvailableSlots({
       afternoonOnly: false,
       ctx,
-      search: { ...args, limit: 1 },
+      search: { ...search, limit: 1 },
       searchDateOnly: false,
     });
     return slots[0] ?? null;
@@ -654,10 +680,11 @@ export const nextAvailableSlot = query({
 export const nextAvailableSlots = query({
   args: availabilityArgs,
   handler: async (ctx, args) => {
+    const search = requireTelefonkiAvailabilityArgs(args);
     return await getAvailableSlots({
       afternoonOnly: false,
       ctx,
-      search: args,
+      search,
       searchDateOnly: false,
     });
   },
@@ -667,10 +694,11 @@ export const nextAvailableSlots = query({
 export const nextAvailableAfternoonSlot = query({
   args: availabilityArgs,
   handler: async (ctx, args) => {
+    const search = requireTelefonkiAvailabilityArgs(args);
     const slots = await getAvailableSlots({
       afternoonOnly: true,
       ctx,
-      search: { ...args, limit: 1 },
+      search: { ...search, limit: 1 },
       searchDateOnly: false,
     });
     return slots[0] ?? null;
@@ -681,10 +709,11 @@ export const nextAvailableAfternoonSlot = query({
 export const nextAvailableAfternoonSlots = query({
   args: availabilityArgs,
   handler: async (ctx, args) => {
+    const search = requireTelefonkiAvailabilityArgs(args);
     return await getAvailableSlots({
       afternoonOnly: true,
       ctx,
-      search: args,
+      search,
       searchDateOnly: false,
     });
   },
@@ -697,10 +726,11 @@ export const availableSlotsOnDate = query({
     date: v.string(),
   },
   handler: async (ctx, args) => {
+    const search = requireTelefonkiAvailabilityArgs(args);
     return await getAvailableSlots({
       afternoonOnly: false,
       ctx,
-      search: args,
+      search,
       searchDateOnly: true,
     });
   },

@@ -1455,6 +1455,7 @@ async function requireOfferedPatientSlot(
       scope: "real",
       simulatedContext: {
         appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+        clientType: "Online",
         locationLineageKey: args.locationLineageKey,
         patient: {
           dateOfBirth: args.patientDateOfBirth,

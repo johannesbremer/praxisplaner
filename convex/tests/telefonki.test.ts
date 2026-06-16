@@ -174,6 +174,7 @@ function simulatedContext(args: {
 }) {
   return {
     appointmentTypeLineageKey: args.appointmentTypeId,
+    clientType: "Phone-AI",
     locationLineageKey: args.locationId,
     patient: {
       dateOfBirth: "1980-01-01",

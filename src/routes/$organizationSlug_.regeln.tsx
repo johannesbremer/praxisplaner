@@ -210,6 +210,7 @@ function LogicView() {
 
   // Local appointments for simulation
   const [simulatedContext, setSimulatedContext] = useState<SimulatedContext>({
+    clientType: "MFA",
     patient: { isNew: true },
   });
   // URL will be parsed after queries and unsaved draft are known
@@ -886,6 +887,7 @@ function LogicView() {
         ...(defaultAppointmentTypeLineageKey && {
           appointmentTypeLineageKey: defaultAppointmentTypeLineageKey,
         }),
+        clientType: "MFA",
         isNewPatient: true,
       });
       setSimulatedContext(resetContext);
