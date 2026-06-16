@@ -32,6 +32,7 @@
   --info: oklch(0.68 0.16 229.99);
   --info-foreground: oklch(0.19 0.07 229.99);
   --info-muted: oklch(0.94 0.05 229.99);
+  --selection-ring: oklch(0.46 0.16 230);
   --calendar-current-time: oklch(0.63 0.19 23.03);
   --diff-added: oklch(0.94 0.05 150);
   --diff-added-foreground: oklch(0.16 0.04 150);
@@ -134,6 +135,7 @@
   --info: oklch(0.8 0.14 229.99);
   --info-foreground: oklch(0.95 0.04 229.99);
   --info-muted: oklch(0.27 0.07 229.99);
+  --selection-ring: oklch(0.8 0.14 229.99);
   --calendar-current-time: oklch(0.69 0.2 23.91);
   --diff-added: oklch(0.24 0.05 150);
   --diff-added-foreground: oklch(0.95 0.03 150);
@@ -235,6 +237,7 @@
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
   --color-info-muted: var(--info-muted);
+  --color-selection-ring: var(--selection-ring);
   --color-calendar-current-time: var(--calendar-current-time);
   --color-diff-added: var(--diff-added);
   --color-diff-added-foreground: var(--diff-added-foreground);

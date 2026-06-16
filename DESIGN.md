@@ -27,6 +27,7 @@ colors:
   chart-3: "oklch(0.648 0.2 131.684)"
   chart-4: "oklch(0.532 0.157 131.589)"
   chart-5: "oklch(0.453 0.124 130.933)"
+  selection-ring: "oklch(0.46 0.16 230)"
 typography:
   display:
     fontFamily: "Geist, sans-serif"
@@ -171,6 +172,8 @@ The palette is a mauve-led clinical base from the shadcn preset, with a clean wh
 **The Primary Separation Rule.** Primary actions must stay visually distinct from destructive red and warning orange. Do not use saturated pink for default primary buttons.
 
 **The Clinical Contrast Rule.** Body text, placeholders, labels, and disabled-adjacent explanations must remain readable against their actual surface. Do not soften text into pale gray for elegance.
+
+**The Selection Outline Rule.** Selected appointments use the dedicated selection ring token, not the softer info token, so 2px rings remain visible on white surfaces and info-muted fills.
 
 ## 3. Typography
 
