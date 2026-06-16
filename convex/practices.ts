@@ -23,11 +23,35 @@ import {
 const practiceListItemValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("practices"),
+  appointmentSmileyOptions: v.optional(v.array(v.string())),
   currentActiveRuleSetId: v.optional(v.id("ruleSets")),
   name: v.string(),
   slug: v.optional(v.string()),
   workOSOrganizationId: v.optional(v.string()),
 });
+const MAX_APPOINTMENT_SMILEY_OPTIONS = 24;
+
+function normalizeAppointmentSmileyOptions(options: string[]): string[] {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+
+  for (const option of options) {
+    const trimmed = option.trim();
+    if (trimmed.length === 0 || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+
+  if (normalized.length > MAX_APPOINTMENT_SMILEY_OPTIONS) {
+    throw new Error(
+      `Es können maximal ${MAX_APPOINTMENT_SMILEY_OPTIONS} Termin-Smileys konfiguriert werden.`,
+    );
+  }
+
+  return normalized;
+}
 
 function toPublicPractice(practice: Doc<"practices">): {
   _creationTime: number;
@@ -125,6 +149,7 @@ export const getAllPractices = query({
     const practices: {
       _creationTime: number;
       _id: Id<"practices">;
+      appointmentSmileyOptions?: string[];
       currentActiveRuleSetId?: Id<"ruleSets">;
       name: string;
       slug?: string;
@@ -144,6 +169,7 @@ export const getAllPractices = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("practices"),
+      appointmentSmileyOptions: v.optional(v.array(v.string())),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
       slug: v.optional(v.string()),
@@ -210,6 +236,7 @@ export const getPractice = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("practices"),
+      appointmentSmileyOptions: v.optional(v.array(v.string())),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
       slug: v.optional(v.string()),
@@ -239,6 +266,7 @@ export const getAccessiblePracticeBySlug = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("practices"),
+      appointmentSmileyOptions: v.optional(v.array(v.string())),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
       slug: v.optional(v.string()),
@@ -265,6 +293,34 @@ export const getBookingPracticeBySlug = query({
     return null;
   },
   returns: v.union(publicBookingPracticeValidator, v.null()),
+});
+
+export const getAppointmentSmileyOptions = query({
+  args: {
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    const practice = await ctx.db.get("practices", args.practiceId);
+    return practice?.appointmentSmileyOptions ?? [];
+  },
+  returns: v.array(v.string()),
+});
+
+export const updateAppointmentSmileyOptions = mutation({
+  args: {
+    options: v.array(v.string()),
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    await requirePracticeManager(ctx, args.practiceId);
+    const options = normalizeAppointmentSmileyOptions(args.options);
+    await ctx.db.patch("practices", args.practiceId, {
+      appointmentSmileyOptions: options,
+    });
+    return options;
+  },
+  returns: v.array(v.string()),
 });
 
 export const listPracticePhoneNumbers = query({

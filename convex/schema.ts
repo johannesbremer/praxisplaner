@@ -20,10 +20,8 @@ import {
 } from "./bookingValidators";
 import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
 
-export const appointmentSmileyValidator = v.union(
-  v.literal("😀"),
-  v.literal("😥"),
-);
+export const appointmentSmileyValidator = v.string();
+export type AppointmentSmiley = Infer<typeof appointmentSmileyValidator>;
 
 export {
   beihilfeStatusValidator,
@@ -890,6 +888,7 @@ export default defineSchema({
     .index("by_practiceId_phoneNumber", ["practiceId", "phoneNumber"]),
 
   practices: defineTable({
+    appointmentSmileyOptions: v.optional(v.array(appointmentSmileyValidator)),
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
     name: v.string(),
     slug: v.optional(v.string()),

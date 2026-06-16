@@ -1,5 +1,6 @@
 "use client";
 
+import { useMutation, useQuery } from "convex/react";
 import {
   AlertCircle,
   Calendar,
@@ -33,6 +34,7 @@ import type {
 import type { BookingPersonalData } from "../../convex/bookingSessions.shared";
 import type { PatientInfo, PracticePatientSelection } from "../types";
 
+import { api } from "../../convex/_generated/api";
 import { dispatchCustomEvent } from "../utils/browser-api";
 import { formatZonedDateTimeDE } from "../utils/date-utils";
 import {
@@ -57,12 +59,6 @@ interface CalendarRightSidebarProps {
   patient?: PatientInfo | undefined;
   patientAppointments?: SidebarAppointment[] | undefined;
   practiceId?: Id<"practices"> | undefined;
-  runUpdateAppointment?:
-    | ((args: {
-        id: Id<"appointments">;
-        smiley?: AppointmentSmiley | null;
-      }) => Promise<void>)
-    | undefined;
   selectedAppointmentId?: Id<"appointments"> | undefined;
   selectedPatientId?: Id<"patients"> | undefined;
   selectedSeriesId?: string | undefined;
@@ -103,15 +99,6 @@ const BOOKING_FIELD_ORDER = [
   "postalCode",
   "city",
 ] as const satisfies readonly (keyof BookingPersonalData)[];
-const APPOINTMENT_SMILEY_OPTIONS = [
-  { label: "Leer", value: null },
-  { label: "😀", value: "😀" },
-  { label: "😥", value: "😥" },
-] as const satisfies readonly {
-  label: string;
-  value: AppointmentSmiley | null;
-}[];
-
 function isBookingGender(
   value: string,
 ): value is NonNullable<BookingPersonalData["gender"]> {
@@ -138,7 +125,6 @@ export function CalendarRightSidebar({
   patient,
   patientAppointments,
   practiceId,
-  runUpdateAppointment,
   selectedAppointmentId,
   selectedPatientId,
   selectedSeriesId,
@@ -213,7 +199,6 @@ export function CalendarRightSidebar({
                   patientAppointments={patientAppointments}
                   patientDisplayName={patientDisplayName}
                   practiceId={practiceId}
-                  runUpdateAppointment={runUpdateAppointment}
                   selectedAppointmentId={selectedAppointmentId}
                   selectedPatientId={selectedPatientId}
                   selectedSeriesId={selectedSeriesId}
@@ -259,7 +244,6 @@ export function CalendarRightSidebar({
                 patientAppointments={patientAppointments}
                 patientDisplayName={patientDisplayName}
                 practiceId={practiceId}
-                runUpdateAppointment={runUpdateAppointment}
                 selectedAppointmentId={selectedAppointmentId}
                 selectedPatientId={selectedPatientId}
                 selectedSeriesId={selectedSeriesId}
@@ -353,18 +337,25 @@ function AppointmentSmileyEditor({
   appointment,
   disabled,
   onChange,
+  options,
 }: {
   appointment: SidebarAppointment;
   disabled: boolean;
   onChange: (smiley: AppointmentSmiley | null) => void;
+  options: readonly AppointmentSmiley[];
 }) {
+  const editorOptions = [
+    { label: "Leer", value: null },
+    ...options.map((option) => ({ label: option, value: option })),
+  ];
+
   return (
     <div
       aria-label="Termin-Smiley"
-      className="mt-2 grid grid-cols-3 gap-1"
+      className="mt-2 flex flex-wrap gap-1"
       role="group"
     >
-      {APPOINTMENT_SMILEY_OPTIONS.map((option) => {
+      {editorOptions.map((option) => {
         const selected =
           option.value === null
             ? appointment.smiley === undefined
@@ -402,7 +393,6 @@ function RightSidebarContent({
   patientAppointments,
   patientDisplayName,
   practiceId,
-  runUpdateAppointment,
   selectedAppointmentId,
   selectedPatientId,
   selectedSeriesId,
@@ -416,12 +406,6 @@ function RightSidebarContent({
   patientAppointments: SidebarAppointment[] | undefined;
   patientDisplayName: string;
   practiceId: Id<"practices"> | undefined;
-  runUpdateAppointment:
-    | ((args: {
-        id: Id<"appointments">;
-        smiley?: AppointmentSmiley | null;
-      }) => Promise<void>)
-    | undefined;
   selectedAppointmentId: Id<"appointments"> | undefined;
   selectedPatientId: Id<"patients"> | undefined;
   selectedSeriesId: string | undefined;
@@ -429,6 +413,13 @@ function RightSidebarContent({
 }) {
   const [pendingSmileyAppointmentId, startSmileyTransition] =
     React.useTransition();
+  const appointmentSmileyOptions = useQuery(
+    api.practices.getAppointmentSmileyOptions,
+    practiceId ? { practiceId } : "skip",
+  );
+  const updateAppointmentSmiley = useMutation(
+    api.appointments.updateAppointmentSmiley,
+  );
   const bookingFieldEntries =
     patient?.userId === undefined ? [] : getBookingFieldEntries(patient);
 
@@ -609,18 +600,19 @@ function RightSidebarContent({
                                 {formatAppointmentDateTime(appointment.start)}
                               </p>
                             </button>
-                            {isSelected && runUpdateAppointment && (
+                            {isSelected && appointmentSmileyOptions && (
                               <AppointmentSmileyEditor
                                 appointment={appointment}
                                 disabled={pendingSmileyAppointmentId}
                                 onChange={(smiley) => {
                                   startSmileyTransition(() => {
-                                    void runUpdateAppointment({
+                                    void updateAppointmentSmiley({
                                       id: appointment._id,
                                       smiley,
                                     });
                                   });
                                 }}
+                                options={appointmentSmileyOptions}
                               />
                             )}
                           </div>

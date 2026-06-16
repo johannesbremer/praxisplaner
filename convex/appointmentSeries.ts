@@ -5,6 +5,7 @@ import type { InstantString, IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { InternalSchedulingResultSlot } from "./scheduling";
+import type { AppointmentSmiley } from "./schema";
 import type { ZonedDateTimeString } from "./typedDtos";
 
 import { internal } from "./_generated/api";
@@ -178,6 +179,7 @@ export async function createAppointmentSeries(
     practitionerId: Id<"practitioners">;
     rootAppointmentTypeId: Id<"appointmentTypes">;
     rootReplacesAppointmentId?: Id<"appointments">;
+    rootSmiley?: AppointmentSmiley;
     rootTitle: string;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
@@ -294,6 +296,9 @@ export async function createAppointmentSeries(
       seriesId,
       seriesStepId: step.stepId,
       seriesStepIndex: toStoredSeriesStepIndex(step.seriesStepIndex),
+      ...(index === 0 && args.rootSmiley !== undefined
+        ? { smiley: args.rootSmiley }
+        : {}),
       start: step.start,
       title:
         index === 0

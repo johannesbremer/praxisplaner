@@ -73,7 +73,7 @@ import {
   type TrustedPracticeScope,
 } from "./practiceAccess";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
-import { appointmentSmileyValidator } from "./schema";
+import { type AppointmentSmiley, appointmentSmileyValidator } from "./schema";
 import {
   requireAppointmentTypeInPracticeRuleSet,
   requireBookingIdentityInPractice,
@@ -259,7 +259,7 @@ export type AppointmentResult = Omit<
   "end" | "start"
 > &
   TypedDateTimeRange;
-export type AppointmentSmiley = Infer<typeof appointmentSmileyValidator>;
+export type { AppointmentSmiley } from "./schema";
 export type BlockedSlotResult = BlockedSlotListItem;
 
 const bookedAppointmentSummaryItemValidator = v.union(
@@ -650,6 +650,22 @@ function parseAppointmentOwner(args: AppointmentOwnerInput): AppointmentOwner {
     name: temporaryPatientName,
     phoneNumber: temporaryPatientPhoneNumber,
   };
+}
+
+async function requireConfiguredAppointmentSmiley(
+  db: DatabaseReader,
+  args: {
+    practiceId: Id<"practices">;
+    smiley: AppointmentSmiley;
+  },
+) {
+  const practice = await db.get("practices", args.practiceId);
+  const options = practice?.appointmentSmileyOptions ?? [];
+  if (!options.includes(args.smiley)) {
+    throw new Error(
+      "Der gewählte Termin-Smiley ist für diese Praxis nicht konfiguriert.",
+    );
+  }
 }
 
 function requireEntityUsableForNewAppointment<
@@ -1614,6 +1630,12 @@ export async function createAppointmentFromTrustedSource(
       "Eine explizite Endzeit kann nur für simulierte Ersatztermine gesetzt werden.",
     );
   }
+  if (smiley !== undefined) {
+    await requireConfiguredAppointmentSmiley(ctx.db, {
+      practiceId,
+      smiley,
+    });
+  }
 
   const owner = parseAppointmentOwner(args);
   const allowsMissingLinkedRecords =
@@ -1731,6 +1753,7 @@ export async function createAppointmentFromTrustedSource(
       ...(replacesAppointmentId && {
         rootReplacesAppointmentId: replacesAppointmentId,
       }),
+      ...(smiley !== undefined && { rootSmiley: smiley }),
       rootTitle: title.trim(),
       ruleSetId: activeAppointmentType.ruleSetId,
       scope: getAppointmentBookingScope(isSimulation),
@@ -2219,6 +2242,16 @@ async function updateAppointmentByMode(
   assertImmutableAppointmentModeFields(filteredUpdateData);
 
   const { patientId, userId } = filteredUpdateData;
+
+  if (
+    filteredUpdateData.smiley !== undefined &&
+    filteredUpdateData.smiley !== null
+  ) {
+    await requireConfiguredAppointmentSmiley(ctx.db, {
+      practiceId: existingAppointment.practiceId,
+      smiley: filteredUpdateData.smiley,
+    });
+  }
 
   if (patientId) {
     await requirePatientInPractice(ctx.db, {
@@ -2827,6 +2860,29 @@ export const updateVacationReassignmentAppointment = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     return await updateAppointmentByMode(ctx, args, "activationReassignment");
+  },
+  returns: v.null(),
+});
+
+export const updateAppointmentSmiley = mutation({
+  args: {
+    id: v.id("appointments"),
+    smiley: v.union(appointmentSmileyValidator, v.null()),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const existingAppointment = await ctx.db.get("appointments", args.id);
+    if (!existingAppointment) {
+      throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+    }
+    return await updateAppointmentByMode(
+      ctx,
+      {
+        id: args.id,
+        smiley: args.smiley,
+      },
+      getExistingAppointmentUpdateMode(existingAppointment),
+    );
   },
   returns: v.null(),
 });

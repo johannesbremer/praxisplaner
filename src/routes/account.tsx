@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { UsersManagement, WorkOsWidgets } from "@workos-inc/widgets";
-import { useAction, useQuery } from "convex/react";
-import { Building2, Loader2, UsersRound } from "lucide-react";
+import { useAction, useMutation, useQuery } from "convex/react";
+import { Building2, Loader2, UsersRound, X } from "lucide-react";
 import {
   type BaseSyntheticEvent,
   useCallback,
@@ -244,18 +244,25 @@ function AccountPage() {
               </div>
             </aside>
 
-            <div className="min-w-0 rounded-md border bg-card p-4">
-              {organization && authBypassEnabled ? (
-                <BypassPracticeMembers practiceId={organization.practiceId} />
-              ) : organization && !hasMultipleOrganizations ? (
-                <UsersManagementForOrganization
-                  organizationId={organization.id}
+            <div className="min-w-0 space-y-4">
+              {organization?.practiceId ? (
+                <AppointmentSmileyOptionsCard
+                  practiceId={organization.practiceId}
                 />
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  Legen Sie eine Praxis an, um Teammitglieder zu verwalten.
-                </div>
-              )}
+              ) : null}
+              <div className="rounded-md border bg-card p-4">
+                {organization && authBypassEnabled ? (
+                  <BypassPracticeMembers practiceId={organization.practiceId} />
+                ) : organization && !hasMultipleOrganizations ? (
+                  <UsersManagementForOrganization
+                    organizationId={organization.id}
+                  />
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    Legen Sie eine Praxis an, um Teammitglieder zu verwalten.
+                  </div>
+                )}
+              </div>
             </div>
           </section>
         </div>
@@ -269,6 +276,128 @@ function AccountRoute() {
     <AccountAuthGate>
       <AccountPage />
     </AccountAuthGate>
+  );
+}
+
+function AppointmentSmileyOptionsCard({
+  practiceId,
+}: {
+  practiceId: Id<"practices">;
+}) {
+  const options = useQuery(api.practices.getAppointmentSmileyOptions, {
+    practiceId,
+  });
+
+  return (
+    <div className="rounded-md border bg-card p-4">
+      <div className="font-medium text-foreground">Termin-Smileys</div>
+      <div className="mt-1 text-sm text-muted-foreground">
+        Diese Auswahl gilt für alle Termine der Praxis.
+      </div>
+      {options === undefined ? (
+        <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Smileys werden geladen...</span>
+        </div>
+      ) : (
+        <AppointmentSmileyOptionsEditor
+          initialOptions={options}
+          key={options.join("\u0000")}
+          practiceId={practiceId}
+        />
+      )}
+    </div>
+  );
+}
+
+function AppointmentSmileyOptionsEditor({
+  initialOptions,
+  practiceId,
+}: {
+  initialOptions: string[];
+  practiceId: Id<"practices">;
+}) {
+  const updateOptions = useMutation(
+    api.practices.updateAppointmentSmileyOptions,
+  );
+  const [draftOptions, setDraftOptions] = useState(initialOptions);
+  const [draftOption, setDraftOption] = useState("");
+  const [error, setError] = useState<null | string>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const addDraftOption = (event: BaseSyntheticEvent) => {
+    event.preventDefault();
+    const nextOption = draftOption.trim();
+    if (nextOption.length === 0 || draftOptions.includes(nextOption)) {
+      setDraftOption("");
+      return;
+    }
+    setDraftOptions([...draftOptions, nextOption]);
+    setDraftOption("");
+  };
+
+  const saveOptions = () => {
+    setError(null);
+    setIsSaving(true);
+    updateOptions({ options: draftOptions, practiceId })
+      .catch((error_: unknown) => {
+        setError(
+          error_ instanceof Error
+            ? error_.message
+            : "Termin-Smileys konnten nicht gespeichert werden.",
+        );
+      })
+      .finally(() => {
+        setIsSaving(false);
+      });
+  };
+
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="flex flex-wrap gap-2">
+        {draftOptions.length === 0 ? (
+          <span className="text-sm text-muted-foreground">
+            Keine Smileys konfiguriert.
+          </span>
+        ) : (
+          draftOptions.map((option) => (
+            <Badge className="gap-1.5 text-sm" key={option} variant="secondary">
+              <span>{option}</span>
+              <button
+                aria-label={`${option} entfernen`}
+                className="rounded-sm hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => {
+                  setDraftOptions(
+                    draftOptions.filter((candidate) => candidate !== option),
+                  );
+                }}
+                type="button"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))
+        )}
+      </div>
+      <form className="flex gap-2" onSubmit={addDraftOption}>
+        <Input
+          aria-label="Termin-Smiley"
+          className="max-w-32"
+          onChange={(event) => {
+            setDraftOption(event.target.value);
+          }}
+          placeholder="😀"
+          value={draftOption}
+        />
+        <Button disabled={draftOption.trim().length === 0} type="submit">
+          Hinzufügen
+        </Button>
+      </form>
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      <Button disabled={isSaving} onClick={saveOptions} type="button">
+        {isSaving ? "Speichert..." : "Speichern"}
+      </Button>
+    </div>
   );
 }
 
