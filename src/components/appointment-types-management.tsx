@@ -1364,6 +1364,13 @@ export function AppointmentTypesManagement({
             ),
             treeFolderId: newAppointmentTypeFolderId,
           });
+          const createdFolderTarget = createAppointmentTypeFolderHistoryTarget(
+            newAppointmentTypeFolderId === undefined
+              ? undefined
+              : appointmentTypeFoldersRef.current.find(
+                  (folder) => folder._id === newAppointmentTypeFolderId,
+                ),
+          );
 
           recordLineageCreateRuleSetCommand({
             entitiesRef: appointmentTypesRef,
@@ -1374,13 +1381,33 @@ export function AppointmentTypesManagement({
             lineageKey: appointmentTypeLineageKey,
             onRecordCommand,
             runCreate: async () => {
+              const resolvedCreatePractitionerIds =
+                practitionerIdsFromSnapshots(
+                  practitionersRef.current,
+                  formPractitionerSnapshots,
+                );
+              if ("status" in resolvedCreatePractitionerIds) {
+                return resolvedCreatePractitionerIds;
+              }
+              const resolvedFolder =
+                resolveFolderHistoryTarget(createdFolderTarget);
+              if (resolvedFolder.status === "conflict") {
+                return resolvedFolder;
+              }
+              const createConflict = validateTreeChildNameForHistory({
+                name: normalizedName,
+                parentFolderId: resolvedFolder.folderId,
+              });
+              if (createConflict) {
+                return { message: createConflict, status: "conflict" };
+              }
               const recreateResult = await createAppointmentTypeMutation({
                 duration: parsedValue.duration,
                 lineageKey: appointmentTypeLineageKey,
                 name: normalizedName,
                 practiceId,
-                practitionerIds: resolvedFormPractitionerIds.ids,
-                ...createTreeFolderArg(newAppointmentTypeFolderId),
+                practitionerIds: resolvedCreatePractitionerIds.ids,
+                ...createTreeFolderArg(resolvedFolder.folderId),
                 ...getCowMutationArgs(),
                 ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
               });
@@ -1395,7 +1422,7 @@ export function AppointmentTypesManagement({
                 lineageKey: appointmentTypeLineageKey,
                 name: normalizedName,
                 ruleSetId: recreateResult.ruleSetId,
-                treeFolderId: newAppointmentTypeFolderId,
+                treeFolderId: resolvedFolder.folderId,
               });
               upsertAppointmentTypeRef(restoredAppointmentType, {
                 previousLineageKey: appointmentTypeLineageKey,
@@ -2710,6 +2737,13 @@ export function AppointmentTypesManagement({
             practitionerId === undefined ? [] : [practitionerId],
           ),
       );
+      const deletedFolderTarget = createAppointmentTypeFolderHistoryTarget(
+        appointmentType.treeFolderId === undefined
+          ? undefined
+          : appointmentTypeFoldersRef.current.find(
+              (folder) => folder._id === appointmentType.treeFolderId,
+            ),
+      );
 
       const deleteResult = await deleteAppointmentTypeMutation({
         appointmentTypeId: appointmentType._id,
@@ -2776,10 +2810,6 @@ export function AppointmentTypesManagement({
               type.lineageKey === lineageKey &&
               type.ruleSetId === selectedRuleSetId,
           ),
-        hasFolder: (folderId) =>
-          appointmentTypeFoldersRef.current.some(
-            (folder) => folder._id === folderId,
-          ),
         initialEntityId: appointmentType._id,
         isMissingEntityError,
         isSameDefinition: (existingByLineage, snapshot) => {
@@ -2814,9 +2844,16 @@ export function AppointmentTypesManagement({
             status: "ok",
           };
         },
+        resolveTreeFolderId: () => {
+          const resolvedFolder =
+            resolveFolderHistoryTarget(deletedFolderTarget);
+          if (resolvedFolder.status === "conflict") {
+            return resolvedFolder;
+          }
+          return { folderId: resolvedFolder.folderId ?? null, status: "ok" };
+        },
         selectedRuleSetId: () => getCowMutationArgs().selectedRuleSetId,
         snapshot: deletedSnapshot,
-        snapshotFolderId: (snapshot) => snapshot.treeFolderId,
         toRestoredRef: (
           snapshot,
           recreateResult,

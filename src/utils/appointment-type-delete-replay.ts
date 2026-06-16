@@ -29,7 +29,6 @@ export function createAppointmentTypeDeleteReplayAdapter<
     lineageKey: TAppointmentTypeLineageKey,
     ruleSetId: TRuleSetId,
   ) => TRestoredAppointmentType | undefined;
-  hasFolder: (folderId: TFolderId) => boolean;
   initialEntityId: TAppointmentTypeId;
   isMissingEntityError: (error: unknown) => boolean;
   isSameDefinition: (
@@ -42,9 +41,13 @@ export function createAppointmentTypeDeleteReplayAdapter<
   ) =>
     | { ids: TPractitionerId[]; status: "ok" }
     | { message: string; status: "conflict" };
+  resolveTreeFolderId: (
+    snapshot: TSnapshot,
+  ) =>
+    | { folderId: null | TFolderId; status: "ok" }
+    | { message: string; status: "conflict" };
   selectedRuleSetId: () => TRuleSetId;
   snapshot: TSnapshot;
-  snapshotFolderId: (snapshot: TSnapshot) => TFolderId | undefined;
   toRestoredRef: (
     snapshot: TSnapshot,
     result: { entityId: TAppointmentTypeId; ruleSetId: TRuleSetId },
@@ -99,11 +102,11 @@ export function createAppointmentTypeDeleteReplayAdapter<
         return resolvedPractitionerIds;
       }
 
-      const snapshotFolderId = params.snapshotFolderId(params.snapshot);
-      const treeFolderId =
-        snapshotFolderId && params.hasFolder(snapshotFolderId)
-          ? snapshotFolderId
-          : null;
+      const resolvedTreeFolderId = params.resolveTreeFolderId(params.snapshot);
+      if (resolvedTreeFolderId.status === "conflict") {
+        return resolvedTreeFolderId;
+      }
+      const treeFolderId = resolvedTreeFolderId.folderId;
       const result = await params.createAppointmentType(
         params.snapshot,
         resolvedPractitionerIds.ids,

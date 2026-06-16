@@ -210,15 +210,15 @@ export function createSchedulingRuleUpdateReplayAdapter(params: {
     }
 
     const matches = findRuleIdsBySerializedState(input.requiredState);
-    const [singleMatch] = matches;
-    if (singleMatch) {
-      return { ruleId: singleMatch, status: "ok" };
-    }
     if (matches.length > 1) {
       return {
         message: input.ambiguousMessage,
         status: "conflict",
       };
+    }
+    const [singleMatch] = matches;
+    if (singleMatch) {
+      return { ruleId: singleMatch, status: "ok" };
     }
     return {
       message: input.missingMessage,
