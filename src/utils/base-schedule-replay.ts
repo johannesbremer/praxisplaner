@@ -108,6 +108,9 @@ export function createBaseScheduleReplaceSetReplay(params: {
     replacementPayloads: SchedulePayload[],
     conflictMessage: string,
   ) => {
+    const replacementPayloadByLineageKey = new Map(
+      replacementPayloads.map((payload) => [payload.lineageKey, payload]),
+    );
     const expectedPresentLineageKeys =
       replacementPayloads.length === 0
         ? expectedPayloads
@@ -117,14 +120,34 @@ export function createBaseScheduleReplaceSetReplay(params: {
               ),
             )
             .map((payload) => payload.lineageKey)
-        : expectedPayloads.map((payload) => payload.lineageKey);
+        : expectedPayloads
+            .filter(
+              (payload) =>
+                !replacementPayloadByLineageKey.has(payload.lineageKey),
+            )
+            .filter((payload) =>
+              params.schedulesRef.current.some((scheduleItem) =>
+                currentScheduleMatchesPayload(scheduleItem, payload),
+              ),
+            )
+            .map((payload) => payload.lineageKey);
     const expectedLineageKeySet = new Set(expectedPresentLineageKeys);
     const hasEditedExpectedPayload = expectedPayloads.some((payload) =>
-      params.schedulesRef.current.some(
-        (scheduleItem) =>
-          scheduleItem.lineageKey === payload.lineageKey &&
-          !currentScheduleMatchesPayload(scheduleItem, payload),
-      ),
+      params.schedulesRef.current.some((scheduleItem) => {
+        if (
+          scheduleItem.lineageKey !== payload.lineageKey ||
+          currentScheduleMatchesPayload(scheduleItem, payload)
+        ) {
+          return false;
+        }
+        const replacementPayload = replacementPayloadByLineageKey.get(
+          payload.lineageKey,
+        );
+        return (
+          replacementPayload === undefined ||
+          !currentScheduleMatchesPayload(scheduleItem, replacementPayload)
+        );
+      }),
     );
     const hasPresentExpectedPayload = params.schedulesRef.current.some(
       (scheduleItem) => expectedLineageKeySet.has(scheduleItem.lineageKey),

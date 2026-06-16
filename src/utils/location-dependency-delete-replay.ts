@@ -100,6 +100,12 @@ export function createLocationDependencyDeleteReplayAdapter<
         params.snapshot.location.lineageKey,
       );
       if (existingByLineage) {
+        if (existingByLineage.name !== params.snapshot.location.name) {
+          return {
+            message: `[HISTORY:LOCATION_LINEAGE_CONFLICT] Der Standort mit lineageKey ${params.snapshot.location.lineageKey} existiert bereits, hat aber abweichende Einstellungen.`,
+            status: "conflict" as const,
+          };
+        }
         currentLocationId = existingByLineage._id;
       } else if (params.hasLocationName(params.snapshot.location.name)) {
         return {

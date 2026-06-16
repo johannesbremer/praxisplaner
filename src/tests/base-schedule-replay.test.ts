@@ -86,7 +86,7 @@ describe("base schedule replay", () => {
     await expect(replay.undo()).resolves.toEqual({ status: "applied" });
     expect(replaceScheduleSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        expectedPresentLineageKeys: [monday.lineageKey, tuesday.lineageKey],
+        expectedPresentLineageKeys: [tuesday.lineageKey],
         replacementSchedules: [
           expect.objectContaining({ lineageKey: monday.lineageKey }),
         ],
@@ -145,6 +145,34 @@ describe("base schedule replay", () => {
     const replay = createBaseScheduleReplaceSetReplay({
       after: [monday],
       before: [],
+      getCowMutationArgs: () => ({
+        expectedDraftRevision: 1,
+        selectedRuleSetId: ruleSetId,
+      }),
+      handleDraftMutationResult: vi.fn(),
+      isBaseScheduleMissingError: () => false,
+      label: "Arbeitszeiten",
+      practiceId,
+      replaceScheduleSet,
+      runCreateScheduleBatch: vi.fn(),
+      schedulesRef,
+    });
+
+    await expect(replay.undo()).resolves.toEqual({ status: "applied" });
+    expect(replaceScheduleSet).not.toHaveBeenCalled();
+  });
+
+  it("treats shared-lineage replacements as current when removed schedules are already absent", async () => {
+    const monday = schedulePayload(toTableId<"baseSchedules">("monday"), 1);
+    const tuesday = schedulePayload(toTableId<"baseSchedules">("tuesday"), 2);
+    const schedulesRef = {
+      current: [materializedSchedule(monday)],
+    };
+    const replaceScheduleSet = vi.fn();
+
+    const replay = createBaseScheduleReplaceSetReplay({
+      after: [monday, tuesday],
+      before: [monday],
       getCowMutationArgs: () => ({
         expectedDraftRevision: 1,
         selectedRuleSetId: ruleSetId,
