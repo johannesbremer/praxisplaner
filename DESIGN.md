@@ -3,30 +3,30 @@ name: Praxisplaner
 description: Clinical scheduling product UI for patient booking and practice operations.
 colors:
   background: "oklch(0.99 0.006 355.69)"
-  foreground: "oklch(0.12 0.018 355.69)"
-  card: "oklch(1 0.003 355.69)"
-  card-foreground: "oklch(0.12 0.018 355.69)"
+  foreground: "oklch(0.145 0.008 326)"
+  card: "oklch(1 0 0)"
+  card-foreground: "oklch(0.145 0.008 326)"
   popover: "oklch(0.99 0.006 355.69)"
-  popover-foreground: "oklch(0.12 0.018 355.69)"
-  primary: "oklch(0.6077 0.2484 355.69)"
-  primary-text: "oklch(0.36 0.18 355.69)"
-  primary-foreground: "oklch(0.12 0.018 355.69)"
-  secondary: "oklch(0.95 0.018 355.69)"
-  secondary-foreground: "oklch(0.18 0.035 355.69)"
-  muted: "oklch(0.97 0.012 355.69)"
-  muted-foreground: "oklch(0.4 0.04 355.69)"
-  accent: "oklch(0.94 0.04 355.69)"
-  accent-foreground: "oklch(0.22 0.07 355.69)"
-  destructive: "oklch(0.63 0.19 23.03)"
+  popover-foreground: "oklch(0.145 0.008 326)"
+  primary: "oklch(0.212 0.019 322.12)"
+  primary-text: "oklch(0.212 0.019 322.12)"
+  primary-foreground: "oklch(0.985 0 0)"
+  secondary: "oklch(0.96 0.003 325.6)"
+  secondary-foreground: "oklch(0.212 0.019 322.12)"
+  muted: "oklch(0.96 0.003 325.6)"
+  muted-foreground: "oklch(0.542 0.034 322.5)"
+  accent: "oklch(0.96 0.003 325.6)"
+  accent-foreground: "oklch(0.212 0.019 322.12)"
+  destructive: "oklch(0.577 0.245 27.325)"
   destructive-foreground: "oklch(1 0 0)"
-  border: "oklch(0.91 0.018 355.69)"
-  input: "oklch(0.94 0.018 355.69)"
-  ring: "oklch(0.6077 0.2484 355.69)"
-  chart-1: "oklch(0.6077 0.2484 355.69)"
-  chart-2: "oklch(0.7623 0.1519 229.99)"
-  chart-3: "oklch(0.9185 0.2304 127.98)"
-  chart-4: "oklch(0.723 0.1897 50.54)"
-  chart-5: "oklch(0.46 0.11 285)"
+  border: "oklch(0.922 0.005 325.62)"
+  input: "oklch(0.922 0.005 325.62)"
+  ring: "oklch(0.26 0.025 323.02)"
+  chart-1: "oklch(0.897 0.196 126.665)"
+  chart-2: "oklch(0.768 0.233 130.85)"
+  chart-3: "oklch(0.648 0.2 131.684)"
+  chart-4: "oklch(0.532 0.157 131.589)"
+  chart-5: "oklch(0.453 0.124 130.933)"
 typography:
   display:
     fontFamily: "Geist, sans-serif"
@@ -65,11 +65,11 @@ typography:
     lineHeight: 1.5
     letterSpacing: "0em"
 rounded:
-  xs: "2px"
-  sm: "4px"
-  md: "6px"
-  lg: "8px"
-  xl: "12px"
+  xs: "0px"
+  sm: "0px"
+  md: "0px"
+  lg: "0px"
+  xl: "0px"
 spacing:
   unit: "4px"
   xs: "4px"
@@ -128,7 +128,7 @@ components:
 
 Praxisplaner is a clinical product interface for high-trust scheduling work. The system should feel like a precise operations desk: clear surfaces, low visual noise, direct state feedback, and no decorative delay between intent and action.
 
-The current implementation is built on shadcn New York primitives with Geist, OKLCH neutral tokens, low-radius controls, compact heights, and a restrained black-and-white base. Future visual work should keep that operational density but move away from generic monochrome SaaS minimalism through sharper corners, stronger hierarchy, and one disciplined poppy accent for signal.
+The current implementation is built on shadcn New York primitives with Geist, a mauve-based shadcn preset, OKLCH tokens, zero-radius controls, compact heights, and a restrained blush-and-ink base. Future visual work should keep that operational density while preserving the light blush page surface and sharp geometry.
 
 This system rejects generic Vercel-style template polish, over-rounded cards, pill-heavy layouts, decorative gradients, soft ghost-card shadows, playful medical illustrations, and marketing-page composition inside task surfaces.
 
@@ -136,41 +136,39 @@ This system rejects generic Vercel-style template polish, over-rounded cards, pi
 
 - Product-first density for staff workflows and calm linearity for patient booking.
 - Neutral clinical base with exact contrast, stable borders, and clear focus rings.
-- Poppy accent used as signal, not decoration.
-- Low-radius, precise controls rather than bubbly SaaS softness.
+- Dark mauve primary used for primary actions and active text.
+- Sharp, zero-radius controls rather than bubbly SaaS softness.
 - German healthcare copy that names the object and the consequence.
 
 ## 2. Colors
 
-The palette is a magenta-led clinical base with semantic state colors and high-chroma supporting signals. The brand/action color is **Signal Magenta** (`#e80288`, represented as `oklch(0.6077 0.2484 355.69)` in tokens). The product borrows the energetic Luta Security-style contrast of magenta, cyan, lime, and orange, but keeps it restrained enough for healthcare scheduling work.
+The palette is a mauve-led clinical base from the shadcn preset, with the project-specific light blush background preserved for patient-facing calm. Primary actions use dark mauve/ink rather than saturated pink, keeping them clearly separate from destructive and warning states.
 
 ### Primary
 
-- **Signal Magenta**: The primary action, focus, selected-state, and strongest brand token. Use it for the most important action or current object on a screen. Filled magenta controls use dark ink foreground for AA contrast.
-- **Signal Magenta Text**: A darker companion token for small active labels and inline text. Do not use the bright Signal Magenta fill token as 12-14px foreground text on light surfaces.
-- **Clinical Ink**: The primary reading color. It remains tinted toward Signal Magenta instead of pure black, keeping the product crisp without returning to grayscale minimalism.
+- **Mauve Ink**: The primary action, active label, and selected-state token. It is intentionally dark in light mode so buttons and small text pass contrast checks.
+- **Primary Text**: A text-safe alias for Mauve Ink. Use it for active/completed progress labels instead of a bright fill color.
+- **Clinical Ink**: The primary reading color. It remains subtly mauve-tinted rather than pure black.
 
 ### Secondary
 
-- **Control Rose**: The secondary action and inactive-control layer. It gives controls physical presence while staying visibly related to Signal Magenta.
+- **Control Mauve**: The secondary action and inactive-control layer. It gives controls physical presence while staying visually related to the preset.
 
 ### Tertiary
 
-- **Signal Cyan**, **Signal Lime**, and **Signal Orange**: Supporting data and status colors. Use them for charts, information, success, and warnings. They should contrast with Signal Magenta, not compete with it in primary actions. Version graph branch colors may use darker branch-specific variants when a chart color is too light for 2px strokes or dots.
+- **Green Chart Ramp**: Supporting data colors from the preset. Use them for charts and non-semantic differentiation. Version graph branch colors may use darker branch-specific variants when a chart color is too light for 2px strokes or dots.
 
 ### Neutral
 
 - **Clinical Blush White**: The main app background and high-trust patient booking surface, with a minimal magenta tint.
 - **Surface White**: Card and content-panel surface, kept nearly white for readability.
-- **Soft Signal Panel**: Muted panels, tab lists, skeletons, and non-selected containers with restrained magenta chroma.
-- **Rule Border Rose**: Dividers, table lines, field strokes, and calendar grid structure.
+- **Soft Mauve Panel**: Muted panels, tab lists, skeletons, and non-selected containers with restrained mauve chroma.
+- **Rule Border Mauve**: Dividers, table lines, field strokes, and calendar grid structure.
 - **Readable Muted Ink**: Secondary text. Keep it dark enough for WCAG AA, especially on tinted or muted surfaces.
 
 ### Named Rules
 
-**The Signal Rarity Rule.** Signal Magenta must stay rare. If it appears on more than roughly 10% of a product screen, it is no longer signal.
-
-**The Luta Energy Rule.** The app may use sharp magenta/cyan/lime/orange contrast for charts, focus, selected objects, and meaningful state. Do not turn dense product screens into a campaign surface.
+**The Primary Separation Rule.** Primary actions must stay visually distinct from destructive red and warning orange. Do not use saturated pink for default primary buttons.
 
 **The Clinical Contrast Rule.** Body text, placeholders, labels, and disabled-adjacent explanations must remain readable against their actual surface. Do not soften text into pale gray for elegance.
 
@@ -217,19 +215,19 @@ Praxisplaner is flat by default. Depth comes from borders, tonal layers, sticky 
 
 ### Buttons
 
-- **Shape:** Low-radius rectangles (6px). Keep buttons crisp, not pill-like.
-- **Primary:** Signal Magenta background with dark ink foreground, 36px height, 16px horizontal padding, medium label weight.
+- **Shape:** Sharp rectangles. Keep buttons crisp, not pill-like.
+- **Primary:** Dark mauve background with light foreground, 36px height, 16px horizontal padding, medium label weight.
 - **Hover / Focus:** Hover may reduce opacity or shift the background token slightly. Focus must use the visible 3px ring treatment.
 - **Secondary / Ghost / Outline:** Secondary uses Control Gray. Outline uses a border and background surface. Ghost appears only where the surrounding structure already makes the action clear.
 
 ### Chips
 
-- **Style:** Badges use 6px radius, compact x-padding, and a text-xs label. Primary badges are for strong status, secondary badges for supporting metadata.
+- **Style:** Badges use the sharp preset radius, compact x-padding, and a text-xs label. Primary badges are for strong status, secondary badges for supporting metadata.
 - **State:** Selected or active chips may use the signal accent once it exists. Do not make every metadata tag colorful.
 
 ### Cards / Containers
 
-- **Corner Style:** Current cards use 12px radius. Future product work should bias sharper for dense workbench surfaces, reserving 12px for larger patient-facing containers.
+- **Corner Style:** Current containers use the sharp preset radius. Do not reintroduce rounded cards unless a specific component requires it.
 - **Background:** Cards use Surface White on Clinical White, with muted panels for nested context.
 - **Shadow Strategy:** Use the Flat Workbench Rule. Cards at rest should rely on border and spacing before shadow.
 - **Border:** 1px Rule Border Gray for structure.
@@ -237,7 +235,7 @@ Praxisplaner is flat by default. Depth comes from borders, tonal layers, sticky 
 
 ### Inputs / Fields
 
-- **Style:** 36px height, 6px radius, 1px input border, transparent or background surface, 12px horizontal padding.
+- **Style:** 36px height, sharp corners, 1px input border, transparent or background surface, 12px horizontal padding.
 - **Focus:** Border shifts to ring color with the standard 3px focus ring.
 - **Error / Disabled:** Error uses destructive border and ring tint. Disabled controls reduce opacity but must preserve label readability.
 
@@ -255,8 +253,8 @@ Calendar grids, rule diffs, version graphs, and booking simulations are signatur
 ### Do:
 
 - **Do** keep the default register product-first: dense, calm, and task-oriented.
-- **Do** use the future poppy accent only for primary action, selection, current context, and meaningful status.
-- **Do** keep corners sharp and intentional: 6px for controls, 8-12px for larger containers, never bubbly by default.
+- **Do** use primary color for primary action, selection, current context, and meaningful status.
+- **Do** keep corners sharp and intentional, never bubbly by default.
 - **Do** preserve strong keyboard focus and WCAG 2.2 AA contrast across booking and staff workflows.
 - **Do** use borders, tonal panels, and sticky structure to explain scheduling logic before adding visual effects.
 
