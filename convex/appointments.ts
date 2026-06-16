@@ -2875,14 +2875,19 @@ export const updateAppointmentSmiley = mutation({
     if (!existingAppointment) {
       throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
     }
-    return await updateAppointmentByMode(
-      ctx,
-      {
-        id: args.id,
+    await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
+    if (args.smiley !== null) {
+      await requireConfiguredAppointmentSmiley(ctx.db, {
+        practiceId: existingAppointment.practiceId,
         smiley: args.smiley,
-      },
-      getExistingAppointmentUpdateMode(existingAppointment),
-    );
+      });
+    }
+
+    await ctx.db.patch("appointments", args.id, {
+      lastModified: BigInt(Date.now()),
+      smiley: args.smiley ?? undefined,
+    });
+    return null;
   },
   returns: v.null(),
 });

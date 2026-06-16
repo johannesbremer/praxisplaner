@@ -56,6 +56,7 @@ function normalizeAppointmentSmileyOptions(options: string[]): string[] {
 function toPublicPractice(practice: Doc<"practices">): {
   _creationTime: number;
   _id: Id<"practices">;
+  appointmentSmileyOptions?: string[];
   currentActiveRuleSetId?: Id<"ruleSets">;
   name: string;
   slug?: string;
@@ -64,6 +65,9 @@ function toPublicPractice(practice: Doc<"practices">): {
   return {
     _creationTime: practice._creationTime,
     _id: practice._id,
+    ...(practice.appointmentSmileyOptions !== undefined && {
+      appointmentSmileyOptions: practice.appointmentSmileyOptions,
+    }),
     ...(practice.currentActiveRuleSetId !== undefined && {
       currentActiveRuleSetId: practice.currentActiveRuleSetId,
     }),
