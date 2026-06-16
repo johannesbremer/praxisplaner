@@ -2251,6 +2251,12 @@ export function AppointmentTypesManagement({
               optimisticFolderIds.set(snapshot.lineageKey, snapshot.lineageKey);
             }
             for (const snapshot of folderSnapshots) {
+              const existingFolderByLineage =
+                appointmentTypeFoldersRef.current.find(
+                  (candidate) =>
+                    getAppointmentTypeFolderLineageKey(candidate) ===
+                    snapshot.lineageKey,
+                );
               const parentFolderId =
                 snapshot.parentLineageKey === undefined
                   ? undefined
@@ -2270,8 +2276,21 @@ export function AppointmentTypesManagement({
                 };
               }
               if (
+                existingFolderByLineage !== undefined &&
+                (existingFolderByLineage.name !== snapshot.name ||
+                  existingFolderByLineage.parentFolderId !== parentFolderId)
+              ) {
+                return {
+                  message: `[HISTORY:APPOINTMENT_TYPE_FOLDER_LINEAGE_CONFLICT] Der Ordner mit lineageKey ${snapshot.lineageKey} existiert bereits, hat aber abweichende Einstellungen.`,
+                  status: "conflict" as const,
+                };
+              }
+              if (
                 hasTreeChildNameConflict({
                   appointmentTypes: appointmentTypesRef.current,
+                  ...(existingFolderByLineage && {
+                    excludeFolderId: existingFolderByLineage._id,
+                  }),
                   folders: [
                     ...appointmentTypeFoldersRef.current,
                     ...plannedFolders,
@@ -2285,16 +2304,23 @@ export function AppointmentTypesManagement({
                   status: "conflict" as const,
                 };
               }
-              plannedFolderIds.set(snapshot.lineageKey, snapshot.lineageKey);
-              plannedFolders.push(
-                createAppointmentTypeFolderRefSnapshot({
-                  id: snapshot.lineageKey,
-                  lineageKey: snapshot.lineageKey,
-                  name: snapshot.name,
-                  parentFolderId,
-                  ruleSetId,
-                }),
-              );
+              if (existingFolderByLineage === undefined) {
+                plannedFolderIds.set(snapshot.lineageKey, snapshot.lineageKey);
+                plannedFolders.push(
+                  createAppointmentTypeFolderRefSnapshot({
+                    id: snapshot.lineageKey,
+                    lineageKey: snapshot.lineageKey,
+                    name: snapshot.name,
+                    parentFolderId,
+                    ruleSetId,
+                  }),
+                );
+              } else {
+                plannedFolderIds.set(
+                  snapshot.lineageKey,
+                  existingFolderByLineage._id,
+                );
+              }
             }
             const optimisticFolders = folderSnapshots.map((snapshot) => {
               const parentFolderId =
@@ -2360,6 +2386,22 @@ export function AppointmentTypesManagement({
                           getAppointmentTypeFolderLineageKey(candidate) ===
                           snapshot.parentLineageKey,
                       )?._id);
+                const existingFolderByLineage =
+                  appointmentTypeFoldersRef.current.find(
+                    (candidate) =>
+                      getAppointmentTypeFolderLineageKey(candidate) ===
+                      snapshot.lineageKey,
+                  );
+                if (existingFolderByLineage !== undefined) {
+                  restoredFolderIds.set(
+                    snapshot.lineageKey,
+                    existingFolderByLineage._id,
+                  );
+                  if (snapshot.lineageKey === rootFolderLineageKey) {
+                    restoredRootFolderId = existingFolderByLineage._id;
+                  }
+                  continue;
+                }
                 const recreateResult =
                   await createAppointmentTypeFolderMutation({
                     lineageKey: snapshot.lineageKey,
