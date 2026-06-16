@@ -356,12 +356,12 @@ function buildStructuredDiffRows(
         after: changedValues
           ? changedValues.after
           : after
-            ? formatStructuredDiffValue(after)
+            ? formatStructuredDiffValueForSection(section, after)
             : "",
         before: changedValues
           ? changedValues.before
           : before
-            ? formatStructuredDiffValue(before)
+            ? formatStructuredDiffValueForSection(section, before)
             : "",
         id: `${section.key}:${key}:${pairIndex}`,
         kind: before && after ? "modified" : after ? "added" : "removed",
@@ -378,7 +378,7 @@ function buildStructuredDiffRows(
       .map(
         (candidate): StructuredDiffRow => ({
           after: "",
-          before: formatStructuredDiffValue(candidate.value),
+          before: formatStructuredDiffValueForSection(section, candidate.value),
           id: `${section.key}:removed:${candidate.index}`,
           kind: "removed",
           path: candidate.path,
@@ -388,7 +388,7 @@ function buildStructuredDiffRows(
       .filter((candidate) => !usedAdded.has(candidate.index))
       .map(
         (candidate): StructuredDiffRow => ({
-          after: formatStructuredDiffValue(candidate.value),
+          after: formatStructuredDiffValueForSection(section, candidate.value),
           before: "",
           id: `${section.key}:added:${candidate.index}`,
           kind: "added",
@@ -665,6 +665,18 @@ function formatStructuredDiffValue(value: string) {
         `${formatStructuredKey(key)}: ${formatFieldValue(key, entryValue)}`,
     )
     .join("\n");
+}
+
+function formatStructuredDiffValueForSection(
+  section: RuleSetDiffSection,
+  value: string,
+) {
+  const parsed = parseDiffValue(value);
+  if (section.key === "rules" && parsed) {
+    return getRuleSummary(parsed);
+  }
+
+  return formatStructuredDiffValue(value);
 }
 
 function formatStructuredKey(key: string) {
@@ -1429,4 +1441,9 @@ function stringValue(value: unknown) {
 // Simulation Controls Component - Extracted from SimulationPanel
 
 export type { RuleSetDiff };
-export { RuleSetDiffView, SaveDialogForm, UNSAVED_RULE_SET_DESCRIPTION };
+export {
+  getProjectedRuleSetDiffSections as __getProjectedRuleSetDiffSectionsForTests,
+  RuleSetDiffView,
+  SaveDialogForm,
+  UNSAVED_RULE_SET_DESCRIPTION,
+};
