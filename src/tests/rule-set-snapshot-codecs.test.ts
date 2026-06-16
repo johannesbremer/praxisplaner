@@ -11,11 +11,9 @@ describe("rule set snapshot codecs", () => {
   it("encodes object keys deterministically", () => {
     const left = encodeRuleSetSnapshot({
       conditionTree: { a: 1, b: 2 },
-      enabled: true,
     });
     const right = encodeRuleSetSnapshot({
       conditionTree: { a: 1, b: 2 },
-      enabled: true,
     });
 
     expect(left.stableKey).toBe(right.stableKey);

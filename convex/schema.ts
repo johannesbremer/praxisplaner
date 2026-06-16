@@ -1028,7 +1028,6 @@ export default defineSchema({
    * Root nodes (rules) have:
    * - isRoot: true
    * - parentConditionId: null
-   * - enabled: can disable without deleting
    *
    * Child nodes (conditions) have:
    * - isRoot: false
@@ -1072,7 +1071,6 @@ export default defineSchema({
     parentConditionId: v.optional(v.id("ruleConditions")), // null for root nodes (rules)
 
     // Root node (rule) metadata
-    enabled: v.optional(v.boolean()), // Only for root nodes - can disable without deleting
     isRoot: v.boolean(), // true = this is a rule (root of tree), false = this is a condition node
 
     // Node type: logical operator or leaf condition (for non-root nodes)
@@ -1143,7 +1141,6 @@ export default defineSchema({
     .index("by_ruleSetId", ["ruleSetId"])
     .index("by_ruleSetId_conditionType", ["ruleSetId", "conditionType"])
     .index("by_ruleSetId_isRoot", ["ruleSetId", "isRoot"]) // Get all rules (roots) for a rule set
-    .index("by_ruleSetId_isRoot_enabled", ["ruleSetId", "isRoot", "enabled"]) // Get enabled rules
     .index("by_parentConditionId", ["parentConditionId"]) // Get children of a node
     .index("by_parentConditionId_childOrder", [
       "parentConditionId",

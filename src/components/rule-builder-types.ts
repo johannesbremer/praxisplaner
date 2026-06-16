@@ -1,5 +1,8 @@
 import type { Id } from "../../convex/_generated/dataModel";
-import type { ConditionTreeNode } from "../../lib/condition-tree";
+import type {
+  ConditionType as CanonicalConditionType,
+  ConditionTreeNode,
+} from "../../lib/condition-tree";
 
 export interface Condition {
   appointmentTypes?: null | string[];
@@ -12,23 +15,13 @@ export interface Condition {
   valueNumber?: null | number;
 }
 
-export type ConditionType =
-  | "APPOINTMENT_TYPE"
-  | "CONCURRENT_COUNT"
-  | "DAILY_CAPACITY"
-  | "DAY_OF_WEEK"
-  | "DAYS_AHEAD"
-  | "HOURS_AHEAD"
-  | "LOCATION"
-  | "PATIENT_AGE"
-  | "PRACTITIONER";
+export type ConditionType = CanonicalConditionType;
 
 export interface RuleFromDB {
   _id: Id<"ruleConditions">;
   conditionTree: ConditionTreeNode;
   copyFromId: Id<"ruleConditions"> | undefined;
   createdAt: bigint;
-  enabled: boolean;
   lastModified: bigint;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;

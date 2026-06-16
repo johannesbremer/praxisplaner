@@ -112,7 +112,6 @@ async function querySlotStatus(blockers: ReadonlySet<BlockerKind>) {
       const rootId = await ctx.db.insert("ruleConditions", {
         childOrder: 0,
         createdAt: now,
-        enabled: true,
         isRoot: true,
         lastModified: now,
         practiceId: fixture.practiceId,

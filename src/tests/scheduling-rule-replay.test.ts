@@ -24,7 +24,6 @@ function rule(params: { id: string; ruleSetId: Id<"ruleSets"> }): RuleFromDB {
     },
     copyFromId: undefined,
     createdAt: 0n,
-    enabled: true,
     lastModified: 0n,
     practiceId: toTableId<"practices">("practice"),
     ruleSetId: params.ruleSetId,

@@ -106,7 +106,6 @@ export const ruleUpdateValidator = v.object({
 
 // RuleSetRule update data (for junction table)
 export const ruleSetRuleUpdateValidator = v.object({
-  enabled: v.optional(v.boolean()),
   priority: v.optional(v.number()),
 });
 

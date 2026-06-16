@@ -30,7 +30,6 @@ interface RuleReplayContext {
   runCreateRule: (params: {
     conditionTree: ConditionTreeNode;
     copyFromId?: Id<"ruleConditions">;
-    enabled: boolean;
     name: string;
   }) => Promise<DraftMutationResult>;
   serializeRule: (rule: RuleFromDB) => string;
@@ -61,7 +60,6 @@ export function createSchedulingRuleCreateReplayAdapter(params: {
       }
       const result = await params.context.runCreateRule({
         conditionTree: preparedRule.conditionTree,
-        enabled: true,
         name: params.ruleName,
       });
       params.context.handleDraftMutationResult(result);
@@ -156,7 +154,6 @@ export function createSchedulingRuleDeleteReplayAdapter(params: {
       const result = await params.context.runCreateRule({
         conditionTree: preparedRule.conditionTree,
         ...params.context.getCopySource(params.deletedRule),
-        enabled: params.deletedRule.enabled,
         name: params.deletedRuleName,
       });
       params.context.handleDraftMutationResult(result);
@@ -236,7 +233,6 @@ export function createSchedulingRuleUpdateReplayAdapter(params: {
           "Die Regel kann nicht wiederhergestellt werden, weil der vorherige Regelzustand nicht mehr vorhanden ist.",
         multipleMessage:
           "Die Regel kann nicht wiederhergestellt werden, weil der vorherige Regelzustand mehrfach vorhanden ist.",
-        nextEnabled: true,
         nextRuleLineageTree: params.currentRuleLineageTree,
         nextRuleName: params.ruleName,
         requiredState: params.previousRuleState,
@@ -252,7 +248,6 @@ export function createSchedulingRuleUpdateReplayAdapter(params: {
           "Die aktualisierte Regel wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
         multipleMessage:
           "Die aktualisierte Regel kann nicht zurückgesetzt werden, weil der aktuelle Regelzustand mehrfach vorhanden ist.",
-        nextEnabled: params.previousRule.enabled,
         nextRuleLineageTree: params.previousRuleLineageTree,
         nextRuleName: params.previousRuleName,
         requiredState: params.currentRuleState,
@@ -267,7 +262,6 @@ export function createSchedulingRuleUpdateReplayAdapter(params: {
     missingFallbackState: string;
     missingMessage: string;
     multipleMessage: string;
-    nextEnabled: boolean;
     nextRuleLineageTree: ConditionTreeNode;
     nextRuleName: string;
     requiredState: string;
@@ -316,7 +310,6 @@ export function createSchedulingRuleUpdateReplayAdapter(params: {
     const result = await params.context.runCreateRule({
       conditionTree: preparedRule.conditionTree,
       ...params.context.getCopySource(input.copySourceRule),
-      enabled: input.nextEnabled,
       name: input.nextRuleName,
     });
     params.context.handleDraftMutationResult(result);

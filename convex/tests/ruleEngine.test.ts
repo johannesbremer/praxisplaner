@@ -175,7 +175,6 @@ async function createRule(
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
   conditionTree: ConditionTreeNode,
-  enabled = true,
 ) {
   return await t.run(async (ctx) => {
     const now = BigInt(Date.now());
@@ -184,7 +183,6 @@ async function createRule(
     const rootId = await ctx.db.insert("ruleConditions", {
       childOrder: 0,
       createdAt: now,
-      enabled,
       isRoot: true,
       lastModified: now,
       practiceId,
@@ -2266,71 +2264,6 @@ describe("Rule Engine: Multiple Rules", () => {
 
     expect(consultationTuesdayResult.isBlocked).toBe(false);
     expect(consultationTuesdayResult.blockedByRuleIds).toHaveLength(0);
-  });
-
-  test("Disabled rules should not block appointments", async () => {
-    const t = createTestContext();
-
-    const practiceId = await createPractice(t);
-    const ruleSetId = await createRuleSet(t, practiceId, true);
-    const practitionerId = await createPractitioner(
-      t,
-      practiceId,
-      ruleSetId,
-      "Dr. Smith",
-    );
-    const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
-
-    // Create appointment type
-    const checkupTypeId = await createAppointmentType(
-      t,
-      practiceId,
-      ruleSetId,
-      "Checkup",
-      [practitionerId],
-    );
-
-    // Create a DISABLED rule
-    const conditionTree = {
-      conditionType: "APPOINTMENT_TYPE" as const,
-      nodeType: "CONDITION" as const,
-      operator: "IS" as const,
-      valueIds: [checkupTypeId],
-    };
-
-    // Expected behavior (if enabled): "Wenn der Termintyp Checkup ist, darf der Termin nicht vergeben werden."
-    // But this rule is DISABLED, so it should not block anything
-    const expectedRule = generateRuleName(
-      conditionTreeToConditions(conditionTree),
-      [{ _id: checkupTypeId, name: "Checkup" }],
-      [],
-      [],
-    );
-    console.log("Expected (but DISABLED):", expectedRule);
-
-    await createRule(
-      t,
-      practiceId,
-      ruleSetId,
-      conditionTree,
-      false, // disabled
-    );
-
-    // Test: Should be allowed even though it matches the condition
-    const result = await t.query(internal.ruleEngine.checkRulesForAppointment, {
-      context: {
-        appointmentTypeId: checkupTypeId,
-        dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
-        locationId,
-        practiceId,
-        practitionerId,
-        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
-      },
-      ruleSetId,
-    });
-
-    expect(result.isBlocked).toBe(false);
-    expect(result.blockedByRuleIds).toHaveLength(0);
   });
 });
 

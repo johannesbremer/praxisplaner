@@ -178,12 +178,10 @@ export function RuleBuilder({
   const runCreateRule = async (params: {
     conditionTree: ConditionTreeNode;
     copyFromId?: Id<"ruleConditions">;
-    enabled: boolean;
     name: string;
   }) =>
     await createRuleMutation({
       conditionTree: serializeConditionTreeTransport(params.conditionTree),
-      enabled: params.enabled,
       name: params.name,
       ...(params.copyFromId === undefined
         ? {}
@@ -220,7 +218,6 @@ export function RuleBuilder({
           practitionersRef.current,
           locationsRef.current,
         ),
-        enabled: rule.enabled,
       }),
   });
 
@@ -279,11 +276,9 @@ export function RuleBuilder({
         );
         const deletedRuleState = serializeRuleStateForComparison({
           conditionTree: deletedRuleLineageTree,
-          enabled: deletedRule.enabled,
         });
         const deletedRuleSnapshot = encodeRuleSetSnapshot({
           conditionTree: deletedRuleLineageTree,
-          enabled: deletedRule.enabled,
         });
         const command = createRuleSetSchedulingRuleCommand({
           kind: "schedulingRule.delete",
@@ -417,7 +412,6 @@ export function RuleBuilder({
                     ruleSetReplayTarget.parentRuleSetId,
                   )
                 : {}),
-              enabled: true,
               name: ruleName,
             });
             handleDraftMutationResult(createResult);
@@ -439,11 +433,9 @@ export function RuleBuilder({
               );
               const currentRuleState = serializeRuleStateForComparison({
                 conditionTree: currentRuleLineageTree,
-                enabled: true,
               });
               const currentRuleSnapshot = encodeRuleSetSnapshot({
                 conditionTree: currentRuleLineageTree,
-                enabled: true,
               });
               const previousRuleLineageTree = normalizeConditionTreeToLineage(
                 previousRule.conditionTree,
@@ -453,11 +445,9 @@ export function RuleBuilder({
               );
               const previousRuleState = serializeRuleStateForComparison({
                 conditionTree: previousRuleLineageTree,
-                enabled: previousRule.enabled,
               });
               const previousRuleSnapshot = encodeRuleSetSnapshot({
                 conditionTree: previousRuleLineageTree,
-                enabled: previousRule.enabled,
               });
               const command = createRuleSetSchedulingRuleCommand({
                 kind: "schedulingRule.update",
@@ -500,7 +490,6 @@ export function RuleBuilder({
               );
               const createdRuleSnapshot = encodeRuleSetSnapshot({
                 conditionTree: createdRuleLineageTree,
-                enabled: true,
               });
               const command = createRuleSetSchedulingRuleCommand({
                 kind: "schedulingRule.create",
@@ -727,14 +716,10 @@ function remapConditionTreeReferences(
   };
 }
 
-function serializeRuleState(
-  conditionTree: ConditionTreeNode,
-  enabled: boolean,
-): string {
+function serializeRuleState(conditionTree: ConditionTreeNode): string {
   return JSON.stringify(
     {
       conditionTree,
-      enabled,
     },
     (_, value: unknown) => {
       if (!isSerializableRecord(value)) {
@@ -751,7 +736,6 @@ function serializeRuleState(
 
 function serializeRuleStateForComparison(params: {
   conditionTree: ConditionTreeNode;
-  enabled: boolean;
 }): string {
-  return serializeRuleState(params.conditionTree, params.enabled);
+  return serializeRuleState(params.conditionTree);
 }

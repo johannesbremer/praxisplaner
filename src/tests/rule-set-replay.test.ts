@@ -204,7 +204,6 @@ describe("rule set replay commands", () => {
     const undo = vi.fn(() => ({ status: "applied" as const }));
     const after = encodeRuleSetSnapshot({
       conditionTree: { type: "group" },
-      enabled: true,
     });
 
     const command = createRuleSetSchedulingRuleCommand({

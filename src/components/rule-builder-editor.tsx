@@ -77,6 +77,12 @@ interface PatientAgeConditionProps {
   onUpdate: (updates: Partial<Condition>) => void;
 }
 
+interface RangeValueConditionProps {
+  condition: Condition;
+  invalidFields?: Map<string, string> | undefined;
+  onUpdate: (updates: Partial<Condition>) => void;
+}
+
 interface RuleEditDialogProps {
   appointmentTypes: Doc<"appointmentTypes">[];
   existingRule?: RuleFromDB | undefined;
@@ -388,9 +394,12 @@ function ConditionEditor({
     { label: "Behandler", value: "PRACTITIONER" },
     { label: "Standort", value: "LOCATION" },
     { label: "Patientenalter", value: "PATIENT_AGE" },
+    { label: "Patiententyp", value: "CLIENT_TYPE" },
+    { label: "Datumsbereich", value: "DATE_RANGE" },
     { label: "Wochentag", value: "DAY_OF_WEEK" },
     { label: "Tage im Voraus", value: "DAYS_AHEAD" },
     { label: "Stunden im Voraus", value: "HOURS_AHEAD" },
+    { label: "Uhrzeitbereich", value: "TIME_RANGE" },
     { label: "Gleichzeitige Termine", value: "CONCURRENT_COUNT" },
     { label: "Termine am gleichen Tag", value: "DAILY_CAPACITY" },
   ];
@@ -437,9 +446,12 @@ function ConditionEditor({
             </SelectContent>
           </Select>
 
-          {["APPOINTMENT_TYPE", "LOCATION", "PRACTITIONER"].includes(
-            condition.type,
-          ) && (
+          {[
+            "APPOINTMENT_TYPE",
+            "CLIENT_TYPE",
+            "LOCATION",
+            "PRACTITIONER",
+          ].includes(condition.type) && (
             <SimpleValueCondition
               appointmentTypes={appointmentTypes}
               condition={condition}
@@ -447,6 +459,15 @@ function ConditionEditor({
               locations={locations}
               onUpdate={onUpdate}
               practitioners={practitioners}
+            />
+          )}
+
+          {(condition.type === "DATE_RANGE" ||
+            condition.type === "TIME_RANGE") && (
+            <RangeValueCondition
+              condition={condition}
+              invalidFields={invalidFields}
+              onUpdate={onUpdate}
             />
           )}
 
@@ -699,6 +720,7 @@ function DaysAheadCondition({
 function getErrorMessage(condition: Condition, invalidField: string): string {
   switch (condition.type) {
     case "APPOINTMENT_TYPE":
+    case "CLIENT_TYPE":
     case "LOCATION":
     case "PRACTITIONER": {
       if (invalidField === "operator") {
@@ -719,6 +741,16 @@ function getErrorMessage(condition: Condition, invalidField: string): string {
       }
       if (invalidField === "scope") {
         return "Bitte wählen Sie einen Geltungsbereich aus.";
+      }
+      return "";
+    }
+    case "DATE_RANGE":
+    case "TIME_RANGE": {
+      if (invalidField === "operator") {
+        return "Bitte wählen Sie einen Operator aus.";
+      }
+      if (invalidField === "valueIds") {
+        return "Bitte geben Sie Start und Ende ein.";
       }
       return "";
     }
@@ -780,14 +812,17 @@ function HoursAheadCondition({
 function parseConditionType(value: string): ConditionType | undefined {
   switch (value) {
     case "APPOINTMENT_TYPE":
+    case "CLIENT_TYPE":
     case "CONCURRENT_COUNT":
     case "DAILY_CAPACITY":
+    case "DATE_RANGE":
     case "DAY_OF_WEEK":
     case "DAYS_AHEAD":
     case "HOURS_AHEAD":
     case "LOCATION":
     case "PATIENT_AGE":
-    case "PRACTITIONER": {
+    case "PRACTITIONER":
+    case "TIME_RANGE": {
       return value;
     }
     default: {
@@ -838,6 +873,61 @@ function PatientAgeCondition({
         placeholder="z.B. 65"
         type="number"
         value={condition.valueNumber ?? ""}
+      />
+    </>
+  );
+}
+
+function RangeValueCondition({
+  condition,
+  invalidFields,
+  onUpdate,
+}: RangeValueConditionProps) {
+  const values = condition.valueIds ?? [];
+  const inputType = condition.type === "DATE_RANGE" ? "date" : "time";
+
+  const updateValue = (index: 0 | 1, value: string) => {
+    const nextValues = [values[0] ?? "", values[1] ?? ""];
+    nextValues[index] = value;
+    onUpdate({ valueIds: nextValues });
+  };
+
+  return (
+    <>
+      <Select
+        onValueChange={(value) => {
+          onUpdate({ operator: value as "IS" | "IS_NOT" });
+        }}
+        value={condition.operator || "IS"}
+      >
+        <SelectTrigger
+          aria-invalid={invalidFields?.has("operator")}
+          className="w-auto min-w-[100px]"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="IS">liegt in</SelectItem>
+          <SelectItem value="IS_NOT">liegt nicht in</SelectItem>
+        </SelectContent>
+      </Select>
+      <Input
+        aria-invalid={invalidFields?.has("valueIds")}
+        className="w-auto min-w-[140px]"
+        onChange={(event) => {
+          updateValue(0, event.target.value);
+        }}
+        type={inputType}
+        value={values[0] ?? ""}
+      />
+      <Input
+        aria-invalid={invalidFields?.has("valueIds")}
+        className="w-auto min-w-[140px]"
+        onChange={(event) => {
+          updateValue(1, event.target.value);
+        }}
+        type={inputType}
+        value={values[1] ?? ""}
       />
     </>
   );
@@ -931,6 +1021,13 @@ function SimpleValueCondition({
           value: at.lineageKey ?? at._id,
         }));
       }
+      case "CLIENT_TYPE": {
+        return [
+          { label: "Online", value: "Online" },
+          { label: "MFA", value: "MFA" },
+          { label: "Phone-AI", value: "Phone-AI" },
+        ];
+      }
       case "LOCATION": {
         return locations.map((location) => ({
           label: location.name,
@@ -989,6 +1086,7 @@ function validateCondition(condition: Condition): string[] {
 
   switch (condition.type) {
     case "APPOINTMENT_TYPE":
+    case "CLIENT_TYPE":
     case "DAY_OF_WEEK":
     case "LOCATION":
     case "PRACTITIONER": {
@@ -1013,6 +1111,20 @@ function validateCondition(condition: Condition): string[] {
       }
       if (!condition.scope) {
         errors.push("scope");
+      }
+      break;
+    }
+    case "DATE_RANGE":
+    case "TIME_RANGE": {
+      if (!condition.operator) {
+        errors.push("operator");
+      }
+      if (
+        condition.valueIds?.length !== 2 ||
+        !condition.valueIds[0] ||
+        !condition.valueIds[1]
+      ) {
+        errors.push("valueIds");
       }
       break;
     }

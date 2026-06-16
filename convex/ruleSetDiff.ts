@@ -12,7 +12,6 @@ interface CanonicalRuleConditionNode {
   childOrder: number;
   children: CanonicalRuleConditionNode[];
   conditionType: null | string;
-  enabled: boolean | null;
   nodeType: null | string;
   operator: null | string;
   scope: null | string;
@@ -695,7 +694,6 @@ function serializeRuleConditionTree(
       ),
     ),
     conditionType: node.conditionType ?? null,
-    enabled: node.isRoot ? (node.enabled ?? true) : null,
     nodeType: node.nodeType ?? null,
     operator: node.operator ?? null,
     scope: node.scope ?? null,

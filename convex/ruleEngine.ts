@@ -1001,14 +1001,11 @@ export const checkRulesForAppointment = internalQuery({
   handler: async (ctx, args) => {
     const context = asAppointmentContextInput(args.context);
 
-    // Get all enabled root rules for this rule set
+    // Get all root rules for this rule set
     const rules = await ctx.db
       .query("ruleConditions")
-      .withIndex("by_ruleSetId_isRoot_enabled", (q) =>
-        q
-          .eq("ruleSetId", args.ruleSetId)
-          .eq("isRoot", true)
-          .eq("enabled", true),
+      .withIndex("by_ruleSetId_isRoot", (q) =>
+        q.eq("ruleSetId", args.ruleSetId).eq("isRoot", true),
       )
       .collect();
 
@@ -1179,7 +1176,7 @@ export const getRuleDescription = internalQuery({
 
     if (rootChildren.length === 0 || !rootChildren[0]) {
       return {
-        description: `Rule ${args.ruleId} - ${rule.enabled ? "Enabled" : "Disabled"}`,
+        description: `Rule ${args.ruleId}`,
         treeStructure: "",
       };
     }
@@ -1188,7 +1185,7 @@ export const getRuleDescription = internalQuery({
     const conditionTree = await buildConditionTree(rootChildren[0]._id);
     if (!conditionTree) {
       return {
-        description: `Rule ${args.ruleId} - ${rule.enabled ? "Enabled" : "Disabled"}`,
+        description: `Rule ${args.ruleId}`,
         treeStructure: "",
       };
     }
@@ -1212,7 +1209,7 @@ export const getRuleDescription = internalQuery({
     );
 
     return {
-      description: `Rule ${args.ruleId} - ${rule.enabled ? "Enabled" : "Disabled"}`,
+      description: `Rule ${args.ruleId}`,
       treeStructure: naturalLanguageDescription,
     };
   },
@@ -1315,7 +1312,6 @@ const ruleConditionDocumentValidator = v.object({
   conditionType: v.optional(conditionTypeValidator),
   copyFromId: v.optional(v.id("ruleConditions")),
   createdAt: v.int64(),
-  enabled: v.optional(v.boolean()),
   isRoot: v.boolean(),
   lastModified: v.int64(),
   nodeType: v.optional(
@@ -1514,14 +1510,11 @@ export const loadRulesForRuleSet = internalQuery({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args): Promise<LoadedRulesForRuleSetResult> => {
-    // Get all enabled root rules for this rule set
+    // Get all root rules for this rule set
     const rules = await ctx.db
       .query("ruleConditions")
-      .withIndex("by_ruleSetId_isRoot_enabled", (q) =>
-        q
-          .eq("ruleSetId", args.ruleSetId)
-          .eq("isRoot", true)
-          .eq("enabled", true),
+      .withIndex("by_ruleSetId_isRoot", (q) =>
+        q.eq("ruleSetId", args.ruleSetId).eq("isRoot", true),
       )
       .collect();
 
@@ -1592,14 +1585,11 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
     ctx,
     args,
   ): Promise<AppointmentTypeIndependentRulesResult> => {
-    // Get all enabled root rules for this rule set
+    // Get all root rules for this rule set
     const rules = await ctx.db
       .query("ruleConditions")
-      .withIndex("by_ruleSetId_isRoot_enabled", (q) =>
-        q
-          .eq("ruleSetId", args.ruleSetId)
-          .eq("isRoot", true)
-          .eq("enabled", true),
+      .withIndex("by_ruleSetId_isRoot", (q) =>
+        q.eq("ruleSetId", args.ruleSetId).eq("isRoot", true),
       )
       .collect();
 

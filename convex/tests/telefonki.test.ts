@@ -49,7 +49,6 @@ async function addBlockingHoursAheadRule(
     const rootRuleId = await ctx.db.insert("ruleConditions", {
       childOrder: 0,
       createdAt: now,
-      enabled: true,
       isRoot: true,
       lastModified: now,
       practiceId: args.practiceId,

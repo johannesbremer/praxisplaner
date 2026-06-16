@@ -689,7 +689,6 @@ function formatStructuredKey(key: string) {
     date: "Datum",
     dayOfWeek: "Tag",
     duration: "Dauer",
-    enabled: "Aktiv",
     endTime: "Ende",
     followUpPlan: "Folgetermine",
     locationName: "Standort",

@@ -56,7 +56,6 @@ async function createRule(
   args: {
     conditionTree: ConditionTreeNode;
     copyFromId?: Id<"ruleConditions">;
-    enabled?: boolean;
     expectedDraftRevision: null | number;
     name: string;
     practiceId: Id<"practices">;
