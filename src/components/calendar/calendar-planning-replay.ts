@@ -313,10 +313,7 @@ async function executeAppointmentCreateCommand(
     return { status: "applied" };
   } catch {
     context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
-    return {
-      message: "Der Termin wurde bereits entfernt.",
-      status: "conflict",
-    };
+    return { status: "applied" };
   }
 }
 
@@ -583,10 +580,7 @@ async function executeBlockedSlotCreateCommand(
     return { status: "applied" };
   } catch {
     context.forgetBlockedSlotHistoryDoc(payload.currentBlockedSlotId);
-    return {
-      message: "Die Sperrung wurde bereits entfernt.",
-      status: "conflict",
-    };
+    return { status: "applied" };
   }
 }
 

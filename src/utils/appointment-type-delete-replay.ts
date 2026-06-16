@@ -36,6 +36,10 @@ export function createAppointmentTypeDeleteReplayAdapter<
     snapshot: TSnapshot,
   ) => boolean;
   lineageKey: TAppointmentTypeLineageKey;
+  removeRestoredRef: (args: {
+    appointmentTypeId: TAppointmentTypeId;
+    appointmentTypeLineageKey: TAppointmentTypeLineageKey;
+  }) => void;
   resolvePractitionerIds: (
     snapshot: TSnapshot,
   ) =>
@@ -64,9 +68,17 @@ export function createAppointmentTypeDeleteReplayAdapter<
           appointmentTypeId: currentAppointmentTypeId,
           appointmentTypeLineageKey: params.lineageKey,
         });
+        params.removeRestoredRef({
+          appointmentTypeId: currentAppointmentTypeId,
+          appointmentTypeLineageKey: params.lineageKey,
+        });
         return { status: "applied" };
       } catch (error: unknown) {
         if (params.isMissingEntityError(error)) {
+          params.removeRestoredRef({
+            appointmentTypeId: currentAppointmentTypeId,
+            appointmentTypeLineageKey: params.lineageKey,
+          });
           return { status: "applied" };
         }
         return {

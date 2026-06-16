@@ -8,6 +8,7 @@ describe("appointment type delete replay", () => {
       Promise.resolve({ entityId: "restored-type", ruleSetId: "draft-2" }),
     );
     const restoredTypes: { _id: string; lineageKey: string }[] = [];
+    const removeRestoredRef = vi.fn();
     const upsertRestoredRef = vi.fn();
     const replay = createAppointmentTypeDeleteReplayAdapter({
       createAppointmentType,
@@ -19,6 +20,7 @@ describe("appointment type delete replay", () => {
       isMissingEntityError: () => false,
       isSameDefinition: () => true,
       lineageKey: "type-lineage",
+      removeRestoredRef,
       resolvePractitionerIds: () => ({
         ids: ["current-practitioner"],
         status: "ok",
@@ -47,6 +49,37 @@ describe("appointment type delete replay", () => {
     expect(upsertRestoredRef).toHaveBeenCalledWith({
       id: "restored-type",
       treeFolderId: "current-folder",
+    });
+  });
+
+  it("prunes restored refs when redoing the delete", async () => {
+    const deleteAppointmentType = vi.fn(() => Promise.resolve());
+    const removeRestoredRef = vi.fn();
+    const replay = createAppointmentTypeDeleteReplayAdapter({
+      createAppointmentType: vi.fn(),
+      deleteAppointmentType,
+      findExistingByLineage: vi.fn(),
+      initialEntityId: "restored-type",
+      isMissingEntityError: () => false,
+      isSameDefinition: () => true,
+      lineageKey: "type-lineage",
+      removeRestoredRef,
+      resolvePractitionerIds: () => ({ ids: [], status: "ok" }),
+      resolveTreeFolderId: () => ({ folderId: null, status: "ok" }),
+      selectedRuleSetId: () => "draft-2",
+      snapshot: {},
+      toRestoredRef: () => ({}),
+      upsertRestoredRef: vi.fn(),
+    });
+
+    await expect(replay.redo()).resolves.toEqual({ status: "applied" });
+    expect(deleteAppointmentType).toHaveBeenCalledWith({
+      appointmentTypeId: "restored-type",
+      appointmentTypeLineageKey: "type-lineage",
+    });
+    expect(removeRestoredRef).toHaveBeenCalledWith({
+      appointmentTypeId: "restored-type",
+      appointmentTypeLineageKey: "type-lineage",
     });
   });
 });

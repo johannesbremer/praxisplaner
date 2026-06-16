@@ -2831,6 +2831,12 @@ export function AppointmentTypesManagement({
           );
         },
         lineageKey: deletedSnapshot.lineageKey,
+        removeRestoredRef: (args) => {
+          removeAppointmentTypeFromRef({
+            id: args.appointmentTypeId,
+            lineageKey: args.appointmentTypeLineageKey,
+          });
+        },
         resolvePractitionerIds: () => {
           const resolvedUndoPractitionerIds = practitionerIdsFromSnapshots(
             practitionersRef.current,
