@@ -1,8 +1,11 @@
 import type { RefObject } from "react";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import type { RuleSetCommand } from "../utils/rule-set-replay";
+import type {
+  RuleSetCommand,
+  RuleSetCommandRuntimeAdapter,
+} from "../utils/rule-set-replay";
 
 import {
   recordLineageCreateRuleSetCommand,
@@ -119,5 +122,45 @@ describe("cow history actions", () => {
         lineageKey: "lineage:updated",
       },
     });
+  });
+
+  it("conflicts when create redo finds same lineage with mismatched payload", async () => {
+    const entitiesRef: RefObject<TestEntity[]> = {
+      current: [
+        {
+          _id: "entity:stale",
+          lineageKey: "lineage:created",
+          name: "Different",
+        },
+      ],
+    };
+    let replay: RuleSetCommandRuntimeAdapter | undefined;
+    const runCreate = vi.fn(() =>
+      Promise.resolve({ entityId: "entity:created" as const }),
+    );
+
+    recordLineageCreateRuleSetCommand<TestEntityId, TestLineageKey, TestEntity>(
+      {
+        entitiesRef,
+        initialEntityId: "entity:initial",
+        isMissingEntityError: () => false,
+        kind: "appointmentType.create",
+        label: "Terminart erstellt",
+        lineageKey: "lineage:created",
+        onRecordCommand: (_command, runtime) => {
+          replay = runtime;
+        },
+        runCreate,
+        runDelete: (entityId) => Promise.resolve({ entityId }),
+        validateExistingForCreate: (entity) =>
+          entity.name === "Expected" ? null : "same lineage differs",
+      },
+    );
+
+    await expect(replay?.redo()).resolves.toMatchObject({
+      message: "same lineage differs",
+      status: "conflict",
+    });
+    expect(runCreate).not.toHaveBeenCalled();
   });
 });

@@ -32,6 +32,10 @@ import {
   sameCalendarOccupancyScope,
 } from "../../../lib/calendar-occupancy";
 import {
+  APPOINTMENT_MISSING_ENTITY_REGEX,
+  BLOCKED_SLOT_MISSING_ENTITY_REGEX,
+} from "../../../lib/typed-regex";
+import {
   createOptimisticId,
   findIdInList,
   isOptimisticId,
@@ -53,6 +57,14 @@ import {
   type CalendarPlanningCommandExecutorContext,
   executeCalendarPlanningCommand,
 } from "./calendar-planning-replay";
+
+const isMissingAppointmentError = (error: unknown) =>
+  error instanceof Error &&
+  APPOINTMENT_MISSING_ENTITY_REGEX.test(error.message);
+
+const isMissingBlockedSlotError = (error: unknown) =>
+  error instanceof Error &&
+  BLOCKED_SLOT_MISSING_ENTITY_REGEX.test(error.message);
 import {
   resolveAppointmentDisplayRefs,
   resolveAppointmentLineageRefs,
@@ -1937,6 +1949,8 @@ export function useCalendarPlanningWorkbench(args: {
       getCurrentBlockedSlotDoc,
       hasAppointmentConflict,
       hasBlockedSlotConflict,
+      isMissingAppointmentError,
+      isMissingBlockedSlotError,
       referenceMaps,
       rememberAppointmentHistoryDoc,
       rememberBlockedSlotHistoryDoc,

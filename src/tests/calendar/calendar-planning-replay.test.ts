@@ -69,6 +69,7 @@ describe("calendar planning replay", () => {
           getCurrentBlockedSlotDoc: vi.fn(),
           hasAppointmentConflict: () => false,
           hasBlockedSlotConflict: () => false,
+          isMissingAppointmentError: () => true,
           referenceMaps: {
             appointmentTypeIdByLineageKey: new Map(),
             appointmentTypeLineageKeyById: new Map(),
@@ -144,6 +145,7 @@ describe("calendar planning replay", () => {
           getCurrentBlockedSlotDoc: vi.fn(),
           hasAppointmentConflict: () => false,
           hasBlockedSlotConflict: () => false,
+          isMissingBlockedSlotError: () => true,
           referenceMaps: {
             appointmentTypeIdByLineageKey: new Map(),
             appointmentTypeLineageKeyById: new Map(),
@@ -173,6 +175,86 @@ describe("calendar planning replay", () => {
       ),
     ).resolves.toEqual({ status: "applied" });
     expect(forgetBlockedSlotHistoryDoc).toHaveBeenCalledWith(blockedSlotId);
+  });
+
+  it("keeps created appointment undo conflicts for non-missing delete failures", async () => {
+    const appointmentId = toTableId<"appointments">("appointment_1");
+    const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
+    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("type_lineage_1"),
+    );
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const placement = createCalendarPlacement({
+      locationLineageKey,
+      occupancyScope: { calendarResourceColumn: "ekg", kind: "resource" },
+    });
+
+    await expect(
+      executeCalendarPlanningCommand(
+        {
+          kind: "appointment.create",
+          label: "Termin erstellt",
+          payload: {
+            appointmentTypeLineageKey,
+            appointmentTypeTitle: "Check-up",
+            createArgs: {
+              appointmentTypeId,
+              isSimulation: false,
+              locationId,
+              practiceId,
+              start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+              title: "Check-up",
+            },
+            createEnd: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+            currentAppointmentId: appointmentId,
+            placement,
+          },
+        },
+        "undo",
+        {
+          ensureLatestConflictData: vi.fn(),
+          forgetAppointmentHistoryDoc: vi.fn(),
+          forgetBlockedSlotHistoryDoc: vi.fn(),
+          getCurrentAppointmentDoc: vi.fn(),
+          getCurrentBlockedSlotDoc: vi.fn(),
+          hasAppointmentConflict: () => false,
+          hasBlockedSlotConflict: () => false,
+          isMissingAppointmentError: () => false,
+          referenceMaps: {
+            appointmentTypeIdByLineageKey: new Map(),
+            appointmentTypeLineageKeyById: new Map(),
+            locationIdByLineageKey: new Map(),
+            locationLineageKeyById: new Map(),
+            practitionerIdByLineageKey: new Map(),
+            practitionerLineageKeyById: new Map(),
+          },
+          rememberAppointmentHistoryDoc: vi.fn(),
+          rememberBlockedSlotHistoryDoc: vi.fn(),
+          rememberCreatedAppointmentFromStrings: vi.fn(),
+          rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
+          rememberRecreatedAppointmentId: vi.fn(),
+          rememberRecreatedBlockedSlotId: vi.fn(),
+          resolveAppointmentReferenceDisplayIds: vi.fn(),
+          resolveCurrentAppointmentId: (id) => id,
+          resolveCurrentBlockedSlotId: (id) => id,
+          runCreateAppointmentInternal: vi.fn(),
+          runCreateBlockedSlotInternal: vi.fn(),
+          runDeleteAppointmentInternal: vi.fn(() =>
+            Promise.reject(new Error("permission denied")),
+          ),
+          runDeleteBlockedSlotInternal: vi.fn(),
+          runUpdateAppointmentInternal: vi.fn(),
+          runUpdateBlockedSlotInternal: vi.fn(),
+        },
+      ),
+    ).resolves.toEqual({
+      message: "permission denied",
+      status: "conflict",
+    });
   });
 
   it("remembers appointment update redo with a fresh local timestamp", async () => {

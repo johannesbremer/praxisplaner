@@ -54,6 +54,8 @@ export interface CalendarPlanningCommandExecutorContext {
     candidate: BlockedSlotCandidate,
     excludeId?: Id<"blockedSlots">,
   ) => boolean;
+  isMissingAppointmentError?: (error: unknown) => boolean;
+  isMissingBlockedSlotError?: (error: unknown) => boolean;
   referenceMaps: CalendarReferenceMaps;
   rememberAppointmentHistoryDoc: (
     appointment: CalendarAppointmentRecord,
@@ -311,9 +313,18 @@ async function executeAppointmentCreateCommand(
     });
     context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
     return { status: "applied" };
-  } catch {
+  } catch (error: unknown) {
     context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
-    return { status: "applied" };
+    if (context.isMissingAppointmentError?.(error)) {
+      return { status: "applied" };
+    }
+    return {
+      message:
+        error instanceof Error
+          ? error.message
+          : "Der Termin konnte nicht entfernt werden.",
+      status: "conflict",
+    };
   }
 }
 
@@ -331,9 +342,18 @@ async function executeAppointmentDeleteCommand(
       });
       context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
       return { status: "applied" };
-    } catch {
+    } catch (error: unknown) {
       context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
-      return { status: "applied" };
+      if (context.isMissingAppointmentError?.(error)) {
+        return { status: "applied" };
+      }
+      return {
+        message:
+          error instanceof Error
+            ? error.message
+            : "Der Termin konnte nicht entfernt werden.",
+        status: "conflict",
+      };
     }
   }
 
@@ -578,9 +598,18 @@ async function executeBlockedSlotCreateCommand(
     });
     context.forgetBlockedSlotHistoryDoc(payload.currentBlockedSlotId);
     return { status: "applied" };
-  } catch {
+  } catch (error: unknown) {
     context.forgetBlockedSlotHistoryDoc(payload.currentBlockedSlotId);
-    return { status: "applied" };
+    if (context.isMissingBlockedSlotError?.(error)) {
+      return { status: "applied" };
+    }
+    return {
+      message:
+        error instanceof Error
+          ? error.message
+          : "Die Sperrung konnte nicht entfernt werden.",
+      status: "conflict",
+    };
   }
 }
 
@@ -598,9 +627,18 @@ async function executeBlockedSlotDeleteCommand(
       });
       context.forgetBlockedSlotHistoryDoc(payload.currentBlockedSlotId);
       return { status: "applied" };
-    } catch {
+    } catch (error: unknown) {
       context.forgetBlockedSlotHistoryDoc(payload.currentBlockedSlotId);
-      return { status: "applied" };
+      if (context.isMissingBlockedSlotError?.(error)) {
+        return { status: "applied" };
+      }
+      return {
+        message:
+          error instanceof Error
+            ? error.message
+            : "Die Sperrung konnte nicht entfernt werden.",
+        status: "conflict",
+      };
     }
   }
 

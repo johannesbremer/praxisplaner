@@ -71,3 +71,11 @@ export const RULE_MISSING_ENTITY_REGEX = regex.as(
   "already deleted|bereits gelöscht|rule not found|regel.*nicht gefunden",
   "i",
 );
+export const APPOINTMENT_MISSING_ENTITY_REGEX = regex.as(
+  "appointment not found|termin.*nicht gefunden|termin.*bereits entfernt",
+  "i",
+);
+export const BLOCKED_SLOT_MISSING_ENTITY_REGEX = regex.as(
+  "blocked slot not found|sperrung.*nicht gefunden|sperrung.*bereits entfernt",
+  "i",
+);

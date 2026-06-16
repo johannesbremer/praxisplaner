@@ -60,6 +60,7 @@ interface RecordLineageCreateCommandParams<
   scope?: string;
   snapshots?: RuleSetCommandSnapshot;
   validateBeforeCreate?: () => null | string;
+  validateExistingForCreate?: (entity: TEntity) => null | string;
 }
 
 interface RecordLineageUpdateCommandParams<
@@ -119,6 +120,11 @@ export function recordLineageCreateRuleSetCommand<
         (entity) => entity.lineageKey === params.lineageKey,
       );
       if (existingByLineage) {
+        const validationMessage =
+          params.validateExistingForCreate?.(existingByLineage);
+        if (validationMessage) {
+          return conflictLedgerResult(validationMessage);
+        }
         currentEntityId = existingByLineage._id;
         return appliedLedgerResult();
       }
