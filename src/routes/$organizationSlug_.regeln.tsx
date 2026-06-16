@@ -1162,12 +1162,14 @@ function LogicView() {
             ruleSetId: draftToDelete._id,
           });
 
+          setDiscardedReplayDraftRuleSetId(draftToDelete._id);
           setPendingRuleSetId(undefined);
           toast.success("Änderungen verworfen");
         } catch (error: unknown) {
           if (discardingUnsavedRuleSetIdRef.current === draftToDelete._id) {
             discardingUnsavedRuleSetIdRef.current = null;
           }
+          setDiscardedReplayDraftRuleSetId(null);
           setUnsavedRuleSetId(draftToDelete._id);
           setDraftRevisionOverride(draftToDelete.draftRevision);
           if (wasSaveDialogOpen) {
