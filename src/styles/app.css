@@ -13,6 +13,7 @@
   --popover: oklch(0.99 0.006 355.69);
   --popover-foreground: oklch(0.12 0.018 355.69);
   --primary: oklch(0.6077 0.2484 355.69);
+  --primary-text: oklch(0.36 0.18 355.69);
   --primary-foreground: oklch(0.12 0.018 355.69);
   --secondary: oklch(0.95 0.018 355.69);
   --secondary-foreground: oklch(0.18 0.035 355.69);
@@ -52,7 +53,7 @@
   --chart-5: oklch(0.46 0.11 285);
   --version-graph-branch-1: var(--primary);
   --version-graph-branch-2: var(--chart-2);
-  --version-graph-branch-3: var(--chart-3);
+  --version-graph-branch-3: oklch(0.42 0.16 145);
   --version-graph-branch-4: var(--chart-4);
   --version-graph-branch-5: oklch(0.58 0.21 315);
   --version-graph-branch-6: oklch(0.64 0.2 145);
@@ -114,6 +115,7 @@
   --popover: oklch(0.19 0.03 355.69);
   --popover-foreground: oklch(0.98 0.006 355.69);
   --primary: oklch(0.6077 0.2484 355.69);
+  --primary-text: oklch(0.78 0.16 355.69);
   --primary-foreground: oklch(0.12 0.018 355.69);
   --secondary: oklch(0.25 0.04 355.69);
   --secondary-foreground: oklch(0.98 0.006 355.69);
@@ -214,6 +216,7 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
+  --color-primary-text: var(--primary-text);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);

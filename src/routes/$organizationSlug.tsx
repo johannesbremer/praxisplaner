@@ -944,10 +944,10 @@ function AuthenticatedBookingFlow() {
                     <div
                       className={`flex items-center gap-1.5 ${
                         currentGroup === group
-                          ? "text-primary font-medium"
+                          ? "text-primary-text font-medium"
                           : STEP_GROUP_ORDER.indexOf(group) <
                               STEP_GROUP_ORDER.indexOf(currentGroup)
-                            ? "text-primary/60"
+                            ? "text-primary-text/80"
                             : "text-muted-foreground"
                       }`}
                     >

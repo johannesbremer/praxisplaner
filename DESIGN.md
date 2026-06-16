@@ -9,6 +9,7 @@ colors:
   popover: "oklch(0.99 0.006 355.69)"
   popover-foreground: "oklch(0.12 0.018 355.69)"
   primary: "oklch(0.6077 0.2484 355.69)"
+  primary-text: "oklch(0.36 0.18 355.69)"
   primary-foreground: "oklch(0.12 0.018 355.69)"
   secondary: "oklch(0.95 0.018 355.69)"
   secondary-foreground: "oklch(0.18 0.035 355.69)"
@@ -146,6 +147,7 @@ The palette is a magenta-led clinical base with semantic state colors and high-c
 ### Primary
 
 - **Signal Magenta**: The primary action, focus, selected-state, and strongest brand token. Use it for the most important action or current object on a screen. Filled magenta controls use dark ink foreground for AA contrast.
+- **Signal Magenta Text**: A darker companion token for small active labels and inline text. Do not use the bright Signal Magenta fill token as 12-14px foreground text on light surfaces.
 - **Clinical Ink**: The primary reading color. It remains tinted toward Signal Magenta instead of pure black, keeping the product crisp without returning to grayscale minimalism.
 
 ### Secondary
@@ -154,7 +156,7 @@ The palette is a magenta-led clinical base with semantic state colors and high-c
 
 ### Tertiary
 
-- **Signal Cyan**, **Signal Lime**, and **Signal Orange**: Supporting data and status colors. Use them for charts, version branches, information, success, and warnings. They should contrast with Signal Magenta, not compete with it in primary actions.
+- **Signal Cyan**, **Signal Lime**, and **Signal Orange**: Supporting data and status colors. Use them for charts, information, success, and warnings. They should contrast with Signal Magenta, not compete with it in primary actions. Version graph branch colors may use darker branch-specific variants when a chart color is too light for 2px strokes or dots.
 
 ### Neutral
 

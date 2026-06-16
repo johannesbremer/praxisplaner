@@ -84,7 +84,7 @@ export function GkvDetailsStep({
                 <div
                   className={`text-xs mt-1 ${
                     selectedHzvStatus === option.value
-                      ? "text-primary-foreground/70"
+                      ? "text-primary-foreground"
                       : "text-muted-foreground"
                   }`}
                 >
