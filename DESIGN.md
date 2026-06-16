@@ -2,11 +2,11 @@
 name: Praxisplaner
 description: Clinical scheduling product UI for patient booking and practice operations.
 colors:
-  background: "oklch(0.99 0.006 355.69)"
+  background: "oklch(1 0 0)"
   foreground: "oklch(0.145 0.008 326)"
   card: "oklch(1 0 0)"
   card-foreground: "oklch(0.145 0.008 326)"
-  popover: "oklch(0.99 0.006 355.69)"
+  popover: "oklch(1 0 0)"
   popover-foreground: "oklch(0.145 0.008 326)"
   primary: "oklch(0.212 0.019 322.12)"
   primary-text: "oklch(0.212 0.019 322.12)"
@@ -128,7 +128,7 @@ components:
 
 Praxisplaner is a clinical product interface for high-trust scheduling work. The system should feel like a precise operations desk: clear surfaces, low visual noise, direct state feedback, and no decorative delay between intent and action.
 
-The current implementation is built on shadcn New York primitives with Geist, a mauve-based shadcn preset, OKLCH tokens, zero-radius controls, compact heights, and a restrained blush-and-ink base. Future visual work should keep that operational density while preserving the light blush page surface and sharp geometry.
+The current implementation is built on shadcn New York primitives with Geist, a mauve-based shadcn preset, OKLCH tokens, zero-radius controls, compact heights, and a restrained white-and-ink base. Future visual work should keep that operational density while preserving the preset's clean light surface and sharp geometry.
 
 This system rejects generic Vercel-style template polish, over-rounded cards, pill-heavy layouts, decorative gradients, soft ghost-card shadows, playful medical illustrations, and marketing-page composition inside task surfaces.
 
@@ -142,7 +142,7 @@ This system rejects generic Vercel-style template polish, over-rounded cards, pi
 
 ## 2. Colors
 
-The palette is a mauve-led clinical base from the shadcn preset, with the project-specific light blush background preserved for patient-facing calm. Primary actions use dark mauve/ink rather than saturated pink, keeping them clearly separate from destructive and warning states.
+The palette is a mauve-led clinical base from the shadcn preset, with a clean white background for patient-facing calm. Primary actions use dark mauve/ink rather than saturated pink, keeping them clearly separate from destructive and warning states.
 
 ### Primary
 
@@ -160,7 +160,7 @@ The palette is a mauve-led clinical base from the shadcn preset, with the projec
 
 ### Neutral
 
-- **Clinical Blush White**: The main app background and high-trust patient booking surface, with a minimal magenta tint.
+- **Clinical White**: The main app background and high-trust patient booking surface.
 - **Surface White**: Card and content-panel surface, kept nearly white for readability.
 - **Soft Mauve Panel**: Muted panels, tab lists, skeletons, and non-selected containers with restrained mauve chroma.
 - **Rule Border Mauve**: Dividers, table lines, field strokes, and calendar grid structure.

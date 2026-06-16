@@ -6,11 +6,11 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: oklch(0.99 0.006 355.69);
+  --background: oklch(1 0 0);
   --foreground: oklch(0.145 0.008 326);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0.008 326);
-  --popover: oklch(0.99 0.006 355.69);
+  --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0.008 326);
   --primary: oklch(0.212 0.019 322.12);
   --primary-text: var(--primary);
@@ -97,7 +97,7 @@
   --device-iphone-stripe-color: rgba(0, 0, 0, 0.14);
   --device-iphone-screen: var(--card);
   --device-xdr-screen: var(--card);
-  --sidebar: oklch(0.982 0.01 355.69);
+  --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0.008 326);
   --sidebar-primary: oklch(0.212 0.019 322.12);
   --sidebar-primary-foreground: oklch(0.985 0 0);
