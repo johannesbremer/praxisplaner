@@ -26,7 +26,10 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 import type { Id } from "../../convex/_generated/dataModel";
-import type { AppointmentResult } from "../../convex/appointments";
+import type {
+  AppointmentResult,
+  AppointmentSmiley,
+} from "../../convex/appointments";
 import type { BookingPersonalData } from "../../convex/bookingSessions.shared";
 import type { PatientInfo, PracticePatientSelection } from "../types";
 
@@ -54,6 +57,12 @@ interface CalendarRightSidebarProps {
   patient?: PatientInfo | undefined;
   patientAppointments?: SidebarAppointment[] | undefined;
   practiceId?: Id<"practices"> | undefined;
+  runUpdateAppointment?:
+    | ((args: {
+        id: Id<"appointments">;
+        smiley?: AppointmentSmiley | null;
+      }) => Promise<void>)
+    | undefined;
   selectedAppointmentId?: Id<"appointments"> | undefined;
   selectedPatientId?: Id<"patients"> | undefined;
   selectedSeriesId?: string | undefined;
@@ -94,6 +103,14 @@ const BOOKING_FIELD_ORDER = [
   "postalCode",
   "city",
 ] as const satisfies readonly (keyof BookingPersonalData)[];
+const APPOINTMENT_SMILEY_OPTIONS = [
+  { label: "Leer", value: null },
+  { label: "😀", value: "😀" },
+  { label: "😥", value: "😥" },
+] as const satisfies readonly {
+  label: string;
+  value: AppointmentSmiley | null;
+}[];
 
 function isBookingGender(
   value: string,
@@ -121,6 +138,7 @@ export function CalendarRightSidebar({
   patient,
   patientAppointments,
   practiceId,
+  runUpdateAppointment,
   selectedAppointmentId,
   selectedPatientId,
   selectedSeriesId,
@@ -195,6 +213,7 @@ export function CalendarRightSidebar({
                   patientAppointments={patientAppointments}
                   patientDisplayName={patientDisplayName}
                   practiceId={practiceId}
+                  runUpdateAppointment={runUpdateAppointment}
                   selectedAppointmentId={selectedAppointmentId}
                   selectedPatientId={selectedPatientId}
                   selectedSeriesId={selectedSeriesId}
@@ -240,6 +259,7 @@ export function CalendarRightSidebar({
                 patientAppointments={patientAppointments}
                 patientDisplayName={patientDisplayName}
                 practiceId={practiceId}
+                runUpdateAppointment={runUpdateAppointment}
                 selectedAppointmentId={selectedAppointmentId}
                 selectedPatientId={selectedPatientId}
                 selectedSeriesId={selectedSeriesId}
@@ -329,6 +349,50 @@ export function useRightSidebar(): Result<
   return ok(context);
 }
 
+function AppointmentSmileyEditor({
+  appointment,
+  disabled,
+  onChange,
+}: {
+  appointment: SidebarAppointment;
+  disabled: boolean;
+  onChange: (smiley: AppointmentSmiley | null) => void;
+}) {
+  return (
+    <div
+      aria-label="Termin-Smiley"
+      className="mt-2 grid grid-cols-3 gap-1"
+      role="group"
+    >
+      {APPOINTMENT_SMILEY_OPTIONS.map((option) => {
+        const selected =
+          option.value === null
+            ? appointment.smiley === undefined
+            : appointment.smiley === option.value;
+        return (
+          <Button
+            aria-pressed={selected}
+            className="h-7 px-2 text-xs"
+            disabled={disabled}
+            key={option.label}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (!selected) {
+                onChange(option.value);
+              }
+            }}
+            size="sm"
+            type="button"
+            variant={selected ? "default" : "outline"}
+          >
+            {option.label}
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
+
 function RightSidebarContent({
   handleLinkWithPvs,
   handleOpenInPvs,
@@ -338,6 +402,7 @@ function RightSidebarContent({
   patientAppointments,
   patientDisplayName,
   practiceId,
+  runUpdateAppointment,
   selectedAppointmentId,
   selectedPatientId,
   selectedSeriesId,
@@ -351,11 +416,19 @@ function RightSidebarContent({
   patientAppointments: SidebarAppointment[] | undefined;
   patientDisplayName: string;
   practiceId: Id<"practices"> | undefined;
+  runUpdateAppointment:
+    | ((args: {
+        id: Id<"appointments">;
+        smiley?: AppointmentSmiley | null;
+      }) => Promise<void>)
+    | undefined;
   selectedAppointmentId: Id<"appointments"> | undefined;
   selectedPatientId: Id<"patients"> | undefined;
   selectedSeriesId: string | undefined;
   showGdtAlert: boolean | undefined;
 }) {
+  const [pendingSmileyAppointmentId, startSmileyTransition] =
+    React.useTransition();
   const bookingFieldEntries =
     patient?.userId === undefined ? [] : getBookingFieldEntries(patient);
 
@@ -503,26 +576,54 @@ function RightSidebarContent({
                           (selectedSeriesId !== undefined &&
                             appointment.seriesId === selectedSeriesId);
                         return (
-                          <button
+                          <div
                             className={cn(
-                              "w-full text-left p-2 rounded-md text-sm transition-colors",
-                              "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                              "rounded-md p-2 text-sm transition-colors",
                               isSelected &&
                                 "bg-info-muted text-info-foreground ring-2 ring-selection-ring",
                             )}
                             key={appointment._id}
-                            onClick={() => onSelectAppointment?.(appointment)}
                           >
-                            <p className="font-medium truncate">
-                              {appointment.title}
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {appointment.appointmentTypeTitle}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {formatAppointmentDateTime(appointment.start)}
-                            </p>
-                          </button>
+                            <button
+                              className={cn(
+                                "w-full rounded-sm text-left transition-colors",
+                                "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                              )}
+                              onClick={() => onSelectAppointment?.(appointment)}
+                              type="button"
+                            >
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                {appointment.smiley && (
+                                  <span aria-hidden="true" className="shrink-0">
+                                    {appointment.smiley}
+                                  </span>
+                                )}
+                                <p className="truncate font-medium">
+                                  {appointment.title}
+                                </p>
+                              </div>
+                              <p className="text-xs text-muted-foreground truncate">
+                                {appointment.appointmentTypeTitle}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatAppointmentDateTime(appointment.start)}
+                              </p>
+                            </button>
+                            {isSelected && runUpdateAppointment && (
+                              <AppointmentSmileyEditor
+                                appointment={appointment}
+                                disabled={pendingSmileyAppointmentId}
+                                onChange={(smiley) => {
+                                  startSmileyTransition(() => {
+                                    void runUpdateAppointment({
+                                      id: appointment._id,
+                                      smiley,
+                                    });
+                                  });
+                                }}
+                              />
+                            )}
+                          </div>
                         );
                       })}
                     </div>

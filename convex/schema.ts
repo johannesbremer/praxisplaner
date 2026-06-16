@@ -20,6 +20,11 @@ import {
 } from "./bookingValidators";
 import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
 
+export const appointmentSmileyValidator = v.union(
+  v.literal("😀"),
+  v.literal("😥"),
+);
+
 export {
   beihilfeStatusValidator,
   dataSharingContactInputValidator,
@@ -349,6 +354,7 @@ export default defineSchema({
     ),
     simulationRuleSetId: v.optional(v.id("ruleSets")),
     simulationValidatedAt: v.optional(v.int64()),
+    smiley: v.optional(appointmentSmileyValidator),
     userId: v.optional(v.id("users")),
 
     // Metadata

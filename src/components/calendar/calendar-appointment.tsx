@@ -97,6 +97,7 @@ export function CalendarAppointment({
         appointmentTypeTitle={appointment.layout.record.appointmentTypeTitle}
         patientName={appointment.patientName}
         slotCount={slotCount}
+        smiley={appointment.layout.record.smiley}
         startTime={appointment.layout.startTime}
         title={appointment.layout.record.title}
       />

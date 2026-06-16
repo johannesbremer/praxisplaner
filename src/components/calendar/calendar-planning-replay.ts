@@ -160,11 +160,24 @@ const appointmentMatchesState = (
 ) =>
   appointment.start === expected.start &&
   appointment.end === expected.end &&
+  appointment.smiley === expected.smiley &&
   appointment.placement.locationLineageKey ===
     expected.placement.locationLineageKey &&
   sameCalendarOccupancyScope(
     appointment.placement.occupancyScope,
     expected.placement.occupancyScope,
+  );
+
+const hasAppointmentSchedulingStateChange = (
+  left: AppointmentState,
+  right: AppointmentState,
+) =>
+  left.start !== right.start ||
+  left.end !== right.end ||
+  left.placement.locationLineageKey !== right.placement.locationLineageKey ||
+  !sameCalendarOccupancyScope(
+    left.placement.occupancyScope,
+    right.placement.occupancyScope,
   );
 
 const blockedSlotMatchesState = (
@@ -411,7 +424,6 @@ async function executeAppointmentUpdateCommand(
     placement: state.placement,
     start: state.start,
   });
-
   const updateToState = async (state: AppointmentState) => {
     const displayRefs = context.resolveAppointmentReferenceDisplayIds({
       appointmentTypeLineageKey: payload.before.appointmentTypeLineageKey,
@@ -433,6 +445,7 @@ async function executeAppointmentUpdateCommand(
         : {
             practitionerId: displayRefs.occupancyScope.practitionerId,
           }),
+      smiley: state.smiley ?? null,
       start: state.start,
     });
     return true;
@@ -465,6 +478,10 @@ async function executeAppointmentUpdateCommand(
     }
 
     if (
+      hasAppointmentSchedulingStateChange(
+        payload.beforeState,
+        payload.afterState,
+      ) &&
       context.hasAppointmentConflict(
         candidatePayload(payload.afterState),
         currentAppointmentId,
@@ -515,6 +532,10 @@ async function executeAppointmentUpdateCommand(
   }
 
   if (
+    hasAppointmentSchedulingStateChange(
+      payload.afterState,
+      payload.beforeState,
+    ) &&
     context.hasAppointmentConflict(
       candidatePayload(payload.beforeState),
       currentAppointmentId,

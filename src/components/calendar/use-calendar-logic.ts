@@ -1370,6 +1370,7 @@ export function useCalendarLogic({
     runCreateAppointment: planningCommands.createAppointment,
     runCreateBlockedSlot: planningCommands.createBlockedSlot,
     runDeleteBlockedSlot: planningCommands.deleteBlockedSlot,
+    runUpdateAppointment: planningCommands.updateAppointment,
     runUpdateBlockedSlot: planningCommands.updateBlockedSlot,
     selectedDate,
     selectedLocationId:

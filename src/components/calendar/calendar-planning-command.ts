@@ -14,7 +14,7 @@ import { api } from "../../../convex/_generated/api";
 
 export type AppointmentState = Pick<
   CalendarAppointmentRecord,
-  "end" | "placement" | "start"
+  "end" | "placement" | "smiley" | "start"
 >;
 
 export type BlockedSlotState = Pick<

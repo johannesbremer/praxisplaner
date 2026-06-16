@@ -73,6 +73,7 @@ import {
   type TrustedPracticeScope,
 } from "./practiceAccess";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
+import { appointmentSmileyValidator } from "./schema";
 import {
   requireAppointmentTypeInPracticeRuleSet,
   requireBookingIdentityInPractice,
@@ -173,6 +174,7 @@ interface TrustedAppointmentInput {
   replacesAppointmentId?: Id<"appointments">;
   simulationKind?: AppointmentSimulationKind;
   simulationRuleSetId?: Id<"ruleSets">;
+  smiley?: AppointmentSmiley;
   start: ZonedDateTimeString;
   temporaryPatientName?: string;
   temporaryPatientPhoneNumber?: string;
@@ -207,6 +209,7 @@ const appointmentResultValidator = v.object({
   simulationKind: v.optional(appointmentSimulationKindValidator),
   simulationRuleSetId: v.optional(v.id("ruleSets")),
   simulationValidatedAt: v.optional(v.int64()),
+  smiley: v.optional(appointmentSmileyValidator),
   start: v.string(),
   title: v.string(),
   userId: v.optional(v.id("users")),
@@ -256,6 +259,7 @@ export type AppointmentResult = Omit<
   "end" | "start"
 > &
   TypedDateTimeRange;
+export type AppointmentSmiley = Infer<typeof appointmentSmileyValidator>;
 export type BlockedSlotResult = BlockedSlotListItem;
 
 const bookedAppointmentSummaryItemValidator = v.union(
@@ -285,6 +289,7 @@ export const appointmentListItemDocBackedOptionalFieldCoverage = {
   simulationKind: true,
   simulationRuleSetId: true,
   simulationValidatedAt: true,
+  smiley: true,
   userId: true,
 } satisfies Record<AppointmentListItemDocBackedOptionalKey, true>;
 
@@ -314,6 +319,7 @@ function asTrustedAppointmentInput(args: {
   replacesAppointmentId?: Id<"appointments">;
   simulationKind?: AppointmentSimulationKind;
   simulationRuleSetId?: Id<"ruleSets">;
+  smiley?: AppointmentSmiley;
   start: string;
   temporaryPatientName?: string;
   temporaryPatientPhoneNumber?: string;
@@ -1280,6 +1286,7 @@ function toAppointmentListItem(
     ...(appointment.simulationValidatedAt === undefined
       ? {}
       : { simulationValidatedAt: appointment.simulationValidatedAt }),
+    ...(appointment.smiley === undefined ? {} : { smiley: appointment.smiley }),
     title: appointment.title,
     ...(appointment.userId === undefined ? {} : { userId: appointment.userId }),
   };
@@ -1569,6 +1576,7 @@ export async function createAppointmentFromTrustedSource(
     replacesAppointmentId?: Id<"appointments">;
     simulationKind?: AppointmentSimulationKind;
     simulationRuleSetId?: Id<"ruleSets">;
+    smiley?: AppointmentSmiley;
     start: string;
     temporaryPatientName?: string;
     temporaryPatientPhoneNumber?: string;
@@ -1592,6 +1600,7 @@ export async function createAppointmentFromTrustedSource(
     replacesAppointmentId,
     simulationKind,
     simulationRuleSetId,
+    smiley,
     title,
   } = args;
 
@@ -1801,6 +1810,7 @@ export async function createAppointmentFromTrustedSource(
       }),
       simulationValidatedAt: now,
     }),
+    ...(smiley !== undefined && { smiley }),
     title,
   };
   return await ctx.db.insert("appointments", insertData);
@@ -1952,6 +1962,7 @@ export const createAppointment = mutation({
     replacesAppointmentId: v.optional(v.id("appointments")),
     simulationKind: v.optional(appointmentSimulationKindValidator),
     simulationRuleSetId: v.optional(v.id("ruleSets")),
+    smiley: v.optional(appointmentSmileyValidator),
     start: v.string(),
     temporaryPatientName: v.optional(v.string()),
     temporaryPatientPhoneNumber: v.optional(v.string()),
@@ -1986,6 +1997,7 @@ const appointmentUpdateArgsValidator = {
   replacesAppointmentId: v.optional(v.id("appointments")),
   simulationKind: v.optional(appointmentSimulationKindValidator),
   simulationRuleSetId: v.optional(v.id("ruleSets")),
+  smiley: v.optional(v.union(appointmentSmileyValidator, v.null())),
   start: v.optional(v.string()),
   title: v.optional(v.string()),
   userId: v.optional(v.id("users")),
@@ -2003,6 +2015,7 @@ interface AppointmentUpdateArgs {
   replacesAppointmentId?: Id<"appointments">;
   simulationKind?: AppointmentSimulationKind;
   simulationRuleSetId?: Id<"ruleSets">;
+  smiley?: AppointmentSmiley | null;
   start?: string;
   title?: string;
   userId?: Id<"users">;
@@ -2108,6 +2121,9 @@ function compactAppointmentUpdateData(
   }
   if (updateData.simulationRuleSetId !== undefined) {
     compacted.simulationRuleSetId = updateData.simulationRuleSetId;
+  }
+  if (updateData.smiley !== undefined) {
+    compacted.smiley = updateData.smiley;
   }
   if (updateData.start !== undefined) {
     compacted.start = updateData.start;
@@ -2638,6 +2654,10 @@ async function updateAppointmentByMode(
     const now = BigInt(Date.now());
     const resolvedUserId =
       filteredUpdateData.userId ?? existingAppointment.userId;
+    const resolvedRootSmiley =
+      filteredUpdateData.smiley === undefined
+        ? existingAppointment.smiley
+        : (filteredUpdateData.smiley ?? undefined);
     const existingByStepKey = new Map(
       seriesAppointments.map((appointment) => [
         getSeriesStepKey(appointment),
@@ -2679,6 +2699,7 @@ async function updateAppointmentByMode(
           seriesId,
           seriesStepId: step.stepId,
           seriesStepIndex: BigInt(step.seriesStepIndex),
+          ...(step.seriesStepIndex === 0 ? { smiley: resolvedRootSmiley } : {}),
           start: step.start,
           title,
           ...(resolvedUserId && { userId: resolvedUserId }),
@@ -2718,6 +2739,9 @@ async function updateAppointmentByMode(
         seriesId,
         seriesStepId: step.stepId,
         seriesStepIndex: BigInt(step.seriesStepIndex),
+        ...(step.seriesStepIndex === 0 && resolvedRootSmiley !== undefined
+          ? { smiley: resolvedRootSmiley }
+          : {}),
         start: step.start,
         title,
         ...(resolvedUserId && { userId: resolvedUserId }),
@@ -2766,6 +2790,9 @@ async function updateAppointmentByMode(
 
   await ctx.db.patch("appointments", id, {
     ...persistedUpdateData,
+    ...(filteredUpdateData.smiley === undefined
+      ? {}
+      : { smiley: filteredUpdateData.smiley ?? undefined }),
     ...getPersistentSimulationFields(existingAppointment, BigInt(Date.now())),
     appointmentTypeLineageKey: resolvedAppointmentTypeLineageKey,
     lastModified: BigInt(Date.now()),

@@ -3,6 +3,8 @@ export interface CalendarItemContentProps {
   appointmentTypeTitle?: string | undefined;
   /** Patient name (optional, for appointments). */
   patientName?: string | undefined;
+  /** Optional appointment smiley marker. */
+  smiley?: string | undefined;
   /** Number of 5-minute slots this item spans. */
   slotCount: number;
   /** Start time string (e.g., "08:00"). */
@@ -23,6 +25,7 @@ export function CalendarItemContent({
   appointmentTypeTitle,
   patientName,
   slotCount,
+  smiley,
   startTime,
   title,
 }: CalendarItemContentProps) {
@@ -30,7 +33,7 @@ export function CalendarItemContent({
   const isCompact = slotCount <= 4; // 20 minutes or less
 
   // Build content parts for the dot-separated display
-  const line1Parts = [startTime, title].filter(Boolean);
+  const line1Parts = [startTime, smiley, title].filter(Boolean);
   const line2Parts = [appointmentTypeTitle, patientName].filter(Boolean);
 
   if (isVeryCompact) {
@@ -42,7 +45,7 @@ export function CalendarItemContent({
           {allParts.map((part, index) => (
             <span key={index}>
               {index > 0 && <span className="opacity-70"> · </span>}
-              {index === 1 ? (
+              {index === line1Parts.length - 1 ? (
                 <span className="font-medium">{part}</span>
               ) : (
                 <span>{part}</span>
@@ -62,7 +65,7 @@ export function CalendarItemContent({
           {line1Parts.map((part, index) => (
             <span key={index}>
               {index > 0 && <span className="opacity-70"> · </span>}
-              {index === 1 ? (
+              {index === line1Parts.length - 1 ? (
                 <span className="font-medium">{part}</span>
               ) : (
                 <span>{part}</span>
@@ -88,7 +91,9 @@ export function CalendarItemContent({
   return (
     <div className="h-full flex flex-col p-1 pb-2">
       <div className="text-xs">{startTime}</div>
-      <div className="text-xs font-medium">{title}</div>
+      <div className="text-xs font-medium">
+        {smiley ? `${smiley} ${title}` : title}
+      </div>
       {appointmentTypeTitle && (
         <div className="text-xs">{appointmentTypeTitle}</div>
       )}

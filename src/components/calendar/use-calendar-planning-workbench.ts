@@ -982,6 +982,9 @@ export function useCalendarPlanningWorkbench(args: {
             practiceId: optimisticArgs.practiceId,
             start: typedStart,
             title: optimisticArgs.title,
+            ...(optimisticArgs.smiley === undefined
+              ? {}
+              : { smiley: optimisticArgs.smiley }),
           };
 
           if (optimisticArgs.replacesAppointmentId !== undefined) {
@@ -1154,7 +1157,7 @@ export function useCalendarPlanningWorkbench(args: {
                 occupancyScope: nextDisplayOccupancyScope,
               });
 
-        const nextRecord: CalendarAppointmentRecord = {
+        const nextRecordBase: CalendarAppointmentRecord = {
           ...currentRecord,
           ...timeUpdates,
           ...(lineageRefs === null ? {} : { placement: lineageRefs.placement }),
@@ -1163,6 +1166,17 @@ export function useCalendarPlanningWorkbench(args: {
           }),
           lastModified: BigInt(now),
         };
+        const nextRecord: CalendarAppointmentRecord =
+          optimisticArgs.smiley === undefined
+            ? nextRecordBase
+            : (() => {
+                const { smiley: _removedSmiley, ...recordWithoutSmiley } =
+                  nextRecordBase;
+                void _removedSmiley;
+                return optimisticArgs.smiley === null
+                  ? recordWithoutSmiley
+                  : { ...recordWithoutSmiley, smiley: optimisticArgs.smiley };
+              })();
 
         return toCalendarAppointmentResult({
           appointmentTypeId: appointment.appointmentTypeId,
@@ -1585,6 +1599,7 @@ export function useCalendarPlanningWorkbench(args: {
           end: before.end,
           placement: before.placement,
           start: before.start,
+          ...(before.smiley === undefined ? {} : { smiley: before.smiley }),
         };
         const typedEnd =
           args.end === undefined
@@ -1606,17 +1621,27 @@ export function useCalendarPlanningWorkbench(args: {
         ) {
           return;
         }
+        const afterSmiley =
+          args.smiley === undefined
+            ? before.smiley
+            : (args.smiley ?? undefined);
         const afterState = {
           end: typedEnd ?? before.end,
           placement: args.placement ?? before.placement,
           start: typedStart ?? before.start,
+          ...(afterSmiley === undefined ? {} : { smiley: afterSmiley }),
         };
+        const { smiley: _removedSmiley, ...beforeWithoutSmiley } = before;
+        void _removedSmiley;
         const afterSnapshot: CalendarAppointmentRecord = {
-          ...before,
+          ...beforeWithoutSmiley,
           end: afterState.end,
           lastModified: BigInt(Date.now()),
           placement: afterState.placement,
           start: afterState.start,
+          ...(afterState.smiley === undefined
+            ? {}
+            : { smiley: afterState.smiley }),
         };
         rememberAppointmentHistoryDoc(afterSnapshot);
 
