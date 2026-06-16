@@ -77,6 +77,7 @@ interface AvailabilityArgs {
   practiceId: Id<"practices">;
   simulatedContext: {
     appointmentTypeLineageKey?: Id<"appointmentTypes">;
+    clientType?: string;
     locationLineageKey?: Id<"locations">;
     patient: {
       dateOfBirth?: string;
@@ -355,6 +356,7 @@ async function requireAvailableSelectedSlot(
       ruleSetId: args.ruleSetId,
       simulatedContext: {
         appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+        clientType: "Phone-AI",
         locationLineageKey: args.locationLineageKey,
         patient: {
           ...(args.patientDateOfBirth !== undefined && {

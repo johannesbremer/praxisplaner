@@ -154,6 +154,7 @@ async function assertSlotAllowedByRules(
     {
       context: {
         appointmentTypeId: args.appointmentTypeId,
+        clientType: "Online",
         dateTime: args.startTime,
         locationId,
         patientDateOfBirth: args.patientDateOfBirth,

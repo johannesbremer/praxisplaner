@@ -39,4 +39,22 @@ describe("rule-name-generator", () => {
       "Wenn der Patiententyp Online ist, und das Datum zwischen 02.01.2026 und 09.01.2026 liegt, und die Uhrzeit nicht zwischen 08:00 und 09:30 liegt, darf der Termin nicht vergeben werden.",
     );
   });
+
+  test("refuses to flatten negated condition trees", () => {
+    const conditionTree = {
+      children: [
+        {
+          conditionType: "CLIENT_TYPE",
+          nodeType: "CONDITION",
+          operator: "IS",
+          valueIds: ["Online"],
+        },
+      ],
+      nodeType: "NOT",
+    } satisfies ConditionTreeNode;
+
+    expect(() => conditionTreeToConditions(conditionTree)).toThrow(
+      "NOT-Regelbäume können nicht als flache Bedingungen dargestellt werden",
+    );
+  });
 });

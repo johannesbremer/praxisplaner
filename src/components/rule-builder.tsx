@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardHeader, CardTitle } from "@/components/ui/card";
 import { RULE_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
-import type { Id } from "../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../convex/_generated/dataModel";
 import type {
   DraftMutationResult,
   RuleSetReplayTarget,
@@ -239,6 +239,11 @@ export function RuleBuilder({
   };
 
   const openEditRuleDialog = (ruleId: Id<"ruleConditions">) => {
+    const rule = rulesRef.current.find((candidate) => candidate._id === ruleId);
+    if (!rule || !canFlattenRuleConditionTree(rule.conditionTree)) {
+      return;
+    }
+
     setEditingRuleId(ruleId);
     setIsDialogOpen(true);
   };
@@ -252,8 +257,8 @@ export function RuleBuilder({
     try {
       const deletedRule = rulesRef.current.find((rule) => rule._id === ruleId);
       const deletedRuleName = deletedRule
-        ? generateRuleName(
-            conditionTreeToConditions(deletedRule.conditionTree),
+        ? getFlattenedRuleDisplayName(
+            deletedRule.conditionTree,
             appointmentTypes,
             practitioners,
             locations,
@@ -330,8 +335,9 @@ export function RuleBuilder({
     <div className="space-y-4">
       {/* Render all existing rules as cards */}
       {existingRules.map((rule) => {
-        const ruleName = generateRuleName(
-          conditionTreeToConditions(rule.conditionTree),
+        const canEditRule = canFlattenRuleConditionTree(rule.conditionTree);
+        const ruleName = getFlattenedRuleDisplayName(
+          rule.conditionTree,
           appointmentTypes,
           practitioners,
           locations,
@@ -343,10 +349,16 @@ export function RuleBuilder({
               <CardTitle className="font-normal">{ruleName}</CardTitle>
               <CardAction className="flex gap-2">
                 <Button
+                  disabled={!canEditRule}
                   onClick={() => {
                     openEditRuleDialog(rule._id);
                   }}
                   size="sm"
+                  title={
+                    canEditRule
+                      ? "Regel bearbeiten"
+                      : "Regeln mit NOT-Knoten können nicht im vereinfachten Editor bearbeitet werden."
+                  }
                   variant="ghost"
                 >
                   <Edit className="h-4 w-4" />
@@ -419,8 +431,8 @@ export function RuleBuilder({
             const currentRuleId = createResult.entityId;
 
             if (previousRule) {
-              const previousRuleName = generateRuleName(
-                conditionTreeToConditions(previousRule.conditionTree),
+              const previousRuleName = getFlattenedRuleDisplayName(
+                previousRule.conditionTree,
                 appointmentTypes,
                 practitioners,
                 locations,
@@ -528,6 +540,17 @@ export function RuleBuilder({
   );
 }
 
+function canFlattenRuleConditionTree(
+  conditionTree: ConditionTreeNode,
+): boolean {
+  try {
+    conditionTreeToConditions(conditionTree);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function createKnownLineageKeyResolver(
   entities: { _id: string; lineageKey: string }[],
   missingLabel: string,
@@ -559,6 +582,24 @@ function createLineageKeyResolver(
   );
 
   return (id) => lineageKeyById.get(id) ?? id;
+}
+
+function getFlattenedRuleDisplayName(
+  conditionTree: ConditionTreeNode,
+  appointmentTypes: Doc<"appointmentTypes">[],
+  practitioners: Doc<"practitioners">[],
+  locations: Doc<"locations">[],
+): string {
+  try {
+    return generateRuleName(
+      conditionTreeToConditions(conditionTree),
+      appointmentTypes,
+      practitioners,
+      locations,
+    );
+  } catch {
+    return "Regel mit nicht unterstützter Bedingungsstruktur";
+  }
 }
 
 function isSerializableRecord(

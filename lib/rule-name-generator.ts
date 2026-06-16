@@ -310,6 +310,11 @@ export function conditionTreeToConditions(
       conditions.push(parseConditionNode(node, path));
       return;
     }
+    if (node.nodeType === "NOT") {
+      throw new Error(
+        "NOT-Regelbäume können nicht als flache Bedingungen dargestellt werden",
+      );
+    }
 
     for (const [index, child] of node.children.entries()) {
       visit(child, `${path}.${index}`);

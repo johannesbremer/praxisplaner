@@ -959,6 +959,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
         slot,
       );
       const appointmentContext: AppointmentContext = {
+        clientType: "MFA",
         dateTime: asZonedDateTimeString(slot.startTime),
         locationId: displayReferences.locationId,
         practiceId: args.practiceId,

@@ -615,9 +615,8 @@ function formatRuleDiffSummary(value: Record<string, unknown>) {
     return null;
   }
 
-  const snapshotRuleNameContext = buildRuleNameContextFromTree(tree);
-
   try {
+    const snapshotRuleNameContext = buildRuleNameContextFromTree(tree);
     return generateRuleName(
       conditionTreeToConditions(tree),
       snapshotRuleNameContext.appointmentTypes,

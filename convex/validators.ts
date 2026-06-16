@@ -25,6 +25,7 @@ export const breakTimesValidator = v.optional(
 // Simulated context for scheduling (used in debug views)
 export const simulatedContextValidator = v.object({
   appointmentTypeLineageKey: v.optional(v.id("appointmentTypes")),
+  clientType: v.optional(v.string()),
   locationLineageKey: v.optional(v.id("locations")),
   patient: v.object({
     dateOfBirth: v.optional(v.string()),

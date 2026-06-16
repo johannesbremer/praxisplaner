@@ -822,6 +822,7 @@ function markSlotsBlockedByRules(
     );
     const appointmentContext = {
       appointmentTypeId: args.bookingContext.appointmentTypeId,
+      clientType: args.bookingContext.simulatedContext.clientType ?? "MFA",
       dateTime: asZonedDateTimeString(slot.startTime),
       ...(args.bookingContext.simulatedContext.patient.dateOfBirth && {
         patientDateOfBirth:
@@ -877,6 +878,7 @@ function preEvaluateCandidateDayRules(args: {
   );
   const dayContext = {
     appointmentTypeId: args.bookingContext.appointmentTypeId,
+    clientType: args.bookingContext.simulatedContext.clientType ?? "MFA",
     dateTime: asZonedDateTimeString(firstSlot.startTime),
     ...(args.bookingContext.simulatedContext.patient.dateOfBirth && {
       patientDateOfBirth:

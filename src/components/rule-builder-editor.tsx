@@ -118,26 +118,43 @@ export function RuleEditDialog({
   onCreate,
   practitioners,
 }: RuleEditDialogProps) {
-  const initialConditions: Condition[] = existingRule
-    ? conditionTreeToConditions(existingRule.conditionTree)
-    : [
-        {
-          id: "1",
-          operator: "IS",
-          type: "APPOINTMENT_TYPE",
-          valueIds: [],
-        },
-      ];
+  const initialConditionsResult = getInitialConditions(existingRule);
 
   const form = useForm({
     defaultValues: {
-      conditions: initialConditions,
+      conditions:
+        initialConditionsResult.status === "ok"
+          ? initialConditionsResult.conditions
+          : [],
     } satisfies { conditions: Condition[] },
     onSubmit: async ({ value }) => {
       const conditionTree = conditionsToConditionTree(value.conditions);
       await onCreate(conditionTree);
     },
   });
+
+  if (initialConditionsResult.status === "unsupported") {
+    return (
+      <Dialog onOpenChange={onClose} open={isOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Regel kann nicht bearbeitet werden</DialogTitle>
+            <DialogDescription>
+              Diese Regel verwendet eine Bedingungsstruktur, die der
+              vereinfachte Editor nicht verlustfrei darstellen kann.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Schließen
+              </Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog onOpenChange={onClose} open={isOpen}>
@@ -785,6 +802,33 @@ function getErrorMessage(condition: Condition, invalidField: string): string {
     default: {
       return "";
     }
+  }
+}
+
+function getInitialConditions(
+  existingRule: RuleFromDB | undefined,
+): { conditions: Condition[]; status: "ok" } | { status: "unsupported" } {
+  if (!existingRule) {
+    return {
+      conditions: [
+        {
+          id: "1",
+          operator: "IS",
+          type: "APPOINTMENT_TYPE",
+          valueIds: [],
+        },
+      ],
+      status: "ok",
+    };
+  }
+
+  try {
+    return {
+      conditions: conditionTreeToConditions(existingRule.conditionTree),
+      status: "ok",
+    };
+  } catch {
+    return { status: "unsupported" };
   }
 }
 
