@@ -1,17 +1,33 @@
 import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 
-import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
-import { useLocalHistory } from "../../hooks/use-local-history";
+import type {
+  LedgerExecutionResult,
+  LedgerOperation,
+} from "../../utils/command-ledger";
+import type { CalendarPlanningCommand } from "./calendar-planning-command";
 
-export function useCalendarPlanningHistory() {
-  const {
-    canRedo: canRedoHistoryAction,
-    canUndo: canUndoHistoryAction,
-    pushAction,
-    redo,
-    undo,
-  } = useLocalHistory();
+import { useRegisterGlobalUndoRedoControls } from "../../hooks/use-global-undo-redo-controls";
+import { useCommandLedger } from "../../utils/command-ledger";
+
+export type CalendarPlanningCommandExecutor = (
+  command: CalendarPlanningCommand,
+  operation: LedgerOperation,
+) => LedgerExecutionResult | Promise<LedgerExecutionResult>;
+
+export function useCalendarPlanningHistory(
+  executeCommand: CalendarPlanningCommandExecutor,
+) {
+  const { canRedo, canUndo, record, redo, undo } = useCommandLedger({
+    executeCommand,
+  });
+
+  const recordCalendarCommand = useCallback(
+    (command: CalendarPlanningCommand) => {
+      record(command);
+    },
+    [record],
+  );
 
   const runUndo = useCallback(async () => {
     const result = await undo();
@@ -33,21 +49,21 @@ export function useCalendarPlanningHistory() {
 
   const calendarUndoRedoControls = useMemo(
     () =>
-      canUndoHistoryAction || canRedoHistoryAction
+      canUndo || canRedo
         ? {
-            canRedo: canRedoHistoryAction,
-            canUndo: canUndoHistoryAction,
+            canRedo,
+            canUndo,
             onRedo: runRedo,
             onUndo: runUndo,
           }
         : null,
-    [canRedoHistoryAction, canUndoHistoryAction, runRedo, runUndo],
+    [canRedo, canUndo, runRedo, runUndo],
   );
 
   useRegisterGlobalUndoRedoControls(calendarUndoRedoControls);
 
   return {
-    pushHistoryAction: pushAction,
+    recordCalendarCommand,
     redo: runRedo,
     undo: runUndo,
   };

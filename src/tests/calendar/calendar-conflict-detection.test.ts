@@ -196,7 +196,7 @@ describe("calendar conflict detection", () => {
     expect(merged[0]?.start).toBe("2026-04-24T09:30:00+02:00[Europe/Berlin]");
   });
 
-  it("prefers refreshed current records over stale history snapshots for undo lookups", () => {
+  it("prefers local history overlays over stale query records for undo lookups", () => {
     const resolved = getCurrentCalendarRecordById({
       allPracticeMap: new Map([
         [
@@ -225,10 +225,10 @@ describe("calendar conflict detection", () => {
       id: "appointment_1",
     });
 
-    expect(resolved?.start).toBe("2026-04-24T09:30:00+02:00[Europe/Berlin]");
+    expect(resolved?.start).toBe("2026-04-24T09:00:00+02:00[Europe/Berlin]");
   });
 
-  it("prefers refreshed current records over stale history snapshots for conflict preflight", () => {
+  it("prefers local history overlays over stale query records for conflict preflight", () => {
     const merged = mergeCurrentConflictRecordsByIdExcluding({
       allPracticeMap: new Map([
         [
@@ -257,7 +257,7 @@ describe("calendar conflict detection", () => {
     });
 
     expect(merged).toHaveLength(1);
-    expect(merged[0]?.start).toBe("2026-04-24T09:30:00+02:00[Europe/Berlin]");
+    expect(merged[0]?.start).toBe("2026-04-24T09:00:00+02:00[Europe/Berlin]");
   });
 
   it("excludes locally deleted records while queries are still stale", () => {

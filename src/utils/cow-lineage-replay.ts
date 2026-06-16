@@ -1,18 +1,48 @@
 import type { RefObject } from "react";
 
-import type {
-  LocalHistoryAction,
-  LocalHistoryResult,
-} from "../hooks/use-local-history";
+import type { LedgerResult } from "./command-ledger";
 import type { LineageTrackedEntity } from "./cow-history";
+import type {
+  RecordRuleSetCommand,
+  RuleSetCommandKind,
+  RuleSetCommandPayload,
+  RuleSetCommandSnapshot,
+} from "./rule-set-replay";
 
 import { resolveReplayEntity } from "./cow-history";
+import { recordRuleSetCommand } from "./rule-set-command-executor";
+import {
+  appliedLedgerResult,
+  conflictLedgerResult,
+  createRuleSetSnapshotCommand,
+} from "./rule-set-replay";
+
+type CowLineageRuleSetCommandKind = Exclude<
+  RuleSetCommandKind,
+  | "absence.create"
+  | "absence.delete"
+  | "absence.update"
+  | "location.create"
+  | "location.update"
+  | "mfa.create"
+  | "mfa.delete"
+  | "practitioner.create"
+  | "practitioner.update"
+  | "schedulingRule.create"
+  | "schedulingRule.delete"
+  | "schedulingRule.update"
+>;
+
+interface LegacyReplayConflict {
+  message: string;
+  status: "conflict";
+}
 
 interface MutationStepResult<TId extends string> {
   entityId: TId;
 }
 
-interface RegisterLineageCreateActionParams<
+interface RecordLineageCreateCommandParams<
   TEntityId extends string,
   TLineageKey extends string,
   TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
@@ -20,64 +50,88 @@ interface RegisterLineageCreateActionParams<
   entitiesRef: RefObject<TEntity[]>;
   initialEntityId: TEntityId;
   isMissingEntityError: (error: unknown) => boolean;
+  kind: CowLineageRuleSetCommandKind;
   label: string;
   lineageKey: TLineageKey;
-  onRegisterHistoryAction: ((action: LocalHistoryAction) => void) | undefined;
+  onRecordCommand: RecordRuleSetCommand | undefined;
+  payload?: RuleSetCommandPayload;
   runCreate: () => Promise<ReplayStepResult<TEntityId>>;
   runDelete: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
+  scope?: string;
+  snapshots?: RuleSetCommandSnapshot;
   validateBeforeCreate?: () => null | string;
+  validateExistingForCreate?: (entity: TEntity) => null | string;
 }
 
-interface RegisterLineageUpdateActionParams<
+interface RecordLineageUpdateCommandParams<
   TEntityId extends string,
   TLineageKey extends string,
   TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
 > {
   entitiesRef: RefObject<TEntity[]>;
   initialEntityId: TEntityId;
+  kind: CowLineageRuleSetCommandKind;
   label: string;
   lineageKey: TLineageKey;
-  onRegisterHistoryAction: ((action: LocalHistoryAction) => void) | undefined;
+  onRecordCommand: RecordRuleSetCommand | undefined;
+  payload?: RuleSetCommandPayload;
   redoMissingMessage: string;
   runRedo: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
   runUndo: (entityId: TEntityId) => Promise<ReplayStepResult<TEntityId>>;
+  scope?: string;
+  snapshots?: RuleSetCommandSnapshot;
   undoMissingMessage: string;
   validateRedo: (entity: TEntity) => null | string;
   validateUndo: (entity: TEntity) => null | string;
 }
 
 type ReplayStepResult<TId extends string> =
-  | LocalHistoryResult
+  | LedgerResult
+  | LegacyReplayConflict
   | MutationStepResult<TId>;
 
-const APPLIED_RESULT: LocalHistoryResult = { status: "applied" };
-
-export function registerLineageCreateHistoryAction<
+export function recordLineageCreateRuleSetCommand<
   TEntityId extends string,
   TLineageKey extends string,
   TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
 >(
-  params: RegisterLineageCreateActionParams<TEntityId, TLineageKey, TEntity>,
+  params: RecordLineageCreateCommandParams<TEntityId, TLineageKey, TEntity>,
 ): void {
-  if (!params.onRegisterHistoryAction) {
+  if (!params.onRecordCommand) {
     return;
   }
   let currentEntityId = params.initialEntityId;
 
-  params.onRegisterHistoryAction({
+  const command = createRuleSetSnapshotCommand({
+    kind: params.kind,
     label: params.label,
+    ...(params.payload && { payload: params.payload }),
+    ...(params.scope && { scope: params.scope }),
+    ...(params.snapshots && { snapshots: params.snapshots }),
+    target: {
+      entityId: params.initialEntityId,
+      lineageKey: params.lineageKey,
+    },
+  });
+
+  const replay = {
     redo: async () => {
       const existingByLineage = params.entitiesRef.current.find(
         (entity) => entity.lineageKey === params.lineageKey,
       );
       if (existingByLineage) {
+        const validationMessage =
+          params.validateExistingForCreate?.(existingByLineage);
+        if (validationMessage) {
+          return conflictLedgerResult(validationMessage);
+        }
         currentEntityId = existingByLineage._id;
-        return APPLIED_RESULT;
+        return appliedLedgerResult();
       }
 
       const preflightConflict = params.validateBeforeCreate?.();
       if (preflightConflict) {
-        return toConflict(preflightConflict);
+        return conflictLedgerResult(preflightConflict);
       }
 
       const result = await params.runCreate();
@@ -93,32 +147,44 @@ export function registerLineageCreateHistoryAction<
         return next.historyResult;
       } catch (error: unknown) {
         if (params.isMissingEntityError(error)) {
-          return APPLIED_RESULT;
+          return appliedLedgerResult();
         }
-        return toConflict(
+        return conflictLedgerResult(
           error instanceof Error
             ? error.message
             : "Die Aktion konnte nicht ausgeführt werden.",
         );
       }
     },
-  });
+  };
+  recordRuleSetCommand(params.onRecordCommand, command, replay);
 }
 
-export function registerLineageUpdateHistoryAction<
+export function recordLineageUpdateRuleSetCommand<
   TEntityId extends string,
   TLineageKey extends string,
   TEntity extends LineageTrackedEntity<TEntityId, TLineageKey>,
 >(
-  params: RegisterLineageUpdateActionParams<TEntityId, TLineageKey, TEntity>,
+  params: RecordLineageUpdateCommandParams<TEntityId, TLineageKey, TEntity>,
 ): void {
-  if (!params.onRegisterHistoryAction) {
+  if (!params.onRecordCommand) {
     return;
   }
   let currentEntityId = params.initialEntityId;
 
-  params.onRegisterHistoryAction({
+  const command = createRuleSetSnapshotCommand({
+    kind: params.kind,
     label: params.label,
+    ...(params.payload && { payload: params.payload }),
+    ...(params.scope && { scope: params.scope }),
+    ...(params.snapshots && { snapshots: params.snapshots }),
+    target: {
+      entityId: params.initialEntityId,
+      lineageKey: params.lineageKey,
+    },
+  });
+
+  const replay = {
     redo: async () => {
       const resolvedCurrent = resolveReplayEntity({
         currentEntityId,
@@ -127,14 +193,14 @@ export function registerLineageUpdateHistoryAction<
         missingMessage: params.redoMissingMessage,
       });
       if (resolvedCurrent.status === "conflict") {
-        return toConflict(resolvedCurrent.message);
+        return conflictLedgerResult(resolvedCurrent.message);
       }
 
       const current = resolvedCurrent.entity;
       currentEntityId = resolvedCurrent.currentEntityId;
       const validationMessage = params.validateRedo(current);
       if (validationMessage) {
-        return toConflict(validationMessage);
+        return conflictLedgerResult(validationMessage);
       }
 
       const result = await params.runRedo(currentEntityId);
@@ -150,14 +216,14 @@ export function registerLineageUpdateHistoryAction<
         missingMessage: params.undoMissingMessage,
       });
       if (resolvedCurrent.status === "conflict") {
-        return toConflict(resolvedCurrent.message);
+        return conflictLedgerResult(resolvedCurrent.message);
       }
 
       const current = resolvedCurrent.entity;
       currentEntityId = resolvedCurrent.currentEntityId;
       const validationMessage = params.validateUndo(current);
       if (validationMessage) {
-        return toConflict(validationMessage);
+        return conflictLedgerResult(validationMessage);
       }
 
       const result = await params.runUndo(currentEntityId);
@@ -165,20 +231,24 @@ export function registerLineageUpdateHistoryAction<
       currentEntityId = next.currentEntityId;
       return next.historyResult;
     },
-  });
-}
-
-function isLocalHistoryResult<TId extends string>(
-  value: ReplayStepResult<TId>,
-): value is LocalHistoryResult {
-  return "status" in value;
-}
-
-function toConflict(message: string): LocalHistoryResult {
-  return {
-    message,
-    status: "conflict",
   };
+  recordRuleSetCommand(params.onRecordCommand, command, replay);
+}
+
+function isLedgerResult<TId extends string>(
+  value: ReplayStepResult<TId>,
+): value is LedgerResult {
+  return "status" in value && value.status !== "conflict"
+    ? true
+    : "status" in value && "conflict" in value;
+}
+
+function isLegacyReplayConflict<TId extends string>(
+  value: ReplayStepResult<TId>,
+): value is LegacyReplayConflict {
+  return (
+    "status" in value && value.status === "conflict" && !("conflict" in value)
+  );
 }
 
 function withMutationResult<TId extends string>(
@@ -186,13 +256,19 @@ function withMutationResult<TId extends string>(
   result: ReplayStepResult<TId>,
 ): {
   currentEntityId: TId;
-  historyResult: LocalHistoryResult;
+  historyResult: LedgerResult;
 } {
-  if (isLocalHistoryResult(result)) {
+  if (isLegacyReplayConflict(result)) {
+    return {
+      currentEntityId,
+      historyResult: conflictLedgerResult(result.message),
+    };
+  }
+  if (isLedgerResult(result)) {
     return { currentEntityId, historyResult: result };
   }
   return {
     currentEntityId: result.entityId,
-    historyResult: APPLIED_RESULT,
+    historyResult: appliedLedgerResult(),
   };
 }

@@ -1,0 +1,90 @@
+import type {
+  RecordRuleSetCommand,
+  RuleSetCommandDescription,
+  RuleSetCommandRuntimeAdapter,
+} from "./rule-set-replay";
+
+import { recordRuleSetCommand } from "./rule-set-command-executor";
+
+export function createAppointmentTypeFolderSubtreeDeleteReplayAdapter<
+  TFolderId extends string,
+  TFolderLineageKey extends string,
+  TAppointmentTypeLineageKey extends string,
+>(params: {
+  clearOptimisticRestore: () => void;
+  deleteFolder: (folderId: TFolderId) => Promise<{ entityId: TFolderId }>;
+  hideSubtreeOptimistically: (params: {
+    appointmentTypeLineageKeys: TAppointmentTypeLineageKey[];
+    folderLineageKeys: TFolderLineageKey[];
+  }) => void;
+  initialFolderId: TFolderId;
+  isMissingEntityError: (error: unknown) => boolean;
+  removeSubtreeRefs: () => void;
+  restoreSubtree: () => Promise<
+    | {
+        message: string;
+        status: "conflict";
+      }
+    | {
+        restoredRootFolderId: TFolderId;
+        status: "applied";
+      }
+  >;
+  subtree: {
+    appointmentTypeLineageKeys: TAppointmentTypeLineageKey[];
+    folderLineageKeys: TFolderLineageKey[];
+  };
+}): RuleSetCommandRuntimeAdapter {
+  let currentFolderId = params.initialFolderId;
+
+  return {
+    redo: async () => {
+      try {
+        params.hideSubtreeOptimistically(params.subtree);
+        const result = await params.deleteFolder(currentFolderId);
+        params.removeSubtreeRefs();
+        currentFolderId = result.entityId;
+        return { status: "applied" };
+      } catch (error: unknown) {
+        params.clearOptimisticRestore();
+        if (params.isMissingEntityError(error)) {
+          return { status: "applied" };
+        }
+        return {
+          message:
+            error instanceof Error
+              ? error.message
+              : "Der Ordner konnte nicht gelöscht werden.",
+          status: "conflict" as const,
+        };
+      }
+    },
+    undo: async () => {
+      const result = await params.restoreSubtree();
+      if (result.status === "conflict") {
+        return result;
+      }
+      currentFolderId = result.restoredRootFolderId;
+      return { status: "applied" };
+    },
+  };
+}
+
+export function recordAppointmentTypeFolderSubtreeReplayCommand<
+  TFolderId extends string,
+  TFolderLineageKey extends string,
+  TAppointmentTypeLineageKey extends string,
+>(
+  record: RecordRuleSetCommand | undefined,
+  command: RuleSetCommandDescription,
+  params: Parameters<
+    typeof createAppointmentTypeFolderSubtreeDeleteReplayAdapter<
+      TFolderId,
+      TFolderLineageKey,
+      TAppointmentTypeLineageKey
+    >
+  >[0],
+): void {
+  const replay = createAppointmentTypeFolderSubtreeDeleteReplayAdapter(params);
+  recordRuleSetCommand(record, command, replay);
+}

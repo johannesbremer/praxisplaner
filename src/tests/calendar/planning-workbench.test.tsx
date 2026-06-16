@@ -2,11 +2,12 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { CalendarPlanningCommand } from "../../components/calendar/calendar-planning-command";
 import type {
   CalendarAppointmentRecord,
   CalendarBlockedSlotRecord,
 } from "../../components/calendar/types";
-import type { LocalHistoryAction } from "../../hooks/use-local-history";
+import type { CalendarPlanningCommandExecutor } from "../../components/calendar/use-calendar-planning-history";
 
 import {
   asAppointmentTypeLineageKey,
@@ -14,7 +15,11 @@ import {
   toTableId,
 } from "../../../convex/identity";
 import { createCalendarPlacement } from "../../../lib/calendar-occupancy";
-import { useCalendarPlanningWorkbench } from "../../components/calendar/use-calendar-planning-workbench";
+import {
+  rememberRecreatedAliasId,
+  resolveCurrentAliasId,
+  useCalendarPlanningWorkbench,
+} from "../../components/calendar/use-calendar-planning-workbench";
 import { zonedDateTimeStringResult } from "../../utils/time-calculations";
 import {
   buildCalendarAppointmentRecord,
@@ -26,7 +31,10 @@ const mutationQueue: {
     updater: (localStore: unknown, args: unknown) => void,
   ) => (args: unknown) => Promise<unknown>;
 }[] = [];
-const pushHistoryAction = vi.fn<(action: LocalHistoryAction) => void>();
+const recordCalendarCommand =
+  vi.fn<(command: CalendarPlanningCommand) => void>();
+let executeRecordedCalendarCommand: CalendarPlanningCommandExecutor | null =
+  null;
 
 vi.mock("convex/react", () => ({
   useMutation: () => {
@@ -39,9 +47,12 @@ vi.mock("convex/react", () => ({
 }));
 
 vi.mock("../../components/calendar/use-calendar-planning-history", () => ({
-  useCalendarPlanningHistory: () => ({
-    pushHistoryAction,
-  }),
+  useCalendarPlanningHistory: (executor: CalendarPlanningCommandExecutor) => {
+    executeRecordedCalendarCommand = executor;
+    return {
+      recordCalendarCommand,
+    };
+  },
 }));
 
 const makeMutation = (result: unknown) => {
@@ -57,6 +68,29 @@ const makeMutation = (result: unknown) => {
   });
 };
 
+const makeDeferredMutation = () => {
+  let resolve: ((value: unknown) => void) | undefined;
+  const promise = new Promise<unknown>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  if (!resolve) {
+    throw new Error("Deferred mutation resolver was not initialized.");
+  }
+  const mutation = vi.fn((args: unknown) => {
+    void args;
+    return promise;
+  });
+  return {
+    mutation: Object.assign(mutation, {
+      withOptimisticUpdate:
+        () =>
+        async (args: unknown): Promise<unknown> =>
+          mutation(args),
+    }),
+    resolve,
+  };
+};
+
 const parseZonedDateTime = (value: string, source: string) =>
   zonedDateTimeStringResult(value, source).match(
     (typedValue) => typedValue,
@@ -66,7 +100,70 @@ const parseZonedDateTime = (value: string, source: string) =>
 describe("calendar planning workbench", () => {
   beforeEach(() => {
     mutationQueue.length = 0;
-    pushHistoryAction.mockReset();
+    recordCalendarCommand.mockReset();
+    executeRecordedCalendarCommand = null;
+  });
+
+  it("preserves original id aliases across repeated appointment and blocked-slot redoes", () => {
+    const originalAppointmentId = toTableId<"appointments">(
+      "appointment_original",
+    );
+    const firstRecreatedAppointmentId = toTableId<"appointments">(
+      "appointment_recreated_1",
+    );
+    const secondRecreatedAppointmentId = toTableId<"appointments">(
+      "appointment_recreated_2",
+    );
+    const appointmentAliases = new Map<
+      Id<"appointments">,
+      Id<"appointments">
+    >();
+
+    rememberRecreatedAliasId(appointmentAliases, {
+      currentId: firstRecreatedAppointmentId,
+      originalId: originalAppointmentId,
+    });
+    rememberRecreatedAliasId(appointmentAliases, {
+      currentId: secondRecreatedAppointmentId,
+      originalId: firstRecreatedAppointmentId,
+    });
+
+    expect(
+      resolveCurrentAliasId(appointmentAliases, originalAppointmentId),
+    ).toBe(secondRecreatedAppointmentId);
+    expect(
+      resolveCurrentAliasId(appointmentAliases, firstRecreatedAppointmentId),
+    ).toBe(secondRecreatedAppointmentId);
+
+    const originalBlockedSlotId = toTableId<"blockedSlots">(
+      "blocked_slot_original",
+    );
+    const firstRecreatedBlockedSlotId = toTableId<"blockedSlots">(
+      "blocked_slot_recreated_1",
+    );
+    const secondRecreatedBlockedSlotId = toTableId<"blockedSlots">(
+      "blocked_slot_recreated_2",
+    );
+    const blockedSlotAliases = new Map<
+      Id<"blockedSlots">,
+      Id<"blockedSlots">
+    >();
+
+    rememberRecreatedAliasId(blockedSlotAliases, {
+      currentId: firstRecreatedBlockedSlotId,
+      originalId: originalBlockedSlotId,
+    });
+    rememberRecreatedAliasId(blockedSlotAliases, {
+      currentId: secondRecreatedBlockedSlotId,
+      originalId: firstRecreatedBlockedSlotId,
+    });
+
+    expect(
+      resolveCurrentAliasId(blockedSlotAliases, originalBlockedSlotId),
+    ).toBe(secondRecreatedBlockedSlotId);
+    expect(
+      resolveCurrentAliasId(blockedSlotAliases, firstRecreatedBlockedSlotId),
+    ).toBe(secondRecreatedBlockedSlotId);
   });
 
   it("creates an Appointment through the deep Workbench Interface and owns history snapshots", async () => {
@@ -155,8 +252,209 @@ describe("calendar planning workbench", () => {
         title: "Check-up",
       }),
     );
-    expect(pushHistoryAction).toHaveBeenCalledWith(
+    expect(recordCalendarCommand).toHaveBeenCalledWith(
       expect.objectContaining({ label: "Termin erstellt" }),
+    );
+  });
+
+  it("serializes overlapping Appointment updates before recording history commands", async () => {
+    const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
+    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("type_lineage_1"),
+    );
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const appointment = buildCalendarAppointmentRecord({
+      _id: toTableId<"appointments">("appointment_1"),
+      appointmentTypeLineageKey,
+      appointmentTypeTitle: "Check-up",
+      calendarResourceColumn: "ekg",
+      end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      locationLineageKey,
+      practiceId,
+      start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+      title: "Check-up",
+    });
+    const activeAppointments = new Map([[appointment._id, appointment]]);
+    const firstUpdate = makeDeferredMutation();
+    mutationQueue.push(
+      makeMutation(toTableId<"appointments">("appointment_unused")),
+      firstUpdate.mutation,
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(toTableId<"blockedSlots">("blocked_slot_unused")),
+      makeMutation(null),
+      makeMutation(null),
+    );
+
+    const { result } = renderHook(() =>
+      useCalendarPlanningWorkbench({
+        activeDayAppointmentMapRef: { current: activeAppointments },
+        activeDayBlockedSlotMapRef: { current: new Map() },
+        allPracticeAppointmentMap: activeAppointments,
+        allPracticeAppointmentMapRef: { current: activeAppointments },
+        allPracticeAppointmentsLoaded: true,
+        allPracticeBlockedSlotMap: new Map(),
+        allPracticeBlockedSlotMapRef: { current: new Map() },
+        allPracticeBlockedSlotsLoaded: true,
+        blockedSlotsQueryArgs: null,
+        calendarDayQueryArgs: null,
+        getRequiredAppointmentTypeInfo: () => ({
+          duration: 30,
+          hasFollowUpPlan: false,
+          name: "Check-up",
+        }),
+        parseZonedDateTime,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map([
+            [appointmentTypeLineageKey, appointmentTypeId],
+          ]),
+          appointmentTypeLineageKeyById: new Map([
+            [appointmentTypeId, appointmentTypeLineageKey],
+          ]),
+          locationIdByLineageKey: new Map([[locationLineageKey, locationId]]),
+          locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        refreshAllPracticeConflictData: vi.fn(() => Promise.resolve()),
+      }),
+    );
+
+    let firstPromise!: Promise<unknown>;
+    let secondPromise!: Promise<unknown>;
+    await act(async () => {
+      firstPromise = result.current.commands.updateAppointment({
+        end: "2026-04-25T10:00:00+02:00[Europe/Berlin]",
+        id: appointment._id,
+        start: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      });
+      secondPromise = result.current.commands.updateAppointment({
+        end: "2026-04-25T10:30:00+02:00[Europe/Berlin]",
+        id: appointment._id,
+        start: "2026-04-25T10:00:00+02:00[Europe/Berlin]",
+      });
+      await Promise.resolve();
+    });
+
+    expect(recordCalendarCommand).not.toHaveBeenCalled();
+
+    await act(async () => {
+      firstUpdate.resolve(null);
+      await firstPromise;
+      await secondPromise;
+    });
+
+    const firstCommand = recordCalendarCommand.mock.calls[0]?.[0];
+    const secondCommand = recordCalendarCommand.mock.calls[1]?.[0];
+    expect(firstCommand?.kind).toBe("appointment.update");
+    expect(secondCommand?.kind).toBe("appointment.update");
+    if (
+      firstCommand?.kind !== "appointment.update" ||
+      secondCommand?.kind !== "appointment.update"
+    ) {
+      throw new Error("Expected appointment update commands.");
+    }
+    expect(firstCommand.payload.beforeState.start).toBe(appointment.start);
+    expect(secondCommand.payload.beforeState.start).toBe(
+      firstCommand.payload.afterState.start,
+    );
+  });
+
+  it("serializes overlapping Blocked Slot updates before recording history commands", async () => {
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const blockedSlot = buildCalendarBlockedSlotRecord({
+      _id: toTableId<"blockedSlots">("blocked_slot_1"),
+      end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      locationLineageKey,
+      practiceId,
+      start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+      title: "Team meeting",
+    });
+    const activeBlockedSlots = new Map([[blockedSlot._id, blockedSlot]]);
+    const firstUpdate = makeDeferredMutation();
+    mutationQueue.push(
+      makeMutation(toTableId<"appointments">("appointment_unused")),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(toTableId<"blockedSlots">("blocked_slot_unused")),
+      makeMutation(null),
+      firstUpdate.mutation,
+    );
+
+    const { result } = renderHook(() =>
+      useCalendarPlanningWorkbench({
+        activeDayAppointmentMapRef: { current: new Map() },
+        activeDayBlockedSlotMapRef: { current: activeBlockedSlots },
+        allPracticeAppointmentMap: new Map(),
+        allPracticeAppointmentMapRef: { current: new Map() },
+        allPracticeAppointmentsLoaded: true,
+        allPracticeBlockedSlotMap: activeBlockedSlots,
+        allPracticeBlockedSlotMapRef: { current: activeBlockedSlots },
+        allPracticeBlockedSlotsLoaded: true,
+        blockedSlotsQueryArgs: null,
+        calendarDayQueryArgs: null,
+        getRequiredAppointmentTypeInfo: () => null,
+        parseZonedDateTime,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map(),
+          appointmentTypeLineageKeyById: new Map(),
+          locationIdByLineageKey: new Map([[locationLineageKey, locationId]]),
+          locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        refreshAllPracticeConflictData: vi.fn(() => Promise.resolve()),
+      }),
+    );
+
+    let firstPromise!: Promise<unknown>;
+    let secondPromise!: Promise<unknown>;
+    await act(async () => {
+      firstPromise = result.current.commands.updateBlockedSlot({
+        end: "2026-04-25T10:00:00+02:00[Europe/Berlin]",
+        id: blockedSlot._id,
+        start: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      });
+      secondPromise = result.current.commands.updateBlockedSlot({
+        end: "2026-04-25T10:30:00+02:00[Europe/Berlin]",
+        id: blockedSlot._id,
+        start: "2026-04-25T10:00:00+02:00[Europe/Berlin]",
+      });
+      await Promise.resolve();
+    });
+
+    expect(recordCalendarCommand).not.toHaveBeenCalled();
+
+    await act(async () => {
+      firstUpdate.resolve(null);
+      await firstPromise;
+      await secondPromise;
+    });
+
+    const firstCommand = recordCalendarCommand.mock.calls[0]?.[0];
+    const secondCommand = recordCalendarCommand.mock.calls[1]?.[0];
+    expect(firstCommand?.kind).toBe("blockedSlot.update");
+    expect(secondCommand?.kind).toBe("blockedSlot.update");
+    if (
+      firstCommand?.kind !== "blockedSlot.update" ||
+      secondCommand?.kind !== "blockedSlot.update"
+    ) {
+      throw new Error("Expected blocked slot update commands.");
+    }
+    expect(firstCommand.payload.beforeState.start).toBe(blockedSlot.start);
+    expect(secondCommand.payload.beforeState.start).toBe(
+      firstCommand.payload.afterState.start,
     );
   });
 
@@ -235,9 +533,15 @@ describe("calendar planning workbench", () => {
       });
     });
 
-    const historyAction = pushHistoryAction.mock.calls[0]?.[0];
-    expect(historyAction?.label).toBe("Sperrung erstellt");
-    const redoResult = await historyAction?.redo();
+    const command = recordCalendarCommand.mock.calls[0]?.[0];
+    expect(command?.label).toBe("Sperrung erstellt");
+    if (!command) {
+      throw new Error("Expected a recorded calendar command");
+    }
+    if (!executeRecordedCalendarCommand) {
+      throw new Error("Expected a calendar command executor");
+    }
+    const redoResult = await executeRecordedCalendarCommand(command, "redo");
     expect(redoResult).toEqual(
       expect.objectContaining({
         status: "conflict",

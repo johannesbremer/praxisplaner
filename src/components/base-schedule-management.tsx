@@ -40,16 +40,16 @@ import {
 import { api } from "@/convex/_generated/api";
 import { asBaseScheduleId, asBaseScheduleLineageKey } from "@/convex/identity";
 
-import type { DraftMutationResult } from "../utils/cow-history";
-
+import { recordBaseScheduleReplayCommand } from "../utils/base-schedule-replay";
 import {
   ruleSetIdFromReplayTarget,
-  toCowMutationArgs,
-  updateRuleSetReplayTarget,
+  useRuleSetReplayTargetController,
 } from "../utils/cow-history";
 import { useErrorTracking } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
 import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
+import { createRuleSetSnapshotCommand } from "../utils/rule-set-replay";
+import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
   applyBatchCreateResultToRef,
   applyReplaceResultToRef,
@@ -59,17 +59,13 @@ import {
   buildLocationLineageByIdMap,
   buildPractitionerLineageByIdMap,
   type ExtendedSchedule,
-  getAbsentLineageKeysForReplacement,
   isBaseScheduleMissingError,
   type LocationMatchEntity,
-  matchesSchedulePayload,
   type MaterializedSchedule,
   type PractitionerMatchEntity,
   removeSchedulesFromRef,
   type SchedulePayload,
-  toBatchCreateScheduleInput,
   toCreatedSchedulePayload,
-  toMutationSchedulePayload,
   toSchedulePayload,
   toSchedulePayloadFromAppliedSchedule,
   toSchedulePayloadFromLineageSnapshot,
@@ -103,7 +99,7 @@ const formSchema = z.object({
 });
 export default function BaseScheduleManagement({
   onDraftMutation,
-  onRegisterHistoryAction,
+  onRecordCommand,
   onRuleSetCreated,
   practiceId,
   ruleSetReplayTarget,
@@ -184,22 +180,13 @@ export default function BaseScheduleManagement({
   useIsomorphicLayoutEffect(() => {
     schedulesRef.current = schedules;
   }, [schedules]);
-  const ruleSetReplayTargetRef = React.useRef(ruleSetReplayTarget);
-  useIsomorphicLayoutEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
-  }, [ruleSetReplayTarget]);
-  const getCowMutationArgs = () =>
-    toCowMutationArgs(ruleSetReplayTargetRef.current);
-  const handleDraftMutationResult = (result: DraftMutationResult) => {
-    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
-      ruleSetReplayTargetRef.current,
-      result,
-    );
-    onDraftMutation?.(result);
-    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
-      onRuleSetCreated(result.ruleSetId);
-    }
-  };
+  const { getCowMutationArgs, handleDraftMutationResult } =
+    useRuleSetReplayTargetController({
+      ...(onDraftMutation && { onDraftMutation }),
+      ...(onRuleSetCreated && { onRuleSetCreated }),
+      ruleSetId,
+      ruleSetReplayTarget,
+    });
 
   const handleEditGroup = (scheduleGroup: {
     breakTimes?: { end: string; start: string }[];
@@ -290,94 +277,35 @@ export default function BaseScheduleManagement({
       );
 
       if (deletedSchedulePayloads.length > 0) {
-        onRegisterHistoryAction?.({
+        const deletedSchedulesSnapshot = encodeRuleSetSnapshot(
+          deletedSchedulePayloads,
+        );
+        const command = createRuleSetSnapshotCommand({
+          kind: "baseSchedule.replaceSet",
           label: "Arbeitszeiten gelöscht",
-          redo: async () => {
-            const presentLineageKeys = deletedSchedulePayloads
-              .filter((payload) =>
-                schedulesRef.current.some((currentSchedule) =>
-                  matchesSchedulePayload(currentSchedule, payload),
-                ),
-              )
-              .map((payload) => payload.lineageKey);
-
-            if (presentLineageKeys.length === 0) {
-              return { status: "applied" as const };
-            }
-
-            try {
-              const redoResult = await replaceScheduleSetMutation({
-                expectedPresentLineageKeys: presentLineageKeys,
-                practiceId,
-                replacementSchedules: [],
-                ...getCowMutationArgs(),
-              });
-              handleDraftMutationResult(redoResult);
-              removeSchedulesFromRef(schedulesRef, presentLineageKeys);
-            } catch (error: unknown) {
-              if (isBaseScheduleMissingError(error)) {
-                return { status: "applied" as const };
-              }
-              return {
-                message:
-                  error instanceof Error
-                    ? error.message
-                    : "Arbeitszeiten konnten nicht erneut gelöscht werden.",
-                status: "conflict" as const,
-              };
-            }
-
-            return { status: "applied" as const };
+          snapshots: {
+            before: deletedSchedulesSnapshot,
           },
-          undo: async () => {
-            const missingPayloads = deletedSchedulePayloads.filter(
-              (payload) =>
-                !schedulesRef.current.some((currentSchedule) =>
-                  matchesSchedulePayload(currentSchedule, payload),
-                ),
-            );
-
-            if (missingPayloads.length === 0) {
-              return { status: "applied" as const };
-            }
-
-            const batchSchedules = Result.combine(
-              missingPayloads.map((payload) =>
-                toBatchCreateScheduleInput(payload),
-              ),
-            ).match(
-              (value) => value,
-              (error) => {
-                captureFrontendError(error, {
-                  context: "base_schedule_group_delete_undo_payload",
-                  practiceId,
-                });
-                return null;
-              },
-            );
-            if (!batchSchedules) {
-              return {
-                message:
-                  "Arbeitszeiten konnten nicht wiederhergestellt werden.",
-                status: "conflict" as const,
-              };
-            }
-            const undoResult = await createScheduleBatchMutation({
+          target: {
+            ruleSetId,
+          },
+        });
+        recordBaseScheduleReplayCommand(onRecordCommand, command, {
+          after: [],
+          before: deletedSchedulePayloads,
+          getCowMutationArgs,
+          handleDraftMutationResult,
+          isBaseScheduleMissingError,
+          label: "Arbeitszeiten",
+          practiceId,
+          replaceScheduleSet: replaceScheduleSetMutation,
+          runCreateScheduleBatch: (schedules) =>
+            createScheduleBatchMutation({
               practiceId,
-              schedules: batchSchedules,
+              schedules,
               ...getCowMutationArgs(),
-            });
-            handleDraftMutationResult(undoResult);
-            applyBatchCreateResultToRef({
-              createdScheduleIds: undoResult.createdScheduleIds,
-              practiceId,
-              ruleSetId: undoResult.ruleSetId,
-              schedules: batchSchedules,
-              schedulesRef,
-            });
-
-            return { status: "applied" as const };
-          },
+            }),
+          schedulesRef,
         });
       }
     } catch (error: unknown) {
@@ -581,7 +509,7 @@ export default function BaseScheduleManagement({
         ruleSetReplayTarget={ruleSetReplayTarget}
         schedule={editingSchedule}
         {...(onDraftMutation && { onDraftMutation })}
-        {...(onRegisterHistoryAction && { onRegisterHistoryAction })}
+        {...(onRecordCommand && { onRecordCommand })}
         {...(onRuleSetCreated && { onRuleSetCreated })}
       />
     </Card>
@@ -592,7 +520,7 @@ function BaseScheduleDialog({
   isOpen,
   onClose,
   onDraftMutation,
-  onRegisterHistoryAction,
+  onRecordCommand,
   onRuleSetCreated,
   practiceId,
   ruleSetReplayTarget,
@@ -688,22 +616,15 @@ function BaseScheduleDialog({
   useIsomorphicLayoutEffect(() => {
     schedulesRef.current = schedules;
   }, [schedules]);
-  const ruleSetReplayTargetRef = React.useRef(ruleSetReplayTarget);
-  useIsomorphicLayoutEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
-  }, [ruleSetReplayTarget]);
-  const getLocalCowMutationArgs = () =>
-    toCowMutationArgs(ruleSetReplayTargetRef.current);
-  const handleDraftMutationResult = (result: DraftMutationResult) => {
-    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
-      ruleSetReplayTargetRef.current,
-      result,
-    );
-    onDraftMutation?.(result);
-    if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
-      onRuleSetCreated(result.ruleSetId);
-    }
-  };
+  const {
+    getCowMutationArgs: getLocalCowMutationArgs,
+    handleDraftMutationResult,
+  } = useRuleSetReplayTargetController({
+    ...(onDraftMutation && { onDraftMutation }),
+    ...(onRuleSetCreated && { onRuleSetCreated }),
+    ruleSetId,
+    ruleSetReplayTarget,
+  });
 
   const createScheduleBatchMutation = useMutation(
     api.entities.createBaseScheduleBatch,
@@ -722,7 +643,7 @@ function BaseScheduleDialog({
         schedules,
         ...getLocalCowMutationArgs(),
       }),
-    [createScheduleBatchMutation, practiceId],
+    [createScheduleBatchMutation, getLocalCowMutationArgs, practiceId],
   );
   const form = useForm({
     defaultValues: {
@@ -1068,170 +989,62 @@ function BaseScheduleDialog({
         }
 
         if (!schedule && createdSchedulePayloads.length > 0) {
-          onRegisterHistoryAction?.({
+          const createdSchedulesSnapshot = encodeRuleSetSnapshot(
+            createdSchedulePayloads,
+          );
+          const command = createRuleSetSnapshotCommand({
+            kind: "baseSchedule.replaceSet",
             label: "Arbeitszeiten erstellt",
-            redo: async () => {
-              const missingPayloads = createdSchedulePayloads.filter(
-                (payload) =>
-                  !schedulesRef.current.some((scheduleItem) =>
-                    matchesSchedulePayload(scheduleItem, payload),
-                  ),
-              );
-
-              if (missingPayloads.length === 0) {
-                return { status: "applied" as const };
-              }
-
-              const batchSchedules = Result.combine(
-                missingPayloads.map((payload) =>
-                  toBatchCreateScheduleInput(payload),
-                ),
-              ).match(
-                (value) => value,
-                (error) => {
-                  captureFrontendError(error, {
-                    context: "base_schedule_create_redo_payload",
-                    practiceId,
-                  });
-                  return null;
-                },
-              );
-              if (!batchSchedules) {
-                return {
-                  message:
-                    "Arbeitszeiten konnten nicht erneut erstellt werden.",
-                  status: "conflict" as const,
-                };
-              }
-              const redoResult = await runCreateScheduleBatch(batchSchedules);
-              handleDraftMutationResult(redoResult);
-              applyBatchCreateResultToRef({
-                createdScheduleIds: redoResult.createdScheduleIds,
-                practiceId,
-                ruleSetId: redoResult.ruleSetId,
-                schedules: batchSchedules,
-                schedulesRef,
-              });
-              return { status: "applied" as const };
+            snapshots: {
+              after: createdSchedulesSnapshot,
             },
-            undo: async () => {
-              const presentLineageKeys = createdSchedulePayloads
-                .filter((payload) =>
-                  schedulesRef.current.some((scheduleItem) =>
-                    matchesSchedulePayload(scheduleItem, payload),
-                  ),
-                )
-                .map((payload) => payload.lineageKey);
-
-              if (presentLineageKeys.length === 0) {
-                return { status: "applied" as const };
-              }
-
-              try {
-                const undoResult = await replaceScheduleSetMutation({
-                  expectedPresentLineageKeys: presentLineageKeys,
-                  practiceId,
-                  replacementSchedules: [],
-                  ...getLocalCowMutationArgs(),
-                });
-                handleDraftMutationResult(undoResult);
-                removeSchedulesFromRef(schedulesRef, presentLineageKeys);
-              } catch (error: unknown) {
-                if (!isBaseScheduleMissingError(error)) {
-                  return {
-                    message:
-                      error instanceof Error
-                        ? error.message
-                        : "Arbeitszeiten konnten nicht rückgängig gemacht werden.",
-                    status: "conflict" as const,
-                  };
-                }
-              }
-              return { status: "applied" as const };
+            target: {
+              ruleSetId,
             },
+          });
+          recordBaseScheduleReplayCommand(onRecordCommand, command, {
+            after: createdSchedulePayloads,
+            before: [],
+            getCowMutationArgs: getLocalCowMutationArgs,
+            handleDraftMutationResult,
+            isBaseScheduleMissingError,
+            label: "Arbeitszeiten",
+            practiceId,
+            replaceScheduleSet: replaceScheduleSetMutation,
+            runCreateScheduleBatch,
+            schedulesRef,
           });
         }
 
         if (schedule && createdSchedulePayloads.length > 0) {
-          const newLineageKeys = createdSchedulePayloads.map(
-            (payload) => payload.lineageKey,
+          const createdSchedulesSnapshot = encodeRuleSetSnapshot(
+            createdSchedulePayloads,
           );
-          const oldLineageKeys = oldSchedulePayloads.map(
-            (payload) => payload.lineageKey,
-          );
-          const redoExpectedAbsentLineageKeys =
-            getAbsentLineageKeysForReplacement(oldLineageKeys, newLineageKeys);
-          const undoExpectedAbsentLineageKeys =
-            getAbsentLineageKeysForReplacement(newLineageKeys, oldLineageKeys);
+          const oldSchedulesSnapshot =
+            encodeRuleSetSnapshot(oldSchedulePayloads);
 
-          onRegisterHistoryAction?.({
+          const command = createRuleSetSnapshotCommand({
+            kind: "baseSchedule.replaceSet",
             label: "Arbeitszeiten aktualisiert",
-            redo: async () => {
-              const replacementSchedules = Result.combine(
-                createdSchedulePayloads.map((payload) =>
-                  toMutationSchedulePayload(payload),
-                ),
-              ).match(
-                (value) => value,
-                () => null,
-              );
-              if (!replacementSchedules) {
-                return {
-                  message:
-                    "Arbeitszeiten konnten nicht erneut angewendet werden.",
-                  status: "conflict" as const,
-                };
-              }
-              const redoResult = await replaceScheduleSetMutation({
-                expectedAbsentLineageKeys: redoExpectedAbsentLineageKeys,
-                expectedPresentLineageKeys: oldLineageKeys,
-                practiceId,
-                replacementSchedules,
-                ...getLocalCowMutationArgs(),
-              });
-              handleDraftMutationResult(redoResult);
-              removeSchedulesFromRef(schedulesRef, oldLineageKeys);
-              applyReplaceResultToRef({
-                appliedSchedules: redoResult.appliedSchedules,
-                practiceId,
-                ruleSetId: redoResult.ruleSetId,
-                schedulesRef,
-              });
-              return { status: "applied" as const };
+            snapshots: {
+              after: createdSchedulesSnapshot,
+              before: oldSchedulesSnapshot,
             },
-            undo: async () => {
-              const replacementSchedules = Result.combine(
-                oldSchedulePayloads.map((payload) =>
-                  toMutationSchedulePayload(payload),
-                ),
-              ).match(
-                (value) => value,
-                () => null,
-              );
-              if (!replacementSchedules) {
-                return {
-                  message:
-                    "Arbeitszeiten konnten nicht wiederhergestellt werden.",
-                  status: "conflict" as const,
-                };
-              }
-              const undoResult = await replaceScheduleSetMutation({
-                expectedAbsentLineageKeys: undoExpectedAbsentLineageKeys,
-                expectedPresentLineageKeys: newLineageKeys,
-                practiceId,
-                replacementSchedules,
-                ...getLocalCowMutationArgs(),
-              });
-              handleDraftMutationResult(undoResult);
-              removeSchedulesFromRef(schedulesRef, newLineageKeys);
-              applyReplaceResultToRef({
-                appliedSchedules: undoResult.appliedSchedules,
-                practiceId,
-                ruleSetId: undoResult.ruleSetId,
-                schedulesRef,
-              });
-              return { status: "applied" as const };
+            target: {
+              ruleSetId,
             },
+          });
+          recordBaseScheduleReplayCommand(onRecordCommand, command, {
+            after: createdSchedulePayloads,
+            before: oldSchedulePayloads,
+            getCowMutationArgs: getLocalCowMutationArgs,
+            handleDraftMutationResult,
+            isBaseScheduleMissingError,
+            label: "Arbeitszeiten",
+            practiceId,
+            replaceScheduleSet: replaceScheduleSetMutation,
+            runCreateScheduleBatch,
+            schedulesRef,
           });
         }
         onClose();

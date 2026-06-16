@@ -45,19 +45,19 @@ import { asMfaId, asMfaLineageKey } from "@/convex/identity";
 import { GDT_DATE_REGEX } from "@/lib/typed-regex";
 import { cn } from "@/lib/utils";
 
-import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
+import type { RecordRuleSetCommand } from "../utils/rule-set-replay";
 
 import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
+import { recordAbsenceReplayCommand } from "../utils/absence-replay";
 import { dispatchCustomEvent } from "../utils/browser-api";
 import {
   ruleSetIdFromReplayTarget,
-  toCowMutationArgs,
-  updateRuleSetReplayTarget,
+  useRuleSetReplayTargetController,
 } from "../utils/cow-history";
 import { captureErrorGlobal } from "../utils/error-tracking";
 import {
@@ -69,6 +69,15 @@ import {
   getPublicHolidayName,
   getPublicHolidaysData,
 } from "../utils/public-holidays";
+import {
+  recordNamedLineageCreateRuleSetCommand,
+  recordNamedLineageDeleteRuleSetCommand,
+} from "../utils/rule-set-named-lineage-replay";
+import {
+  createRuleSetAbsenceCommand,
+  createRuleSetNamedLineageCommand,
+} from "../utils/rule-set-replay";
+import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import {
   formatDateFull,
   zonedDateTimeStringResult,
@@ -128,7 +137,7 @@ interface VacationSchedulerProps {
   editable: boolean;
   onDateChange?: (date: Temporal.PlainDate) => void;
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
+  onRecordCommand?: RecordRuleSetCommand;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
   selectedDate: Temporal.PlainDate;
@@ -161,7 +170,7 @@ export function VacationScheduler({
   editable,
   onDateChange,
   onDraftMutation,
-  onRegisterHistoryAction,
+  onRecordCommand,
   practiceId,
   ruleSetReplayTarget,
   selectedDate,
@@ -281,16 +290,20 @@ export function VacationScheduler({
       source: "VacationScheduler",
     });
   }, [mfas]);
-  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
+  const {
+    getCowMutationArgs,
+    handleDraftMutationResult,
+    ruleSetReplayTargetRef,
+  } = useRuleSetReplayTargetController({
+    ...(onDraftMutation && { onDraftMutation }),
+    ruleSetId,
+    ruleSetReplayTarget,
+  });
   const vacationsRef = useRef(vacations ?? []);
   const mfasRef = useRef(mappedMfas);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const autoScrolledMonthRef = useRef<null | string>(null);
   const today = useMemo(() => Temporal.Now.plainDateISO("Europe/Berlin"), []);
-
-  useEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
-  }, [ruleSetReplayTarget]);
 
   useEffect(() => {
     vacationsRef.current = vacations ?? [];
@@ -379,17 +392,6 @@ export function VacationScheduler({
 
   const firstBodyRowStaffId = combinedRows[0]?.staff.id;
   const totalBodyRowCount = combinedRows.length;
-
-  const getCowMutationArgs = () =>
-    toCowMutationArgs(ruleSetReplayTargetRef.current);
-
-  const handleDraftMutationResult = (result: DraftMutationResult) => {
-    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
-      ruleSetReplayTargetRef.current,
-      result,
-    );
-    onDraftMutation?.(result);
-  };
 
   const navigateMonth = (offset: number) => {
     onDateChange?.(monthDate.add({ months: offset }));
@@ -659,27 +661,47 @@ export function VacationScheduler({
     const nextSnapshots = await setVacationsForDay(staff, date, nextPortions, {
       clearSnapshots: previousSnapshots,
     });
-    onRegisterHistoryAction?.({
+    const beforeSnapshot = encodeRuleSetSnapshot({
+      date: date.toString(),
+      portions: previousSnapshots,
+      staff,
+    });
+    const afterSnapshot = encodeRuleSetSnapshot({
+      date: date.toString(),
+      portions: nextSnapshots,
+      staff,
+    });
+    const commandKind =
+      previousSnapshots.length === 0
+        ? "absence.create"
+        : nextSnapshots.length === 0
+          ? "absence.delete"
+          : "absence.update";
+    const command = createRuleSetAbsenceCommand({
+      kind: commandKind,
       label,
-      redo: async () => {
-        await setVacationsForDay(staff, date, nextPortions, {
-          clearSnapshots: previousSnapshots,
-          createSnapshots: nextSnapshots,
-        });
-        return { status: "applied" as const };
+      payload: {
+        afterPortionCount: nextSnapshots.length,
+        beforePortionCount: previousSnapshots.length,
+        date: date.toString(),
+        kind: commandKind,
+        staffLineageKey: staff.lineageKey,
       },
-      undo: async () => {
-        await setVacationsForDay(
-          staff,
-          date,
-          previousSnapshots.map((snapshot) => snapshot.portion),
-          {
-            clearSnapshots: nextSnapshots,
-            createSnapshots: previousSnapshots,
-          },
-        );
-        return { status: "applied" as const };
+      snapshots: {
+        after: afterSnapshot,
+        before: beforeSnapshot,
       },
+      target: {
+        lineageKey: staff.lineageKey,
+      },
+    });
+    recordAbsenceReplayCommand(onRecordCommand, command, {
+      date,
+      nextPortions,
+      nextSnapshots,
+      previousSnapshots,
+      setAbsencesForDay: setVacationsForDay,
+      staff,
     });
   };
 
@@ -699,10 +721,38 @@ export function VacationScheduler({
       handleDraftMutationResult(result);
       setNewMfaName("");
       const lineageKey = asMfaLineageKey(result.entityId);
-      let currentMfaId = result.entityId;
-      onRegisterHistoryAction?.({
+      const createdMfaSnapshot = encodeRuleSetSnapshot({
+        lineageKey,
+        name: trimmed,
+      });
+      const command = createRuleSetNamedLineageCommand({
+        kind: "mfa.create",
         label: "MFA erstellt",
-        redo: async () => {
+        payload: {
+          kind: "mfa.create",
+          lineageKey,
+          name: trimmed,
+        },
+        snapshots: {
+          after: createdMfaSnapshot,
+        },
+        target: {
+          entityId: result.entityId,
+          lineageKey,
+        },
+      });
+      recordNamedLineageCreateRuleSetCommand(onRecordCommand, {
+        command,
+        entitiesRef: mfasRef,
+        initialEntityId: asMfaId(result.entityId),
+        isMissingEntityError: isMissingMfaError,
+        lineageKey,
+        payload: {
+          kind: "mfa.create",
+          lineageKey,
+          name: trimmed,
+        },
+        runCreate: async () => {
           try {
             const redoResult = await createMfa({
               lineageKey,
@@ -710,8 +760,8 @@ export function VacationScheduler({
               practiceId,
               ...getCowMutationArgs(),
             });
-            currentMfaId = redoResult.entityId;
             handleDraftMutationResult(redoResult);
+            return { entityId: asMfaId(redoResult.entityId) };
           } catch (error) {
             if (isAlreadyExistingMfaError(error)) {
               return { status: "applied" as const };
@@ -731,9 +781,8 @@ export function VacationScheduler({
               status: "conflict" as const,
             };
           }
-          return { status: "applied" as const };
         },
-        undo: async () => {
+        runDelete: async (currentMfaId) => {
           const existing = findMfaByLineage(mfasRef.current, lineageKey);
           try {
             const undoResult = await removeMfa({
@@ -742,6 +791,7 @@ export function VacationScheduler({
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(undoResult);
+            return { entityId: currentMfaId };
           } catch (error) {
             if (isMissingMfaError(error)) {
               return { status: "applied" as const };
@@ -761,7 +811,6 @@ export function VacationScheduler({
               status: "conflict" as const,
             };
           }
-          return { status: "applied" as const };
         },
       });
       toast.success("MFA hinzugefügt");
@@ -789,11 +838,49 @@ export function VacationScheduler({
         ...getCowMutationArgs(),
       });
       handleDraftMutationResult(result);
-      let currentMfaId = currentMfa._id;
       const lineageKey = currentMfa.lineageKey;
-      onRegisterHistoryAction?.({
+      const deletedMfaSnapshot = encodeRuleSetSnapshot({
+        lineageKey,
+        name: currentMfa.name,
+      });
+      const command = createRuleSetNamedLineageCommand({
+        kind: "mfa.delete",
         label: "MFA entfernt",
-        redo: async () => {
+        payload: {
+          kind: "mfa.delete",
+          lineageKey,
+          name: currentMfa.name,
+        },
+        snapshots: {
+          before: deletedMfaSnapshot,
+        },
+        target: {
+          entityId: currentMfa._id,
+          lineageKey,
+        },
+      });
+      recordNamedLineageDeleteRuleSetCommand(onRecordCommand, {
+        command,
+        entitiesRef: mfasRef,
+        initialEntityId: currentMfa._id,
+        isMissingEntityError: isMissingMfaError,
+        lineageKey,
+        payload: {
+          kind: "mfa.delete",
+          lineageKey,
+          name: currentMfa.name,
+        },
+        runCreate: async () => {
+          const undoResult = await createMfa({
+            lineageKey,
+            name: currentMfa.name,
+            practiceId,
+            ...getCowMutationArgs(),
+          });
+          handleDraftMutationResult(undoResult);
+          return { entityId: asMfaId(undoResult.entityId) };
+        },
+        runDelete: async (currentMfaId) => {
           const existing = findMfaByLineage(mfasRef.current, lineageKey);
           try {
             const redoResult = await removeMfa({
@@ -802,6 +889,7 @@ export function VacationScheduler({
               ...getCowMutationArgs(),
             });
             handleDraftMutationResult(redoResult);
+            return { entityId: currentMfaId };
           } catch (error) {
             if (isMissingMfaError(error)) {
               return { status: "applied" as const };
@@ -821,23 +909,6 @@ export function VacationScheduler({
               status: "conflict" as const,
             };
           }
-          return { status: "applied" as const };
-        },
-        undo: async () => {
-          const existing = findMfaByLineage(mfasRef.current, lineageKey);
-          if (existing) {
-            currentMfaId = existing._id;
-            return { status: "applied" as const };
-          }
-          const undoResult = await createMfa({
-            lineageKey,
-            name: currentMfa.name,
-            practiceId,
-            ...getCowMutationArgs(),
-          });
-          currentMfaId = asMfaId(undoResult.entityId);
-          handleDraftMutationResult(undoResult);
-          return { status: "applied" as const };
         },
       });
       toast.success("MFA entfernt");

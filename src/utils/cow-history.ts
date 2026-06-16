@@ -1,3 +1,5 @@
+import { useCallback, useEffect, useRef } from "react";
+
 import type { Id } from "@/convex/_generated/dataModel";
 
 export interface CowMutationArgs {
@@ -20,13 +22,14 @@ export interface LineageTrackedEntity<
 
 export type RuleSetReplayTarget =
   | {
-      draftRevision: number;
-      draftRuleSetId: Id<"ruleSets">;
-      kind: "draft";
+      discardedDraftRuleSetId?: Id<"ruleSets">;
+      kind: "saved-parent";
       parentRuleSetId: Id<"ruleSets">;
     }
   | {
-      kind: "saved-parent";
+      draftRevision: number;
+      draftRuleSetId: Id<"ruleSets">;
+      kind: "draft";
       parentRuleSetId: Id<"ruleSets">;
     };
 
@@ -62,6 +65,35 @@ interface ResolveReplayEntitySuccess<
   currentEntityId: TEntityId;
   entity: TEntity;
   status: "ok";
+}
+
+export function keepFreshestRuleSetReplayTarget(
+  current: RuleSetReplayTarget,
+  incoming: RuleSetReplayTarget,
+): RuleSetReplayTarget {
+  if (current.kind !== "draft") {
+    return incoming;
+  }
+
+  if (
+    incoming.kind === "saved-parent" &&
+    incoming.parentRuleSetId === current.parentRuleSetId
+  ) {
+    if (incoming.discardedDraftRuleSetId === current.draftRuleSetId) {
+      return incoming;
+    }
+    return current;
+  }
+
+  if (
+    incoming.kind === "draft" &&
+    incoming.draftRuleSetId === current.draftRuleSetId &&
+    incoming.draftRevision < current.draftRevision
+  ) {
+    return current;
+  }
+
+  return incoming;
 }
 
 export function resolveReplayEntity<
@@ -132,5 +164,48 @@ export function updateRuleSetReplayTarget(
     draftRuleSetId: result.ruleSetId,
     kind: "draft",
     parentRuleSetId: previous.parentRuleSetId,
+  };
+}
+
+export function useRuleSetReplayTargetController(params: {
+  onDraftMutation?: (result: DraftMutationResult) => void;
+  onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
+  ruleSetId: Id<"ruleSets">;
+  ruleSetReplayTarget: RuleSetReplayTarget;
+}) {
+  const { onDraftMutation, onRuleSetCreated, ruleSetId, ruleSetReplayTarget } =
+    params;
+  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
+
+  useEffect(() => {
+    ruleSetReplayTargetRef.current = keepFreshestRuleSetReplayTarget(
+      ruleSetReplayTargetRef.current,
+      ruleSetReplayTarget,
+    );
+  }, [ruleSetReplayTarget]);
+
+  const getCowMutationArgs = useCallback(
+    () => toCowMutationArgs(ruleSetReplayTargetRef.current),
+    [],
+  );
+
+  const handleDraftMutationResult = useCallback(
+    (result: DraftMutationResult) => {
+      ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
+        ruleSetReplayTargetRef.current,
+        result,
+      );
+      onDraftMutation?.(result);
+      if (onRuleSetCreated && result.ruleSetId !== ruleSetId) {
+        onRuleSetCreated(result.ruleSetId);
+      }
+    },
+    [onDraftMutation, onRuleSetCreated, ruleSetId],
+  );
+
+  return {
+    getCowMutationArgs,
+    handleDraftMutationResult,
+    ruleSetReplayTargetRef,
   };
 }

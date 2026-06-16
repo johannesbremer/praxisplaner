@@ -7,12 +7,12 @@ import { Card, CardAction, CardHeader, CardTitle } from "@/components/ui/card";
 import { RULE_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
 import type { Id } from "../../convex/_generated/dataModel";
-import type { LocalHistoryAction } from "../hooks/use-local-history";
 import type {
   DraftMutationResult,
   RuleSetReplayTarget,
 } from "../utils/cow-history";
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
+import type { RecordRuleSetCommand } from "../utils/rule-set-replay";
 import type { RuleFromDB } from "./rule-builder-types";
 
 import { api } from "../../convex/_generated/api";
@@ -26,11 +26,18 @@ import {
 } from "../../lib/rule-name-generator";
 import {
   ruleSetIdFromReplayTarget,
-  toCowMutationArgs,
-  updateRuleSetReplayTarget,
+  useRuleSetReplayTargetController,
 } from "../utils/cow-history";
 import { isMissingRuleSetEntityError } from "../utils/error-matching";
 import { requireFrontendLineageEntities } from "../utils/frontend-lineage";
+import { createRuleSetSchedulingRuleCommand } from "../utils/rule-set-replay";
+import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
+import {
+  getSchedulingRuleCopySource,
+  recordSchedulingRuleCreateReplayCommand,
+  recordSchedulingRuleDeleteReplayCommand,
+  recordSchedulingRuleUpdateReplayCommand,
+} from "../utils/scheduling-rule-replay";
 import { RuleEditDialog } from "./rule-builder-editor";
 
 type AppointmentTypeQueryResult =
@@ -48,7 +55,7 @@ type RuleAppointmentType = FrontendLineageEntity<
 
 interface RuleBuilderProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
-  onRegisterHistoryAction?: (action: LocalHistoryAction) => void;
+  onRecordCommand?: RecordRuleSetCommand;
   onRuleCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
@@ -76,20 +83,9 @@ type RulePractitioner = FrontendLineageEntity<
 const isMissingEntityError = (error: unknown) =>
   isMissingRuleSetEntityError(error, RULE_MISSING_ENTITY_REGEX);
 
-function isSerializableRecord(
-  value: unknown,
-): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-const getReplayCopySource = (
-  rule: Pick<RuleFromDB, "_id" | "copyFromId">,
-): { copyFromId?: Id<"ruleConditions"> } =>
-  rule.copyFromId ? { copyFromId: rule.copyFromId } : {};
-
 export function RuleBuilder({
   onDraftMutation,
-  onRegisterHistoryAction,
+  onRecordCommand,
   onRuleCreated,
   practiceId,
   ruleSetReplayTarget,
@@ -172,22 +168,13 @@ export function RuleBuilder({
   useEffect(() => {
     rulesRef.current = existingRules;
   }, [existingRules]);
-  const ruleSetReplayTargetRef = useRef(ruleSetReplayTarget);
-  useEffect(() => {
-    ruleSetReplayTargetRef.current = ruleSetReplayTarget;
-  }, [ruleSetReplayTarget]);
-  const getCowMutationArgs = () =>
-    toCowMutationArgs(ruleSetReplayTargetRef.current);
-  const handleDraftMutationResult = (result: DraftMutationResult) => {
-    ruleSetReplayTargetRef.current = updateRuleSetReplayTarget(
-      ruleSetReplayTargetRef.current,
-      result,
-    );
-    onDraftMutation?.(result);
-    if (onRuleCreated && result.ruleSetId !== ruleSetId) {
-      onRuleCreated(result.ruleSetId);
-    }
-  };
+  const { getCowMutationArgs, handleDraftMutationResult } =
+    useRuleSetReplayTargetController({
+      ...(onDraftMutation && { onDraftMutation }),
+      ...(onRuleCreated && { onRuleSetCreated: onRuleCreated }),
+      ruleSetId,
+      ruleSetReplayTarget,
+    });
   const runCreateRule = async (params: {
     conditionTree: ConditionTreeNode;
     copyFromId?: Id<"ruleConditions">;
@@ -204,6 +191,38 @@ export function RuleBuilder({
       practiceId,
       ...getCowMutationArgs(),
     });
+  const createRuleReplayContext = () => ({
+    deleteRule: (ruleId: Id<"ruleConditions">) =>
+      deleteRuleMutation({
+        practiceId,
+        ruleId,
+        ...getCowMutationArgs(),
+      }),
+    getCopySource: (
+      rule: Pick<RuleFromDB, "_id" | "copyFromId" | "ruleSetId">,
+    ) => getSchedulingRuleCopySource(rule, ruleSetReplayTarget.parentRuleSetId),
+    handleDraftMutationResult,
+    isMissingEntityError,
+    prepareRule: (conditionTree: ConditionTreeNode) =>
+      prepareRuleConditionTreeForReplay(
+        conditionTree,
+        appointmentTypesRef.current,
+        practitionersRef.current,
+        locationsRef.current,
+      ),
+    rules: () => rulesRef.current,
+    runCreateRule,
+    serializeRule: (rule: RuleFromDB) =>
+      serializeRuleStateForComparison({
+        conditionTree: normalizeConditionTreeToLineage(
+          rule.conditionTree,
+          appointmentTypesRef.current,
+          practitionersRef.current,
+          locationsRef.current,
+        ),
+        enabled: rule.enabled,
+      }),
+  });
 
   // Check if all data is loaded
   const dataReady =
@@ -252,7 +271,6 @@ export function RuleBuilder({
       handleDraftMutationResult(deleteResult);
 
       if (deletedRule) {
-        let currentRuleId = ruleId;
         const deletedRuleLineageTree = normalizeConditionTreeToLineage(
           deletedRule.conditionTree,
           appointmentTypesRef.current,
@@ -263,92 +281,33 @@ export function RuleBuilder({
           conditionTree: deletedRuleLineageTree,
           enabled: deletedRule.enabled,
         });
-        onRegisterHistoryAction?.({
+        const deletedRuleSnapshot = encodeRuleSetSnapshot({
+          conditionTree: deletedRuleLineageTree,
+          enabled: deletedRule.enabled,
+        });
+        const command = createRuleSetSchedulingRuleCommand({
+          kind: "schedulingRule.delete",
           label: "Regel gelöscht",
-          redo: async () => {
-            const existing =
-              rulesRef.current.find((rule) => rule._id === currentRuleId) ??
-              rulesRef.current.find(
-                (rule) =>
-                  serializeRuleStateForComparison({
-                    conditionTree: normalizeConditionTreeToLineage(
-                      rule.conditionTree,
-                      appointmentTypesRef.current,
-                      practitionersRef.current,
-                      locationsRef.current,
-                    ),
-                    enabled: rule.enabled,
-                  }) === deletedRuleState,
-              );
-            if (
-              existing &&
-              serializeRuleStateForComparison({
-                conditionTree: normalizeConditionTreeToLineage(
-                  existing.conditionTree,
-                  appointmentTypesRef.current,
-                  practitionersRef.current,
-                  locationsRef.current,
-                ),
-                enabled: existing.enabled,
-              }) !== deletedRuleState
-            ) {
-              return {
-                message:
-                  "Die Regel wurde zwischenzeitlich geändert und kann nicht erneut gelöscht werden.",
-                status: "conflict" as const,
-              };
-            }
-
-            if (!existing) {
-              return { status: "applied" as const };
-            }
-
-            currentRuleId = existing._id;
-
-            try {
-              const redoResult = await deleteRuleMutation({
-                practiceId,
-                ruleId: currentRuleId,
-                ...getCowMutationArgs(),
-              });
-              handleDraftMutationResult(redoResult);
-              return { status: "applied" as const };
-            } catch (error: unknown) {
-              if (isMissingEntityError(error)) {
-                return { status: "applied" as const };
-              }
-              return {
-                message:
-                  error instanceof Error
-                    ? error.message
-                    : "Die Regel konnte nicht gelöscht werden.",
-                status: "conflict" as const,
-              };
-            }
+          payload: {
+            hasAfterSnapshot: false,
+            hasBeforeSnapshot: true,
+            kind: "schedulingRule.delete",
+            ruleName: deletedRuleName,
           },
-          undo: async () => {
-            const preparedRule = prepareRuleConditionTreeForReplay(
-              deletedRuleLineageTree,
-              appointmentTypesRef.current,
-              practitionersRef.current,
-              locationsRef.current,
-            );
-            if (preparedRule.status === "conflict") {
-              return {
-                message: preparedRule.message,
-                status: "conflict" as const,
-              };
-            }
-            const recreateResult = await runCreateRule({
-              conditionTree: preparedRule.conditionTree,
-              ...getReplayCopySource(deletedRule),
-              enabled: deletedRule.enabled,
-              name: deletedRuleName,
-            });
-            handleDraftMutationResult(recreateResult);
-            currentRuleId = recreateResult.entityId;
-            return { status: "applied" as const };
+          snapshots: {
+            before: deletedRuleSnapshot,
           },
+          target: {
+            entityId: ruleId,
+          },
+        });
+        recordSchedulingRuleDeleteReplayCommand(onRecordCommand, command, {
+          context: createRuleReplayContext(),
+          deletedRule,
+          deletedRuleLineageTree,
+          deletedRuleName,
+          deletedRuleState,
+          initialRuleId: ruleId,
         });
       }
     } catch (error) {
@@ -452,13 +411,18 @@ export function RuleBuilder({
 
             const createResult = await runCreateRule({
               conditionTree,
-              ...(previousRule ? getReplayCopySource(previousRule) : {}),
+              ...(previousRule
+                ? getSchedulingRuleCopySource(
+                    previousRule,
+                    ruleSetReplayTarget.parentRuleSetId,
+                  )
+                : {}),
               enabled: true,
               name: ruleName,
             });
             handleDraftMutationResult(createResult);
 
-            let currentRuleId = createResult.entityId;
+            const currentRuleId = createResult.entityId;
 
             if (previousRule) {
               const previousRuleName = generateRuleName(
@@ -477,6 +441,10 @@ export function RuleBuilder({
                 conditionTree: currentRuleLineageTree,
                 enabled: true,
               });
+              const currentRuleSnapshot = encodeRuleSetSnapshot({
+                conditionTree: currentRuleLineageTree,
+                enabled: true,
+              });
               const previousRuleLineageTree = normalizeConditionTreeToLineage(
                 previousRule.conditionTree,
                 lineageAppointmentTypes,
@@ -487,205 +455,42 @@ export function RuleBuilder({
                 conditionTree: previousRuleLineageTree,
                 enabled: previousRule.enabled,
               });
-              const findRuleIdsBySerializedState = (
-                serializedState: string,
-              ): Id<"ruleConditions">[] =>
-                rulesRef.current
-                  .filter(
-                    (rule) =>
-                      serializeRuleStateForComparison({
-                        conditionTree: normalizeConditionTreeToLineage(
-                          rule.conditionTree,
-                          appointmentTypesRef.current,
-                          practitionersRef.current,
-                          locationsRef.current,
-                        ),
-                        enabled: rule.enabled,
-                      }) === serializedState,
-                  )
-                  .map((rule) => rule._id);
-              const resolveRuleIdForReplay = (params: {
-                ambiguousMessage: string;
-                missingMessage: string;
-                requiredState: string;
-                staleMessage: string;
-              }):
-                | { message: string; status: "conflict" }
-                | { ruleId: Id<"ruleConditions">; status: "ok" } => {
-                const byId = rulesRef.current.find(
-                  (rule) => rule._id === currentRuleId,
-                );
-                if (byId) {
-                  const byIdState = serializeRuleStateForComparison({
-                    conditionTree: normalizeConditionTreeToLineage(
-                      byId.conditionTree,
-                      appointmentTypesRef.current,
-                      practitionersRef.current,
-                      locationsRef.current,
-                    ),
-                    enabled: byId.enabled,
-                  });
-                  if (byIdState === params.requiredState) {
-                    return { ruleId: byId._id, status: "ok" };
-                  }
-                  return {
-                    message: params.staleMessage,
-                    status: "conflict",
-                  };
-                }
-
-                const matches = findRuleIdsBySerializedState(
-                  params.requiredState,
-                );
-                const [singleMatch] = matches;
-                if (singleMatch) {
-                  return { ruleId: singleMatch, status: "ok" };
-                }
-                if (matches.length > 1) {
-                  return {
-                    message: params.ambiguousMessage,
-                    status: "conflict",
-                  };
-                }
-                return {
-                  message: params.missingMessage,
-                  status: "conflict",
-                };
-              };
-              const redoAmbiguousMessage =
-                "Die Regel kann nicht wiederhergestellt werden, weil der vorherige Regelzustand mehrfach vorhanden ist.";
-              const redoMissingMessage =
-                "Die Regel kann nicht wiederhergestellt werden, weil der vorherige Regelzustand nicht mehr vorhanden ist.";
-              const redoStaleMessage =
-                "Die vorherige Regel wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.";
-              const undoAmbiguousMessage =
-                "Die aktualisierte Regel kann nicht zurückgesetzt werden, weil der aktuelle Regelzustand mehrfach vorhanden ist.";
-              const undoMissingMessage =
-                "Die aktualisierte Regel wurde bereits gelöscht und kann nicht zurückgesetzt werden.";
-              const undoStaleMessage =
-                "Die aktualisierte Regel wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
-
-              onRegisterHistoryAction?.({
+              const previousRuleSnapshot = encodeRuleSetSnapshot({
+                conditionTree: previousRuleLineageTree,
+                enabled: previousRule.enabled,
+              });
+              const command = createRuleSetSchedulingRuleCommand({
+                kind: "schedulingRule.update",
                 label: "Regel aktualisiert",
-                redo: async () => {
-                  const resolvedRule = resolveRuleIdForReplay({
-                    ambiguousMessage: redoAmbiguousMessage,
-                    missingMessage: redoMissingMessage,
-                    requiredState: previousRuleState,
-                    staleMessage: redoStaleMessage,
-                  });
-                  if (resolvedRule.status === "conflict") {
-                    if (resolvedRule.message === redoMissingMessage) {
-                      const currentMatches =
-                        findRuleIdsBySerializedState(currentRuleState);
-                      if (currentMatches.length === 1) {
-                        const resolvedCurrentRuleId = currentMatches.at(0);
-                        if (!resolvedCurrentRuleId) {
-                          return {
-                            message: resolvedRule.message,
-                            status: "conflict" as const,
-                          };
-                        }
-                        currentRuleId = resolvedCurrentRuleId;
-                        return { status: "applied" as const };
-                      }
-                    }
-                    return {
-                      message: resolvedRule.message,
-                      status: "conflict" as const,
-                    };
-                  }
-                  currentRuleId = resolvedRule.ruleId;
-                  const preparedRule = prepareRuleConditionTreeForReplay(
-                    currentRuleLineageTree,
-                    appointmentTypesRef.current,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  );
-                  if (preparedRule.status === "conflict") {
-                    return {
-                      message: preparedRule.message,
-                      status: "conflict" as const,
-                    };
-                  }
-
-                  const redoDeleteResult = await deleteRuleMutation({
-                    practiceId,
-                    ruleId: currentRuleId,
-                    ...getCowMutationArgs(),
-                  });
-                  handleDraftMutationResult(redoDeleteResult);
-
-                  const recreateResult = await runCreateRule({
-                    conditionTree: preparedRule.conditionTree,
-                    ...getReplayCopySource(previousRule),
-                    enabled: true,
-                    name: ruleName,
-                  });
-                  handleDraftMutationResult(recreateResult);
-                  currentRuleId = recreateResult.entityId;
-                  return { status: "applied" as const };
+                payload: {
+                  hasAfterSnapshot: true,
+                  hasBeforeSnapshot: true,
+                  kind: "schedulingRule.update",
+                  ruleName,
                 },
-                undo: async () => {
-                  const resolvedRule = resolveRuleIdForReplay({
-                    ambiguousMessage: undoAmbiguousMessage,
-                    missingMessage: undoMissingMessage,
-                    requiredState: currentRuleState,
-                    staleMessage: undoStaleMessage,
-                  });
-                  if (resolvedRule.status === "conflict") {
-                    if (resolvedRule.message === undoMissingMessage) {
-                      const previousMatches =
-                        findRuleIdsBySerializedState(previousRuleState);
-                      if (previousMatches.length === 1) {
-                        const resolvedPreviousRuleId = previousMatches.at(0);
-                        if (!resolvedPreviousRuleId) {
-                          return {
-                            message: resolvedRule.message,
-                            status: "conflict" as const,
-                          };
-                        }
-                        currentRuleId = resolvedPreviousRuleId;
-                        return { status: "applied" as const };
-                      }
-                    }
-                    return {
-                      message: resolvedRule.message,
-                      status: "conflict" as const,
-                    };
-                  }
-                  currentRuleId = resolvedRule.ruleId;
-                  const preparedRule = prepareRuleConditionTreeForReplay(
-                    previousRuleLineageTree,
-                    appointmentTypesRef.current,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  );
-                  if (preparedRule.status === "conflict") {
-                    return {
-                      message: preparedRule.message,
-                      status: "conflict" as const,
-                    };
-                  }
-
-                  const undoDeleteResult = await deleteRuleMutation({
-                    practiceId,
-                    ruleId: currentRuleId,
-                    ...getCowMutationArgs(),
-                  });
-                  handleDraftMutationResult(undoDeleteResult);
-
-                  const recreatePrevious = await runCreateRule({
-                    conditionTree: preparedRule.conditionTree,
-                    ...getReplayCopySource(previousRule),
-                    enabled: previousRule.enabled,
-                    name: previousRuleName,
-                  });
-                  handleDraftMutationResult(recreatePrevious);
-                  currentRuleId = recreatePrevious.entityId;
-                  return { status: "applied" as const };
+                snapshots: {
+                  after: currentRuleSnapshot,
+                  before: previousRuleSnapshot,
+                },
+                target: {
+                  entityId: currentRuleId,
                 },
               });
+              recordSchedulingRuleUpdateReplayCommand(
+                onRecordCommand,
+                command,
+                {
+                  context: createRuleReplayContext(),
+                  currentRuleLineageTree,
+                  currentRuleState,
+                  initialRuleId: currentRuleId,
+                  previousRule,
+                  previousRuleLineageTree,
+                  previousRuleName,
+                  previousRuleState,
+                  ruleName,
+                },
+              );
             } else {
               const createdRuleLineageTree = normalizeConditionTreeToLineage(
                 conditionTree,
@@ -693,53 +498,36 @@ export function RuleBuilder({
                 lineagePractitioners,
                 lineageLocations,
               );
-              onRegisterHistoryAction?.({
+              const createdRuleSnapshot = encodeRuleSetSnapshot({
+                conditionTree: createdRuleLineageTree,
+                enabled: true,
+              });
+              const command = createRuleSetSchedulingRuleCommand({
+                kind: "schedulingRule.create",
                 label: "Regel erstellt",
-                redo: async () => {
-                  const preparedRule = prepareRuleConditionTreeForReplay(
-                    createdRuleLineageTree,
-                    appointmentTypesRef.current,
-                    practitionersRef.current,
-                    locationsRef.current,
-                  );
-                  if (preparedRule.status === "conflict") {
-                    return {
-                      message: preparedRule.message,
-                      status: "conflict" as const,
-                    };
-                  }
-                  const recreateResult = await runCreateRule({
-                    conditionTree: preparedRule.conditionTree,
-                    enabled: true,
-                    name: ruleName,
-                  });
-                  handleDraftMutationResult(recreateResult);
-                  currentRuleId = recreateResult.entityId;
-                  return { status: "applied" as const };
+                payload: {
+                  hasAfterSnapshot: true,
+                  hasBeforeSnapshot: false,
+                  kind: "schedulingRule.create",
+                  ruleName,
                 },
-                undo: async () => {
-                  try {
-                    const undoDeleteResult = await deleteRuleMutation({
-                      practiceId,
-                      ruleId: currentRuleId,
-                      ...getCowMutationArgs(),
-                    });
-                    handleDraftMutationResult(undoDeleteResult);
-                    return { status: "applied" as const };
-                  } catch (error: unknown) {
-                    if (isMissingEntityError(error)) {
-                      return { status: "applied" as const };
-                    }
-                    return {
-                      message:
-                        error instanceof Error
-                          ? error.message
-                          : "Die Regel konnte nicht gelöscht werden.",
-                      status: "conflict" as const,
-                    };
-                  }
+                snapshots: {
+                  after: createdRuleSnapshot,
+                },
+                target: {
+                  entityId: currentRuleId,
                 },
               });
+              recordSchedulingRuleCreateReplayCommand(
+                onRecordCommand,
+                command,
+                {
+                  context: createRuleReplayContext(),
+                  createdRuleLineageTree,
+                  initialRuleId: currentRuleId,
+                  ruleName,
+                },
+              );
             }
 
             closeDialog();
@@ -782,6 +570,12 @@ function createLineageKeyResolver(
   );
 
   return (id) => lineageKeyById.get(id) ?? id;
+}
+
+function isSerializableRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizeConditionTreeForComparison(
