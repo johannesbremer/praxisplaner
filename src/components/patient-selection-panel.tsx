@@ -114,7 +114,22 @@ export function PatientSelectionPanel({
   const [selectedExistingPatientId, setSelectedExistingPatientId] = useState(
     () => getInitialSelectedPatientId(initialSelection),
   );
-  const deferredSearchTerm = useDeferredValue(draftPatient.name.trim());
+  const [
+    ignoredExternalSelectionSignature,
+    setIgnoredExternalSelectionSignature,
+  ] = useState<null | string>(null);
+  const externalDraftPatient =
+    initialSelection.kind === "draftTemporary"
+      ? getInitialDraftPatient(initialSelection)
+      : undefined;
+  const externalSelectionSignature =
+    getSelectionSyncSignature(initialSelection);
+  const activeDraftPatient =
+    externalDraftPatient !== undefined &&
+    externalSelectionSignature !== ignoredExternalSelectionSignature
+      ? externalDraftPatient
+      : draftPatient;
+  const deferredSearchTerm = useDeferredValue(activeDraftPatient.name.trim());
   const patients = useQuery(api.patients.searchPatients, {
     practiceId,
     searchTerm: deferredSearchTerm,
@@ -126,9 +141,9 @@ export function PatientSelectionPanel({
       : { id: selectedExistingPatientId },
   );
   const form = useForm({
-    defaultValues: draftPatient,
-    onSubmit: ({ value }) => {
-      emitDraftPatientSelection(onPatientSelected, value);
+    defaultValues: activeDraftPatient,
+    onSubmit: () => {
+      emitDraftPatientSelection(onPatientSelected, activeDraftPatient);
     },
   });
 
@@ -143,10 +158,10 @@ export function PatientSelectionPanel({
   );
   const patientNameValue =
     selectedExistingPatientId !== undefined &&
-    draftPatient.name.trim().length === 0 &&
+    activeDraftPatient.name.trim().length === 0 &&
     selectedPatientDocument
       ? getPatientDocumentName(selectedPatientDocument)
-      : draftPatient.name;
+      : activeDraftPatient.name;
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
@@ -163,7 +178,7 @@ export function PatientSelectionPanel({
 
   const showPhoneField =
     selectedExistingPatientId === undefined &&
-    draftPatient.name.trim().length > 0;
+    activeDraftPatient.name.trim().length > 0;
 
   const selectExistingPatient = (option: PatientOption) => {
     setSelectedExistingPatientId(option.id);
@@ -174,6 +189,7 @@ export function PatientSelectionPanel({
 
     setDraftPatient(nextDraftPatient);
     form.reset(nextDraftPatient);
+    setIgnoredExternalSelectionSignature(null);
     setIsOpen(false);
     onPatientSelected({
       id: option.id,
@@ -186,11 +202,14 @@ export function PatientSelectionPanel({
     const nextDraftPatient = {
       name: nextName,
       phoneNumber:
-        selectedExistingPatientId === undefined ? draftPatient.phoneNumber : "",
+        selectedExistingPatientId === undefined
+          ? activeDraftPatient.phoneNumber
+          : "",
     };
 
     setSelectedExistingPatientId(undefined);
     setDraftPatient(nextDraftPatient);
+    setIgnoredExternalSelectionSignature(externalSelectionSignature);
     form.setFieldValue("name", nextName);
     form.setFieldValue("phoneNumber", nextDraftPatient.phoneNumber);
     setIsOpen(true);
@@ -199,11 +218,12 @@ export function PatientSelectionPanel({
 
   const handlePhoneNumberChange = (nextPhoneNumber: string) => {
     const nextDraftPatient = {
-      name: draftPatient.name,
+      name: activeDraftPatient.name,
       phoneNumber: nextPhoneNumber,
     };
 
     setDraftPatient(nextDraftPatient);
+    setIgnoredExternalSelectionSignature(externalSelectionSignature);
     form.setFieldValue("phoneNumber", nextPhoneNumber);
     onPatientSelected();
   };
@@ -281,7 +301,11 @@ export function PatientSelectionPanel({
                 <PhoneInput
                   id={`${panelId}-temporary-patient-phone-number`}
                   onChange={handlePhoneNumberChange}
-                  value={field.state.value}
+                  value={
+                    externalDraftPatient === undefined
+                      ? field.state.value
+                      : activeDraftPatient.phoneNumber
+                  }
                 />
               </div>
             )}
@@ -289,8 +313,8 @@ export function PatientSelectionPanel({
 
           <Button
             disabled={
-              draftPatient.name.trim().length === 0 ||
-              draftPatient.phoneNumber.trim().length === 0
+              activeDraftPatient.name.trim().length === 0 ||
+              activeDraftPatient.phoneNumber.trim().length === 0
             }
             type="submit"
           >
@@ -364,6 +388,25 @@ function getInitialSelectedPatientId(
     }
     case "selectedById": {
       return initialSelection.patientId;
+    }
+  }
+}
+
+function getSelectionSyncSignature(
+  initialSelection: PatientSelectionPanelInitialSelection,
+): string {
+  switch (initialSelection.kind) {
+    case "draftTemporary": {
+      return `draft:${initialSelection.patient.name}:${initialSelection.patient.phoneNumber}`;
+    }
+    case "empty": {
+      return "empty";
+    }
+    case "selected": {
+      return `selected:${initialSelection.patientId}`;
+    }
+    case "selectedById": {
+      return `selected:${initialSelection.patientId}`;
     }
   }
 }
