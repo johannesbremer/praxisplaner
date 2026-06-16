@@ -80,16 +80,16 @@ require_real_auth_env() {
 if [ "${VERCEL_ENV:-}" = "preview" ]; then
   preview_name="$(printf '%s' "${VERCEL_GIT_COMMIT_REF:-preview}" | tr '/' '-')"
   preview_deployment_ref="preview/$preview_name"
+  preview_workos_client_id="client_local_preview_placeholder"
   deploy_env_file="$(mktemp)"
   runtime_env_file="$(mktemp)"
   trap 'rm -f "$deploy_env_file" "$runtime_env_file"' EXIT
 
   append_convex_deploy_selection_env "$deploy_env_file"
   append_vite_auth_config_env "$deploy_env_file"
-  printf 'WORKOS_CLIENT_ID=client_local_preview_placeholder\nAUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' >> "$deploy_env_file"
-  append_auth_config_env "$runtime_env_file"
+  printf 'WORKOS_CLIENT_ID=%s\nAUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' "$preview_workos_client_id" >> "$deploy_env_file"
   append_vite_auth_config_env "$runtime_env_file"
-  printf 'AUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' >> "$runtime_env_file"
+  printf 'WORKOS_CLIENT_ID=%s\nAUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' "$preview_workos_client_id" >> "$runtime_env_file"
   export_vite_auth_config_env
 
   pnpm seed:preview
