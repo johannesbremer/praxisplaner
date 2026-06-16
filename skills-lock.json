@@ -11,7 +11,7 @@
       "source": "get-convex/agent-skills",
       "sourceType": "github",
       "skillPath": "skills/convex-create-component/SKILL.md",
-      "computedHash": "25b6f56cc6afa4237aa191f5bfa5b86f68b70dc7f1195b86d027bd85346cff41"
+      "computedHash": "012acb639fccc22a47e89ef69941689f9328ac9ff5b872d77af6328407ec8876"
     },
     "convex-helpers-guide": {
       "source": "get-convex/convex-agent-plugins",
@@ -23,7 +23,7 @@
       "source": "get-convex/agent-skills",
       "sourceType": "github",
       "skillPath": "skills/convex-migration-helper/SKILL.md",
-      "computedHash": "47ad936c1977eecca736211fe4efb171b53c412b49cffc42267095276a8df36d"
+      "computedHash": "1ed5ef230d484e9884d881ddbd15158f0070382f8c6097364cb8ed2ec458decd"
     },
     "convex-performance-audit": {
       "source": "get-convex/agent-skills",
@@ -53,7 +53,7 @@
       "source": "pbakaus/impeccable",
       "sourceType": "github",
       "skillPath": ".agents/skills/impeccable/SKILL.md",
-      "computedHash": "16180e7175cb29ef050926233b8514d7323294156890e1f1b17024ba8d9dab71"
+      "computedHash": "07ce95e6f31ae532691f044f1ab389fb87701be74800303435cf47beb1dda190"
     },
     "improve-codebase-architecture": {
       "source": "mattpocock/skills",
@@ -77,7 +77,7 @@
       "source": "shadcn/ui",
       "sourceType": "github",
       "skillPath": "skills/shadcn/SKILL.md",
-      "computedHash": "8f8bcc9024aa068245fac646d654a18c80280e4b06112ccd3e691a8c96cd66bd"
+      "computedHash": "ac9d0d69caac7de1d1e5647f3db3bcd2f13af355d6b3a78780fbf7fc80e8dca0"
     },
     "tdd": {
       "source": "mattpocock/skills",
@@ -101,7 +101,7 @@
       "source": "workos/skills",
       "sourceType": "github",
       "skillPath": "plugins/workos/skills/workos/SKILL.md",
-      "computedHash": "ff8d5d307edb2e3c173f98215a405e50f7154de0bc295d8a87abc2e10b89b287"
+      "computedHash": "4a36ead629f68e44d29b2fd4027ab9726f279a02904684095299e697ec05a238"
     }
   }
 }
