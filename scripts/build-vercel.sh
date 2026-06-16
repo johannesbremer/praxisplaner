@@ -85,20 +85,14 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
   trap 'rm -f "$deploy_env_file" "$runtime_env_file"' EXIT
 
   append_convex_deploy_selection_env "$deploy_env_file"
-  append_auth_config_env "$deploy_env_file"
   append_vite_auth_config_env "$deploy_env_file"
-  printf 'AUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' >> "$deploy_env_file"
+  printf 'WORKOS_CLIENT_ID=client_local_preview_placeholder\nAUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' >> "$deploy_env_file"
   append_auth_config_env "$runtime_env_file"
   append_vite_auth_config_env "$runtime_env_file"
   printf 'AUTH_BYPASS_ENABLED=true\nVITE_AUTH_BYPASS_ENABLED=true\nVITE_VERCEL_ENV=preview\n' >> "$runtime_env_file"
   export_vite_auth_config_env
 
   pnpm seed:preview
-  pnpm exec convex deployment create "$preview_name" --type preview --select \
-    || pnpm exec convex deployment select "$preview_deployment_ref"
-  pnpm exec convex env set \
-    --deployment "$preview_deployment_ref" \
-    AUTH_BYPASS_ENABLED true
   AUTH_BYPASS_ENABLED=true pnpm exec convex deploy \
     --env-file "$deploy_env_file" \
     --cmd "VITE_AUTH_BYPASS_ENABLED=true VITE_VERCEL_ENV=preview pnpm run build" \
