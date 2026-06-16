@@ -1,5 +1,6 @@
 "use client";
 
+import { useForm } from "@tanstack/react-form";
 import { useQuery } from "convex/react";
 import { Search, UserRoundCheck } from "lucide-react";
 import {
@@ -15,6 +16,7 @@ import {
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 import { PhoneInput } from "@/components/phone-input";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
@@ -123,6 +125,12 @@ export function PatientSelectionPanel({
       ? "skip"
       : { id: selectedExistingPatientId },
   );
+  const form = useForm({
+    defaultValues: draftPatient,
+    onSubmit: ({ value }) => {
+      emitDraftPatientSelection(onPatientSelected, value);
+    },
+  });
 
   const patientOptions = useMemo(
     () =>
@@ -159,10 +167,13 @@ export function PatientSelectionPanel({
 
   const selectExistingPatient = (option: PatientOption) => {
     setSelectedExistingPatientId(option.id);
-    setDraftPatient({
+    const nextDraftPatient = {
       name: option.name,
       phoneNumber: "",
-    });
+    };
+
+    setDraftPatient(nextDraftPatient);
+    form.reset(nextDraftPatient);
     setIsOpen(false);
     onPatientSelected({
       id: option.id,
@@ -180,8 +191,10 @@ export function PatientSelectionPanel({
 
     setSelectedExistingPatientId(undefined);
     setDraftPatient(nextDraftPatient);
+    form.setFieldValue("name", nextName);
+    form.setFieldValue("phoneNumber", nextDraftPatient.phoneNumber);
     setIsOpen(true);
-    emitDraftPatientSelection(onPatientSelected, nextDraftPatient);
+    onPatientSelected();
   };
 
   const handlePhoneNumberChange = (nextPhoneNumber: string) => {
@@ -191,7 +204,7 @@ export function PatientSelectionPanel({
     };
 
     setDraftPatient(nextDraftPatient);
-    emitDraftPatientSelection(onPatientSelected, nextDraftPatient);
+    form.setFieldValue("phoneNumber", nextPhoneNumber);
   };
 
   return (
@@ -250,16 +263,38 @@ export function PatientSelectionPanel({
       </div>
 
       {showPhoneField ? (
-        <div className="space-y-2">
-          <Label htmlFor={`${panelId}-temporary-patient-phone-number`}>
-            Telefonnummer
-          </Label>
-          <PhoneInput
-            id={`${panelId}-temporary-patient-phone-number`}
-            onChange={handlePhoneNumberChange}
-            value={draftPatient.phoneNumber}
-          />
-        </div>
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void form.handleSubmit();
+          }}
+        >
+          <form.Field name="phoneNumber">
+            {(field) => (
+              <div className="space-y-2">
+                <Label htmlFor={`${panelId}-temporary-patient-phone-number`}>
+                  Telefonnummer
+                </Label>
+                <PhoneInput
+                  id={`${panelId}-temporary-patient-phone-number`}
+                  onChange={handlePhoneNumberChange}
+                  value={field.state.value}
+                />
+              </div>
+            )}
+          </form.Field>
+
+          <Button
+            disabled={
+              draftPatient.name.trim().length === 0 ||
+              draftPatient.phoneNumber.trim().length === 0
+            }
+            type="submit"
+          >
+            Erstellen
+          </Button>
+        </form>
       ) : null}
     </div>
   );
