@@ -352,7 +352,7 @@ describe("calendar planning workbench", () => {
     );
   });
 
-  it("records simulation smiley updates through the calendar command ledger", async () => {
+  it("records simulation smiley updates for real series appointments through the calendar command ledger", async () => {
     const appointmentId = toTableId<"appointments">("appointment_1");
     const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
     const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
@@ -364,23 +364,29 @@ describe("calendar planning workbench", () => {
     );
     const practiceId = toTableId<"practices">("practice_1");
     const ruleSetId = toTableId<"ruleSets">("rule_set_1");
-    const appointment = buildCalendarAppointmentRecord({
-      _id: appointmentId,
-      appointmentTypeLineageKey,
-      appointmentTypeTitle: "Check-up",
-      calendarResourceColumn: "ekg",
-      end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
-      locationLineageKey,
-      practiceId,
-      start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
-      title: "Check-up",
-    });
+    const appointment = {
+      ...buildCalendarAppointmentRecord({
+        _id: appointmentId,
+        appointmentTypeLineageKey,
+        appointmentTypeTitle: "Check-up",
+        calendarResourceColumn: "ekg",
+        end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+        locationLineageKey,
+        practiceId,
+        start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+        title: "Check-up",
+      }),
+      seriesId: "series-1",
+      seriesStepId: "series-step-1",
+      seriesStepIndex: 0n,
+    } satisfies CalendarAppointmentRecord;
     const appointmentMap = new Map([[appointment._id, appointment]]);
+    const updateAppointmentMutation = makeMutation(null);
     const updateSimulationSmileyMutation = makeMutation(null);
     mutationQueue.push(
       makeMutation(toTableId<"appointments">("appointment_unused")),
       makeMutation(toTableId<"appointments">("appointment_restore_unused")),
-      makeMutation(null),
+      updateAppointmentMutation,
       makeMutation(null),
       updateSimulationSmileyMutation,
       makeMutation(null),
@@ -442,6 +448,7 @@ describe("calendar planning workbench", () => {
       simulationRuleSetId: ruleSetId,
       smiley: "👍",
     });
+    expect(updateAppointmentMutation).not.toHaveBeenCalled();
     const command = recordCalendarCommand.mock.calls[0]?.[0];
     expect(command?.kind).toBe("appointment.update");
     if (command?.kind !== "appointment.update") {

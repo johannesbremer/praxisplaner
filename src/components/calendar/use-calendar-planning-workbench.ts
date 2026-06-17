@@ -1650,12 +1650,14 @@ export function useCalendarPlanningWorkbench(args: {
           return;
         }
         const before = getAppointmentHistoryDoc(args.id);
-        if (before?.seriesId) {
+        if (isSmileyOnlyAppointmentUpdate(mutationArgs)) {
+          await runUpdateAppointmentInternal(mutationArgs);
+        } else if (before?.seriesId) {
           await getAppointmentUpdateMutation(before)(mutationArgs);
           return;
+        } else {
+          await runUpdateAppointmentInternal(mutationArgs);
         }
-
-        await runUpdateAppointmentInternal(mutationArgs);
 
         if (!before) {
           return;
