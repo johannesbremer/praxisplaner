@@ -325,6 +325,83 @@ export function RuleEditDialog({
   );
 }
 
+export function validateCondition(condition: Condition): string[] {
+  const errors: string[] = [];
+
+  switch (condition.type) {
+    case "APPOINTMENT_TYPE":
+    case "CLIENT_TYPE":
+    case "DAY_OF_WEEK":
+    case "LOCATION":
+    case "PRACTITIONER": {
+      if (!condition.operator) {
+        errors.push("operator");
+      }
+      if (!condition.valueIds || condition.valueIds.length === 0) {
+        errors.push("valueIds");
+      }
+      break;
+    }
+    case "CONCURRENT_COUNT":
+    case "DAILY_CAPACITY": {
+      if (!condition.count || condition.count < 1) {
+        errors.push("count");
+      }
+      if (
+        !condition.appointmentTypes ||
+        condition.appointmentTypes.length === 0
+      ) {
+        errors.push("appointmentTypes");
+      }
+      if (!condition.scope) {
+        errors.push("scope");
+      }
+      break;
+    }
+    case "DATE_RANGE":
+    case "TIME_RANGE": {
+      if (!condition.operator) {
+        errors.push("operator");
+      }
+      if (
+        condition.valueIds?.length !== 2 ||
+        !condition.valueIds[0] ||
+        !condition.valueIds[1]
+      ) {
+        errors.push("valueIds");
+      } else if (!isRangeOrderValid(condition)) {
+        errors.push("rangeOrder");
+      }
+      break;
+    }
+    case "DAYS_AHEAD":
+    case "HOURS_AHEAD": {
+      if (!condition.valueNumber || condition.valueNumber < 1) {
+        errors.push("valueNumber");
+      }
+      break;
+    }
+    case "PATIENT_AGE": {
+      if (!condition.operator) {
+        errors.push("operator");
+      }
+      if (
+        condition.valueNumber === null ||
+        condition.valueNumber === undefined ||
+        condition.valueNumber < 0
+      ) {
+        errors.push("valueNumber");
+      }
+      break;
+    }
+    default: {
+      break;
+    }
+  }
+
+  return errors;
+}
+
 function ConcurrentCountCondition({
   appointmentTypes,
   condition,
@@ -769,6 +846,11 @@ function getErrorMessage(condition: Condition, invalidField: string): string {
       if (invalidField === "valueIds") {
         return "Bitte geben Sie Start und Ende ein.";
       }
+      if (invalidField === "rangeOrder") {
+        return condition.type === "DATE_RANGE"
+          ? "Das Enddatum darf nicht vor dem Startdatum liegen."
+          : "Die Endzeit muss nach der Startzeit liegen.";
+      }
       return "";
     }
     case "DAY_OF_WEEK": {
@@ -851,6 +933,24 @@ function HoursAheadCondition({
       value={condition.valueNumber || ""}
     />
   );
+}
+
+function isRangeOrderValid(condition: Condition): boolean {
+  const start = condition.valueIds?.[0];
+  const end = condition.valueIds?.[1];
+  if (!start || !end) {
+    return true;
+  }
+
+  if (condition.type === "DATE_RANGE") {
+    return end >= start;
+  }
+
+  if (condition.type === "TIME_RANGE") {
+    return end > start;
+  }
+
+  return true;
 }
 
 function parseConditionType(value: string): ConditionType | undefined {
@@ -956,7 +1056,9 @@ function RangeValueCondition({
         </SelectContent>
       </Select>
       <Input
-        aria-invalid={invalidFields?.has("valueIds")}
+        aria-invalid={
+          invalidFields?.has("valueIds") || invalidFields?.has("rangeOrder")
+        }
         className="w-auto min-w-[140px]"
         onChange={(event) => {
           updateValue(0, event.target.value);
@@ -965,7 +1067,9 @@ function RangeValueCondition({
         value={values[0] ?? ""}
       />
       <Input
-        aria-invalid={invalidFields?.has("valueIds")}
+        aria-invalid={
+          invalidFields?.has("valueIds") || invalidFields?.has("rangeOrder")
+        }
         className="w-auto min-w-[140px]"
         onChange={(event) => {
           updateValue(1, event.target.value);
@@ -1123,79 +1227,4 @@ function SimpleValueCondition({
       />
     </>
   );
-}
-
-function validateCondition(condition: Condition): string[] {
-  const errors: string[] = [];
-
-  switch (condition.type) {
-    case "APPOINTMENT_TYPE":
-    case "CLIENT_TYPE":
-    case "DAY_OF_WEEK":
-    case "LOCATION":
-    case "PRACTITIONER": {
-      if (!condition.operator) {
-        errors.push("operator");
-      }
-      if (!condition.valueIds || condition.valueIds.length === 0) {
-        errors.push("valueIds");
-      }
-      break;
-    }
-    case "CONCURRENT_COUNT":
-    case "DAILY_CAPACITY": {
-      if (!condition.count || condition.count < 1) {
-        errors.push("count");
-      }
-      if (
-        !condition.appointmentTypes ||
-        condition.appointmentTypes.length === 0
-      ) {
-        errors.push("appointmentTypes");
-      }
-      if (!condition.scope) {
-        errors.push("scope");
-      }
-      break;
-    }
-    case "DATE_RANGE":
-    case "TIME_RANGE": {
-      if (!condition.operator) {
-        errors.push("operator");
-      }
-      if (
-        condition.valueIds?.length !== 2 ||
-        !condition.valueIds[0] ||
-        !condition.valueIds[1]
-      ) {
-        errors.push("valueIds");
-      }
-      break;
-    }
-    case "DAYS_AHEAD":
-    case "HOURS_AHEAD": {
-      if (!condition.valueNumber || condition.valueNumber < 1) {
-        errors.push("valueNumber");
-      }
-      break;
-    }
-    case "PATIENT_AGE": {
-      if (!condition.operator) {
-        errors.push("operator");
-      }
-      if (
-        condition.valueNumber === null ||
-        condition.valueNumber === undefined ||
-        condition.valueNumber < 0
-      ) {
-        errors.push("valueNumber");
-      }
-      break;
-    }
-    default: {
-      break;
-    }
-  }
-
-  return errors;
 }
