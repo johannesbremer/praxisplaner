@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { Search, UserRoundCheck } from "lucide-react";
 import {
   type ChangeEvent,
+  type KeyboardEvent,
   useDeferredValue,
   useEffect,
   useId,
@@ -265,8 +266,27 @@ export function PatientSelectionPanel({
     onPatientSelected();
   };
 
+  const preventOuterFormSubmitOnEnter = (
+    event: KeyboardEvent<HTMLDivElement>,
+  ) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    if (!(event.target instanceof HTMLInputElement)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   return (
-    <div className="space-y-2" ref={panelRef}>
+    <div
+      className="space-y-2"
+      onKeyDownCapture={preventOuterFormSubmitOnEnter}
+      ref={panelRef}
+    >
       <form.Field name="name">
         {(field) => {
           const isInvalid =
