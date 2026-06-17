@@ -798,7 +798,7 @@ function getDiffItemPath(
   }
 
   if (section.key === "rules") {
-    return getRuleSummary(parsed);
+    return "Regel";
   }
 
   return formatStructuredDiffValue(value).split("\n", 1)[0] ?? section.title;
@@ -1103,6 +1103,59 @@ function normalizeRenamedValue(value: string, renames: Map<string, string>) {
   );
 }
 
+function normalizeRuleDiffTreeCandidate(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  const conditionTree = value["conditionTree"];
+  if (isRecord(conditionTree)) {
+    return normalizeRuleDiffTreeCandidate(conditionTree);
+  }
+
+  const snapshot = value["snapshot"];
+  if (isRecord(snapshot)) {
+    return normalizeRuleDiffTreeCandidate(snapshot);
+  }
+
+  const nodeType = value["nodeType"];
+  const children = Array.isArray(value["children"]) ? value["children"] : [];
+  if (nodeType === null || nodeType === undefined) {
+    if (children.length === 1) {
+      return normalizeRuleDiffTreeCandidate(children[0]);
+    }
+
+    return {
+      children: children.map((child) => normalizeRuleDiffTreeCandidate(child)),
+      nodeType: "AND",
+    };
+  }
+
+  if (nodeType === "CONDITION") {
+    return {
+      conditionType: value["conditionType"],
+      nodeType,
+      operator: value["operator"],
+      ...(typeof value["scope"] === "string" ? { scope: value["scope"] } : {}),
+      ...(Array.isArray(value["valueIds"])
+        ? { valueIds: value["valueIds"] }
+        : {}),
+      ...(typeof value["valueNumber"] === "number"
+        ? { valueNumber: value["valueNumber"] }
+        : {}),
+    };
+  }
+
+  if (nodeType === "AND" || nodeType === "NOT") {
+    return {
+      children: children.map((child) => normalizeRuleDiffTreeCandidate(child)),
+      nodeType,
+    };
+  }
+
+  return value;
+}
+
 function normalizeRuleReferences(
   value: Record<string, unknown>,
   entityRenames: EntityRenameMaps,
@@ -1175,12 +1228,7 @@ function parseDiffValue(value: string): null | Record<string, unknown> {
 function parseRuleDiffTree(
   value: Record<string, unknown>,
 ): ConditionTreeNode | null {
-  const childValues = Array.isArray(value["children"]) ? value["children"] : [];
-  const firstChild: unknown = childValues[0];
-  const treeRoot =
-    value["nodeType"] === null || value["nodeType"] === undefined
-      ? firstChild
-      : value;
+  const treeRoot = normalizeRuleDiffTreeCandidate(value);
 
   return parseConditionTreeNodeOrNull(treeRoot);
 }

@@ -413,18 +413,11 @@ async function requirePhoneBookingIdentity(
 function requireTelefonkiAvailabilityArgs(
   args: AvailabilityArgsInput,
 ): AvailabilityArgs {
-  const { clientType } = args.simulatedContext;
-  if (!clientType) {
-    throw new Error(
-      "clientType is required in simulatedContext for TelefonKI availability",
-    );
-  }
-
   return {
     ...args,
     simulatedContext: {
       ...args.simulatedContext,
-      clientType,
+      clientType: "Phone-AI",
     },
   };
 }
