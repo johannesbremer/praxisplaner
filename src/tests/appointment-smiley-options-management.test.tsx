@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -258,6 +264,50 @@ describe("AppointmentSmileyOptionsManagement", () => {
       practiceId,
       selectedRuleSetId: draftRuleSetId,
     });
+  });
+
+  test("updates visible rows immediately after undo and redo replay", async () => {
+    let replay: RuleSetCommandRuntimeAdapter | undefined;
+    const recordCommand: RecordRuleSetCommand = (
+      _command: RuleSetCommand,
+      runtime: RuleSetCommandRuntimeAdapter,
+    ) => {
+      replay = runtime;
+    };
+    render(
+      <AppointmentSmileyOptionsManagement
+        onRecordCommand={recordCommand}
+        practiceId={practiceId}
+        ruleSetReplayTarget={{
+          kind: "saved-parent",
+          parentRuleSetId,
+        }}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Patient wartet" },
+    });
+    fireEvent.blur(screen.getByLabelText("Name"));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Name")).toHaveValue("Patient wartet");
+    });
+
+    if (!replay) {
+      throw new Error("Expected smiley options replay to be recorded");
+    }
+    const replayAdapter = replay;
+
+    await act(async () => {
+      await replayAdapter.undo();
+    });
+    expect(screen.getByLabelText("Name")).toHaveValue("Patient ist angekommen");
+
+    await act(async () => {
+      await replayAdapter.redo();
+    });
+    expect(screen.getByLabelText("Name")).toHaveValue("Patient wartet");
   });
 
   test("shows a plus icon for empty emoji rows", () => {
