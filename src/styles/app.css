@@ -61,7 +61,7 @@
   --version-graph-branch-7: oklch(0.5 0.08 355.69);
   --version-graph-branch-8: oklch(0.66 0.16 190);
   --version-graph-branch-9: oklch(0.57 0.19 285);
-  --version-graph-branch-10: oklch(0.74 0.18 80);
+  --version-graph-branch-10: oklch(0.52 0.16 80);
   --version-graph-branch-fallback: var(--foreground);
   --version-graph-connection-fallback: var(--muted-foreground);
   --font-sans: Poppins, sans-serif;
