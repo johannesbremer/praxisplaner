@@ -159,6 +159,7 @@ interface TemporaryAppointmentOwner {
 
 interface TrustedAppointmentInput {
   allowHistoricalSmiley?: boolean;
+  allowRestoredEnd?: boolean;
   allowUnrelatedUserId?: boolean;
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
@@ -327,6 +328,7 @@ function appointmentOccupancyScopeEqual(
 
 function asTrustedAppointmentInput(args: {
   allowHistoricalSmiley?: boolean;
+  allowRestoredEnd?: boolean;
   allowUnrelatedUserId?: boolean;
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
@@ -897,10 +899,7 @@ async function saveAppointmentRestoreSnapshot(
         }
       : {}),
     deletedAt,
-    ...(appointment.isSimulation === true &&
-    appointment.replacesAppointmentId !== undefined
-      ? { end: appointment.end }
-      : {}),
+    end: appointment.end,
     ...(appointment.isSimulation === undefined
       ? {}
       : { isSimulation: appointment.isSimulation }),
@@ -1790,6 +1789,7 @@ export async function createAppointmentFromTrustedSource(
   ctx: MutationCtx,
   rawArgs: {
     allowHistoricalSmiley?: boolean;
+    allowRestoredEnd?: boolean;
     allowUnrelatedUserId?: boolean;
     appointmentTypeId: Id<"appointmentTypes">;
     bookingIdentityId?: Id<"bookingIdentities">;
@@ -1818,6 +1818,7 @@ export async function createAppointmentFromTrustedSource(
   const now = BigInt(Date.now());
   const {
     allowHistoricalSmiley,
+    allowRestoredEnd,
     allowUnrelatedUserId,
     appointmentTypeId,
     calendarResourceColumn,
@@ -1840,7 +1841,11 @@ export async function createAppointmentFromTrustedSource(
       "Only simulated appointments can replace existing appointments.",
     );
   }
-  if (requestedEnd !== undefined && replacesAppointmentId === undefined) {
+  if (
+    requestedEnd !== undefined &&
+    replacesAppointmentId === undefined &&
+    allowRestoredEnd !== true
+  ) {
     throw new Error(
       "Eine explizite Endzeit kann nur für simulierte Ersatztermine gesetzt werden.",
     );
@@ -2253,7 +2258,9 @@ export const restoreDeletedAppointment = mutation({
         ...(snapshot.calendarResourceColumn === undefined
           ? {}
           : { calendarResourceColumn: snapshot.calendarResourceColumn }),
-        ...(snapshot.end === undefined ? {} : { end: snapshot.end }),
+        ...(snapshot.end === undefined
+          ? {}
+          : { allowRestoredEnd: true, end: snapshot.end }),
         ...(snapshot.isNewPatient === undefined
           ? {}
           : { isNewPatient: snapshot.isNewPatient }),

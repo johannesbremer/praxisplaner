@@ -5171,4 +5171,67 @@ describe("calendar day appointment queries", () => {
       }),
     ).resolves.toEqual(expect.any(String));
   });
+
+  test("restoreDeletedAppointment preserves the deleted appointment end", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_restore_end";
+    const userId = await createUser(t, authId, "restore-end@example.com");
+    const authed = t.withIdentity({
+      email: "restore-end@example.com",
+      subject: authId,
+    });
+    const window = makeSlotWindow(38);
+    const resizedEnd = Temporal.ZonedDateTime.from(window.start)
+      .add({ minutes: 75 })
+      .toString();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: window.start,
+        title: "Resized restore",
+        userId,
+      },
+    );
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        end: resizedEnd,
+        id: appointmentId,
+      }),
+    ).resolves.toBeNull();
+
+    await expect(
+      authed.mutation(api.appointments.deleteAppointment, {
+        id: appointmentId,
+      }),
+    ).resolves.toBeNull();
+
+    const restoredAppointmentId = await authed.mutation(
+      api.appointments.restoreDeletedAppointment,
+      {
+        originalAppointmentId: appointmentId,
+      },
+    );
+    const restoredAppointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", restoredAppointmentId);
+    });
+
+    expect(restoredAppointment).not.toBeNull();
+    expect(restoredAppointment?.start).toBe(window.start);
+    expect(restoredAppointment?.end).toBe(resizedEnd);
+  });
 });
