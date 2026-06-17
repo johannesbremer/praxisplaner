@@ -5115,6 +5115,30 @@ describe("calendar day appointment queries", () => {
           { emoji: "😴", id: "old-marker", name: "Historical marker" },
         ],
       });
+      await ctx.db.patch("practices", baseData.practiceId, {
+        appointmentSmileyOptions: [
+          { emoji: "😴", id: "old-marker", name: "Historical marker" },
+        ],
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        smiley: "😴",
+        start: makeSlotWindow(36).start,
+        title: "Restored",
+        userId,
+      },
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.patch("practices", baseData.practiceId, {
+        appointmentSmileyOptions: [],
+      });
     });
 
     await expect(
@@ -5124,36 +5148,27 @@ describe("calendar day appointment queries", () => {
         practiceId: baseData.practiceId,
         practitionerId: baseData.practitionerId,
         smiley: "😴",
-        start: makeSlotWindow(36).start,
-        title: "Restored",
+        start: makeSlotWindow(37).start,
+        title: "New stale",
         userId,
       }),
     ).rejects.toThrow("nicht konfiguriert");
 
     await expect(
       authed.mutation(api.appointments.restoreDeletedAppointment, {
-        appointmentTypeId: baseData.appointmentTypeId,
-        locationId: baseData.locationId,
-        practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
-        smiley: "😴",
-        start: makeSlotWindow(36).start,
-        title: "Restored",
-        userId,
+        originalAppointmentId: appointmentId,
       }),
-    ).resolves.toEqual(expect.any(String));
+    ).rejects.toThrow("not found");
 
     await expect(
-      authed.mutation(api.appointments.restoreDeletedAppointment, {
-        appointmentTypeId: baseData.appointmentTypeId,
-        locationId: baseData.locationId,
-        practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
-        smiley: "not-a-configured-marker",
-        start: makeSlotWindow(37).start,
-        title: "Forged",
-        userId,
+      authed.mutation(api.appointments.deleteAppointment, {
+        id: appointmentId,
       }),
-    ).rejects.toThrow("nicht bekannt");
+    ).resolves.toBeNull();
+    await expect(
+      authed.mutation(api.appointments.restoreDeletedAppointment, {
+        originalAppointmentId: appointmentId,
+      }),
+    ).resolves.toEqual(expect.any(String));
   });
 });

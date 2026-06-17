@@ -111,6 +111,10 @@ export type DeleteBlockedSlotMutationArgs = FunctionArgs<
   typeof api.appointments.deleteBlockedSlot
 >;
 
+export type RestoreDeletedAppointmentMutationArgs = FunctionArgs<
+  typeof api.appointments.restoreDeletedAppointment
+>;
+
 export type UpdateAppointmentMutationArgs = FunctionArgs<
   typeof api.appointments.updateAppointment
 >;

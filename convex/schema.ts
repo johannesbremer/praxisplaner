@@ -329,6 +329,34 @@ export const bookingSessionStorageStateValidator = v.object({
 });
 
 export default defineSchema({
+  appointmentRestoreSnapshots: defineTable({
+    appointmentTypeId: v.id("appointmentTypes"),
+    bookingIdentityId: v.optional(v.id("bookingIdentities")),
+    calendarResourceColumn: v.optional(
+      v.union(v.literal("ekg"), v.literal("labor")),
+    ),
+    deletedAt: v.int64(),
+    end: v.optional(v.string()),
+    isNewPatient: v.optional(v.boolean()),
+    isSimulation: v.optional(v.boolean()),
+    locationId: v.id("locations"),
+    originalAppointmentId: v.id("appointments"),
+    patientDateOfBirth: v.optional(v.string()),
+    patientId: v.optional(v.id("patients")),
+    phoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
+    practiceId: v.id("practices"),
+    practitionerId: v.optional(v.id("practitioners")),
+    replacesAppointmentId: v.optional(v.id("appointments")),
+    simulationKind: v.optional(
+      v.union(v.literal("draft"), v.literal("activation-reassignment")),
+    ),
+    simulationRuleSetId: v.optional(v.id("ruleSets")),
+    smiley: v.optional(appointmentSmileyValidator),
+    start: v.string(),
+    title: v.string(),
+    userId: v.optional(v.id("users")),
+  }).index("by_originalAppointmentId", ["originalAppointmentId"]),
+
   appointments: defineTable({
     // Core appointment fields
     end: v.string(), // ISO datetime string

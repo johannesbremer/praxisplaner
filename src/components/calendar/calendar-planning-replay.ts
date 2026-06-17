@@ -18,6 +18,7 @@ import type {
   CreateBlockedSlotMutationArgs,
   DeleteAppointmentMutationArgs,
   DeleteBlockedSlotMutationArgs,
+  RestoreDeletedAppointmentMutationArgs,
   UpdateAppointmentMutationArgs,
   UpdateBlockedSlotMutationArgs,
 } from "./calendar-planning-command";
@@ -100,7 +101,7 @@ export interface CalendarPlanningCommandExecutorContext {
     args: DeleteBlockedSlotMutationArgs,
   ) => Promise<unknown>;
   runRestoreDeletedAppointmentInternal: (
-    args: CreateAppointmentMutationArgs,
+    args: RestoreDeletedAppointmentMutationArgs,
   ) => Promise<Id<"appointments"> | null>;
   runUpdateAppointmentInternal: (
     args: UpdateAppointmentMutationArgs,
@@ -392,9 +393,9 @@ async function executeAppointmentDeleteCommand(
     };
   }
 
-  const recreatedId = await context.runRestoreDeletedAppointmentInternal(
-    payload.createArgs,
-  );
+  const recreatedId = await context.runRestoreDeletedAppointmentInternal({
+    originalAppointmentId: payload.currentAppointmentId,
+  });
   if (!recreatedId) {
     return { status: "conflict" };
   }

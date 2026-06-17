@@ -840,6 +840,98 @@ async function resolvePreferredAppointmentPatientDateOfBirth(
   return args.provisionalDateOfBirth;
 }
 
+async function saveAppointmentRestoreSnapshot(
+  ctx: MutationCtx,
+  appointment: AppointmentDoc,
+  deletedAt: bigint,
+) {
+  const practice = await ctx.db.get("practices", appointment.practiceId);
+  const restoreRuleSetId =
+    appointment.simulationRuleSetId ?? practice?.currentActiveRuleSetId;
+  if (!restoreRuleSetId) {
+    return;
+  }
+
+  const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
+    ctx.db,
+    {
+      lineageKey: asAppointmentTypeLineageKey(
+        appointment.appointmentTypeLineageKey,
+      ),
+      ruleSetId: restoreRuleSetId,
+    },
+  );
+  const locationId = await resolveLocationIdForRuleSetByLineage(ctx.db, {
+    lineageKey: asLocationLineageKey(appointment.locationLineageKey),
+    ruleSetId: restoreRuleSetId,
+  });
+  const practitionerLineageKey = getAppointmentPractitionerLineageKey(
+    appointment.occupancyScope,
+  );
+  const practitionerId =
+    practitionerLineageKey === undefined
+      ? undefined
+      : await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+          lineageKey: asPractitionerLineageKey(practitionerLineageKey),
+          ruleSetId: restoreRuleSetId,
+        });
+  const existingSnapshot = await ctx.db
+    .query("appointmentRestoreSnapshots")
+    .withIndex("by_originalAppointmentId", (q) =>
+      q.eq("originalAppointmentId", appointment._id),
+    )
+    .first();
+  if (existingSnapshot) {
+    await ctx.db.delete("appointmentRestoreSnapshots", existingSnapshot._id);
+  }
+
+  await ctx.db.insert("appointmentRestoreSnapshots", {
+    appointmentTypeId: asAppointmentTypeId(appointmentTypeId),
+    ...(appointment.bookingIdentityId === undefined
+      ? {}
+      : { bookingIdentityId: appointment.bookingIdentityId }),
+    ...(appointment.occupancyScope.kind === "resource"
+      ? {
+          calendarResourceColumn:
+            appointment.occupancyScope.calendarResourceColumn,
+        }
+      : {}),
+    deletedAt,
+    ...(appointment.isSimulation === true &&
+    appointment.replacesAppointmentId !== undefined
+      ? { end: appointment.end }
+      : {}),
+    ...(appointment.isSimulation === undefined
+      ? {}
+      : { isSimulation: appointment.isSimulation }),
+    locationId: asLocationId(locationId),
+    originalAppointmentId: appointment._id,
+    ...(appointment.patientId === undefined
+      ? {}
+      : { patientId: appointment.patientId }),
+    ...(appointment.phoneBookingIdentityId === undefined
+      ? {}
+      : { phoneBookingIdentityId: appointment.phoneBookingIdentityId }),
+    practiceId: appointment.practiceId,
+    ...(practitionerId === undefined
+      ? {}
+      : { practitionerId: asPractitionerId(practitionerId) }),
+    ...(appointment.replacesAppointmentId === undefined
+      ? {}
+      : { replacesAppointmentId: appointment.replacesAppointmentId }),
+    ...(appointment.simulationKind === undefined
+      ? {}
+      : { simulationKind: appointment.simulationKind }),
+    ...(appointment.simulationRuleSetId === undefined
+      ? {}
+      : { simulationRuleSetId: appointment.simulationRuleSetId }),
+    ...(appointment.smiley === undefined ? {} : { smiley: appointment.smiley }),
+    start: appointment.start,
+    title: appointment.title,
+    ...(appointment.userId === undefined ? {} : { userId: appointment.userId }),
+  });
+}
+
 function simulationReplacementMatchesRealAppointment(
   replacement: AppointmentDoc,
   real: AppointmentDoc,
@@ -2134,35 +2226,73 @@ export const createAppointment = mutation({
 
 export const restoreDeletedAppointment = mutation({
   args: {
-    appointmentTypeId: v.id("appointmentTypes"),
-    bookingIdentityId: v.optional(v.id("bookingIdentities")),
-    calendarResourceColumn: v.optional(calendarResourceColumnValidator),
-    end: v.optional(v.string()),
-    isNewPatient: v.optional(v.boolean()),
-    isSimulation: v.optional(v.boolean()),
-    locationId: v.id("locations"),
-    patientDateOfBirth: v.optional(v.string()),
-    patientId: v.optional(v.id("patients")),
-    phoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
-    practiceId: v.id("practices"),
-    practitionerId: v.optional(v.id("practitioners")),
-    replacesAppointmentId: v.optional(v.id("appointments")),
-    simulationKind: v.optional(appointmentSimulationKindValidator),
-    simulationRuleSetId: v.optional(v.id("ruleSets")),
-    smiley: v.optional(appointmentSmileyValidator),
-    start: v.string(),
-    temporaryPatientName: v.optional(v.string()),
-    temporaryPatientPhoneNumber: v.optional(v.string()),
-    title: v.string(),
-    userId: v.optional(v.id("users")),
+    originalAppointmentId: v.id("appointments"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    return await createAppointmentFromTrustedSource(ctx, {
-      ...args,
-      allowHistoricalSmiley: args.smiley !== undefined,
-    });
+    const snapshot = await ctx.db
+      .query("appointmentRestoreSnapshots")
+      .withIndex("by_originalAppointmentId", (q) =>
+        q.eq("originalAppointmentId", args.originalAppointmentId),
+      )
+      .first();
+    if (!snapshot) {
+      throw appointmentChainError(
+        "CHAIN_NOT_FOUND",
+        "Appointment restore snapshot not found",
+      );
+    }
+    await ensurePracticeAccessForMutation(ctx, snapshot.practiceId);
+    const restoredAppointmentId = await createAppointmentFromTrustedSource(
+      ctx,
+      {
+        appointmentTypeId: snapshot.appointmentTypeId,
+        ...(snapshot.bookingIdentityId === undefined
+          ? {}
+          : { bookingIdentityId: snapshot.bookingIdentityId }),
+        ...(snapshot.calendarResourceColumn === undefined
+          ? {}
+          : { calendarResourceColumn: snapshot.calendarResourceColumn }),
+        ...(snapshot.end === undefined ? {} : { end: snapshot.end }),
+        ...(snapshot.isNewPatient === undefined
+          ? {}
+          : { isNewPatient: snapshot.isNewPatient }),
+        ...(snapshot.isSimulation === undefined
+          ? {}
+          : { isSimulation: snapshot.isSimulation }),
+        locationId: snapshot.locationId,
+        ...(snapshot.patientDateOfBirth === undefined
+          ? {}
+          : { patientDateOfBirth: snapshot.patientDateOfBirth }),
+        ...(snapshot.patientId === undefined
+          ? {}
+          : { patientId: snapshot.patientId }),
+        ...(snapshot.phoneBookingIdentityId === undefined
+          ? {}
+          : { phoneBookingIdentityId: snapshot.phoneBookingIdentityId }),
+        practiceId: snapshot.practiceId,
+        ...(snapshot.practitionerId === undefined
+          ? {}
+          : { practitionerId: snapshot.practitionerId }),
+        ...(snapshot.replacesAppointmentId === undefined
+          ? {}
+          : { replacesAppointmentId: snapshot.replacesAppointmentId }),
+        ...(snapshot.simulationKind === undefined
+          ? {}
+          : { simulationKind: snapshot.simulationKind }),
+        ...(snapshot.simulationRuleSetId === undefined
+          ? {}
+          : { simulationRuleSetId: snapshot.simulationRuleSetId }),
+        ...(snapshot.smiley === undefined
+          ? {}
+          : { allowHistoricalSmiley: true, smiley: snapshot.smiley }),
+        start: snapshot.start,
+        title: snapshot.title,
+        ...(snapshot.userId === undefined ? {} : { userId: snapshot.userId }),
+      },
+    );
+    await ctx.db.delete("appointmentRestoreSnapshots", snapshot._id);
+    return restoredAppointmentId;
   },
   returns: v.id("appointments"),
 });
@@ -3204,6 +3334,8 @@ export const deleteAppointment = mutation({
       return null;
     }
 
+    const now = BigInt(Date.now());
+    await saveAppointmentRestoreSnapshot(ctx, existingAppointment, now);
     await ctx.db.delete("appointments", args.id);
     return null;
   },
