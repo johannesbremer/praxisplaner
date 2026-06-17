@@ -432,6 +432,18 @@ async function executeAppointmentUpdateCommand(
     state: AppointmentState,
     previousState: AppointmentState,
   ) => {
+    const smileyUpdate =
+      state.smiley === previousState.smiley
+        ? {}
+        : { smiley: state.smiley ?? null };
+    if (!hasAppointmentSchedulingStateChange(state, previousState)) {
+      await context.runUpdateAppointmentInternal({
+        id: currentAppointmentId,
+        ...smileyUpdate,
+      });
+      return true;
+    }
+
     const displayRefs = context.resolveAppointmentReferenceDisplayIds({
       appointmentTypeLineageKey: payload.before.appointmentTypeLineageKey,
       placement: state.placement,
@@ -452,9 +464,7 @@ async function executeAppointmentUpdateCommand(
         : {
             practitionerId: displayRefs.occupancyScope.practitionerId,
           }),
-      ...(state.smiley === previousState.smiley
-        ? {}
-        : { smiley: state.smiley ?? null }),
+      ...smileyUpdate,
       start: state.start,
     });
     return true;

@@ -186,6 +186,7 @@ describe("calendar planning workbench", () => {
       makeMutation(null),
       makeMutation(null),
       makeMutation(null),
+      makeMutation(null),
       makeMutation(toTableId<"blockedSlots">("blocked_slot_unused")),
       makeMutation(null),
       makeMutation(null),
@@ -291,6 +292,7 @@ describe("calendar planning workbench", () => {
       makeMutation(null),
       makeMutation(null),
       makeMutation(null),
+      makeMutation(null),
       deleteAppointmentMutation,
       makeMutation(toTableId<"blockedSlots">("blocked_slot_unused")),
       makeMutation(null),
@@ -350,6 +352,105 @@ describe("calendar planning workbench", () => {
     );
   });
 
+  it("records simulation smiley updates through the calendar command ledger", async () => {
+    const appointmentId = toTableId<"appointments">("appointment_1");
+    const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
+    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("type_lineage_1"),
+    );
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const ruleSetId = toTableId<"ruleSets">("rule_set_1");
+    const appointment = buildCalendarAppointmentRecord({
+      _id: appointmentId,
+      appointmentTypeLineageKey,
+      appointmentTypeTitle: "Check-up",
+      calendarResourceColumn: "ekg",
+      end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      locationLineageKey,
+      practiceId,
+      start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+      title: "Check-up",
+    });
+    const appointmentMap = new Map([[appointment._id, appointment]]);
+    const updateSimulationSmileyMutation = makeMutation(null);
+    mutationQueue.push(
+      makeMutation(toTableId<"appointments">("appointment_unused")),
+      makeMutation(toTableId<"appointments">("appointment_restore_unused")),
+      makeMutation(null),
+      makeMutation(null),
+      updateSimulationSmileyMutation,
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(toTableId<"blockedSlots">("blocked_slot_unused")),
+      makeMutation(null),
+      makeMutation(null),
+    );
+
+    const { result } = renderHook(() =>
+      useCalendarPlanningWorkbench({
+        activeDayAppointmentMapRef: { current: appointmentMap },
+        activeDayBlockedSlotMapRef: { current: new Map() },
+        allPracticeAppointmentMap: appointmentMap,
+        allPracticeAppointmentMapRef: { current: appointmentMap },
+        allPracticeAppointmentsLoaded: true,
+        allPracticeBlockedSlotMap: new Map(),
+        allPracticeBlockedSlotMapRef: { current: new Map() },
+        allPracticeBlockedSlotsLoaded: true,
+        blockedSlotsQueryArgs: null,
+        calendarDayQueryArgs: {
+          dayEnd: "2026-04-26T00:00:00+02:00[Europe/Berlin]",
+          dayStart: "2026-04-25T00:00:00+02:00[Europe/Berlin]",
+          practiceId,
+          scope: "simulation",
+          selectedRuleSetId: ruleSetId,
+        },
+        getRequiredAppointmentTypeInfo: () => ({
+          duration: 30,
+          hasFollowUpPlan: false,
+          name: "Check-up",
+        }),
+        parseZonedDateTime,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map([
+            [appointmentTypeLineageKey, appointmentTypeId],
+          ]),
+          appointmentTypeLineageKeyById: new Map([
+            [appointmentTypeId, appointmentTypeLineageKey],
+          ]),
+          locationIdByLineageKey: new Map([[locationLineageKey, locationId]]),
+          locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        refreshAllPracticeConflictData: vi.fn(() => Promise.resolve()),
+      }),
+    );
+
+    await act(async () => {
+      await result.current.commands.updateAppointment({
+        id: appointmentId,
+        smiley: "👍",
+      });
+    });
+
+    expect(updateSimulationSmileyMutation).toHaveBeenCalledWith({
+      id: appointmentId,
+      simulationRuleSetId: ruleSetId,
+      smiley: "👍",
+    });
+    const command = recordCalendarCommand.mock.calls[0]?.[0];
+    expect(command?.kind).toBe("appointment.update");
+    if (command?.kind !== "appointment.update") {
+      throw new Error("Expected an appointment update command.");
+    }
+    expect(command.payload.beforeState.smiley).toBeUndefined();
+    expect(command.payload.afterState.smiley).toBe("👍");
+  });
+
   it("serializes overlapping Appointment updates before recording history commands", async () => {
     const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
     const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
@@ -377,6 +478,7 @@ describe("calendar planning workbench", () => {
       makeMutation(toTableId<"appointments">("appointment_unused")),
       makeMutation(toTableId<"appointments">("appointment_restore_unused")),
       firstUpdate.mutation,
+      makeMutation(null),
       makeMutation(null),
       makeMutation(null),
       makeMutation(null),
@@ -478,6 +580,7 @@ describe("calendar planning workbench", () => {
     mutationQueue.push(
       makeMutation(toTableId<"appointments">("appointment_unused")),
       makeMutation(toTableId<"appointments">("appointment_restore_unused")),
+      makeMutation(null),
       makeMutation(null),
       makeMutation(null),
       makeMutation(null),
@@ -587,6 +690,7 @@ describe("calendar planning workbench", () => {
       makeMutation(null),
       makeMutation(null),
       makeMutation(null),
+      makeMutation(null),
       makeMutation(blockedSlotId),
       makeMutation(null),
       makeMutation(null),
@@ -667,6 +771,7 @@ describe("calendar planning workbench", () => {
     mutationQueue.push(
       makeMutation(toTableId<"appointments">("appointment_unused")),
       makeMutation(toTableId<"appointments">("appointment_restore_unused")),
+      makeMutation(null),
       makeMutation(null),
       makeMutation(null),
       makeMutation(null),

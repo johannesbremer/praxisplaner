@@ -248,9 +248,43 @@ interface CreatedBlockedSlotHistoryArgs {
   title: string;
 }
 
+interface OptimisticAppointmentUpdateArgs {
+  appointmentTypeId?: Id<"appointmentTypes">;
+  calendarResourceColumn?: "ekg" | "labor" | null;
+  end?: string;
+  id: Id<"appointments">;
+  isSimulation?: boolean;
+  locationId?: Id<"locations">;
+  patientId?: Id<"patients">;
+  practitionerId?: Id<"practitioners">;
+  replacesAppointmentId?: Id<"appointments">;
+  simulationKind?: "activation-reassignment" | "draft";
+  simulationRuleSetId?: Id<"ruleSets">;
+  smiley?: null | string;
+  start?: string;
+  title?: string;
+  userId?: Id<"users">;
+}
+
 type UpdateAppointmentMutationArgs = FunctionArgs<
   typeof api.appointments.updateAppointment
 >;
+
+const isSmileyOnlyAppointmentUpdate = (args: OptimisticAppointmentUpdateArgs) =>
+  args.smiley !== undefined &&
+  args.appointmentTypeId === undefined &&
+  args.calendarResourceColumn === undefined &&
+  args.end === undefined &&
+  args.isSimulation === undefined &&
+  args.locationId === undefined &&
+  args.patientId === undefined &&
+  args.practitionerId === undefined &&
+  args.replacesAppointmentId === undefined &&
+  args.simulationKind === undefined &&
+  args.simulationRuleSetId === undefined &&
+  args.start === undefined &&
+  args.title === undefined &&
+  args.userId === undefined;
 
 export function useCalendarPlanningWorkbench(args: {
   activeDayAppointmentMapRef: CalendarRecordRef<
@@ -815,6 +849,9 @@ export function useCalendarPlanningWorkbench(args: {
   const updateSimulationAppointmentMutation = useMutation(
     api.appointments.updateSimulationAppointment,
   );
+  const updateSimulationAppointmentSmileyMutation = useMutation(
+    api.appointments.updateSimulationAppointmentSmiley,
+  );
   const updateVacationReassignmentAppointmentMutation = useMutation(
     api.appointments.updateVacationReassignmentAppointment,
   );
@@ -1053,7 +1090,7 @@ export function useCalendarPlanningWorkbench(args: {
       localStore: Parameters<
         Parameters<typeof updateAppointmentMutation.withOptimisticUpdate>[0]
       >[0],
-      optimisticArgs: Parameters<typeof updateAppointmentMutation>[0],
+      optimisticArgs: OptimisticAppointmentUpdateArgs,
     ) => {
       if (!calendarDayQueryArgs) {
         return;
@@ -1245,6 +1282,22 @@ export function useCalendarPlanningWorkbench(args: {
 
   const runUpdateAppointmentInternal = useCallback(
     async (args: Parameters<typeof updateAppointmentMutation>[0]) => {
+      const requestedSmiley = args.smiley;
+      if (
+        calendarDayQueryArgs?.scope === "simulation" &&
+        calendarDayQueryArgs.selectedRuleSetId !== undefined &&
+        requestedSmiley !== undefined &&
+        isSmileyOnlyAppointmentUpdate(args)
+      ) {
+        return await updateSimulationAppointmentSmileyMutation.withOptimisticUpdate(
+          applyOptimisticAppointmentUpdate,
+        )({
+          id: args.id,
+          simulationRuleSetId: calendarDayQueryArgs.selectedRuleSetId,
+          smiley: requestedSmiley,
+        });
+      }
+
       const mutation = getAppointmentUpdateMutation(
         getAppointmentHistoryDoc(args.id),
       );
@@ -1255,8 +1308,10 @@ export function useCalendarPlanningWorkbench(args: {
     },
     [
       applyOptimisticAppointmentUpdate,
+      calendarDayQueryArgs,
       getAppointmentHistoryDoc,
       getAppointmentUpdateMutation,
+      updateSimulationAppointmentSmileyMutation,
     ],
   );
 

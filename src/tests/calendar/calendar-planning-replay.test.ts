@@ -390,6 +390,102 @@ describe("calendar planning replay", () => {
     );
   });
 
+  it("replays smiley-only appointment updates without scheduling fields", async () => {
+    const appointmentId = toTableId<"appointments">("appointment_1");
+    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("type_lineage_1"),
+    );
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const placement = createCalendarPlacement({
+      locationLineageKey,
+      occupancyScope: {
+        calendarResourceColumn: "ekg",
+        kind: "resource",
+      },
+    });
+    const before = buildCalendarAppointmentRecord({
+      _id: appointmentId,
+      appointmentTypeLineageKey,
+      appointmentTypeTitle: "Check-up",
+      end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      placement,
+      practiceId,
+      start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+      title: "Check-up",
+    });
+    const afterSnapshot = {
+      ...before,
+      smiley: "👍",
+    };
+    const runUpdateAppointmentInternal = vi.fn(() => Promise.resolve(null));
+
+    const result = await executeCalendarPlanningCommand(
+      {
+        kind: "appointment.update",
+        label: "Termin-Smiley geändert",
+        payload: {
+          afterSnapshot,
+          afterState: {
+            end: before.end,
+            placement,
+            smiley: "👍",
+            start: before.start,
+          },
+          appointmentId,
+          before,
+          beforeState: {
+            end: before.end,
+            placement,
+            start: before.start,
+          },
+        },
+      },
+      "redo",
+      {
+        ensureLatestConflictData: vi.fn(() => Promise.resolve()),
+        forgetAppointmentHistoryDoc: vi.fn(),
+        forgetBlockedSlotHistoryDoc: vi.fn(),
+        getCurrentAppointmentDoc: () => before,
+        getCurrentBlockedSlotDoc: vi.fn(),
+        hasAppointmentConflict: () => false,
+        hasBlockedSlotConflict: () => false,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map(),
+          appointmentTypeLineageKeyById: new Map(),
+          locationIdByLineageKey: new Map(),
+          locationLineageKeyById: new Map(),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        rememberAppointmentHistoryDoc: vi.fn(),
+        rememberBlockedSlotHistoryDoc: vi.fn(),
+        rememberCreatedAppointmentFromStrings: vi.fn(),
+        rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
+        rememberRecreatedAppointmentId: vi.fn(),
+        rememberRecreatedBlockedSlotId: vi.fn(),
+        resolveAppointmentReferenceDisplayIds: vi.fn(),
+        resolveCurrentAppointmentId: (id) => id,
+        resolveCurrentBlockedSlotId: (id) => id,
+        runCreateAppointmentInternal: vi.fn(),
+        runCreateBlockedSlotInternal: vi.fn(),
+        runDeleteAppointmentInternal: vi.fn(),
+        runDeleteBlockedSlotInternal: vi.fn(),
+        runRestoreDeletedAppointmentInternal: vi.fn(),
+        runUpdateAppointmentInternal,
+        runUpdateBlockedSlotInternal: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({ status: "applied" });
+    expect(runUpdateAppointmentInternal).toHaveBeenCalledWith({
+      id: appointmentId,
+      smiley: "👍",
+    });
+  });
+
   it("treats already-applied appointment update redo as applied", async () => {
     const appointmentId = toTableId<"appointments">("appointment_1");
     const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
