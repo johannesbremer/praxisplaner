@@ -2978,12 +2978,17 @@ export const updateSimulationAppointmentSmiley = mutation({
       throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
     }
     await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
-    if (args.smiley !== null) {
-      await requireConfiguredAppointmentSmiley(ctx.db, {
-        practiceId: existingAppointment.practiceId,
-        ruleSetId: args.simulationRuleSetId,
-        smiley: args.smiley,
-      });
+    const smileyOptions = await getConfiguredAppointmentSmileyOptions(ctx.db, {
+      practiceId: existingAppointment.practiceId,
+      ruleSetId: args.simulationRuleSetId,
+    });
+    if (
+      args.smiley !== null &&
+      !smileyOptions.some((option) => option.emoji === args.smiley)
+    ) {
+      throw new Error(
+        "Der gewählte Termin-Smiley ist für diese Praxis nicht konfiguriert.",
+      );
     }
 
     const now = BigInt(Date.now());

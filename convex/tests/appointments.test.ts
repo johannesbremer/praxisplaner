@@ -4853,6 +4853,56 @@ describe("calendar day appointment queries", () => {
     ).resolves.toBeNull();
   });
 
+  test("simulation smiley removals validate the selected rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignData = await createAppointmentBaseData(t);
+    const authId = "workos_simulation_smiley_removal_rule_set";
+    const userId = await createUser(
+      t,
+      authId,
+      "sim-smiley-removal@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "sim-smiley-removal@example.com",
+      subject: authId,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+    const appointmentId = await insertAppointmentRecord(t, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      userId,
+      window: makeSlotWindow(36),
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: appointmentId,
+        simulationRuleSetId: foreignData.ruleSetId,
+        smiley: null,
+      }),
+    ).rejects.toThrow("Rule set does not belong to this practice");
+
+    const replacements = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_simulationRuleSetId", (q) =>
+          q.eq("simulationRuleSetId", foreignData.ruleSetId),
+        )
+        .collect();
+    });
+    expect(replacements).toHaveLength(0);
+  });
+
   test("restore create allows known historical smileys but rejects arbitrary stale strings", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
