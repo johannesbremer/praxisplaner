@@ -279,6 +279,7 @@ function AppointmentSmileyOptionsEditor({
         handleDraftMutationResult,
         label,
         onRecordCommand,
+        parentRuleSetId: ruleSetReplayTarget.parentRuleSetId,
         practiceId,
         updateOptions,
       });

@@ -29,6 +29,7 @@ interface RecordAppointmentSmileyOptionsCommandParams {
   handleDraftMutationResult: (result: DraftMutationResult) => void;
   label: string;
   onRecordCommand: RecordRuleSetCommand | undefined;
+  parentRuleSetId: Id<"ruleSets">;
   practiceId: Id<"practices">;
   updateOptions: (args: {
     expectedDraftRevision: null | number;
@@ -37,6 +38,11 @@ interface RecordAppointmentSmileyOptionsCommandParams {
     selectedRuleSetId: Id<"ruleSets">;
   }) => Promise<DraftMutationResult & { options: AppointmentSmileyOption[] }>;
 }
+
+const isMissingDraftRevisionMismatch = (error: unknown) =>
+  error instanceof Error &&
+  error.message.includes("[HISTORY:REVISION_MISMATCH]") &&
+  error.message.includes("actual=null");
 
 export function recordAppointmentSmileyOptionsCommand(
   params: RecordAppointmentSmileyOptionsCommandParams,
@@ -53,11 +59,29 @@ export function recordAppointmentSmileyOptionsCommand(
   });
 
   const applyOptions = async (options: AppointmentSmileyOption[]) => {
-    const result = await params.updateOptions({
-      ...params.getCowMutationArgs(),
+    const cowArgs = params.getCowMutationArgs();
+    const mutationArgs = {
+      ...cowArgs,
       options,
       practiceId: params.practiceId,
-    });
+    };
+    let result: DraftMutationResult & { options: AppointmentSmileyOption[] };
+    try {
+      result = await params.updateOptions(mutationArgs);
+    } catch (error: unknown) {
+      if (
+        cowArgs.expectedDraftRevision === null ||
+        !isMissingDraftRevisionMismatch(error)
+      ) {
+        throw error;
+      }
+      result = await params.updateOptions({
+        expectedDraftRevision: null,
+        options,
+        practiceId: params.practiceId,
+        selectedRuleSetId: params.parentRuleSetId,
+      });
+    }
     params.handleDraftMutationResult(result);
     return appliedLedgerResult();
   };

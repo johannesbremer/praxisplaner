@@ -185,4 +185,111 @@ describe("AppointmentSmileyOptionsManagement", () => {
       );
     });
   });
+
+  test("retries redo from the saved parent when the equivalent draft was discarded", async () => {
+    const revisionMismatch = new Error(
+      "[HISTORY:REVISION_MISMATCH] expected=2 actual=null ruleSet=null",
+    );
+    let replay: RuleSetCommandRuntimeAdapter | undefined;
+    const recordCommand: RecordRuleSetCommand = (
+      _command: RuleSetCommand,
+      runtime: RuleSetCommandRuntimeAdapter,
+    ) => {
+      replay = runtime;
+    };
+    updateOptionsMock
+      .mockImplementationOnce((args) => ({
+        draftRevision: 1,
+        options: args.options,
+        ruleSetId: draftRuleSetId,
+      }))
+      .mockImplementationOnce((args) => ({
+        draftRevision: 2,
+        options: args.options,
+        ruleSetId: draftRuleSetId,
+      }))
+      .mockImplementationOnce(() => {
+        throw revisionMismatch;
+      })
+      .mockImplementationOnce((args) => ({
+        draftRevision: 1,
+        options: args.options,
+        ruleSetId: draftRuleSetId,
+      }));
+
+    const { rerender } = render(
+      <AppointmentSmileyOptionsManagement
+        onRecordCommand={recordCommand}
+        practiceId={practiceId}
+        ruleSetReplayTarget={{
+          kind: "saved-parent",
+          parentRuleSetId,
+        }}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Patient wartet" },
+    });
+    fireEvent.blur(screen.getByLabelText("Name"));
+
+    await waitFor(() => {
+      expect(updateOptionsMock).toHaveBeenCalledTimes(1);
+    });
+
+    if (!replay) {
+      throw new Error("Expected smiley options replay to be recorded");
+    }
+
+    rerender(
+      <AppointmentSmileyOptionsManagement
+        onRecordCommand={recordCommand}
+        practiceId={practiceId}
+        ruleSetReplayTarget={{
+          draftRevision: 1,
+          draftRuleSetId,
+          kind: "draft",
+          parentRuleSetId,
+        }}
+      />,
+    );
+    await replay.undo();
+
+    rerender(
+      <AppointmentSmileyOptionsManagement
+        onRecordCommand={recordCommand}
+        practiceId={practiceId}
+        ruleSetReplayTarget={{
+          kind: "saved-parent",
+          parentRuleSetId,
+        }}
+      />,
+    );
+    await replay.redo();
+
+    expect(updateOptionsMock).toHaveBeenNthCalledWith(3, {
+      expectedDraftRevision: 2,
+      options: [
+        {
+          emoji: "👍",
+          id: "arrived",
+          name: "Patient wartet",
+        },
+      ],
+      practiceId,
+      selectedRuleSetId: draftRuleSetId,
+    });
+    expect(updateOptionsMock).toHaveBeenNthCalledWith(4, {
+      expectedDraftRevision: null,
+      options: [
+        {
+          emoji: "👍",
+          id: "arrived",
+          name: "Patient wartet",
+        },
+      ],
+      practiceId,
+      selectedRuleSetId: parentRuleSetId,
+    });
+  });
 });
