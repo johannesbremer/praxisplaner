@@ -1712,6 +1712,7 @@ export function useCalendarPlanningWorkbench(args: {
         ...(deleted.replacesAppointmentId && {
           replacesAppointmentId: deleted.replacesAppointmentId,
         }),
+        ...(deleted.smiley === undefined ? {} : { smiley: deleted.smiley }),
         start: deleted.start,
         title: deleted.title,
       };
