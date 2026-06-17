@@ -19,6 +19,7 @@ colors:
   accent-foreground: "oklch(0.3211 0 0)"
   destructive: "oklch(0.52 0.18 21.9551)"
   destructive-foreground: "oklch(1 0 0)"
+  destructive-muted: "oklch(0.96 0.04 21.9551)"
   border: "oklch(0.58 0.1801 348.1385)"
   input: "oklch(0.9189 0 0)"
   ring: "oklch(0.3 0.12 350.7532)"
@@ -175,7 +176,7 @@ The palette is a playful rose, lemon, and powder-blue preset on a blush clinical
 
 **The Selection Outline Rule.** Selected appointments use the dedicated selection ring token, not the softer info token, so 2px rings remain visible on white surfaces and info-muted fills.
 
-**The Destructive Action Rule.** Destructive is dark enough to work both as white-on-fill button background and as small error text on blush, lemon, or white surfaces.
+**The Destructive Action Rule.** Destructive is dark enough to work both as white-on-fill button background and as small error text on blush, lemon, or white surfaces. Warning banners use an opaque destructive-muted surface, not alpha color, so underlying scheduling content never shows through.
 
 ## 3. Typography
 
