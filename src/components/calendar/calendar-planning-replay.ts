@@ -377,7 +377,7 @@ async function executeAppointmentDeleteCommand(
   await context.ensureLatestConflictData();
   if (
     context.hasAppointmentConflict({
-      end: payload.createEnd,
+      end: payload.deleted.end,
       isSimulation: payload.createArgs.isSimulation ?? false,
       placement: payload.deleted.placement,
       ...(payload.createArgs.replacesAppointmentId && {

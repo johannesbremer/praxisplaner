@@ -935,6 +935,9 @@ describe("calendar planning replay", () => {
       vi.fn<
         CalendarPlanningCommandExecutorContext["rememberRecreatedAppointmentId"]
       >();
+    const hasAppointmentConflict = vi.fn<
+      CalendarPlanningCommandExecutorContext["hasAppointmentConflict"]
+    >(() => false);
 
     const result = await executeCalendarPlanningCommand(
       {
@@ -949,7 +952,7 @@ describe("calendar planning replay", () => {
             start: deleted.start,
             title: deleted.title,
           },
-          createEnd: deleted.end,
+          createEnd: "2026-04-25T10:00:00+02:00[Europe/Berlin]",
           currentAppointmentId: originalAppointmentId,
           deleted,
         },
@@ -961,7 +964,7 @@ describe("calendar planning replay", () => {
         forgetBlockedSlotHistoryDoc: vi.fn(),
         getCurrentAppointmentDoc: vi.fn(),
         getCurrentBlockedSlotDoc: vi.fn(),
-        hasAppointmentConflict: () => false,
+        hasAppointmentConflict,
         hasBlockedSlotConflict: () => false,
         referenceMaps: {
           appointmentTypeIdByLineageKey: new Map(),
@@ -993,6 +996,9 @@ describe("calendar planning replay", () => {
     );
 
     expect(result).toEqual({ status: "applied" });
+    expect(hasAppointmentConflict).toHaveBeenCalledWith(
+      expect.objectContaining({ end: deleted.end }),
+    );
     expect(rememberRecreatedAppointmentId).toHaveBeenCalledWith({
       currentId: recreatedAppointmentId,
       originalId: originalAppointmentId,

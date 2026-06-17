@@ -3326,17 +3326,15 @@ export const updateSimulationAppointmentSmiley = mutation({
       return null;
     }
 
-    const existingReplacements = await ctx.db
+    const existingReplacementsForAppointment = await ctx.db
       .query("appointments")
-      .withIndex("by_practiceId_isSimulation", (q) =>
-        q
-          .eq("practiceId", existingAppointment.practiceId)
-          .eq("isSimulation", true),
+      .withIndex("by_replacesAppointmentId", (q) =>
+        q.eq("replacesAppointmentId", args.id),
       )
       .collect();
-    const replacement = existingReplacements.find(
+    const replacement = existingReplacementsForAppointment.find(
       (appointment) =>
-        appointment.replacesAppointmentId === args.id &&
+        appointment.isSimulation === true &&
         appointment.simulationRuleSetId === args.simulationRuleSetId,
     );
     if (replacement) {
