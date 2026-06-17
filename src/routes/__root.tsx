@@ -26,8 +26,6 @@ import * as React from "react";
 import { useEffect } from "react";
 import { Toaster } from "sonner";
 
-import { ModeToggle } from "@/components/mode-toggle";
-import { ThemeProvider } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -372,20 +370,18 @@ export function PraxisplanerHomePageContent() {
 function RootComponent() {
   return (
     <RootDocument>
-      <ThemeProvider defaultTheme="system" storageKey="praxisplaner-theme">
-        <UndoRedoControlsProvider>
-          <PostHogWrapper>
-            <RootLayout />
-          </PostHogWrapper>
-        </UndoRedoControlsProvider>
-      </ThemeProvider>
+      <UndoRedoControlsProvider>
+        <PostHogWrapper>
+          <RootLayout />
+        </PostHogWrapper>
+      </UndoRedoControlsProvider>
     </RootDocument>
   );
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html>
+    <html className="light">
       <head>
         <HeadContent />
       </head>
@@ -585,7 +581,6 @@ function RootLayout() {
             </Button>
           </>
         ) : null}
-        <ModeToggle />
       </div>
       <Outlet />
     </div>

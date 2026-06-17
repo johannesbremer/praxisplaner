@@ -51,9 +51,9 @@ export function CalendarAppointment({
 
   // Determine border styling based on selection state
   const borderClass = isSelected
-    ? "ring-2 ring-info ring-offset-1 ring-offset-background"
+    ? "ring-2 ring-selection-ring ring-offset-1 ring-offset-background"
     : isRelatedToSelectedPatient
-      ? "ring-2 ring-info/70 ring-offset-1 ring-offset-background"
+      ? "ring-2 ring-selection-ring/70 ring-offset-1 ring-offset-background"
       : "";
 
   return (

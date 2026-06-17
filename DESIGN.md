@@ -2,63 +2,66 @@
 name: Praxisplaner
 description: Clinical scheduling product UI for patient booking and practice operations.
 colors:
-  background: "oklch(0.99 0 0)"
-  foreground: "oklch(0 0 0)"
-  card: "oklch(1 0 0)"
-  card-foreground: "oklch(0 0 0)"
-  popover: "oklch(0.99 0 0)"
-  popover-foreground: "oklch(0 0 0)"
-  primary: "oklch(0 0 0)"
+  background: "oklch(0.9399 0.0203 345.6985)"
+  foreground: "oklch(0.4712 0 0)"
+  card: "oklch(0.9498 0.05 86.8891)"
+  card-foreground: "oklch(0.4712 0 0)"
+  popover: "oklch(1 0 0)"
+  popover-foreground: "oklch(0.4712 0 0)"
+  primary: "oklch(0.58 0.1801 348.1385)"
+  primary-text: "oklch(0.4712 0 0)"
   primary-foreground: "oklch(1 0 0)"
-  secondary: "oklch(0.94 0 0)"
-  secondary-foreground: "oklch(0 0 0)"
-  muted: "oklch(0.97 0 0)"
-  muted-foreground: "oklch(0.44 0 0)"
-  accent: "oklch(0.94 0 0)"
-  accent-foreground: "oklch(0 0 0)"
-  destructive: "oklch(0.63 0.19 23.03)"
+  secondary: "oklch(0.8095 0.0694 198.1863)"
+  secondary-foreground: "oklch(0.3211 0 0)"
+  muted: "oklch(0.88 0.0504 212.0952)"
+  muted-foreground: "oklch(0.4712 0 0)"
+  accent: "oklch(0.9195 0.0801 87.667)"
+  accent-foreground: "oklch(0.3211 0 0)"
+  destructive: "oklch(0.52 0.18 21.9551)"
   destructive-foreground: "oklch(1 0 0)"
-  border: "oklch(0.92 0 0)"
-  input: "oklch(0.94 0 0)"
-  ring: "oklch(0 0 0)"
-  chart-1: "oklch(0.81 0.17 75.35)"
-  chart-2: "oklch(0.55 0.22 264.53)"
-  chart-3: "oklch(0.72 0 0)"
-  chart-4: "oklch(0.92 0 0)"
-  chart-5: "oklch(0.56 0 0)"
+  destructive-muted: "oklch(0.96 0.04 21.9551)"
+  border: "oklch(0.58 0.1801 348.1385)"
+  input: "oklch(0.9189 0 0)"
+  ring: "oklch(0.3 0.12 350.7532)"
+  chart-1: "oklch(0.7002 0.1597 350.7532)"
+  chart-2: "oklch(0.8189 0.0799 212.0892)"
+  chart-3: "oklch(0.9195 0.0801 87.667)"
+  chart-4: "oklch(0.7998 0.111 348.1791)"
+  chart-5: "oklch(0.6197 0.1899 353.9091)"
+  selection-ring: "oklch(0.46 0.16 230)"
 typography:
   display:
-    fontFamily: "Geist, sans-serif"
+    fontFamily: "Poppins, sans-serif"
     fontSize: "2.25rem"
     fontWeight: 700
     lineHeight: 1.1
     letterSpacing: "0em"
   headline:
-    fontFamily: "Geist, sans-serif"
+    fontFamily: "Poppins, sans-serif"
     fontSize: "1.5rem"
     fontWeight: 600
     lineHeight: 1.2
     letterSpacing: "0em"
   title:
-    fontFamily: "Geist, sans-serif"
+    fontFamily: "Poppins, sans-serif"
     fontSize: "1rem"
     fontWeight: 600
     lineHeight: 1
     letterSpacing: "0em"
   body:
-    fontFamily: "Geist, sans-serif"
+    fontFamily: "Poppins, sans-serif"
     fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.5
     letterSpacing: "0em"
   label:
-    fontFamily: "Geist, sans-serif"
+    fontFamily: "Poppins, sans-serif"
     fontSize: "0.875rem"
     fontWeight: 500
     lineHeight: 1.25
     letterSpacing: "0em"
   mono:
-    fontFamily: "Geist Mono, monospace"
+    fontFamily: "Fira Code, monospace"
     fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.5
@@ -67,8 +70,8 @@ rounded:
   xs: "2px"
   sm: "4px"
   md: "6px"
-  lg: "8px"
-  xl: "12px"
+  lg: "6px"
+  xl: "8px"
 spacing:
   unit: "4px"
   xs: "4px"
@@ -123,60 +126,66 @@ components:
 
 ## 1. Overview
 
-**Creative North Star: "Clinical Signal Desk"**
+**Creative North Star: "Playful Clinical Desk"**
 
-Praxisplaner is a clinical product interface for high-trust scheduling work. The system should feel like a precise operations desk: clear surfaces, low visual noise, direct state feedback, and no decorative delay between intent and action.
+Praxisplaner is a clinical product interface for high-trust scheduling work. The system should feel like a precise operations desk with more personality: blush app surfaces, lemon panels, blue secondary controls, direct state feedback, and no decorative delay between intent and action.
 
-The current implementation is built on shadcn New York primitives with Geist, OKLCH neutral tokens, low-radius controls, compact heights, and a restrained black-and-white base. Future visual work should keep that operational density but move away from generic monochrome SaaS minimalism through sharper corners, stronger hierarchy, and one disciplined poppy accent for signal.
+The current implementation is built on shadcn New York primitives with a Poppins/Lora/Fira Code type pairing, OKLCH tokens, compact heights, sharp-ish corners, and blocky rose shadows. Future visual work should keep the product density while preserving strong contrast and clear operational states.
 
 This system rejects generic Vercel-style template polish, over-rounded cards, pill-heavy layouts, decorative gradients, soft ghost-card shadows, playful medical illustrations, and marketing-page composition inside task surfaces.
 
 **Key Characteristics:**
 
 - Product-first density for staff workflows and calm linearity for patient booking.
-- Neutral clinical base with exact contrast, stable borders, and clear focus rings.
-- Poppy accent used as signal, not decoration.
-- Low-radius, precise controls rather than bubbly SaaS softness.
+- Blush-and-lemon base with exact contrast, stable borders, and clear focus rings.
+- Rose primary, powder-blue secondary, and lemon accent used with restraint for actions and state.
+- Compact 0.4rem controls with crisp geometry rather than bubbly SaaS softness.
 - German healthcare copy that names the object and the consequence.
 
 ## 2. Colors
 
-The palette is a monochrome clinical base with semantic state colors and a future high-chroma signal accent reserved for meaningful action and status.
+The palette is a playful rose, lemon, and powder-blue preset on a blush clinical base. Because the source preset is bright, the app uses darker companion tokens where needed to keep normal-size text, focus rings, and thin selected-state outlines accessible.
 
 ### Primary
 
-- **Clinical Ink**: The current primary action and selected-state token. It is black in light mode and white in dark mode, creating maximum contrast for core actions.
-- **Signal Accent**: The system needs a poppy accent color in the next token pass. Use it for primary actions, current context, selected objects, and meaningful status only. Do not use it as decoration or as a general background wash.
+- **Signal Rose**: The primary action and selected-state fill token. It is slightly darker than the pasted preset so white button text clears contrast.
+- **Primary Text**: A text-safe neutral companion for small active labels and booking-progress text.
+- **Clinical Ink**: The primary reading color, kept neutral enough to sit cleanly on blush, lemon, and white surfaces.
 
 ### Secondary
 
-- **Control Gray**: The secondary action and inactive-control layer. It gives controls physical presence without competing with primary actions.
+- **Powder Blue**: The secondary action and inactive-control layer. It gives controls physical presence without competing with the rose primary.
 
 ### Tertiary
 
-- **Chart Amber** and **Chart Blue**: Existing data-visualization accents for charts, comparison, and non-semantic visual differentiation. They are not general brand accents.
+- **Rose, Blue, Lemon, Coral, and Magenta Chart Set**: Supporting data colors from the preset. Use them for charts and non-semantic differentiation. Version graph branch colors may use darker branch-specific variants when a chart color is too light for 2px strokes or dots.
 
 ### Neutral
 
-- **Clinical White**: The main app background and high-trust patient booking surface.
-- **Surface White**: Card and content-panel surface.
-- **Soft Panel Gray**: Muted panels, tab lists, skeletons, and non-selected containers.
-- **Rule Border Gray**: Dividers, table lines, field strokes, and calendar grid structure.
+- **Blush Field**: The main app background and high-trust patient booking surface.
+- **Lemon Surface**: Card and content-panel surface. Use it deliberately so dense staff tools do not become visually noisy.
+- **Powder Panel**: Muted panels, tab lists, skeletons, and non-selected containers with restrained blue chroma.
+- **Rose Rule**: Dividers, table lines, field strokes, and calendar grid structure.
 - **Readable Muted Ink**: Secondary text. Keep it dark enough for WCAG AA, especially on tinted or muted surfaces.
 
 ### Named Rules
 
-**The Signal Rarity Rule.** Poppy accent color must stay rare. If it appears on more than roughly 10% of a product screen, it is no longer signal.
+**The Primary Contrast Rule.** Signal Rose may be used as a fill with white foreground text. Small text that is not inside the fill should use the text-safe primary text token rather than reusing rose as foreground.
 
-**The Clinical Contrast Rule.** Body text, placeholders, labels, and disabled-adjacent explanations must remain readable against their actual surface. Do not soften text into pale gray for elegance.
+**The Clinical Contrast Rule.** Body text, placeholders, labels, disabled-adjacent explanations, and destructive/error copy must remain readable against their actual surface. Do not soften text into pale gray for elegance.
+
+**The Selection Outline Rule.** Selected appointments use the dedicated selection ring token, not the softer info token, so 2px rings remain visible on white surfaces and info-muted fills.
+
+**The Destructive Action Rule.** Destructive is dark enough to work both as white-on-fill button background and as small error text on blush, lemon, or white surfaces. Warning banners use an opaque destructive-muted surface, not alpha color, so underlying scheduling content never shows through.
 
 ## 3. Typography
 
-**Display Font:** Geist, with sans-serif fallback  
-**Body Font:** Geist, with sans-serif fallback  
-**Label/Mono Font:** Geist Mono for logs, technical identifiers, imported file traces, and debugging surfaces
+**Display Font:** Poppins, with sans-serif fallback  
+**Body Font:** Poppins, with sans-serif fallback  
+**Serif Font:** Lora for rare editorial or patient-facing emphasis only  
+**Label/Mono Font:** Fira Code for logs, technical identifiers, imported file traces, and debugging surfaces
 
-**Character:** Geist keeps the product clear, compact, and contemporary without adding a separate brand voice to operational screens. The type system should rely on weight, spacing, and proximity rather than display typography.
+**Character:** Poppins gives the theme a friendlier shape while staying legible in product density. The type system should rely on weight, spacing, and proximity rather than decorative display typography.
 
 ### Hierarchy
 
@@ -189,23 +198,23 @@ The palette is a monochrome clinical base with semantic state colors and a futur
 
 ### Named Rules
 
-**The Product Type Rule.** Do not introduce display fonts into labels, buttons, tables, forms, or calendar cells. Product UI uses one sans family well.
+**The Product Type Rule.** Do not introduce the serif into labels, buttons, tables, forms, or calendar cells. Product UI uses the sans family well.
 
 **The No Fluid UI Type Rule.** Use fixed rem sizes for product UI. Fluid clamp scales belong to marketing surfaces, not dense scheduling tools.
 
 ## 4. Elevation
 
-Praxisplaner is flat by default. Depth comes from borders, tonal layers, sticky headers, and compact shadows for overlays or state feedback. Resting cards and controls should not pair visible borders with wide soft shadows.
+Praxisplaner uses blocky theme shadows sparingly. Depth comes from borders, tonal layers, sticky headers, and the preset's sharp offset shadows for overlays or state feedback. Resting dense work surfaces should not pair every border with a heavy decorative shadow.
 
 ### Shadow Vocabulary
 
-- **Hairline Lift** (`0px 1px 2px 0px hsl(0 0% 0% / 0.09)`): Minimal lift for buttons, inputs, and compact surfaces that need tactile feedback.
-- **Panel Lift** (`0px 1px 2px 0px hsl(0 0% 0% / 0.18), 0px 2px 4px -1px hsl(0 0% 0% / 0.18)`): Menus, popovers, dialogs, and surfaces that must sit over the task.
-- **Strong Overlay Lift** (`0px 1px 2px 0px hsl(0 0% 0% / 0.18), 0px 8px 10px -1px hsl(0 0% 0% / 0.18)`): Rare overlay or drag state only.
+- **Block Lift** (`3px 3px 0px 0px hsl(325.78 58.18% 56.86% / 1)`): The theme's primary tactile shadow for buttons, popovers, and selected surfaces.
+- **Panel Lift** (`3px 3px 0px 0px hsl(325.78 58.18% 56.86% / 1), 3px 2px 4px -1px hsl(325.78 58.18% 56.86% / 1)`): Menus, popovers, dialogs, and surfaces that must sit over the task.
+- **Strong Overlay Lift** (`3px 3px 0px 0px hsl(325.78 58.18% 56.86% / 1), 3px 8px 10px -1px hsl(325.78 58.18% 56.86% / 1)`): Rare overlay or drag state only.
 
 ### Named Rules
 
-**The Flat Workbench Rule.** Surfaces are flat at rest. If a shadow is visible from across the room, it is too decorative for this product.
+**The Block Shadow Rule.** The offset shadow is a brand accent, not a default card treatment. Use it where tactile affordance matters.
 
 **The No Ghost Card Rule.** Never combine a 1px border with a wide decorative drop shadow. Pick border structure or compact lift, not both.
 
@@ -213,27 +222,27 @@ Praxisplaner is flat by default. Depth comes from borders, tonal layers, sticky 
 
 ### Buttons
 
-- **Shape:** Low-radius rectangles (6px). Keep buttons crisp, not pill-like.
-- **Primary:** Clinical Ink background with primary foreground, 36px height, 16px horizontal padding, medium label weight.
+- **Shape:** Compact moderate-radius rectangles. Keep buttons crisp, not pill-like.
+- **Primary:** Signal Rose background with white foreground, 36px height, 16px horizontal padding, medium label weight.
 - **Hover / Focus:** Hover may reduce opacity or shift the background token slightly. Focus must use the visible 3px ring treatment.
 - **Secondary / Ghost / Outline:** Secondary uses Control Gray. Outline uses a border and background surface. Ghost appears only where the surrounding structure already makes the action clear.
 
 ### Chips
 
-- **Style:** Badges use 6px radius, compact x-padding, and a text-xs label. Primary badges are for strong status, secondary badges for supporting metadata.
+- **Style:** Badges use the moderate preset radius, compact x-padding, and a text-xs label. Primary badges are for strong status, secondary badges for supporting metadata.
 - **State:** Selected or active chips may use the signal accent once it exists. Do not make every metadata tag colorful.
 
 ### Cards / Containers
 
-- **Corner Style:** Current cards use 12px radius. Future product work should bias sharper for dense workbench surfaces, reserving 12px for larger patient-facing containers.
-- **Background:** Cards use Surface White on Clinical White, with muted panels for nested context.
-- **Shadow Strategy:** Use the Flat Workbench Rule. Cards at rest should rely on border and spacing before shadow.
-- **Border:** 1px Rule Border Gray for structure.
+- **Corner Style:** Current containers use the moderate preset radius. Do not push cards into pill-like or over-rounded shapes.
+- **Background:** Cards use Lemon Surface on Blush Field, with powder panels for nested context.
+- **Shadow Strategy:** Use the Block Shadow Rule. Cards at rest should rely on border and spacing before shadow.
+- **Border:** 1px Rose Rule for structure.
 - **Internal Padding:** 24px for full cards, 12-16px for dense operational modules.
 
 ### Inputs / Fields
 
-- **Style:** 36px height, 6px radius, 1px input border, transparent or background surface, 12px horizontal padding.
+- **Style:** 36px height, moderate corners, 1px input border, transparent or background surface, 12px horizontal padding.
 - **Focus:** Border shifts to ring color with the standard 3px focus ring.
 - **Error / Disabled:** Error uses destructive border and ring tint. Disabled controls reduce opacity but must preserve label readability.
 
@@ -251,8 +260,8 @@ Calendar grids, rule diffs, version graphs, and booking simulations are signatur
 ### Do:
 
 - **Do** keep the default register product-first: dense, calm, and task-oriented.
-- **Do** use the future poppy accent only for primary action, selection, current context, and meaningful status.
-- **Do** keep corners sharp and intentional: 6px for controls, 8-12px for larger containers, never bubbly by default.
+- **Do** use primary color for primary action, selection, current context, and meaningful status.
+- **Do** keep corners compact and intentional, never bubbly by default.
 - **Do** preserve strong keyboard focus and WCAG 2.2 AA contrast across booking and staff workflows.
 - **Do** use borders, tonal panels, and sticky structure to explain scheduling logic before adding visual effects.
 
