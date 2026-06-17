@@ -1206,13 +1206,13 @@ function LogicView() {
 
       {currentWorkingRuleSet && isShowingUnsavedRuleSet && (
         <div className="sticky top-3 z-40 mb-6">
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 rounded-md border border-destructive/30 bg-warning-muted px-4 py-3 text-warning-foreground">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-destructive dark:border-destructive/70 dark:bg-destructive/60 dark:text-white">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="min-w-0">
                 <div className="text-sm font-semibold">
                   Ungespeicherte Änderungen
                 </div>
-                <div className="text-sm text-warning-foreground/80">
+                <div className="text-sm text-current/90">
                   Dieses Regelset enthält Änderungen gegenüber dem
                   übergeordneten Regelset, die noch nicht gespeichert wurden.
                 </div>

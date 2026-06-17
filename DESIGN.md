@@ -17,7 +17,7 @@ colors:
   muted-foreground: "oklch(0.4712 0 0)"
   accent: "oklch(0.9195 0.0801 87.667)"
   accent-foreground: "oklch(0.3211 0 0)"
-  destructive: "oklch(0.7091 0.1697 21.9551)"
+  destructive: "oklch(0.52 0.18 21.9551)"
   destructive-foreground: "oklch(1 0 0)"
   border: "oklch(0.58 0.1801 348.1385)"
   input: "oklch(0.9189 0 0)"
@@ -171,9 +171,11 @@ The palette is a playful rose, lemon, and powder-blue preset on a blush clinical
 
 **The Primary Contrast Rule.** Signal Rose may be used as a fill with white foreground text. Small text that is not inside the fill should use the text-safe primary text token rather than reusing rose as foreground.
 
-**The Clinical Contrast Rule.** Body text, placeholders, labels, and disabled-adjacent explanations must remain readable against their actual surface. Do not soften text into pale gray for elegance.
+**The Clinical Contrast Rule.** Body text, placeholders, labels, disabled-adjacent explanations, and destructive/error copy must remain readable against their actual surface. Do not soften text into pale gray for elegance.
 
 **The Selection Outline Rule.** Selected appointments use the dedicated selection ring token, not the softer info token, so 2px rings remain visible on white surfaces and info-muted fills.
+
+**The Destructive Action Rule.** Destructive is dark enough in light mode to work both as white-on-fill button background and as small error text on blush, lemon, or white surfaces. Dark-mode destructive surfaces may use the same translucent pink fill as destructive buttons.
 
 ## 3. Typography
 
