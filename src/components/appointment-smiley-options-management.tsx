@@ -62,6 +62,9 @@ interface SmileyOptionsEditorState {
   sourceKey: string;
 }
 
+const EMPTY_APPOINTMENT_SMILEY_OPTIONS: AppointmentSmileyOption[] = [];
+const EMPTY_DRAFT_SMILEY_OPTIONS: DraftSmileyOption[] = [];
+
 const formatSmileyOptionLine = (option: AppointmentSmileyOption) =>
   `${option.emoji} ${option.name}`;
 
@@ -127,6 +130,30 @@ const createEditorState = (
   sourceKey,
 });
 
+const createInitialEditorState = (
+  initialOptions: AppointmentSmileyOption[] | undefined,
+  initialOptionsKey: null | string,
+) => {
+  if (initialOptions === undefined || initialOptionsKey === null) {
+    return null;
+  }
+  return createEditorState(initialOptions, initialOptionsKey);
+};
+
+const resolveActiveEditorState = (args: {
+  currentState: null | SmileyOptionsEditorState;
+  initialOptions: AppointmentSmileyOption[] | undefined;
+  initialOptionsKey: null | string;
+}) => {
+  if (args.initialOptions === undefined || args.initialOptionsKey === null) {
+    return args.currentState;
+  }
+  if (args.currentState?.sourceKey === args.initialOptionsKey) {
+    return args.currentState;
+  }
+  return createEditorState(args.initialOptions, args.initialOptionsKey);
+};
+
 export function AppointmentSmileyOptionsManagement({
   onDraftMutation,
   onRecordCommand,
@@ -149,21 +176,14 @@ export function AppointmentSmileyOptionsManagement({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {options === undefined ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Smileys werden geladen...</span>
-          </div>
-        ) : (
-          <AppointmentSmileyOptionsEditor
-            initialOptions={options}
-            {...(onRecordCommand && { onRecordCommand })}
-            {...(onDraftMutation && { onDraftMutation })}
-            {...(onRuleSetCreated && { onRuleSetCreated })}
-            practiceId={practiceId}
-            ruleSetReplayTarget={ruleSetReplayTarget}
-          />
-        )}
+        <AppointmentSmileyOptionsEditor
+          initialOptions={options}
+          {...(onRecordCommand && { onRecordCommand })}
+          {...(onDraftMutation && { onDraftMutation })}
+          {...(onRuleSetCreated && { onRuleSetCreated })}
+          practiceId={practiceId}
+          ruleSetReplayTarget={ruleSetReplayTarget}
+        />
       </CardContent>
     </Card>
   );
@@ -177,7 +197,7 @@ function AppointmentSmileyOptionsEditor({
   practiceId,
   ruleSetReplayTarget,
 }: {
-  initialOptions: AppointmentSmileyOption[];
+  initialOptions: AppointmentSmileyOption[] | undefined;
   onDraftMutation?: (result: DraftMutationResult) => void;
   onRecordCommand?: RecordRuleSetCommand;
   onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
@@ -198,26 +218,38 @@ function AppointmentSmileyOptionsEditor({
     });
   const [pending, setPending] = useState(false);
   const initialOptionsKey = useMemo(
-    () => createOptionsSourceKey(initialOptions),
+    () =>
+      initialOptions === undefined
+        ? null
+        : createOptionsSourceKey(initialOptions),
     [initialOptions],
   );
   const [editorState, setEditorState] = useState(() =>
-    createEditorState(initialOptions, initialOptionsKey),
+    createInitialEditorState(initialOptions, initialOptionsKey),
   );
-  const activeEditorState =
-    editorState.sourceKey === initialOptionsKey
-      ? editorState
-      : createEditorState(initialOptions, initialOptionsKey);
-  const { committedOptions, draftOptions, error } = activeEditorState;
+  const activeEditorState = resolveActiveEditorState({
+    currentState: editorState,
+    initialOptions,
+    initialOptionsKey,
+  });
+  const committedOptions =
+    activeEditorState?.committedOptions ?? EMPTY_APPOINTMENT_SMILEY_OPTIONS;
+  const draftOptions =
+    activeEditorState?.draftOptions ?? EMPTY_DRAFT_SMILEY_OPTIONS;
+  const error = activeEditorState?.error ?? null;
 
   const updateActiveEditorState = (
     update: (state: SmileyOptionsEditorState) => SmileyOptionsEditorState,
   ) => {
     setEditorState((currentState) => {
-      const baseState =
-        currentState.sourceKey === initialOptionsKey
-          ? currentState
-          : createEditorState(initialOptions, initialOptionsKey);
+      const baseState = resolveActiveEditorState({
+        currentState,
+        initialOptions,
+        initialOptionsKey,
+      });
+      if (baseState === null) {
+        return baseState;
+      }
       return update(baseState);
     });
   };
@@ -226,11 +258,8 @@ function AppointmentSmileyOptionsEditor({
     updateActiveEditorState((state) => ({ ...state, error: nextError }));
   };
 
-  const completeOptions = useMemo(
-    () => toCommittedOptions(draftOptions),
-    [draftOptions],
-  );
-  const duplicateEmojis = useMemo(() => {
+  const completeOptions = toCommittedOptions(draftOptions);
+  const duplicateEmojis = (() => {
     const seen = new Set<string>();
     const duplicates = new Set<string>();
     for (const option of completeOptions) {
@@ -241,9 +270,18 @@ function AppointmentSmileyOptionsEditor({
       }
     }
     return duplicates;
-  }, [completeOptions]);
+  })();
   const validationMessage =
     duplicateEmojis.size > 0 ? "Jedes Emoji darf nur einmal vorkommen." : null;
+
+  if (activeEditorState === null) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        <span>Smileys werden geladen...</span>
+      </div>
+    );
+  }
 
   const commitOptions = async (
     nextRows: DraftSmileyOption[],
@@ -269,7 +307,7 @@ function AppointmentSmileyOptionsEditor({
       });
       handleDraftMutationResult(savedOptions);
       setEditorState(
-        createEditorState(savedOptions.options, initialOptionsKey),
+        createEditorState(savedOptions.options, initialOptionsKey ?? undefined),
       );
       recordAppointmentSmileyOptionsCommand({
         afterOptions: savedOptions.options,
@@ -279,7 +317,6 @@ function AppointmentSmileyOptionsEditor({
         handleDraftMutationResult,
         label,
         onRecordCommand,
-        parentRuleSetId: ruleSetReplayTarget.parentRuleSetId,
         practiceId,
         updateOptions,
       });
@@ -380,7 +417,7 @@ function AppointmentSmileyOptionsEditor({
                             type="button"
                             variant="outline"
                           >
-                            {option.emoji || "😀"}
+                            {option.emoji || <Plus className="h-4 w-4" />}
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent align="start" className="h-80 w-80 p-0">

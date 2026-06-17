@@ -36,7 +36,7 @@ const updateOptionsMock = vi.fn(
   },
 );
 
-const useQueryMock = vi.fn((): AppointmentSmileyOption[] => [
+const useQueryMock = vi.fn((): AppointmentSmileyOption[] | undefined => [
   {
     emoji: "👍",
     id: "arrived",
@@ -186,10 +186,7 @@ describe("AppointmentSmileyOptionsManagement", () => {
     });
   });
 
-  test("retries redo from the saved parent when the equivalent draft was discarded", async () => {
-    const revisionMismatch = new Error(
-      "[HISTORY:REVISION_MISMATCH] expected=2 actual=null ruleSet=null",
-    );
+  test("keeps replay CoW args fresh while smiley options refetch", async () => {
     let replay: RuleSetCommandRuntimeAdapter | undefined;
     const recordCommand: RecordRuleSetCommand = (
       _command: RuleSetCommand,
@@ -197,25 +194,13 @@ describe("AppointmentSmileyOptionsManagement", () => {
     ) => {
       replay = runtime;
     };
-    updateOptionsMock
-      .mockImplementationOnce((args) => ({
-        draftRevision: 1,
-        options: args.options,
-        ruleSetId: draftRuleSetId,
-      }))
-      .mockImplementationOnce((args) => ({
-        draftRevision: 2,
-        options: args.options,
-        ruleSetId: draftRuleSetId,
-      }))
-      .mockImplementationOnce(() => {
-        throw revisionMismatch;
-      })
-      .mockImplementationOnce((args) => ({
-        draftRevision: 1,
-        options: args.options,
-        ruleSetId: draftRuleSetId,
-      }));
+    useQueryMock.mockReturnValueOnce([
+      {
+        emoji: "👍",
+        id: "arrived",
+        name: "Patient ist angekommen",
+      },
+    ]);
 
     const { rerender } = render(
       <AppointmentSmileyOptionsManagement
@@ -228,6 +213,7 @@ describe("AppointmentSmileyOptionsManagement", () => {
       />,
     );
 
+    expect(screen.queryByText("Smileys werden geladen...")).toBeNull();
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "Patient wartet" },
     });
@@ -241,23 +227,42 @@ describe("AppointmentSmileyOptionsManagement", () => {
       throw new Error("Expected smiley options replay to be recorded");
     }
 
+    const loadingResults: (AppointmentSmileyOption[] | undefined)[] = [];
+    useQueryMock.mockImplementationOnce(() => loadingResults[0]);
     rerender(
       <AppointmentSmileyOptionsManagement
         onRecordCommand={recordCommand}
         practiceId={practiceId}
         ruleSetReplayTarget={{
-          draftRevision: 1,
+          draftRevision: 3,
           draftRuleSetId,
           kind: "draft",
           parentRuleSetId,
         }}
       />,
     );
+
+    expect(screen.queryByText("Smileys werden geladen...")).toBeNull();
     await replay.undo();
 
-    rerender(
+    expect(updateOptionsMock).toHaveBeenCalledTimes(2);
+    expect(updateOptionsMock).toHaveBeenLastCalledWith({
+      expectedDraftRevision: 3,
+      options: [
+        {
+          emoji: "👍",
+          id: "arrived",
+          name: "Patient ist angekommen",
+        },
+      ],
+      practiceId,
+      selectedRuleSetId: draftRuleSetId,
+    });
+  });
+
+  test("shows a plus icon for empty emoji rows", () => {
+    render(
       <AppointmentSmileyOptionsManagement
-        onRecordCommand={recordCommand}
         practiceId={practiceId}
         ruleSetReplayTarget={{
           kind: "saved-parent",
@@ -265,31 +270,9 @@ describe("AppointmentSmileyOptionsManagement", () => {
         }}
       />,
     );
-    await replay.redo();
 
-    expect(updateOptionsMock).toHaveBeenNthCalledWith(3, {
-      expectedDraftRevision: 2,
-      options: [
-        {
-          emoji: "👍",
-          id: "arrived",
-          name: "Patient wartet",
-        },
-      ],
-      practiceId,
-      selectedRuleSetId: draftRuleSetId,
-    });
-    expect(updateOptionsMock).toHaveBeenNthCalledWith(4, {
-      expectedDraftRevision: null,
-      options: [
-        {
-          emoji: "👍",
-          id: "arrived",
-          name: "Patient wartet",
-        },
-      ],
-      practiceId,
-      selectedRuleSetId: parentRuleSetId,
-    });
+    fireEvent.click(screen.getByText("Zeile hinzufügen"));
+
+    expect(screen.queryByText("😀")).toBeNull();
   });
 });
