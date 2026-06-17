@@ -947,7 +947,7 @@ function AuthenticatedBookingFlow() {
                           ? "text-primary-text font-medium"
                           : STEP_GROUP_ORDER.indexOf(group) <
                               STEP_GROUP_ORDER.indexOf(currentGroup)
-                            ? "text-primary-text/80"
+                            ? "text-primary-text"
                             : "text-muted-foreground"
                       }`}
                     >
