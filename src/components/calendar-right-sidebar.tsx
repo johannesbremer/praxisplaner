@@ -56,7 +56,7 @@ import {
 } from "./patient-selection-panel";
 
 type AppointmentSmileyOption =
-  (typeof api.practices.getAppointmentSmileyOptions)["_returnType"][number];
+  (typeof api.ruleSets.getAppointmentSmileyOptionsForRuleSet)["_returnType"][number];
 
 // Appointment type for the sidebar list
 export type SidebarAppointment = AppointmentResult;
@@ -75,6 +75,7 @@ interface CalendarRightSidebarProps {
   patient?: PatientInfo | undefined;
   patientAppointments?: SidebarAppointment[] | undefined;
   practiceId?: Id<"practices"> | undefined;
+  ruleSetId?: Id<"ruleSets"> | undefined;
   selectedAppointmentId?: Id<"appointments"> | undefined;
   selectedPatientId?: Id<"patients"> | undefined;
   selectedSeriesId?: string | undefined;
@@ -142,6 +143,7 @@ export function CalendarRightSidebar({
   patient,
   patientAppointments,
   practiceId,
+  ruleSetId,
   selectedAppointmentId,
   selectedPatientId,
   selectedSeriesId,
@@ -217,6 +219,7 @@ export function CalendarRightSidebar({
                   patientAppointments={patientAppointments}
                   patientDisplayName={patientDisplayName}
                   practiceId={practiceId}
+                  ruleSetId={ruleSetId}
                   selectedAppointmentId={selectedAppointmentId}
                   selectedPatientId={selectedPatientId}
                   selectedSeriesId={selectedSeriesId}
@@ -263,6 +266,7 @@ export function CalendarRightSidebar({
                 patientAppointments={patientAppointments}
                 patientDisplayName={patientDisplayName}
                 practiceId={practiceId}
+                ruleSetId={ruleSetId}
                 selectedAppointmentId={selectedAppointmentId}
                 selectedPatientId={selectedPatientId}
                 selectedSeriesId={selectedSeriesId}
@@ -486,6 +490,7 @@ function RightSidebarContent({
   patientAppointments,
   patientDisplayName,
   practiceId,
+  ruleSetId,
   selectedAppointmentId,
   selectedPatientId,
   selectedSeriesId,
@@ -505,6 +510,7 @@ function RightSidebarContent({
   patientAppointments: SidebarAppointment[] | undefined;
   patientDisplayName: string;
   practiceId: Id<"practices"> | undefined;
+  ruleSetId: Id<"ruleSets"> | undefined;
   selectedAppointmentId: Id<"appointments"> | undefined;
   selectedPatientId: Id<"patients"> | undefined;
   selectedSeriesId: string | undefined;
@@ -512,10 +518,18 @@ function RightSidebarContent({
 }) {
   const [pendingSmileyAppointmentId, startSmileyTransition] =
     React.useTransition();
-  const appointmentSmileyOptions = useQuery(
-    api.practices.getAppointmentSmileyOptions,
-    practiceId ? { practiceId } : "skip",
+  const ruleSetAppointmentSmileyOptions = useQuery(
+    api.ruleSets.getAppointmentSmileyOptionsForRuleSet,
+    practiceId && ruleSetId ? { practiceId, ruleSetId } : "skip",
   );
+  const practiceAppointmentSmileyOptions = useQuery(
+    api.practices.getAppointmentSmileyOptions,
+    practiceId && !ruleSetId ? { practiceId } : "skip",
+  );
+  const appointmentSmileyOptions =
+    ruleSetId === undefined
+      ? practiceAppointmentSmileyOptions
+      : ruleSetAppointmentSmileyOptions;
   const updateAppointmentSmiley = useMutation(
     api.appointments.updateAppointmentSmiley,
   );

@@ -170,6 +170,7 @@ function AppointmentSmileyOptionsEditor({
 }) {
   const ruleSetId = ruleSetIdFromReplayTarget(ruleSetReplayTarget);
   const nextLocalId = useRef(initialOptions.length);
+  const rowRemovalIntentRef = useRef(new Set<string>());
   const updateOptions = useMutation(
     api.ruleSets.updateAppointmentSmileyOptionsForRuleSet,
   );
@@ -316,6 +317,7 @@ function AppointmentSmileyOptionsEditor({
   };
 
   const removeRow = (localId: string) => {
+    rowRemovalIntentRef.current.delete(localId);
     const nextRows = draftOptions.filter(
       (option) => option.localId !== localId,
     );
@@ -402,6 +404,9 @@ function AppointmentSmileyOptionsEditor({
                         aria-label="Name"
                         disabled={pending}
                         onBlur={() => {
+                          if (rowRemovalIntentRef.current.has(option.localId)) {
+                            return;
+                          }
                           commitRow(option.localId, "Termin-Smiley geändert");
                         }}
                         onChange={(event) => {
@@ -423,6 +428,9 @@ function AppointmentSmileyOptionsEditor({
                         disabled={pending}
                         onClick={() => {
                           removeRow(option.localId);
+                        }}
+                        onPointerDown={() => {
+                          rowRemovalIntentRef.current.add(option.localId);
                         }}
                         size="icon"
                         type="button"

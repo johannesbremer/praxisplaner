@@ -158,6 +158,7 @@ interface TemporaryAppointmentOwner {
 }
 
 interface TrustedAppointmentInput {
+  allowHistoricalSmiley?: boolean;
   allowUnrelatedUserId?: boolean;
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
@@ -309,6 +310,7 @@ function appointmentChainError(code: string, message: string) {
 }
 
 function asTrustedAppointmentInput(args: {
+  allowHistoricalSmiley?: boolean;
   allowUnrelatedUserId?: boolean;
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
@@ -463,6 +465,25 @@ async function getAppointmentSeriesRecord(
     .query("appointmentSeries")
     .withIndex("by_seriesId", (q) => q.eq("seriesId", seriesId))
     .first();
+}
+
+async function getConfiguredAppointmentSmileyOptions(
+  db: DatabaseReader,
+  args: {
+    practiceId: Id<"practices">;
+    ruleSetId?: Id<"ruleSets">;
+  },
+) {
+  if (args.ruleSetId !== undefined) {
+    const ruleSet = await db.get("ruleSets", args.ruleSetId);
+    if (ruleSet?.practiceId !== args.practiceId) {
+      throw new Error("Rule set does not belong to this practice");
+    }
+    return ruleSet.appointmentSmileyOptions ?? [];
+  }
+
+  const practice = await db.get("practices", args.practiceId);
+  return practice?.appointmentSmileyOptions ?? [];
 }
 
 async function getSeriesAppointments(
@@ -662,11 +683,11 @@ async function requireConfiguredAppointmentSmiley(
   db: DatabaseReader,
   args: {
     practiceId: Id<"practices">;
+    ruleSetId?: Id<"ruleSets">;
     smiley: AppointmentSmiley;
   },
 ) {
-  const practice = await db.get("practices", args.practiceId);
-  const options = practice?.appointmentSmileyOptions ?? [];
+  const options = await getConfiguredAppointmentSmileyOptions(db, args);
   if (!options.some((option) => option.emoji === args.smiley)) {
     throw new Error(
       "Der gewählte Termin-Smiley ist für diese Praxis nicht konfiguriert.",
@@ -692,6 +713,38 @@ function requireEntityUsableForNewAppointment<
     );
   }
   return params.entity;
+}
+
+async function requireKnownAppointmentSmiley(
+  db: DatabaseReader,
+  args: {
+    practiceId: Id<"practices">;
+    smiley: AppointmentSmiley;
+  },
+) {
+  const practice = await db.get("practices", args.practiceId);
+  const activeOptions = practice?.appointmentSmileyOptions ?? [];
+  if (activeOptions.some((option) => option.emoji === args.smiley)) {
+    return;
+  }
+
+  const ruleSets = await db
+    .query("ruleSets")
+    .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
+    .collect();
+  if (
+    ruleSets.some((ruleSet) =>
+      (ruleSet.appointmentSmileyOptions ?? []).some(
+        (option) => option.emoji === args.smiley,
+      ),
+    )
+  ) {
+    return;
+  }
+
+  throw new Error(
+    "Der gewählte Termin-Smiley ist in dieser Praxis nicht bekannt.",
+  );
 }
 
 async function resolveAppointmentTypeForDisplayRuleSet(
@@ -1584,6 +1637,7 @@ export const createAppointmentSeries = mutation({
 export async function createAppointmentFromTrustedSource(
   ctx: MutationCtx,
   rawArgs: {
+    allowHistoricalSmiley?: boolean;
     allowUnrelatedUserId?: boolean;
     appointmentTypeId: Id<"appointmentTypes">;
     bookingIdentityId?: Id<"bookingIdentities">;
@@ -1611,6 +1665,7 @@ export async function createAppointmentFromTrustedSource(
   const args = asTrustedAppointmentInput(rawArgs);
   const now = BigInt(Date.now());
   const {
+    allowHistoricalSmiley,
     allowUnrelatedUserId,
     appointmentTypeId,
     calendarResourceColumn,
@@ -1638,13 +1693,6 @@ export async function createAppointmentFromTrustedSource(
       "Eine explizite Endzeit kann nur für simulierte Ersatztermine gesetzt werden.",
     );
   }
-  if (smiley !== undefined) {
-    await requireConfiguredAppointmentSmiley(ctx.db, {
-      practiceId,
-      smiley,
-    });
-  }
-
   const owner = parseAppointmentOwner(args);
   const allowsMissingLinkedRecords =
     isSimulation === true && replacesAppointmentId !== undefined;
@@ -1714,6 +1762,22 @@ export async function createAppointmentFromTrustedSource(
     isSimulation === true
       ? (simulationRuleSetId ?? activeAppointmentType.ruleSetId)
       : undefined;
+  if (smiley !== undefined) {
+    if (allowHistoricalSmiley === true) {
+      await requireKnownAppointmentSmiley(ctx.db, {
+        practiceId,
+        smiley,
+      });
+    } else {
+      await requireConfiguredAppointmentSmiley(ctx.db, {
+        practiceId,
+        ...(resolvedSimulationRuleSetId === undefined
+          ? {}
+          : { ruleSetId: resolvedSimulationRuleSetId }),
+        smiley,
+      });
+    }
+  }
 
   const storedReferences = await resolveStoredAppointmentReferencesForWrite(
     ctx.db,
@@ -1978,6 +2042,7 @@ async function validateAppointmentSeriesOwnerRefs(
 // Mutation to create a new appointment
 export const createAppointment = mutation({
   args: {
+    allowHistoricalSmiley: v.optional(v.boolean()),
     appointmentTypeId: v.id("appointmentTypes"),
     bookingIdentityId: v.optional(v.id("bookingIdentities")),
     calendarResourceColumn: v.optional(calendarResourceColumnValidator),
@@ -2916,6 +2981,7 @@ export const updateSimulationAppointmentSmiley = mutation({
     if (args.smiley !== null) {
       await requireConfiguredAppointmentSmiley(ctx.db, {
         practiceId: existingAppointment.practiceId,
+        ruleSetId: args.simulationRuleSetId,
         smiley: args.smiley,
       });
     }

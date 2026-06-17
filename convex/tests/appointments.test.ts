@@ -4798,4 +4798,111 @@ describe("calendar day appointment queries", () => {
       status: "AVAILABLE",
     });
   });
+
+  test("simulation smiley edits validate against the selected rule set options", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_simulation_smiley_options";
+    const userId = await createUser(t, authId, "sim-smiley@example.com");
+    const authed = t.withIdentity({
+      email: "sim-smiley@example.com",
+      subject: authId,
+    });
+    const draftRuleSetId = await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      return await ctx.db.insert("ruleSets", {
+        appointmentSmileyOptions: [
+          { emoji: "🧪", id: "draft-marker", name: "Draft marker" },
+        ],
+        createdAt: Date.now(),
+        description: "Draft smileys",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        simulationRuleSetId: draftRuleSetId,
+        start: makeSlotWindow(35).start,
+        title: "Simulation",
+        userId,
+      },
+    );
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: appointmentId,
+        simulationRuleSetId: draftRuleSetId,
+        smiley: "🧪",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  test("restore create allows known historical smileys but rejects arbitrary stale strings", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_historical_smiley_restore";
+    const userId = await createUser(t, authId, "historical-smiley@example.com");
+    const authed = t.withIdentity({
+      email: "historical-smiley@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("ruleSets", baseData.ruleSetId, {
+        appointmentSmileyOptions: [
+          { emoji: "😴", id: "old-marker", name: "Historical marker" },
+        ],
+      });
+    });
+
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        allowHistoricalSmiley: true,
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        smiley: "😴",
+        start: makeSlotWindow(36).start,
+        title: "Restored",
+        userId,
+      }),
+    ).resolves.toEqual(expect.any(String));
+
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        allowHistoricalSmiley: true,
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        smiley: "not-a-configured-marker",
+        start: makeSlotWindow(37).start,
+        title: "Forged",
+        userId,
+      }),
+    ).rejects.toThrow("nicht bekannt");
+  });
 });

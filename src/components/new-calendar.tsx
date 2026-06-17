@@ -789,6 +789,7 @@ export function NewCalendar({
               patient={activePatient}
               patientAppointments={patientAppointments}
               practiceId={practiceId}
+              ruleSetId={ruleSetId}
               selectedAppointmentId={selectedAppointmentId}
               selectedPatientId={activeSelectedPatientId}
               selectedSeriesId={selectedSeriesId}
