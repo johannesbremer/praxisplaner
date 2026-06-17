@@ -309,6 +309,22 @@ function appointmentChainError(code: string, message: string) {
   return new ConvexError({ code, message });
 }
 
+function appointmentOccupancyScopeEqual(
+  left: AppointmentDoc["occupancyScope"],
+  right: AppointmentDoc["occupancyScope"],
+) {
+  if (left.kind !== right.kind) {
+    return false;
+  }
+  if (left.kind === "practitioner" && right.kind === "practitioner") {
+    return left.practitionerLineageKey === right.practitionerLineageKey;
+  }
+  if (left.kind === "resource" && right.kind === "resource") {
+    return left.calendarResourceColumn === right.calendarResourceColumn;
+  }
+  return true;
+}
+
 function asTrustedAppointmentInput(args: {
   allowHistoricalSmiley?: boolean;
   allowUnrelatedUserId?: boolean;
@@ -631,6 +647,10 @@ async function mapBlockedSlotsForDisplay(
   );
 }
 
+function optionalFieldEqual<T>(left: T | undefined, right: T | undefined) {
+  return left === right;
+}
+
 function parseAppointmentOwner(args: AppointmentOwnerInput): AppointmentOwner {
   const hasLinkedOwner =
     args.bookingIdentityId !== undefined ||
@@ -818,6 +838,46 @@ async function resolvePreferredAppointmentPatientDateOfBirth(
   }
 
   return args.provisionalDateOfBirth;
+}
+
+function simulationReplacementMatchesRealAppointment(
+  replacement: AppointmentDoc,
+  real: AppointmentDoc,
+  replacementSmiley: AppointmentSmiley | undefined,
+) {
+  return (
+    replacement.appointmentTypeLineageKey === real.appointmentTypeLineageKey &&
+    replacement.appointmentTypeTitle === real.appointmentTypeTitle &&
+    optionalFieldEqual(replacement.bookingIdentityId, real.bookingIdentityId) &&
+    optionalFieldEqual(replacement.cancelledAt, real.cancelledAt) &&
+    optionalFieldEqual(
+      replacement.cancelledByPhoneBookingIdentityId,
+      real.cancelledByPhoneBookingIdentityId,
+    ) &&
+    replacement.end === real.end &&
+    replacement.locationLineageKey === real.locationLineageKey &&
+    appointmentOccupancyScopeEqual(
+      replacement.occupancyScope,
+      real.occupancyScope,
+    ) &&
+    optionalFieldEqual(replacement.patientId, real.patientId) &&
+    optionalFieldEqual(
+      replacement.phoneBookingIdentityId,
+      real.phoneBookingIdentityId,
+    ) &&
+    replacement.practiceId === real.practiceId &&
+    optionalFieldEqual(
+      replacement.reassignmentSourceVacationLineageKey,
+      real.reassignmentSourceVacationLineageKey,
+    ) &&
+    optionalFieldEqual(replacement.seriesId, real.seriesId) &&
+    optionalFieldEqual(replacement.seriesStepId, real.seriesStepId) &&
+    optionalFieldEqual(replacement.seriesStepIndex, real.seriesStepIndex) &&
+    optionalFieldEqual(replacementSmiley, real.smiley) &&
+    replacement.start === real.start &&
+    replacement.title === real.title &&
+    optionalFieldEqual(replacement.userId, real.userId)
+  );
 }
 
 /**
@@ -2042,7 +2102,6 @@ async function validateAppointmentSeriesOwnerRefs(
 // Mutation to create a new appointment
 export const createAppointment = mutation({
   args: {
-    allowHistoricalSmiley: v.optional(v.boolean()),
     appointmentTypeId: v.id("appointmentTypes"),
     bookingIdentityId: v.optional(v.id("bookingIdentities")),
     calendarResourceColumn: v.optional(calendarResourceColumnValidator),
@@ -2069,6 +2128,41 @@ export const createAppointment = mutation({
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
     return await createAppointmentFromTrustedSource(ctx, args);
+  },
+  returns: v.id("appointments"),
+});
+
+export const restoreDeletedAppointment = mutation({
+  args: {
+    appointmentTypeId: v.id("appointmentTypes"),
+    bookingIdentityId: v.optional(v.id("bookingIdentities")),
+    calendarResourceColumn: v.optional(calendarResourceColumnValidator),
+    end: v.optional(v.string()),
+    isNewPatient: v.optional(v.boolean()),
+    isSimulation: v.optional(v.boolean()),
+    locationId: v.id("locations"),
+    patientDateOfBirth: v.optional(v.string()),
+    patientId: v.optional(v.id("patients")),
+    phoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
+    practiceId: v.id("practices"),
+    practitionerId: v.optional(v.id("practitioners")),
+    replacesAppointmentId: v.optional(v.id("appointments")),
+    simulationKind: v.optional(appointmentSimulationKindValidator),
+    simulationRuleSetId: v.optional(v.id("ruleSets")),
+    smiley: v.optional(appointmentSmileyValidator),
+    start: v.string(),
+    temporaryPatientName: v.optional(v.string()),
+    temporaryPatientPhoneNumber: v.optional(v.string()),
+    title: v.string(),
+    userId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    return await createAppointmentFromTrustedSource(ctx, {
+      ...args,
+      allowHistoricalSmiley: args.smiley !== undefined,
+    });
   },
   returns: v.id("appointments"),
 });
@@ -2998,9 +3092,27 @@ export const updateSimulationAppointmentSmiley = mutation({
       ) {
         throw new Error("Simulation appointment belongs to another rule set");
       }
+      const replacementSmiley = args.smiley ?? undefined;
+      if (existingAppointment.replacesAppointmentId !== undefined) {
+        const realAppointment = await ctx.db.get(
+          "appointments",
+          existingAppointment.replacesAppointmentId,
+        );
+        if (
+          realAppointment &&
+          simulationReplacementMatchesRealAppointment(
+            existingAppointment,
+            realAppointment,
+            replacementSmiley,
+          )
+        ) {
+          await ctx.db.delete("appointments", args.id);
+          return null;
+        }
+      }
       await ctx.db.patch("appointments", args.id, {
         lastModified: now,
-        smiley: args.smiley ?? undefined,
+        smiley: replacementSmiley,
       });
       return null;
     }
@@ -3019,9 +3131,20 @@ export const updateSimulationAppointmentSmiley = mutation({
         appointment.simulationRuleSetId === args.simulationRuleSetId,
     );
     if (replacement) {
+      const replacementSmiley = args.smiley ?? undefined;
+      if (
+        simulationReplacementMatchesRealAppointment(
+          replacement,
+          existingAppointment,
+          replacementSmiley,
+        )
+      ) {
+        await ctx.db.delete("appointments", replacement._id);
+        return null;
+      }
       await ctx.db.patch("appointments", replacement._id, {
         lastModified: now,
-        smiley: args.smiley ?? undefined,
+        smiley: replacementSmiley,
       });
       return null;
     }

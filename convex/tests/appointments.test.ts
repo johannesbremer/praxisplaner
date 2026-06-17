@@ -4975,7 +4975,68 @@ describe("calendar day appointment queries", () => {
     expect(appointment?.smiley).toBeUndefined();
   });
 
-  test("restore create allows known historical smileys but rejects arbitrary stale strings", async () => {
+  test("clearing the only simulation smiley override deletes the replacement", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_simulation_smiley_clear_noop";
+    const userId = await createUser(
+      t,
+      authId,
+      "sim-smiley-clear-noop@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "sim-smiley-clear-noop@example.com",
+      subject: authId,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("ruleSets", baseData.ruleSetId, {
+        appointmentSmileyOptions: [
+          { emoji: "🧪", id: "simulation-marker", name: "Simulation marker" },
+        ],
+      });
+    });
+    const appointmentId = await insertAppointmentRecord(t, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      userId,
+      window: makeSlotWindow(38),
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: appointmentId,
+        simulationRuleSetId: baseData.ruleSetId,
+        smiley: "🧪",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: appointmentId,
+        simulationRuleSetId: baseData.ruleSetId,
+        smiley: null,
+      }),
+    ).resolves.toBeNull();
+
+    const replacements = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_simulationRuleSetId", (q) =>
+          q.eq("simulationRuleSetId", baseData.ruleSetId),
+        )
+        .collect();
+    });
+    expect(replacements).toEqual([]);
+  });
+
+  test("restore creation allows known historical smileys without exposing the create bypass", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
     const authId = "workos_historical_smiley_restore";
@@ -5001,7 +5062,19 @@ describe("calendar day appointment queries", () => {
 
     await expect(
       authed.mutation(api.appointments.createAppointment, {
-        allowHistoricalSmiley: true,
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        smiley: "😴",
+        start: makeSlotWindow(36).start,
+        title: "Restored",
+        userId,
+      }),
+    ).rejects.toThrow("nicht konfiguriert");
+
+    await expect(
+      authed.mutation(api.appointments.restoreDeletedAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -5014,8 +5087,7 @@ describe("calendar day appointment queries", () => {
     ).resolves.toEqual(expect.any(String));
 
     await expect(
-      authed.mutation(api.appointments.createAppointment, {
-        allowHistoricalSmiley: true,
+      authed.mutation(api.appointments.restoreDeletedAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,

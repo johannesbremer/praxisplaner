@@ -181,6 +181,7 @@ describe("calendar planning workbench", () => {
     const createAppointmentMutation = makeMutation(appointmentId);
     mutationQueue.push(
       createAppointmentMutation,
+      makeMutation(toTableId<"appointments">("appointment_restore_unused")),
       makeMutation(null),
       makeMutation(null),
       makeMutation(null),
@@ -286,6 +287,7 @@ describe("calendar planning workbench", () => {
     const deleteAppointmentMutation = makeMutation(null);
     mutationQueue.push(
       makeMutation(toTableId<"appointments">("appointment_unused")),
+      makeMutation(toTableId<"appointments">("appointment_restore_unused")),
       makeMutation(null),
       makeMutation(null),
       makeMutation(null),
@@ -373,6 +375,7 @@ describe("calendar planning workbench", () => {
     const firstUpdate = makeDeferredMutation();
     mutationQueue.push(
       makeMutation(toTableId<"appointments">("appointment_unused")),
+      makeMutation(toTableId<"appointments">("appointment_restore_unused")),
       firstUpdate.mutation,
       makeMutation(null),
       makeMutation(null),
@@ -474,6 +477,7 @@ describe("calendar planning workbench", () => {
     const firstUpdate = makeDeferredMutation();
     mutationQueue.push(
       makeMutation(toTableId<"appointments">("appointment_unused")),
+      makeMutation(toTableId<"appointments">("appointment_restore_unused")),
       makeMutation(null),
       makeMutation(null),
       makeMutation(null),
@@ -578,6 +582,7 @@ describe("calendar planning workbench", () => {
 
     mutationQueue.push(
       makeMutation(toTableId<"appointments">("appointment_unused")),
+      makeMutation(toTableId<"appointments">("appointment_restore_unused")),
       makeMutation(null),
       makeMutation(null),
       makeMutation(null),
@@ -661,6 +666,7 @@ describe("calendar planning workbench", () => {
 
     mutationQueue.push(
       makeMutation(toTableId<"appointments">("appointment_unused")),
+      makeMutation(toTableId<"appointments">("appointment_restore_unused")),
       makeMutation(null),
       makeMutation(null),
       makeMutation(null),

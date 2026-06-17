@@ -99,6 +99,9 @@ export interface CalendarPlanningCommandExecutorContext {
   runDeleteBlockedSlotInternal: (
     args: DeleteBlockedSlotMutationArgs,
   ) => Promise<unknown>;
+  runRestoreDeletedAppointmentInternal: (
+    args: CreateAppointmentMutationArgs,
+  ) => Promise<Id<"appointments"> | null>;
   runUpdateAppointmentInternal: (
     args: UpdateAppointmentMutationArgs,
   ) => Promise<unknown>;
@@ -389,7 +392,7 @@ async function executeAppointmentDeleteCommand(
     };
   }
 
-  const recreatedId = await context.runCreateAppointmentInternal(
+  const recreatedId = await context.runRestoreDeletedAppointmentInternal(
     payload.createArgs,
   );
   if (!recreatedId) {

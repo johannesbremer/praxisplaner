@@ -187,6 +187,7 @@ const appointmentHistoryMatchesQuery = (
 ) =>
   historyDoc.start === queryDoc.start &&
   historyDoc.end === queryDoc.end &&
+  historyDoc.smiley === queryDoc.smiley &&
   historyDoc.title === queryDoc.title &&
   historyDoc.appointmentTypeLineageKey === queryDoc.appointmentTypeLineageKey &&
   historyDoc.placement.locationLineageKey ===
@@ -805,6 +806,9 @@ export function useCalendarPlanningWorkbench(args: {
   const createAppointmentMutation = useMutation(
     api.appointments.createAppointment,
   );
+  const restoreDeletedAppointmentMutation = useMutation(
+    api.appointments.restoreDeletedAppointment,
+  );
   const updateAppointmentMutation = useMutation(
     api.appointments.updateAppointment,
   );
@@ -1035,6 +1039,13 @@ export function useCalendarPlanningWorkbench(args: {
       parseZonedDateTime,
       resolveAppointmentReferenceLineageKeys,
     ],
+  );
+
+  const runRestoreDeletedAppointmentInternal = useCallback(
+    async (args: Parameters<typeof restoreDeletedAppointmentMutation>[0]) => {
+      return await restoreDeletedAppointmentMutation(args);
+    },
+    [restoreDeletedAppointmentMutation],
   );
 
   const applyOptimisticAppointmentUpdate = useCallback(
@@ -1712,9 +1723,6 @@ export function useCalendarPlanningWorkbench(args: {
         ...(deleted.replacesAppointmentId && {
           replacesAppointmentId: deleted.replacesAppointmentId,
         }),
-        ...(deleted.smiley === undefined
-          ? {}
-          : { allowHistoricalSmiley: true }),
         ...(deleted.smiley === undefined ? {} : { smiley: deleted.smiley }),
         start: deleted.start,
         title: deleted.title,
@@ -1994,6 +2002,7 @@ export function useCalendarPlanningWorkbench(args: {
       runCreateBlockedSlotInternal,
       runDeleteAppointmentInternal,
       runDeleteBlockedSlotInternal,
+      runRestoreDeletedAppointmentInternal,
       runUpdateAppointmentInternal,
       runUpdateBlockedSlotInternal,
     };
@@ -2016,6 +2025,7 @@ export function useCalendarPlanningWorkbench(args: {
     resolveCurrentAppointmentId,
     resolveCurrentBlockedSlotId,
     runCreateAppointmentInternal,
+    runRestoreDeletedAppointmentInternal,
     runCreateBlockedSlotInternal,
     runDeleteAppointmentInternal,
     runDeleteBlockedSlotInternal,
