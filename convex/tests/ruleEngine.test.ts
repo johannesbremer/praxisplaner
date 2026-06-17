@@ -3535,6 +3535,7 @@ describe("E2E: Slot Generation with Rules", () => {
     const blockedSlots = await t.query(
       api.scheduling.getBlockedSlotsWithoutAppointmentType,
       {
+        clientType: "MFA",
         date: "2025-10-27",
         locationId: targetIds.targetLocationId,
         practiceId,
@@ -3543,6 +3544,65 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     expect(blockedSlots.slots.length).toBeGreaterThan(0);
+  });
+
+  test("getBlockedSlotsWithoutAppointmentType evaluates client type rules with the supplied channel", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const practitionerId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Online",
+    );
+    const locationId = await createLocation(
+      t,
+      practiceId,
+      ruleSetId,
+      "Online Office",
+    );
+    await insertBaseSchedule(
+      t,
+      practiceId,
+      ruleSetId,
+      practitionerId,
+      locationId,
+      1,
+      "09:00",
+      "12:00",
+    );
+    await createRule(t, practiceId, ruleSetId, {
+      conditionType: "CLIENT_TYPE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
+      valueIds: ["Online"],
+    });
+
+    const onlineBlockedSlots = await t.query(
+      api.scheduling.getBlockedSlotsWithoutAppointmentType,
+      {
+        clientType: "Online",
+        date: "2025-10-27",
+        locationId,
+        practiceId,
+        ruleSetId,
+      },
+    );
+    const staffBlockedSlots = await t.query(
+      api.scheduling.getBlockedSlotsWithoutAppointmentType,
+      {
+        clientType: "MFA",
+        date: "2025-10-27",
+        locationId,
+        practiceId,
+        ruleSetId,
+      },
+    );
+
+    expect(onlineBlockedSlots.slots.length).toBeGreaterThan(0);
+    expect(staffBlockedSlots.slots).toEqual([]);
   });
 
   test("getBlockedSlotsWithoutAppointmentType rejects authenticated non-members", async () => {
@@ -3566,6 +3626,7 @@ describe("E2E: Slot Generation with Rules", () => {
 
     await expect(
       t.query(api.scheduling.getBlockedSlotsWithoutAppointmentType, {
+        clientType: "MFA",
         date: "2025-10-27",
         practiceId,
         ruleSetId,

@@ -878,6 +878,7 @@ export const getSlotsForDayInternal = internalQuery({
  */
 export const getBlockedSlotsWithoutAppointmentType = query({
   args: {
+    clientType: v.string(),
     date: v.string(), // ISO date string
     locationId: v.optional(v.id("locations")),
     practiceId: v.id("practices"),
@@ -973,7 +974,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
         slot,
       );
       const appointmentContext: AppointmentContext = {
-        clientType: "MFA",
+        clientType: args.clientType,
         dateTime: asZonedDateTimeString(slot.startTime),
         locationId: displayReferences.locationId,
         practiceId: args.practiceId,

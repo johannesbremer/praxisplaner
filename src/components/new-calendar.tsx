@@ -151,8 +151,10 @@ export function NewCalendar({
     setPendingAppointmentTitle(undefined);
 
     if (simulatedContext && onUpdateSimulatedContext) {
-      const { locationLineageKey, patient, requestedAt } = simulatedContext;
+      const { clientType, locationLineageKey, patient, requestedAt } =
+        simulatedContext;
       onUpdateSimulatedContext({
+        ...(clientType !== undefined && { clientType }),
         ...(locationLineageKey && { locationLineageKey }),
         patient,
         ...(requestedAt && { requestedAt }),
@@ -440,8 +442,10 @@ export function NewCalendar({
         onUpdateSimulatedContext(newContext);
       } else if (simulatedContext.appointmentTypeLineageKey !== undefined) {
         // Remove appointment type from context - this clears blocked slots
-        const { locationLineageKey, patient, requestedAt } = simulatedContext;
+        const { clientType, locationLineageKey, patient, requestedAt } =
+          simulatedContext;
         onUpdateSimulatedContext({
+          ...(clientType !== undefined && { clientType }),
           ...(locationLineageKey && { locationLineageKey }),
           patient,
           ...(requestedAt && { requestedAt }),
