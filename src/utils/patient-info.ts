@@ -97,6 +97,9 @@ export function patientDocToInfo(
   }).map((dateOfBirth) => {
     if (patient.recordType === "temporary") {
       return {
+        ...(patient.bookingIdentityId !== undefined && {
+          bookingIdentityId: patient.bookingIdentityId,
+        }),
         ...(patient.city !== undefined && { city: patient.city }),
         convexPatientId: patient._id,
         ...(dateOfBirth !== undefined && { dateOfBirth }),

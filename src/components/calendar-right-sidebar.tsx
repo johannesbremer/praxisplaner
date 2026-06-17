@@ -4,6 +4,7 @@ import {
   AlertCircle,
   Calendar,
   ExternalLink,
+  Link2,
   PanelRightIcon,
 } from "lucide-react";
 import { err, ok, type Result } from "neverthrow";
@@ -144,6 +145,26 @@ export function CalendarRightSidebar({
           }
         }
       };
+      const handleLinkWithPvs = () => {
+        if (
+          patient?.recordType !== "temporary" ||
+          patient.bookingIdentityId === undefined
+        ) {
+          return;
+        }
+
+        dispatchCustomEvent("praxisplaner:openInPvs", {
+          bookingIdentityId: patient.bookingIdentityId,
+          patient: {
+            name: getPatientInfoDisplayName(patient),
+            phoneNumber: patient.phoneNumber,
+          },
+          purpose: "link",
+        });
+        if (isMobile) {
+          setOpenMobile(false);
+        }
+      };
 
       // Mobile: render as a Sheet overlay
       if (isMobile) {
@@ -166,6 +187,7 @@ export function CalendarRightSidebar({
               </SheetHeader>
               <div className="flex h-full w-full flex-col">
                 <RightSidebarContent
+                  handleLinkWithPvs={handleLinkWithPvs}
                   handleOpenInPvs={handleOpenInPvs}
                   onPatientSelected={onPatientSelected}
                   onSelectAppointment={onSelectAppointment}
@@ -210,6 +232,7 @@ export function CalendarRightSidebar({
           >
             <div className="bg-background flex h-full w-full flex-col">
               <RightSidebarContent
+                handleLinkWithPvs={handleLinkWithPvs}
                 handleOpenInPvs={handleOpenInPvs}
                 onPatientSelected={onPatientSelected}
                 onSelectAppointment={onSelectAppointment}
@@ -307,6 +330,7 @@ export function useRightSidebar(): Result<
 }
 
 function RightSidebarContent({
+  handleLinkWithPvs,
   handleOpenInPvs,
   onPatientSelected,
   onSelectAppointment,
@@ -319,6 +343,7 @@ function RightSidebarContent({
   selectedSeriesId,
   showGdtAlert,
 }: {
+  handleLinkWithPvs: () => void;
   handleOpenInPvs: () => void;
   onPatientSelected: ((patient?: PracticePatientSelection) => void) | undefined;
   onSelectAppointment: ((appointment: SidebarAppointment) => void) | undefined;
@@ -359,9 +384,8 @@ function RightSidebarContent({
                 selectedPatientId ??
                 (patient?.userId
                   ? `user:${patient.userId}`
-                  : patient?.recordType === "temporary" &&
-                      patient.convexPatientId === undefined
-                    ? `draft:${patient.name}:${patient.phoneNumber}`
+                  : patient?.recordType === "pvs"
+                    ? `pvs:${patient.convexPatientId}`
                     : "empty")
               }
               onPatientSelected={onPatientSelected}
@@ -436,6 +460,21 @@ function RightSidebarContent({
                 Im PVS öffnen
               </Button>
             )}
+
+            {practiceId !== undefined &&
+              patient.recordType === "temporary" &&
+              patient.bookingIdentityId !== undefined && (
+                <Button
+                  className="w-full gap-1.5"
+                  onClick={handleLinkWithPvs}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  Mit dem PVS verknüpfen
+                </Button>
+              )}
 
             {/* Patient ID */}
             {patient.patientId !== undefined && (

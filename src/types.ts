@@ -40,6 +40,7 @@ type TemporaryPatientInfo = Omit<
     Pick<Doc<"patients">, "city" | "dateOfBirth" | "street">,
   "dateOfBirth"
 > & {
+  bookingIdentityId?: Id<"bookingIdentities">;
   convexPatientId?: Id<"patients">;
   dateOfBirth?: IsoDateString;
   isNewPatient: boolean;

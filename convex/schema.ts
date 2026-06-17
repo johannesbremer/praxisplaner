@@ -823,6 +823,7 @@ export default defineSchema({
     .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
 
   patients: defineTable({
+    bookingIdentityId: v.optional(v.id("bookingIdentities")),
     // Patient identification fields (from GDT file)
     city: v.optional(v.string()), // FK 3106 - City
     dateOfBirth: v.optional(v.string()), // FK 3103, must already be YYYY-MM-DD
@@ -847,6 +848,7 @@ export default defineSchema({
     .index("by_lastModified", ["lastModified"])
     .index("by_createdAt", ["createdAt"])
     .index("by_practiceId", ["practiceId"])
+    .index("by_bookingIdentityId", ["bookingIdentityId"])
     .searchIndex("search_by_searchFirstName", {
       filterFields: ["practiceId"],
       searchField: "searchFirstName",
