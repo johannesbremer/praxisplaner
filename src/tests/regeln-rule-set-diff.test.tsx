@@ -239,6 +239,40 @@ describe("RuleSetDiffView", () => {
     ]);
     expect(JSON.stringify(ruleRows)).not.toContain("APPOINTMENT_TYPE");
   });
+
+  test("renders smiley option line diffs without requiring structured JSON", async () => {
+    const diff = {
+      draftRuleSet: {
+        _id: "draft-rule-set",
+        description: "Draft",
+        version: 2,
+      },
+      parentRuleSet: {
+        _id: "parent-rule-set",
+        description: "Parent",
+        version: 1,
+      },
+      sections: [
+        {
+          added: ["👍 Patient ist angekommen"],
+          key: "appointmentSmileyOptions",
+          removed: [],
+          title: "Termin-Smileys",
+        },
+      ],
+      totals: {
+        added: 1,
+        changed: 1,
+        removed: 0,
+      },
+    } satisfies RuleSetDiff;
+
+    const { container } = render(<RuleSetDiffView diff={diff} />);
+
+    await waitFor(() => {
+      expect(container.querySelector("diffs-container")).toBeInTheDocument();
+    });
+  });
 });
 
 describe("SaveDialogForm", () => {

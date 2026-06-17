@@ -90,6 +90,7 @@ interface StructuredDiffRow {
 }
 
 const UNSAVED_RULE_SET_DESCRIPTION = "Ungespeicherte Änderungen";
+const PLAIN_TEXT_DIFF_SECTION_KEYS = new Set(["appointmentSmileyOptions"]);
 
 const StructuredValueDiffView = React.lazy(() =>
   import("./-rule-set-diff-viewer").then((module) => ({
@@ -210,6 +211,29 @@ function buildAppointmentTypeTreeProjectedSection(
   };
 }
 
+function buildPlainTextDiffRows(section: RuleSetDiffSection) {
+  return [
+    ...section.removed.map(
+      (value, index): StructuredDiffRow => ({
+        after: "",
+        before: value,
+        id: `${section.key}:removed:${index}`,
+        kind: "removed",
+        path: value || section.title,
+      }),
+    ),
+    ...section.added.map(
+      (value, index): StructuredDiffRow => ({
+        after: value,
+        before: "",
+        id: `${section.key}:added:${index}`,
+        kind: "added",
+        path: value || section.title,
+      }),
+    ),
+  ].toSorted((a, b) => a.path.localeCompare(b.path));
+}
+
 function buildRuleNameContextFromTree(
   tree: ConditionTreeNode,
 ): RuleNameContext {
@@ -265,6 +289,10 @@ function buildStructuredDiffRows(
   section: RuleSetDiffSection,
   entityRenames: EntityRenameMaps,
 ) {
+  if (PLAIN_TEXT_DIFF_SECTION_KEYS.has(section.key)) {
+    return buildPlainTextDiffRows(section);
+  }
+
   const removedCandidates = section.removed.map((value, index) => ({
     index,
     key: getDiffItemMatchKey(section, value),
