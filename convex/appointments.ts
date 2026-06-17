@@ -2993,6 +2993,11 @@ export const updateSimulationAppointmentSmiley = mutation({
 
     const now = BigInt(Date.now());
     if (existingAppointment.isSimulation === true) {
+      if (
+        existingAppointment.simulationRuleSetId !== args.simulationRuleSetId
+      ) {
+        throw new Error("Simulation appointment belongs to another rule set");
+      }
       await ctx.db.patch("appointments", args.id, {
         lastModified: now,
         smiley: args.smiley ?? undefined,

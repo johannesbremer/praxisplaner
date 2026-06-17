@@ -424,7 +424,10 @@ async function executeAppointmentUpdateCommand(
     placement: state.placement,
     start: state.start,
   });
-  const updateToState = async (state: AppointmentState) => {
+  const updateToState = async (
+    state: AppointmentState,
+    previousState: AppointmentState,
+  ) => {
     const displayRefs = context.resolveAppointmentReferenceDisplayIds({
       appointmentTypeLineageKey: payload.before.appointmentTypeLineageKey,
       placement: state.placement,
@@ -445,7 +448,9 @@ async function executeAppointmentUpdateCommand(
         : {
             practitionerId: displayRefs.occupancyScope.practitionerId,
           }),
-      smiley: state.smiley ?? null,
+      ...(state.smiley === previousState.smiley
+        ? {}
+        : { smiley: state.smiley ?? null }),
       start: state.start,
     });
     return true;
@@ -494,7 +499,10 @@ async function executeAppointmentUpdateCommand(
       };
     }
 
-    const applied = await updateToState(payload.afterState);
+    const applied = await updateToState(
+      payload.afterState,
+      payload.beforeState,
+    );
     if (!applied) {
       return {
         message:
@@ -548,7 +556,7 @@ async function executeAppointmentUpdateCommand(
     };
   }
 
-  const applied = await updateToState(payload.beforeState);
+  const applied = await updateToState(payload.beforeState, payload.afterState);
   if (!applied) {
     return {
       message:

@@ -64,6 +64,7 @@ export function buildCalendarAppointmentRecord(args: {
   placement?: CalendarAppointmentRecord["placement"];
   practiceId: Id<"practices">;
   practitionerLineageKey?: PractitionerLineageKey;
+  smiley?: CalendarAppointmentRecord["smiley"];
   start: CalendarAppointmentRecord["start"];
   title: string;
 }): CalendarAppointmentRecord {
@@ -94,6 +95,7 @@ export function buildCalendarAppointmentRecord(args: {
     lastModified: 0n,
     placement,
     practiceId: args.practiceId,
+    ...(args.smiley === undefined ? {} : { smiley: args.smiley }),
     start: args.start,
     title: args.title,
   };

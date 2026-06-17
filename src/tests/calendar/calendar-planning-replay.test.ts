@@ -281,6 +281,7 @@ describe("calendar planning replay", () => {
     const beforeEnd = "2026-04-25T09:30:00+02:00[Europe/Berlin]" as const;
     const afterStart = "2026-04-25T09:30:00+02:00[Europe/Berlin]" as const;
     const afterEnd = "2026-04-25T10:00:00+02:00[Europe/Berlin]" as const;
+    const smiley = "😴";
     const before = buildCalendarAppointmentRecord({
       _id: appointmentId,
       appointmentTypeLineageKey,
@@ -288,12 +289,14 @@ describe("calendar planning replay", () => {
       end: beforeEnd,
       placement: beforePlacement,
       practiceId,
+      smiley,
       start: beforeStart,
       title: "Check-up",
     });
     const afterState = {
       end: afterEnd,
       placement: beforePlacement,
+      smiley,
       start: afterStart,
     };
     const afterSnapshot = {
@@ -304,6 +307,7 @@ describe("calendar planning replay", () => {
       vi.fn<
         CalendarPlanningCommandExecutorContext["rememberAppointmentHistoryDoc"]
       >();
+    const runUpdateAppointmentInternal = vi.fn(() => Promise.resolve(null));
 
     const result = await executeCalendarPlanningCommand(
       {
@@ -317,6 +321,7 @@ describe("calendar planning replay", () => {
           beforeState: {
             end: before.end,
             placement: before.placement,
+            smiley,
             start: before.start,
           },
         },
@@ -362,12 +367,17 @@ describe("calendar planning replay", () => {
         runCreateBlockedSlotInternal: vi.fn(),
         runDeleteAppointmentInternal: vi.fn(),
         runDeleteBlockedSlotInternal: vi.fn(),
-        runUpdateAppointmentInternal: vi.fn(() => Promise.resolve(null)),
+        runUpdateAppointmentInternal,
         runUpdateBlockedSlotInternal: vi.fn(),
       },
     );
 
     expect(result).toEqual({ status: "applied" });
+    expect(runUpdateAppointmentInternal).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        smiley: expect.anything(),
+      }),
+    );
     expect(rememberAppointmentHistoryDoc).toHaveBeenCalledWith(
       expect.objectContaining({
         lastModified: 1_234n,

@@ -4903,6 +4903,78 @@ describe("calendar day appointment queries", () => {
     expect(replacements).toHaveLength(0);
   });
 
+  test("simulation smiley edits validate the row rule set before patching", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_simulation_smiley_row_rule_set";
+    const userId = await createUser(
+      t,
+      authId,
+      "sim-smiley-row-rule-set@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "sim-smiley-row-rule-set@example.com",
+      subject: authId,
+    });
+    const { draftRuleSetA, draftRuleSetB } = await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      const draftRuleSetA = await ctx.db.insert("ruleSets", {
+        appointmentSmileyOptions: [
+          { emoji: "🅰️", id: "draft-a-marker", name: "Draft A marker" },
+        ],
+        createdAt: Date.now(),
+        description: "Draft A",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+      const draftRuleSetB = await ctx.db.insert("ruleSets", {
+        appointmentSmileyOptions: [
+          { emoji: "🅱️", id: "draft-b-marker", name: "Draft B marker" },
+        ],
+        createdAt: Date.now(),
+        description: "Draft B",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 3,
+      });
+      return { draftRuleSetA, draftRuleSetB };
+    });
+    const appointmentId = await insertAppointmentRecord(t, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      isSimulation: true,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      simulationRuleSetId: draftRuleSetA,
+      userId,
+      window: makeSlotWindow(37),
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: appointmentId,
+        simulationRuleSetId: draftRuleSetB,
+        smiley: "🅱️",
+      }),
+    ).rejects.toThrow("Simulation appointment belongs to another rule set");
+
+    const appointment = await t.run(
+      async (ctx) => await ctx.db.get("appointments", appointmentId),
+    );
+    expect(appointment?.simulationRuleSetId).toBe(draftRuleSetA);
+    expect(appointment?.smiley).toBeUndefined();
+  });
+
   test("restore create allows known historical smileys but rejects arbitrary stale strings", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
