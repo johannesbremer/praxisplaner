@@ -1005,6 +1005,9 @@ export default defineSchema({
     .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
 
   ruleSets: defineTable({
+    appointmentSmileyOptions: v.optional(
+      v.array(appointmentSmileyOptionValidator),
+    ),
     createdAt: v.number(),
     description: v.string(),
     draftRevision: v.number(), // 0 for saved rule sets; monotonic for unsaved drafts

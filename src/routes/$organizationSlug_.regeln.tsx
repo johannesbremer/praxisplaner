@@ -1388,10 +1388,14 @@ function LogicView() {
                     />
                   )}
 
-                  <AppointmentSmileyOptionsManagement
-                    onRecordCommand={recordRegelnCommand}
-                    practiceId={currentPractice._id}
-                  />
+                  {ruleSetReplayTarget && (
+                    <AppointmentSmileyOptionsManagement
+                      onDraftMutation={handleDraftMutation}
+                      onRecordCommand={recordRegelnCommand}
+                      practiceId={currentPractice._id}
+                      ruleSetReplayTarget={ruleSetReplayTarget}
+                    />
+                  )}
                 </div>
               </div>
 

@@ -23,6 +23,7 @@ type DatabaseReader = GenericDatabaseReader<DataModel>;
 
 interface RuleSetCanonicalSnapshot {
   appointmentCoverage: string[];
+  appointmentSmileyOptions: string[];
   appointmentTypeFolders: string[];
   appointmentTypes: string[];
   baseSchedules: string[];
@@ -35,6 +36,7 @@ interface RuleSetCanonicalSnapshot {
 
 const canonicalSnapshotSectionTitles = {
   appointmentCoverage: "Terminverschiebungen",
+  appointmentSmileyOptions: "Termin-Smileys",
   appointmentTypeFolders: "Terminart-Ordner",
   appointmentTypes: "Terminarten",
   baseSchedules: "Arbeitszeiten",
@@ -268,6 +270,7 @@ async function buildRuleSetCanonicalSnapshot(
   ruleSetId: Id<"ruleSets">,
 ): Promise<RuleSetCanonicalSnapshot> {
   const [
+    ruleSet,
     appointmentTypeFoldersRaw,
     appointmentTypesRaw,
     baseSchedules,
@@ -277,6 +280,7 @@ async function buildRuleSetCanonicalSnapshot(
     rules,
     vacations,
   ] = await Promise.all([
+    db.get("ruleSets", ruleSetId),
     db
       .query("appointmentTypeFolders")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
@@ -503,9 +507,15 @@ async function buildRuleSetCanonicalSnapshot(
       }),
     )
     .toSorted();
+  const canonicalAppointmentSmileyOptions = (
+    ruleSet?.appointmentSmileyOptions ?? []
+  )
+    .map((option) => `${option.emoji} ${option.name}`)
+    .toSorted();
 
   return {
     appointmentCoverage: [],
+    appointmentSmileyOptions: canonicalAppointmentSmileyOptions,
     appointmentTypeFolders: canonicalAppointmentTypeFolders,
     appointmentTypes: canonicalAppointmentTypes,
     baseSchedules: canonicalBaseSchedules,

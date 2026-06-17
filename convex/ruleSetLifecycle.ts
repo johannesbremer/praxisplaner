@@ -61,6 +61,7 @@ export async function activateSavedRuleSet(
 
   await applyPendingSimulationAppointmentsForRuleSet(db, args.ruleSetId);
   await db.patch("practices", args.practiceId, {
+    appointmentSmileyOptions: ruleSet.appointmentSmileyOptions ?? [],
     currentActiveRuleSetId: args.ruleSetId,
   });
 }

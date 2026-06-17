@@ -22,8 +22,16 @@ import {
 } from "@/components/ui/popover";
 import { api } from "@/convex/_generated/api";
 
+import type {
+  DraftMutationResult,
+  RuleSetReplayTarget,
+} from "../utils/cow-history";
 import type { RecordRuleSetCommand } from "../utils/rule-set-replay";
 
+import {
+  ruleSetIdFromReplayTarget,
+  useRuleSetReplayTargetController,
+} from "../utils/cow-history";
 import {
   appliedLedgerResult,
   createRuleSetPracticeSettingsCommand,
@@ -36,11 +44,14 @@ import {
 } from "./ui/emoji-picker";
 
 type AppointmentSmileyOption =
-  (typeof api.practices.getAppointmentSmileyOptions)["_returnType"][number];
+  (typeof api.ruleSets.getAppointmentSmileyOptionsForRuleSet)["_returnType"][number];
 
 interface AppointmentSmileyOptionsManagementProps {
+  onDraftMutation?: (result: DraftMutationResult) => void;
   onRecordCommand?: RecordRuleSetCommand;
+  onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
+  ruleSetReplayTarget: RuleSetReplayTarget;
 }
 
 interface DraftSmileyOption extends AppointmentSmileyOption {
@@ -96,11 +107,16 @@ const hasDuplicateEmoji = (options: readonly AppointmentSmileyOption[]) => {
 };
 
 export function AppointmentSmileyOptionsManagement({
+  onDraftMutation,
   onRecordCommand,
+  onRuleSetCreated,
   practiceId,
+  ruleSetReplayTarget,
 }: AppointmentSmileyOptionsManagementProps) {
-  const options = useQuery(api.practices.getAppointmentSmileyOptions, {
+  const ruleSetId = ruleSetIdFromReplayTarget(ruleSetReplayTarget);
+  const options = useQuery(api.ruleSets.getAppointmentSmileyOptionsForRuleSet, {
     practiceId,
+    ruleSetId,
   });
 
   return (
@@ -124,7 +140,10 @@ export function AppointmentSmileyOptionsManagement({
               .map((option) => `${option.emoji}\u0000${option.name}`)
               .join("\u0001")}
             {...(onRecordCommand && { onRecordCommand })}
+            {...(onDraftMutation && { onDraftMutation })}
+            {...(onRuleSetCreated && { onRuleSetCreated })}
             practiceId={practiceId}
+            ruleSetReplayTarget={ruleSetReplayTarget}
           />
         )}
       </CardContent>
@@ -134,17 +153,31 @@ export function AppointmentSmileyOptionsManagement({
 
 function AppointmentSmileyOptionsEditor({
   initialOptions,
+  onDraftMutation,
   onRecordCommand,
+  onRuleSetCreated,
   practiceId,
+  ruleSetReplayTarget,
 }: {
   initialOptions: AppointmentSmileyOption[];
+  onDraftMutation?: (result: DraftMutationResult) => void;
   onRecordCommand?: RecordRuleSetCommand;
+  onRuleSetCreated?: (ruleSetId: Id<"ruleSets">) => void;
   practiceId: Id<"practices">;
+  ruleSetReplayTarget: RuleSetReplayTarget;
 }) {
+  const ruleSetId = ruleSetIdFromReplayTarget(ruleSetReplayTarget);
   const nextLocalId = useRef(initialOptions.length);
   const updateOptions = useMutation(
-    api.practices.updateAppointmentSmileyOptions,
+    api.ruleSets.updateAppointmentSmileyOptionsForRuleSet,
   );
+  const { getCowMutationArgs, handleDraftMutationResult } =
+    useRuleSetReplayTargetController({
+      ...(onDraftMutation && { onDraftMutation }),
+      ...(onRuleSetCreated && { onRuleSetCreated }),
+      ruleSetId,
+      ruleSetReplayTarget,
+    });
   const [committedOptions, setCommittedOptions] = useState(initialOptions);
   const [draftOptions, setDraftOptions] = useState<DraftSmileyOption[]>(
     createDraftOptions(initialOptions),
@@ -189,17 +222,23 @@ function AppointmentSmileyOptionsEditor({
     setPending(true);
     try {
       const savedOptions = await updateOptions({
+        ...getCowMutationArgs(),
         options: nextOptions,
         practiceId,
       });
-      setCommittedOptions(savedOptions);
-      setDraftOptions(createDraftOptions(savedOptions));
+      handleDraftMutationResult(savedOptions);
+      setCommittedOptions(savedOptions.options);
+      setDraftOptions(createDraftOptions(savedOptions.options));
+      let replayDraftRevision = savedOptions.draftRevision;
+      let replayRuleSetId = savedOptions.ruleSetId;
       onRecordCommand?.(
         createRuleSetPracticeSettingsCommand({
           kind: "practice.appointmentSmileyOptions.update",
           label,
           payload: {
-            after: savedOptions.map((option) => formatSmileyOptionLine(option)),
+            after: savedOptions.options.map((option) =>
+              formatSmileyOptionLine(option),
+            ),
             before: beforeOptions.map((option) =>
               formatSmileyOptionLine(option),
             ),
@@ -209,11 +248,27 @@ function AppointmentSmileyOptionsEditor({
         }),
         {
           redo: async () => {
-            await updateOptions({ options: savedOptions, practiceId });
+            const redoResult = await updateOptions({
+              expectedDraftRevision: replayDraftRevision,
+              options: savedOptions.options,
+              practiceId,
+              selectedRuleSetId: replayRuleSetId,
+            });
+            replayDraftRevision = redoResult.draftRevision;
+            replayRuleSetId = redoResult.ruleSetId;
+            handleDraftMutationResult(redoResult);
             return appliedLedgerResult();
           },
           undo: async () => {
-            await updateOptions({ options: beforeOptions, practiceId });
+            const undoResult = await updateOptions({
+              expectedDraftRevision: replayDraftRevision,
+              options: beforeOptions,
+              practiceId,
+              selectedRuleSetId: replayRuleSetId,
+            });
+            replayDraftRevision = undoResult.draftRevision;
+            replayRuleSetId = undoResult.ruleSetId;
+            handleDraftMutationResult(undoResult);
             return appliedLedgerResult();
           },
         },
@@ -265,13 +320,13 @@ function AppointmentSmileyOptionsEditor({
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto rounded-md border">
-        <table className="w-full min-w-[28rem] text-sm">
+      <div className="overflow-visible rounded-md border">
+        <table className="w-full table-fixed text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="w-24 px-3 py-2">Emoji</th>
-              <th className="px-3 py-2">Name</th>
-              <th className="w-12 px-3 py-2">
+              <th className="w-16 px-2 py-2">Emoji</th>
+              <th className="px-2 py-2">Name</th>
+              <th className="w-10 px-1 py-2">
                 <span className="sr-only">Aktion</span>
               </th>
             </tr>
@@ -291,12 +346,12 @@ function AppointmentSmileyOptionsEditor({
                 const isDuplicate = duplicateEmojis.has(option.emoji.trim());
                 return (
                   <tr className="border-t" key={option.localId}>
-                    <td className="px-3 py-2 align-top">
+                    <td className="px-2 py-2 align-top">
                       <Popover>
                         <PopoverTrigger asChild>
                           <Button
                             aria-label="Emoji auswählen"
-                            className="h-9 w-16 text-lg"
+                            className="h-9 w-12 px-0 text-lg"
                             disabled={pending}
                             type="button"
                             variant="outline"
@@ -334,7 +389,7 @@ function AppointmentSmileyOptionsEditor({
                         </PopoverContent>
                       </Popover>
                     </td>
-                    <td className="px-3 py-2 align-top">
+                    <td className="min-w-0 px-2 py-2 align-top">
                       <Input
                         aria-invalid={
                           option.name.trim().length === 0 || isDuplicate
@@ -356,9 +411,10 @@ function AppointmentSmileyOptionsEditor({
                         value={option.name}
                       />
                     </td>
-                    <td className="px-3 py-2 align-top">
+                    <td className="px-1 py-2 align-top">
                       <Button
                         aria-label="Smiley entfernen"
+                        className="h-9 w-9"
                         disabled={pending}
                         onClick={() => {
                           removeRow(option.localId);

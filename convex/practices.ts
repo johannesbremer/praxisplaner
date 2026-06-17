@@ -35,9 +35,9 @@ const practiceListItemValidator = v.object({
   slug: v.optional(v.string()),
   workOSOrganizationId: v.optional(v.string()),
 });
-const MAX_APPOINTMENT_SMILEY_OPTIONS = 24;
+export const MAX_APPOINTMENT_SMILEY_OPTIONS = 24;
 
-function normalizeAppointmentSmileyOptions(
+export function normalizeAppointmentSmileyOptions(
   options: AppointmentSmileyOption[],
 ): AppointmentSmileyOption[] {
   const normalized: AppointmentSmileyOption[] = [];
@@ -325,22 +325,6 @@ export const getAppointmentSmileyOptions = query({
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
     const practice = await ctx.db.get("practices", args.practiceId);
     return practice?.appointmentSmileyOptions ?? [];
-  },
-  returns: v.array(appointmentSmileyOptionValidator),
-});
-
-export const updateAppointmentSmileyOptions = mutation({
-  args: {
-    options: v.array(appointmentSmileyOptionValidator),
-    practiceId: v.id("practices"),
-  },
-  handler: async (ctx, args) => {
-    await requirePracticeManager(ctx, args.practiceId);
-    const options = normalizeAppointmentSmileyOptions(args.options);
-    await ctx.db.patch("practices", args.practiceId, {
-      appointmentSmileyOptions: options,
-    });
-    return options;
   },
   returns: v.array(appointmentSmileyOptionValidator),
 });
