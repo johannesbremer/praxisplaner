@@ -28,14 +28,11 @@ import type {
 } from "../utils/cow-history";
 import type { RecordRuleSetCommand } from "../utils/rule-set-replay";
 
+import { recordAppointmentSmileyOptionsCommand } from "../utils/appointment-smiley-options-replay";
 import {
   ruleSetIdFromReplayTarget,
   useRuleSetReplayTargetController,
 } from "../utils/cow-history";
-import {
-  appliedLedgerResult,
-  createRuleSetPracticeSettingsCommand,
-} from "../utils/rule-set-replay";
 import {
   EmojiPicker,
   EmojiPickerContent,
@@ -58,8 +55,20 @@ interface DraftSmileyOption extends AppointmentSmileyOption {
   localId: string;
 }
 
+interface SmileyOptionsEditorState {
+  committedOptions: AppointmentSmileyOption[];
+  draftOptions: DraftSmileyOption[];
+  error: null | string;
+  sourceKey: string;
+}
+
 const formatSmileyOptionLine = (option: AppointmentSmileyOption) =>
   `${option.emoji} ${option.name}`;
+
+const createOptionsSourceKey = (options: readonly AppointmentSmileyOption[]) =>
+  options
+    .map((option) => `${option.id}\u0000${option.emoji}\u0000${option.name}`)
+    .join("\u0001");
 
 const createDraftOptions = (
   options: readonly AppointmentSmileyOption[],
@@ -108,6 +117,16 @@ const hasDuplicateEmoji = (options: readonly AppointmentSmileyOption[]) => {
   return false;
 };
 
+const createEditorState = (
+  options: AppointmentSmileyOption[],
+  sourceKey = createOptionsSourceKey(options),
+): SmileyOptionsEditorState => ({
+  committedOptions: options,
+  draftOptions: createDraftOptions(options),
+  error: null,
+  sourceKey,
+});
+
 export function AppointmentSmileyOptionsManagement({
   onDraftMutation,
   onRecordCommand,
@@ -138,9 +157,6 @@ export function AppointmentSmileyOptionsManagement({
         ) : (
           <AppointmentSmileyOptionsEditor
             initialOptions={options}
-            key={options
-              .map((option) => `${option.emoji}\u0000${option.name}`)
-              .join("\u0001")}
             {...(onRecordCommand && { onRecordCommand })}
             {...(onDraftMutation && { onDraftMutation })}
             {...(onRuleSetCreated && { onRuleSetCreated })}
@@ -169,7 +185,6 @@ function AppointmentSmileyOptionsEditor({
   ruleSetReplayTarget: RuleSetReplayTarget;
 }) {
   const ruleSetId = ruleSetIdFromReplayTarget(ruleSetReplayTarget);
-  const nextLocalId = useRef(initialOptions.length);
   const rowRemovalIntentRef = useRef(new Set<string>());
   const updateOptions = useMutation(
     api.ruleSets.updateAppointmentSmileyOptionsForRuleSet,
@@ -181,12 +196,35 @@ function AppointmentSmileyOptionsEditor({
       ruleSetId,
       ruleSetReplayTarget,
     });
-  const [committedOptions, setCommittedOptions] = useState(initialOptions);
-  const [draftOptions, setDraftOptions] = useState<DraftSmileyOption[]>(
-    createDraftOptions(initialOptions),
-  );
-  const [error, setError] = useState<null | string>(null);
   const [pending, setPending] = useState(false);
+  const initialOptionsKey = useMemo(
+    () => createOptionsSourceKey(initialOptions),
+    [initialOptions],
+  );
+  const [editorState, setEditorState] = useState(() =>
+    createEditorState(initialOptions, initialOptionsKey),
+  );
+  const activeEditorState =
+    editorState.sourceKey === initialOptionsKey
+      ? editorState
+      : createEditorState(initialOptions, initialOptionsKey);
+  const { committedOptions, draftOptions, error } = activeEditorState;
+
+  const updateActiveEditorState = (
+    update: (state: SmileyOptionsEditorState) => SmileyOptionsEditorState,
+  ) => {
+    setEditorState((currentState) => {
+      const baseState =
+        currentState.sourceKey === initialOptionsKey
+          ? currentState
+          : createEditorState(initialOptions, initialOptionsKey);
+      return update(baseState);
+    });
+  };
+
+  const setEditorError = (nextError: null | string) => {
+    updateActiveEditorState((state) => ({ ...state, error: nextError }));
+  };
 
   const completeOptions = useMemo(
     () => toCommittedOptions(draftOptions),
@@ -213,7 +251,7 @@ function AppointmentSmileyOptionsEditor({
   ) => {
     const nextOptions = toCommittedOptions(nextRows);
     if (hasDuplicateEmoji(nextOptions)) {
-      setError("Jedes Emoji darf nur einmal vorkommen.");
+      setEditorError("Jedes Emoji darf nur einmal vorkommen.");
       return;
     }
     if (optionsEqual(committedOptions, nextOptions)) {
@@ -221,7 +259,7 @@ function AppointmentSmileyOptionsEditor({
     }
 
     const beforeOptions = committedOptions;
-    setError(null);
+    setEditorError(null);
     setPending(true);
     try {
       const savedOptions = await updateOptions({
@@ -230,46 +268,22 @@ function AppointmentSmileyOptionsEditor({
         practiceId,
       });
       handleDraftMutationResult(savedOptions);
-      setCommittedOptions(savedOptions.options);
-      setDraftOptions(createDraftOptions(savedOptions.options));
-      onRecordCommand?.(
-        createRuleSetPracticeSettingsCommand({
-          kind: "practice.appointmentSmileyOptions.update",
-          label,
-          payload: {
-            after: savedOptions.options.map((option) =>
-              formatSmileyOptionLine(option),
-            ),
-            before: beforeOptions.map((option) =>
-              formatSmileyOptionLine(option),
-            ),
-            kind: "practice.appointmentSmileyOptions.update",
-          },
-          target: { entityId: practiceId },
-        }),
-        {
-          redo: async () => {
-            const redoResult = await updateOptions({
-              ...getCowMutationArgs(),
-              options: savedOptions.options,
-              practiceId,
-            });
-            handleDraftMutationResult(redoResult);
-            return appliedLedgerResult();
-          },
-          undo: async () => {
-            const undoResult = await updateOptions({
-              ...getCowMutationArgs(),
-              options: beforeOptions,
-              practiceId,
-            });
-            handleDraftMutationResult(undoResult);
-            return appliedLedgerResult();
-          },
-        },
+      setEditorState(
+        createEditorState(savedOptions.options, initialOptionsKey),
       );
+      recordAppointmentSmileyOptionsCommand({
+        afterOptions: savedOptions.options,
+        beforeOptions,
+        formatOption: formatSmileyOptionLine,
+        getCowMutationArgs,
+        handleDraftMutationResult,
+        label,
+        onRecordCommand,
+        practiceId,
+        updateOptions,
+      });
     } catch (error_: unknown) {
-      setError(
+      setEditorError(
         error_ instanceof Error
           ? error_.message
           : "Termin-Smileys konnten nicht gespeichert werden.",
@@ -280,12 +294,18 @@ function AppointmentSmileyOptionsEditor({
   };
 
   const addRow = () => {
-    const localId = `draft:${nextLocalId.current}`;
-    nextLocalId.current += 1;
-    setDraftOptions([
-      ...draftOptions,
-      { emoji: "", id: crypto.randomUUID(), localId, name: "" },
-    ]);
+    updateActiveEditorState((state) => ({
+      ...state,
+      draftOptions: [
+        ...state.draftOptions,
+        {
+          emoji: "",
+          id: crypto.randomUUID(),
+          localId: `draft:${crypto.randomUUID()}`,
+          name: "",
+        },
+      ],
+    }));
   };
 
   const updateRow = (
@@ -293,11 +313,12 @@ function AppointmentSmileyOptionsEditor({
     field: keyof AppointmentSmileyOption,
     value: string,
   ) => {
-    setDraftOptions(
-      draftOptions.map((option) =>
+    updateActiveEditorState((state) => ({
+      ...state,
+      draftOptions: state.draftOptions.map((option) =>
         option.localId === localId ? { ...option, [field]: value } : option,
       ),
-    );
+    }));
   };
 
   const commitRow = (localId: string, label: string) => {
@@ -313,7 +334,10 @@ function AppointmentSmileyOptionsEditor({
     const nextRows = draftOptions.filter(
       (option) => option.localId !== localId,
     );
-    setDraftOptions(nextRows);
+    updateActiveEditorState((state) => ({
+      ...state,
+      draftOptions: nextRows,
+    }));
     void commitOptions(nextRows, "Termin-Smiley entfernt");
   };
 
@@ -368,7 +392,10 @@ function AppointmentSmileyOptionsEditor({
                                   ? { ...candidate, emoji: emoji.emoji }
                                   : candidate,
                               );
-                              setDraftOptions(nextRows);
+                              updateActiveEditorState((state) => ({
+                                ...state,
+                                draftOptions: nextRows,
+                              }));
                               const nextRow = nextRows.find(
                                 (candidate) =>
                                   candidate.localId === option.localId,

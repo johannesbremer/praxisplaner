@@ -135,4 +135,54 @@ describe("AppointmentSmileyOptionsManagement", () => {
       selectedRuleSetId: draftRuleSetId,
     });
   });
+
+  test("syncs visible rows when smiley options refetch after replay", async () => {
+    useQueryMock
+      .mockReturnValueOnce([
+        {
+          emoji: "👍",
+          id: "arrived",
+          name: "Patient wartet",
+        },
+      ])
+      .mockReturnValueOnce([
+        {
+          emoji: "👍",
+          id: "arrived",
+          name: "Patient ist angekommen",
+        },
+      ]);
+
+    const { rerender } = render(
+      <AppointmentSmileyOptionsManagement
+        practiceId={practiceId}
+        ruleSetReplayTarget={{
+          draftRevision: 5,
+          draftRuleSetId,
+          kind: "draft",
+          parentRuleSetId,
+        }}
+      />,
+    );
+
+    expect(screen.getByLabelText("Name")).toHaveValue("Patient wartet");
+
+    rerender(
+      <AppointmentSmileyOptionsManagement
+        practiceId={practiceId}
+        ruleSetReplayTarget={{
+          draftRevision: 6,
+          draftRuleSetId,
+          kind: "draft",
+          parentRuleSetId,
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Name")).toHaveValue(
+        "Patient ist angekommen",
+      );
+    });
+  });
 });
