@@ -43,6 +43,9 @@ import {
   replanAppointmentSeries,
 } from "./appointmentSeries";
 import {
+  appointmentReplacementInsertFields,
+  appointmentReplacementState,
+  appointmentReplacementStatesEqual,
   type AppointmentSimulationKind,
   appointmentSimulationKindValidator,
   isActivationBoundSimulation,
@@ -309,22 +312,6 @@ export const blockedSlotListItemDocBackedOptionalFieldCoverage = {
 
 function appointmentChainError(code: string, message: string) {
   return new ConvexError({ code, message });
-}
-
-function appointmentOccupancyScopeEqual(
-  left: AppointmentDoc["occupancyScope"],
-  right: AppointmentDoc["occupancyScope"],
-) {
-  if (left.kind !== right.kind) {
-    return false;
-  }
-  if (left.kind === "practitioner" && right.kind === "practitioner") {
-    return left.practitionerLineageKey === right.practitionerLineageKey;
-  }
-  if (left.kind === "resource" && right.kind === "resource") {
-    return left.calendarResourceColumn === right.calendarResourceColumn;
-  }
-  return true;
 }
 
 function asTrustedAppointmentInput(args: {
@@ -650,10 +637,6 @@ async function mapBlockedSlotsForDisplay(
   );
 }
 
-function optionalFieldEqual<T>(left: T | undefined, right: T | undefined) {
-  return left === right;
-}
-
 function parseAppointmentOwner(args: AppointmentOwnerInput): AppointmentOwner {
   const hasLinkedOwner =
     args.bookingIdentityId !== undefined ||
@@ -942,38 +925,9 @@ function simulationReplacementMatchesRealAppointment(
   real: AppointmentDoc,
   replacementSmiley: AppointmentSmiley | undefined,
 ) {
-  return (
-    replacement.appointmentTypeLineageKey === real.appointmentTypeLineageKey &&
-    replacement.appointmentTypeTitle === real.appointmentTypeTitle &&
-    optionalFieldEqual(replacement.bookingIdentityId, real.bookingIdentityId) &&
-    optionalFieldEqual(replacement.cancelledAt, real.cancelledAt) &&
-    optionalFieldEqual(
-      replacement.cancelledByPhoneBookingIdentityId,
-      real.cancelledByPhoneBookingIdentityId,
-    ) &&
-    replacement.end === real.end &&
-    replacement.locationLineageKey === real.locationLineageKey &&
-    appointmentOccupancyScopeEqual(
-      replacement.occupancyScope,
-      real.occupancyScope,
-    ) &&
-    optionalFieldEqual(replacement.patientId, real.patientId) &&
-    optionalFieldEqual(
-      replacement.phoneBookingIdentityId,
-      real.phoneBookingIdentityId,
-    ) &&
-    replacement.practiceId === real.practiceId &&
-    optionalFieldEqual(
-      replacement.reassignmentSourceVacationLineageKey,
-      real.reassignmentSourceVacationLineageKey,
-    ) &&
-    optionalFieldEqual(replacement.seriesId, real.seriesId) &&
-    optionalFieldEqual(replacement.seriesStepId, real.seriesStepId) &&
-    optionalFieldEqual(replacement.seriesStepIndex, real.seriesStepIndex) &&
-    optionalFieldEqual(replacementSmiley, real.smiley) &&
-    replacement.start === real.start &&
-    replacement.title === real.title &&
-    optionalFieldEqual(replacement.userId, real.userId)
+  return appointmentReplacementStatesEqual(
+    appointmentReplacementState(replacement, { smiley: replacementSmiley }),
+    appointmentReplacementState(real),
   );
 }
 
@@ -3409,18 +3363,17 @@ export const updateSimulationAppointmentSmiley = mutation({
       return null;
     }
 
-    const { _creationTime, _id, ...replacementFields } = existingAppointment;
-    void _creationTime;
-    void _id;
     await ctx.db.insert("appointments", {
-      ...replacementFields,
+      ...appointmentReplacementInsertFields(existingAppointment, {
+        smiley: requestedSmiley,
+      }),
+      createdAt: now,
       isSimulation: true,
       lastModified: now,
       replacesAppointmentId: args.id,
       simulationKind: "draft",
       simulationRuleSetId: args.simulationRuleSetId,
       simulationValidatedAt: now,
-      ...(args.smiley === null ? {} : { smiley: args.smiley }),
     });
     return null;
   },

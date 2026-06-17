@@ -41,7 +41,10 @@ import {
   resolvePractitionerLineageKey,
   resolveStoredAppointmentReferencesForWrite,
 } from "./appointmentReferences";
-import { isActivationBoundSimulation } from "./appointmentSimulation";
+import {
+  appointmentReplacementInsertFields,
+  isActivationBoundSimulation,
+} from "./appointmentSimulation";
 import {
   bumpDraftRevision,
   validateAppointmentTypeLineageKeysInRuleSet,
@@ -314,25 +317,20 @@ async function createAutomaticReassignmentSimulationsForDeletedPractitioner(
     );
 
     const simulationAppointmentId = await ctx.db.insert("appointments", {
-      appointmentTypeLineageKey: storedReferences.appointmentTypeLineageKey,
-      appointmentTypeTitle: appointment.appointmentTypeTitle,
+      ...appointmentReplacementInsertFields(appointment, {
+        appointmentTypeLineageKey: storedReferences.appointmentTypeLineageKey,
+        locationLineageKey: storedReferences.locationLineageKey,
+        occupancyScope: appointmentOccupancyScopeFromRefs({
+          practitionerLineageKey: storedReferences.practitionerLineageKey,
+        }),
+      }),
       createdAt: now,
-      end: appointment.end,
       isSimulation: true,
       lastModified: now,
-      locationLineageKey: storedReferences.locationLineageKey,
-      occupancyScope: appointmentOccupancyScopeFromRefs({
-        practitionerLineageKey: storedReferences.practitionerLineageKey,
-      }),
-      ...(appointment.patientId ? { patientId: appointment.patientId } : {}),
-      practiceId: args.practiceId,
       replacesAppointmentId: appointment._id,
       simulationKind: "activation-reassignment",
       simulationRuleSetId: args.ruleSetId,
       simulationValidatedAt: now,
-      start: appointment.start,
-      title: appointment.title,
-      ...(appointment.userId ? { userId: appointment.userId } : {}),
     });
     createdSimulationIds.push(simulationAppointmentId);
   }

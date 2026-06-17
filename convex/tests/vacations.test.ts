@@ -1136,6 +1136,7 @@ describe("vacations", () => {
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        smiley: "😀",
         start,
         title: "Termin",
       });
@@ -1178,16 +1179,14 @@ describe("vacations", () => {
         selectedRuleSetId: result.ruleSetId,
       },
     );
+    const simulatedReplacement = simulatedAppointments.find(
+      (candidate) => candidate.replacesAppointmentId === appointmentId,
+    );
     expect(
-      simulatedAppointments.find(
-        (candidate) => candidate.replacesAppointmentId === appointmentId,
-      ) &&
-        appointmentPractitionerLineageKey(
-          simulatedAppointments.find(
-            (candidate) => candidate.replacesAppointmentId === appointmentId,
-          ),
-        ),
+      simulatedReplacement &&
+        appointmentPractitionerLineageKey(simulatedReplacement),
     ).toBe(fixture.preferredPractitionerId);
+    expect(simulatedReplacement?.smiley).toBe("😀");
   });
 
   test("coverage-adjusted vacation creation resolves appointment types by lineage when the source row is gone", async () => {
@@ -1215,6 +1214,7 @@ describe("vacations", () => {
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        smiley: "😀",
         start,
         title: "Termin",
       });
@@ -1250,16 +1250,14 @@ describe("vacations", () => {
         selectedRuleSetId: result.ruleSetId,
       },
     );
+    const simulatedReplacement = simulatedAppointments.find(
+      (candidate) => candidate.replacesAppointmentId === appointmentId,
+    );
     expect(
-      simulatedAppointments.find(
-        (candidate) => candidate.replacesAppointmentId === appointmentId,
-      ) &&
-        appointmentPractitionerLineageKey(
-          simulatedAppointments.find(
-            (candidate) => candidate.replacesAppointmentId === appointmentId,
-          ),
-        ),
+      simulatedReplacement &&
+        appointmentPractitionerLineageKey(simulatedReplacement),
     ).toBe(fixture.preferredPractitionerId);
+    expect(simulatedReplacement?.smiley).toBe("😀");
   });
 
   test("coverage preview and save use selected rule set practitioner references", async () => {
@@ -1472,6 +1470,7 @@ describe("vacations", () => {
         patientId: fixture.patientId,
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        smiley: "😀",
         start,
         title: "Termin",
       });
@@ -1524,16 +1523,14 @@ describe("vacations", () => {
     expect(appointmentPractitionerLineageKey(unchangedAppointment)).toBe(
       fixture.absentPractitionerId,
     );
+    const simulatedReplacement = simulatedAppointments.find(
+      (candidate) => candidate.replacesAppointmentId === appointmentId,
+    );
     expect(
-      simulatedAppointments.find(
-        (candidate) => candidate.replacesAppointmentId === appointmentId,
-      ) &&
-        appointmentPractitionerLineageKey(
-          simulatedAppointments.find(
-            (candidate) => candidate.replacesAppointmentId === appointmentId,
-          ),
-        ),
+      simulatedReplacement &&
+        appointmentPractitionerLineageKey(simulatedReplacement),
     ).toBe(fixture.preferredPractitionerId);
+    expect(simulatedReplacement?.smiley).toBe("😀");
     expect(vacations).toHaveLength(1);
     expect(vacations[0]?.portion).toBe("morning");
 
@@ -1561,6 +1558,7 @@ describe("vacations", () => {
     expect(appointmentPractitionerLineageKey(activatedAppointment)).toBe(
       activatedTargetPractitioner?.lineageKey ?? draftPreferredPractitionerId,
     );
+    expect(activatedAppointment?.smiley).toBe("😀");
     expect(remainingSimulations).toHaveLength(0);
   });
 

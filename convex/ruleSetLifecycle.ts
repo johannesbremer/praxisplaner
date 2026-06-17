@@ -9,7 +9,10 @@ import {
   appointmentOverlapsCandidate,
   findConflictingAppointment,
 } from "./appointmentConflicts";
-import { isActivationBoundSimulation } from "./appointmentSimulation";
+import {
+  appointmentReplacementState,
+  isActivationBoundSimulation,
+} from "./appointmentSimulation";
 import {
   createDraftRuleSetFromSource,
   findUnsavedRuleSet,
@@ -432,22 +435,8 @@ async function applyPendingSimulationAppointmentsForRuleSet(
     }
 
     await db.patch("appointments", replacedAppointmentId, {
-      appointmentTypeLineageKey:
-        simulationAppointment.appointmentTypeLineageKey,
-      appointmentTypeTitle: simulationAppointment.appointmentTypeTitle,
-      end: simulationAppointment.end,
+      ...appointmentReplacementState(simulationAppointment),
       lastModified: BigInt(Date.now()),
-      locationLineageKey: simulationAppointment.locationLineageKey,
-      ...(simulationAppointment.patientId
-        ? { patientId: simulationAppointment.patientId }
-        : {}),
-      occupancyScope: simulationAppointment.occupancyScope,
-      smiley: simulationAppointment.smiley,
-      start: simulationAppointment.start,
-      title: simulationAppointment.title,
-      ...(simulationAppointment.userId
-        ? { userId: simulationAppointment.userId }
-        : {}),
     });
     await db.delete("appointments", simulationAppointment._id);
   }
