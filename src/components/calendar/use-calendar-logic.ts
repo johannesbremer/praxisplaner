@@ -76,6 +76,7 @@ function setTransparentDragImage(dataTransfer: DataTransfer): void {
  */
 export function useCalendarLogic({
   locationName,
+  onAppointmentCreated,
   onClearAppointmentTypeSelection,
   onDateChange,
   onLocationResolved,
@@ -1233,6 +1234,7 @@ export function useCalendarLogic({
       .createAppointment(requestResult.request)
       .then((createdAppointmentId) => {
         if (createdAppointmentId) {
+          onAppointmentCreated?.(createdAppointmentId);
           onClearAppointmentTypeSelection?.();
         }
       });

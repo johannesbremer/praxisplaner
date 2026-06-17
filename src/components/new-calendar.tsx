@@ -236,6 +236,18 @@ export function NewCalendar({
         ? patient?.convexPatientId
         : undefined;
 
+  // Handler for selecting an appointment by ID (used after creation)
+  const handleAppointmentSelection = useCallback(
+    (appointmentId: Id<"appointments">, patient?: SelectedPatient) => {
+      setSelectedAppointmentId(appointmentId);
+      clearAppointmentCreationSelection();
+      if (patient) {
+        setSelectedPatient(patient);
+      }
+    },
+    [clearAppointmentCreationSelection],
+  );
+
   // State for blocking mode
   const [isBlockingModeActive, setIsBlockingModeActive] = useState(false);
   const [blockedSlotModalOpen, setBlockedSlotModalOpen] = useState(false);
@@ -297,6 +309,7 @@ export function NewCalendar({
     workingPractitioners,
   } = useCalendarLogic({
     locationName,
+    onAppointmentCreated: handleAppointmentSelection,
     onClearAppointmentTypeSelection: clearAppointmentCreationSelection,
     onDateChange,
     onLocationResolved,
@@ -449,18 +462,6 @@ export function NewCalendar({
       }
     }
   };
-
-  // Handler for selecting an appointment by ID (used after creation)
-  const handleAppointmentSelection = useCallback(
-    (appointmentId: Id<"appointments">, patient?: SelectedPatient) => {
-      setSelectedAppointmentId(appointmentId);
-      clearAppointmentCreationSelection();
-      if (patient) {
-        setSelectedPatient(patient);
-      }
-    },
-    [clearAppointmentCreationSelection],
-  );
 
   const handleSelectPracticePatient = useCallback(
     (selected?: PracticePatientSelection) => {

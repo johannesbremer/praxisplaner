@@ -597,20 +597,18 @@ export function StaffAppointmentCreationModal({
                   </span>
                 </div>
 
-                {!hasAnyPatient && (
-                  <PatientSelectionPanel
-                    initialSelection={getPatientSelectionPanelInitialSelection({
-                      patient: effectivePatient,
-                      selectedPatientId: effectiveSelectedPatientId,
-                    })}
-                    key="patient-selection-next"
-                    onPatientSelected={(selected) => {
-                      setSelectedFallbackPatient(selected);
-                      onPatientSelected?.(selected);
-                    }}
-                    practiceId={practiceId}
-                  />
-                )}
+                <PatientSelectionPanel
+                  initialSelection={getPatientSelectionPanelInitialSelection({
+                    patient: effectivePatient,
+                    selectedPatientId: effectiveSelectedPatientId,
+                  })}
+                  key="patient-selection-next"
+                  onPatientSelected={(selected) => {
+                    setSelectedFallbackPatient(selected);
+                    onPatientSelected?.(selected);
+                  }}
+                  practiceId={practiceId}
+                />
 
                 {hasFollowUpPlan && (
                   <div className="rounded-md border p-3 space-y-2">
@@ -736,20 +734,18 @@ export function StaffAppointmentCreationModal({
                   />
                 </div>
 
-                {!hasAnyPatient && (
-                  <PatientSelectionPanel
-                    initialSelection={getPatientSelectionPanelInitialSelection({
-                      patient: effectivePatient,
-                      selectedPatientId: effectiveSelectedPatientId,
-                    })}
-                    key="patient-selection-create"
-                    onPatientSelected={(selected) => {
-                      setSelectedFallbackPatient(selected);
-                      onPatientSelected?.(selected);
-                    }}
-                    practiceId={practiceId}
-                  />
-                )}
+                <PatientSelectionPanel
+                  initialSelection={getPatientSelectionPanelInitialSelection({
+                    patient: effectivePatient,
+                    selectedPatientId: effectiveSelectedPatientId,
+                  })}
+                  key="patient-selection-create"
+                  onPatientSelected={(selected) => {
+                    setSelectedFallbackPatient(selected);
+                    onPatientSelected?.(selected);
+                  }}
+                  practiceId={practiceId}
+                />
 
                 <Button
                   className="w-full justify-start"

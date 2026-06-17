@@ -19,10 +19,35 @@ export async function createTemporaryPatientRecord(
     practiceId: Id<"practices">;
   },
 ): Promise<Id<"patients">> {
+  const temporaryPatient = await createTemporaryPatientRecordWithIdentity(
+    ctx,
+    args,
+  );
+  return temporaryPatient.patientId;
+}
+
+export async function createTemporaryPatientRecordWithIdentity(
+  ctx: MutationCtx,
+  args: {
+    name: string;
+    phoneNumber: string;
+    practiceId: Id<"practices">;
+  },
+): Promise<{
+  bookingIdentityId: Id<"bookingIdentities">;
+  patientId: Id<"patients">;
+}> {
   const { name, phoneNumber } = normalizeTemporaryPatientInput(args);
   const now = BigInt(Date.now());
+  const bookingIdentityId = await ctx.db.insert("bookingIdentities", {
+    createdAt: now,
+    kind: "temporary",
+    lastModified: now,
+    practiceId: args.practiceId,
+  });
 
-  return await ctx.db.insert("patients", {
+  const patientId = await ctx.db.insert("patients", {
+    bookingIdentityId,
     createdAt: now,
     lastModified: now,
     name,
@@ -36,6 +61,8 @@ export async function createTemporaryPatientRecord(
       name,
     }),
   });
+
+  return { bookingIdentityId, patientId };
 }
 
 export function normalizeTemporaryPatientInput(args: {

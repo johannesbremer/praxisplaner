@@ -84,7 +84,7 @@ import {
   requirePractitionerInPracticeRuleSet,
   userHasPracticeRelation,
 } from "./scopedResources";
-import { createTemporaryPatientRecord } from "./temporaryPatients";
+import { createTemporaryPatientRecordWithIdentity } from "./temporaryPatients";
 import {
   asOptionalIsoDateString,
   asTypedDateTimeRange,
@@ -1796,13 +1796,11 @@ async function resolveAppointmentOwnerRefs(
   },
 ): Promise<ResolvedAppointmentOwnerRefs> {
   if (args.owner.kind === "temporary") {
-    return {
-      patientId: await createTemporaryPatientRecord(ctx, {
-        name: args.owner.name,
-        phoneNumber: args.owner.phoneNumber,
-        practiceId: args.scope.practiceId,
-      }),
-    };
+    return await createTemporaryPatientRecordWithIdentity(ctx, {
+      name: args.owner.name,
+      phoneNumber: args.owner.phoneNumber,
+      practiceId: args.scope.practiceId,
+    });
   }
 
   const resolvedRefs: ResolvedAppointmentOwnerRefs = {};

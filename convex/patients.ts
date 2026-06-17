@@ -25,6 +25,7 @@ const patientRecordTypeValidator = v.union(
 const patientDocumentValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("patients"),
+  bookingIdentityId: v.optional(v.id("bookingIdentities")),
   city: v.optional(v.string()),
   createdAt: v.int64(),
   dateOfBirth: v.optional(v.string()),

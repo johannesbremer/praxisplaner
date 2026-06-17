@@ -1,17 +1,30 @@
 "use client";
 
+import { useMutation, useQuery } from "convex/react";
 import {
   AlertCircle,
   Calendar,
   ExternalLink,
+  Link2,
   PanelRightIcon,
 } from "lucide-react";
 import { err, ok, type Result } from "neverthrow";
 import * as React from "react";
+import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -21,6 +34,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { api } from "@/convex/_generated/api";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
@@ -36,7 +50,11 @@ import {
   type FrontendError,
   missingContextError,
 } from "../utils/frontend-errors";
-import { getPatientInfoDisplayName } from "../utils/patient-info";
+import {
+  formatPatientOptionLabel,
+  getPatientInfoDisplayName,
+  patientDocToInfo,
+} from "../utils/patient-info";
 import {
   getPatientSelectionPanelInitialSelection,
   PatientSelectionPanel,
@@ -436,6 +454,17 @@ function RightSidebarContent({
               </Button>
             )}
 
+            {practiceId !== undefined &&
+              patient.recordType === "temporary" &&
+              patient.bookingIdentityId !== undefined &&
+              onPatientSelected !== undefined && (
+                <TemporaryPatientPvsLinkDialog
+                  bookingIdentityId={patient.bookingIdentityId}
+                  onPatientSelected={onPatientSelected}
+                  practiceId={practiceId}
+                />
+              )}
+
             {/* Patient ID */}
             {patient.patientId !== undefined && (
               <p className="text-xs text-muted-foreground">
@@ -503,6 +532,188 @@ function RightSidebarContent({
         )}
       </div>
     </ScrollArea>
+  );
+}
+
+function TemporaryPatientPvsLinkDialog({
+  bookingIdentityId,
+  onPatientSelected,
+  practiceId,
+}: {
+  bookingIdentityId: Id<"bookingIdentities">;
+  onPatientSelected: (patient?: PracticePatientSelection) => void;
+  practiceId: Id<"practices">;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [searchTerm, setSearchTerm] = React.useState("");
+  const [selectedPatientId, setSelectedPatientId] = React.useState<
+    Id<"patients"> | undefined
+  >();
+  const [isLinking, setIsLinking] = React.useState(false);
+  const deferredSearchTerm = React.useDeferredValue(searchTerm.trim());
+  const associateBookingIdentityWithPvsPatient = useMutation(
+    api.bookingIdentities.associateBookingIdentityWithPvsPatient,
+  );
+  const activePvsPatient = useQuery(
+    api.bookingIdentities.getActivePvsPatientForBookingIdentity,
+    { bookingIdentityId, practiceId },
+  );
+  const patients = useQuery(
+    api.patients.searchPatients,
+    open ? { practiceId, searchTerm: deferredSearchTerm } : "skip",
+  );
+  const pvsPatients = React.useMemo(
+    () =>
+      (patients ?? []).filter((candidate) => candidate.recordType === "pvs"),
+    [patients],
+  );
+  const selectedPatient = pvsPatients.find(
+    (candidate) => candidate._id === selectedPatientId,
+  );
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      setSearchTerm("");
+      setSelectedPatientId(undefined);
+    }
+  };
+
+  const handleLink = async () => {
+    if (selectedPatient === undefined) {
+      return;
+    }
+
+    const selectedPatientInfo = patientDocToInfo(selectedPatient).match(
+      (info) => info,
+      (error) => {
+        captureFrontendError(error, undefined, "temporary-patient-pvs-link");
+        toast.error("Der PVS-Patient konnte nicht gelesen werden.");
+        return null;
+      },
+    );
+    if (selectedPatientInfo === null) {
+      return;
+    }
+
+    setIsLinking(true);
+    try {
+      await associateBookingIdentityWithPvsPatient({
+        bookingIdentityId,
+        method: "manual",
+        patientId: selectedPatient._id,
+        practiceId,
+        ...(selectedPatient.patientId === undefined
+          ? {}
+          : { pvsPatientNumber: selectedPatient.patientId }),
+      });
+      onPatientSelected({
+        id: selectedPatient._id,
+        info: selectedPatientInfo,
+      });
+      toast.success("Temporärer Patient wurde mit dem PVS verknüpft.");
+      handleOpenChange(false);
+    } catch {
+      toast.error("Der Patient konnte nicht mit dem PVS verknüpft werden.");
+    } finally {
+      setIsLinking(false);
+    }
+  };
+
+  return (
+    <Dialog onOpenChange={handleOpenChange} open={open}>
+      <Button
+        className="w-full gap-1.5"
+        onClick={() => {
+          setOpen(true);
+        }}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        <Link2 className="h-3.5 w-3.5" />
+        Mit dem PVS verknüpfen
+      </Button>
+      {activePvsPatient !== undefined && activePvsPatient !== null && (
+        <p className="text-xs text-muted-foreground">
+          Verknüpft mit {formatPatientOptionLabel(activePvsPatient)}
+        </p>
+      )}
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Mit dem PVS verknüpfen</DialogTitle>
+          <DialogDescription>
+            Wählen Sie den kanonischen PVS-Patienten für diesen temporären
+            Patienten aus.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor="temporary-patient-pvs-search">PVS-Patient</Label>
+            <Input
+              id="temporary-patient-pvs-search"
+              onChange={(event) => {
+                setSearchTerm(event.target.value);
+                setSelectedPatientId(undefined);
+              }}
+              placeholder="PVS-Patient suchen"
+              value={searchTerm}
+            />
+          </div>
+
+          <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-1">
+            {pvsPatients.length > 0 ? (
+              pvsPatients.map((candidate) => {
+                const isSelected = candidate._id === selectedPatientId;
+                return (
+                  <button
+                    className={cn(
+                      "w-full rounded-sm px-3 py-2 text-left text-sm transition-colors",
+                      isSelected
+                        ? "bg-accent text-accent-foreground"
+                        : "hover:bg-accent hover:text-accent-foreground",
+                    )}
+                    key={candidate._id}
+                    onClick={() => {
+                      setSelectedPatientId(candidate._id);
+                    }}
+                    type="button"
+                  >
+                    {formatPatientOptionLabel(candidate)}
+                  </button>
+                );
+              })
+            ) : (
+              <p className="px-3 py-2 text-sm text-muted-foreground">
+                Keine PVS-Patienten gefunden.
+              </p>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button
+            onClick={() => {
+              handleOpenChange(false);
+            }}
+            type="button"
+            variant="outline"
+          >
+            Abbrechen
+          </Button>
+          <Button
+            disabled={selectedPatient === undefined || isLinking}
+            onClick={() => {
+              void handleLink();
+            }}
+            type="button"
+          >
+            Verknüpfen
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

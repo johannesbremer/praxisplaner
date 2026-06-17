@@ -844,22 +844,31 @@ describe("appointments self-service cancellation", () => {
       },
     );
 
-    const { appointment, patient } = await t.run(async (ctx) => {
-      const appointment = await ctx.db.get("appointments", appointmentId);
-      const patient = appointment?.patientId
-        ? await ctx.db.get("patients", appointment.patientId)
-        : null;
+    const { appointment, bookingIdentity, patient } = await t.run(
+      async (ctx) => {
+        const appointment = await ctx.db.get("appointments", appointmentId);
+        const patient = appointment?.patientId
+          ? await ctx.db.get("patients", appointment.patientId)
+          : null;
+        const bookingIdentity = appointment?.bookingIdentityId
+          ? await ctx.db.get("bookingIdentities", appointment.bookingIdentityId)
+          : null;
 
-      return { appointment, patient };
-    });
+        return { appointment, bookingIdentity, patient };
+      },
+    );
 
     expect(appointment?.patientId).toBeDefined();
+    expect(appointment?.bookingIdentityId).toBeDefined();
     expect(appointment?.userId).toBeUndefined();
+    expect(patient?.bookingIdentityId).toBe(appointment?.bookingIdentityId);
     expect(patient?.name).toBe("Alex Beispiel");
     expect(patient?.phoneNumber).toBe("+491701234567");
     expect(patient?.recordType).toBe("temporary");
     expect(patient?.firstName).toBeUndefined();
     expect(patient?.lastName).toBeUndefined();
+    expect(bookingIdentity?.kind).toBe("temporary");
+    expect(bookingIdentity?.practiceId).toBe(baseData.practiceId);
   });
 
   test("createAppointment preserves explicit end for simulated replacement", async () => {

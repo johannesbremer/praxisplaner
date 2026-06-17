@@ -109,6 +109,9 @@ export interface WorkingPractitioner {
  */
 export interface NewCalendarProps {
   locationName?: string | undefined;
+  onAppointmentCreated?:
+    | ((appointmentId: Id<"appointments">) => void)
+    | undefined;
   onClearAppointmentTypeSelection?: (() => void) | undefined;
   onDateChange?: ((date: Temporal.PlainDate) => void) | undefined;
   onLocationResolved?:
