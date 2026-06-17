@@ -175,7 +175,7 @@ The palette is a playful rose, lemon, and powder-blue preset on a blush clinical
 
 **The Selection Outline Rule.** Selected appointments use the dedicated selection ring token, not the softer info token, so 2px rings remain visible on white surfaces and info-muted fills.
 
-**The Destructive Action Rule.** Destructive is dark enough in light mode to work both as white-on-fill button background and as small error text on blush, lemon, or white surfaces. Dark-mode destructive surfaces may use the same translucent pink fill as destructive buttons.
+**The Destructive Action Rule.** Destructive is dark enough to work both as white-on-fill button background and as small error text on blush, lemon, or white surfaces.
 
 ## 3. Typography
 
