@@ -4691,6 +4691,7 @@ describe("calendar day appointment queries", () => {
         ruleSetId: baseData.ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: baseData.appointmentTypeId,
+          clientType: "MFA",
           locationLineageKey: baseData.locationId,
           patient: { isNew: false },
         },

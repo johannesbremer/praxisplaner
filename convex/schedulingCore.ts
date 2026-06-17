@@ -820,8 +820,15 @@ function markSlotsBlockedByRules(
       args.displayReferencesBySlotKey,
       slot,
     );
+    const { clientType } = args.bookingContext.simulatedContext;
+    if (!clientType) {
+      throw new Error(
+        "clientType is required in simulatedContext for scheduling rule evaluation",
+      );
+    }
     const appointmentContext = {
       appointmentTypeId: args.bookingContext.appointmentTypeId,
+      clientType,
       dateTime: asZonedDateTimeString(slot.startTime),
       ...(args.bookingContext.simulatedContext.patient.dateOfBirth && {
         patientDateOfBirth:
@@ -875,8 +882,15 @@ function preEvaluateCandidateDayRules(args: {
     args.displayReferencesBySlotKey,
     firstSlot,
   );
+  const { clientType } = args.bookingContext.simulatedContext;
+  if (!clientType) {
+    throw new Error(
+      "clientType is required in simulatedContext for scheduling rule evaluation",
+    );
+  }
   const dayContext = {
     appointmentTypeId: args.bookingContext.appointmentTypeId,
+    clientType,
     dateTime: asZonedDateTimeString(firstSlot.startTime),
     ...(args.bookingContext.simulatedContext.patient.dateOfBirth && {
       patientDateOfBirth:

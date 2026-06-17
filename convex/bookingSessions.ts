@@ -154,6 +154,7 @@ async function assertSlotAllowedByRules(
     {
       context: {
         appointmentTypeId: args.appointmentTypeId,
+        clientType: "Online",
         dateTime: args.startTime,
         locationId,
         patientDateOfBirth: args.patientDateOfBirth,
@@ -1454,6 +1455,7 @@ async function requireOfferedPatientSlot(
       scope: "real",
       simulatedContext: {
         appointmentTypeLineageKey: args.appointmentTypeLineageKey,
+        clientType: "Online",
         locationLineageKey: args.locationLineageKey,
         patient: {
           dateOfBirth: args.patientDateOfBirth,

@@ -876,6 +876,7 @@ export const createVacationWithCoverageAdjustments = mutation({
           ruleSetId,
           simulatedContext: {
             appointmentTypeLineageKey: selectedAppointmentTypeLineageKey,
+            clientType: "MFA",
             locationLineageKey: selectedLocationLineageKey,
             patient: {
               ...(patientDateOfBirth

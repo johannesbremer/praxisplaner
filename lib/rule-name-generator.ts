@@ -3,7 +3,7 @@
  * Used by both the UI (rule-builder.tsx) and tests (ruleEngine.test.ts).
  */
 
-import type { ConditionTreeNode } from "./condition-tree";
+import type { ConditionTreeNode, ConditionType } from "./condition-tree";
 
 // Condition types matching the UI
 interface Condition {
@@ -17,18 +17,6 @@ interface Condition {
   count?: null | number;
   scope?: "location" | "practice" | "practitioner" | null;
 }
-
-// UI supports a subset of backend condition types
-type ConditionType =
-  | "APPOINTMENT_TYPE"
-  | "CONCURRENT_COUNT"
-  | "DAILY_CAPACITY"
-  | "DAY_OF_WEEK"
-  | "DAYS_AHEAD"
-  | "HOURS_AHEAD"
-  | "LOCATION"
-  | "PATIENT_AGE"
-  | "PRACTITIONER";
 
 interface Entity {
   _id: string;
@@ -51,25 +39,6 @@ function createEntityNameResolver(entities: Entity[]) {
 
 function isDefined<T>(value: T | undefined): value is T {
   return value !== undefined;
-}
-
-function isSupportedConditionType(value: string): value is ConditionType {
-  switch (value) {
-    case "APPOINTMENT_TYPE":
-    case "CONCURRENT_COUNT":
-    case "DAILY_CAPACITY":
-    case "DAY_OF_WEEK":
-    case "DAYS_AHEAD":
-    case "HOURS_AHEAD":
-    case "LOCATION":
-    case "PATIENT_AGE":
-    case "PRACTITIONER": {
-      return true;
-    }
-    default: {
-      return false;
-    }
-  }
 }
 
 /**
@@ -181,6 +150,16 @@ export function generateRuleName(
         );
         break;
       }
+      case "CLIENT_TYPE": {
+        const names = condition.valueIds ?? [];
+        const isExclude = condition.operator === "IS_NOT";
+        const formattedValue =
+          names.length > 0 ? formatNames(names) : "[Patiententyp]";
+        parts.push(
+          `der Patiententyp ${isExclude ? "nicht " : ""}${formattedValue} ist,`,
+        );
+        break;
+      }
       case "CONCURRENT_COUNT": {
         const count = condition.count ?? 0;
         const atNames =
@@ -214,6 +193,16 @@ export function generateRuleName(
           atNames.length > 0 ? formatNames(atNames, true) : "[Termintyp]";
         parts.push(
           `am gleichen Tag ${count} oder mehr ${formattedValue} ${scopeLabel} gebucht wurden,`,
+        );
+        break;
+      }
+      case "DATE_RANGE": {
+        const values = condition.valueIds ?? [];
+        const startDate = values[0] ? formatIsoDate(values[0]) : "[Start]";
+        const endDate = values[1] ? formatIsoDate(values[1]) : "[Ende]";
+        const isExclude = condition.operator === "IS_NOT";
+        parts.push(
+          `das Datum ${isExclude ? "nicht " : ""}zwischen ${startDate} und ${endDate} liegt,`,
         );
         break;
       }
@@ -287,6 +276,19 @@ export function generateRuleName(
         );
         break;
       }
+      case "TIME_RANGE": {
+        const values = condition.valueIds ?? [];
+        const startTime = values[0] ?? "[Start]";
+        const endTime = values[1] ?? "[Ende]";
+        const isExclude = condition.operator === "IS_NOT";
+        parts.push(
+          `die Uhrzeit ${isExclude ? "nicht " : ""}zwischen ${startTime} und ${endTime} liegt,`,
+        );
+        break;
+      }
+      default: {
+        assertNever(condition.type);
+      }
     }
   }
 
@@ -303,59 +305,64 @@ export function conditionTreeToConditions(
 ): Condition[] {
   const conditions: Condition[] = [];
 
-  // Handle AND node with multiple conditions
-  if (tree.nodeType === "AND") {
-    for (const [index, child] of tree.children.entries()) {
-      const condition = parseConditionNode(child, String(index));
-      if (condition) {
-        conditions.push(condition);
-      }
+  const visit = (node: ConditionTreeNode, path: string) => {
+    if (node.nodeType === "CONDITION") {
+      conditions.push(parseConditionNode(node, path));
+      return;
     }
-  } else if (tree.nodeType === "CONDITION") {
-    // Single condition without AND wrapper
-    const condition = parseConditionNode(tree, "0");
-    if (condition) {
-      conditions.push(condition);
+    if (node.nodeType === "NOT") {
+      throw new Error(
+        "NOT-Regelbäume können nicht als flache Bedingungen dargestellt werden",
+      );
     }
+
+    for (const [index, child] of node.children.entries()) {
+      visit(child, `${path}.${index}`);
+    }
+  };
+
+  visit(tree, "0");
+
+  if (conditions.length === 0) {
+    throw new Error("Regelbaum enthaelt keine Bedingungen");
   }
 
-  return conditions.length > 0
-    ? conditions
-    : [
-        {
-          id: "1",
-          operator: "IS",
-          type: "APPOINTMENT_TYPE",
-          valueIds: [],
-        },
-      ];
+  return conditions;
 }
 
 /**
  * Helper to parse a single condition node from tree to Condition object.
  */
+function assertNever(value: never): never {
+  throw new Error(`Unsupported condition type: ${String(value)}`);
+}
+
+function formatIsoDate(value: string): string {
+  const [year, month, day] = value.split("-");
+  return year && month && day ? `${day}.${month}.${year}` : value;
+}
+
 function parseConditionNode(
-  node: ConditionTreeNode,
+  node: Extract<ConditionTreeNode, { nodeType: "CONDITION" }>,
   id: string,
-): Condition | null {
-  // Only handle CONDITION nodes
-  if (node.nodeType !== "CONDITION") {
-    return null;
-  }
-
+): Condition {
   const { conditionType, operator, scope, valueIds, valueNumber } = node;
-
-  // Filter out condition types not supported by the UI
-  if (!isSupportedConditionType(conditionType)) {
-    // Skip unsupported condition types
-    return null;
-  }
 
   switch (conditionType) {
     case "APPOINTMENT_TYPE":
     case "LOCATION":
     case "PRACTITIONER": {
       // Handle filter types with valueIds
+      return {
+        id,
+        operator: operator === "IS_NOT" ? "IS_NOT" : "IS",
+        type: conditionType,
+        valueIds: valueIds ?? [],
+      };
+    }
+    case "CLIENT_TYPE":
+    case "DATE_RANGE":
+    case "TIME_RANGE": {
       return {
         id,
         operator: operator === "IS_NOT" ? "IS_NOT" : "IS",
@@ -423,8 +430,7 @@ function parseConditionNode(
       };
     }
     default: {
-      // Exhaustive check - should never reach here if supportedTypes check works
-      return null;
+      return assertNever(conditionType);
     }
   }
 }

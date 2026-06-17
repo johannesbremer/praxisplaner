@@ -36,6 +36,41 @@ afterEach(() => {
   process.env["TELEFONKI_SHARED_SECRET"] = originalTelefonkiSecret;
 });
 
+async function addBlockingClientTypeRule(
+  t: TestContext,
+  args: {
+    clientType: string;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  await t.run(async (ctx) => {
+    const now = BigInt(Date.now());
+    const rootRuleId = await ctx.db.insert("ruleConditions", {
+      childOrder: 0,
+      createdAt: now,
+      isRoot: true,
+      lastModified: now,
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+    });
+
+    await ctx.db.insert("ruleConditions", {
+      childOrder: 0,
+      conditionType: "CLIENT_TYPE",
+      createdAt: now,
+      isRoot: false,
+      lastModified: now,
+      nodeType: "CONDITION",
+      operator: "IS",
+      parentConditionId: rootRuleId,
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+      valueIds: [args.clientType],
+    });
+  });
+}
+
 async function addBlockingHoursAheadRule(
   t: TestContext,
   args: {
@@ -49,7 +84,6 @@ async function addBlockingHoursAheadRule(
     const rootRuleId = await ctx.db.insert("ruleConditions", {
       childOrder: 0,
       createdAt: now,
-      enabled: true,
       isRoot: true,
       lastModified: now,
       practiceId: args.practiceId,
@@ -175,6 +209,7 @@ function simulatedContext(args: {
 }) {
   return {
     appointmentTypeLineageKey: args.appointmentTypeId,
+    clientType: "Phone-AI",
     locationLineageKey: args.locationId,
     patient: {
       dateOfBirth: "1980-01-01",
@@ -526,6 +561,33 @@ describe("TelefonKI availability", () => {
           appointmentTypeId: fixture.appointmentTypeId,
           locationId: fixture.locationId,
         }),
+      }),
+    );
+    expect(slots).toEqual([]);
+  });
+
+  test("forces availability searches to use the Phone-AI client type", async () => {
+    const t = createTestContext();
+    const fixture = await createTelefonkiFixture(t);
+    await addBlockingClientTypeRule(t, {
+      clientType: "Phone-AI",
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    const slots = await t.query(
+      api.telefonki.nextAvailableSlots,
+      withTelefonkiSecret({
+        date: nextWeekdayDate(1),
+        limit: 10,
+        practiceId: fixture.practiceId,
+        simulatedContext: {
+          ...simulatedContext({
+            appointmentTypeId: fixture.appointmentTypeId,
+            locationId: fixture.locationId,
+          }),
+          clientType: "MFA",
+        },
       }),
     );
     expect(slots).toEqual([]);

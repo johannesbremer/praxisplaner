@@ -109,6 +109,7 @@ export function CalendarSelectionStep({
 
   // Build simulated context for slot query - only include lineage references.
   const simulatedContext = {
+    clientType: "Online",
     patient: {
       isNew: isNewPatient,
       ...(patientDateOfBirth && { dateOfBirth: patientDateOfBirth }),

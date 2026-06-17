@@ -1158,6 +1158,7 @@ async function queryAvailableSlotsForDay(
       ...(args.scope && { scope: args.scope }),
       simulatedContext: {
         appointmentTypeLineageKey,
+        clientType: "MFA",
         ...(selectedLocationLineageKey === undefined
           ? {}
           : { locationLineageKey: selectedLocationLineageKey }),

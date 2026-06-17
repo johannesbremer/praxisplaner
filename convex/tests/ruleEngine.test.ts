@@ -175,7 +175,6 @@ async function createRule(
   practiceId: Id<"practices">,
   ruleSetId: Id<"ruleSets">,
   conditionTree: ConditionTreeNode,
-  enabled = true,
 ) {
   return await t.run(async (ctx) => {
     const now = BigInt(Date.now());
@@ -184,7 +183,6 @@ async function createRule(
     const rootId = await ctx.db.insert("ruleConditions", {
       childOrder: 0,
       createdAt: now,
-      enabled,
       isRoot: true,
       lastModified: now,
       practiceId,
@@ -2267,71 +2265,6 @@ describe("Rule Engine: Multiple Rules", () => {
     expect(consultationTuesdayResult.isBlocked).toBe(false);
     expect(consultationTuesdayResult.blockedByRuleIds).toHaveLength(0);
   });
-
-  test("Disabled rules should not block appointments", async () => {
-    const t = createTestContext();
-
-    const practiceId = await createPractice(t);
-    const ruleSetId = await createRuleSet(t, practiceId, true);
-    const practitionerId = await createPractitioner(
-      t,
-      practiceId,
-      ruleSetId,
-      "Dr. Smith",
-    );
-    const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
-
-    // Create appointment type
-    const checkupTypeId = await createAppointmentType(
-      t,
-      practiceId,
-      ruleSetId,
-      "Checkup",
-      [practitionerId],
-    );
-
-    // Create a DISABLED rule
-    const conditionTree = {
-      conditionType: "APPOINTMENT_TYPE" as const,
-      nodeType: "CONDITION" as const,
-      operator: "IS" as const,
-      valueIds: [checkupTypeId],
-    };
-
-    // Expected behavior (if enabled): "Wenn der Termintyp Checkup ist, darf der Termin nicht vergeben werden."
-    // But this rule is DISABLED, so it should not block anything
-    const expectedRule = generateRuleName(
-      conditionTreeToConditions(conditionTree),
-      [{ _id: checkupTypeId, name: "Checkup" }],
-      [],
-      [],
-    );
-    console.log("Expected (but DISABLED):", expectedRule);
-
-    await createRule(
-      t,
-      practiceId,
-      ruleSetId,
-      conditionTree,
-      false, // disabled
-    );
-
-    // Test: Should be allowed even though it matches the condition
-    const result = await t.query(internal.ruleEngine.checkRulesForAppointment, {
-      context: {
-        appointmentTypeId: checkupTypeId,
-        dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
-        locationId,
-        practiceId,
-        practitionerId,
-        requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
-      },
-      ruleSetId,
-    });
-
-    expect(result.isBlocked).toBe(false);
-    expect(result.blockedByRuleIds).toHaveLength(0);
-  });
 });
 
 // ================================
@@ -3054,6 +2987,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: generalTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3128,6 +3062,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: generalTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3206,6 +3141,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3229,6 +3165,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3315,6 +3252,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: generalTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3432,6 +3370,7 @@ describe("E2E: Slot Generation with Rules", () => {
       ruleSetId: copiedRuleSetId,
       simulatedContext: {
         appointmentTypeLineageKey: baseAppointmentTypeId,
+        clientType: "MFA",
         patient: { isNew: false },
       },
     });
@@ -3596,6 +3535,7 @@ describe("E2E: Slot Generation with Rules", () => {
     const blockedSlots = await t.query(
       api.scheduling.getBlockedSlotsWithoutAppointmentType,
       {
+        clientType: "MFA",
         date: "2025-10-27",
         locationId: targetIds.targetLocationId,
         practiceId,
@@ -3604,6 +3544,65 @@ describe("E2E: Slot Generation with Rules", () => {
     );
 
     expect(blockedSlots.slots.length).toBeGreaterThan(0);
+  });
+
+  test("getBlockedSlotsWithoutAppointmentType evaluates client type rules with the supplied channel", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const practitionerId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Online",
+    );
+    const locationId = await createLocation(
+      t,
+      practiceId,
+      ruleSetId,
+      "Online Office",
+    );
+    await insertBaseSchedule(
+      t,
+      practiceId,
+      ruleSetId,
+      practitionerId,
+      locationId,
+      1,
+      "09:00",
+      "12:00",
+    );
+    await createRule(t, practiceId, ruleSetId, {
+      conditionType: "CLIENT_TYPE" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
+      valueIds: ["Online"],
+    });
+
+    const onlineBlockedSlots = await t.query(
+      api.scheduling.getBlockedSlotsWithoutAppointmentType,
+      {
+        clientType: "Online",
+        date: "2025-10-27",
+        locationId,
+        practiceId,
+        ruleSetId,
+      },
+    );
+    const staffBlockedSlots = await t.query(
+      api.scheduling.getBlockedSlotsWithoutAppointmentType,
+      {
+        clientType: "MFA",
+        date: "2025-10-27",
+        locationId,
+        practiceId,
+        ruleSetId,
+      },
+    );
+
+    expect(onlineBlockedSlots.slots.length).toBeGreaterThan(0);
+    expect(staffBlockedSlots.slots).toEqual([]);
   });
 
   test("getBlockedSlotsWithoutAppointmentType rejects authenticated non-members", async () => {
@@ -3627,6 +3626,7 @@ describe("E2E: Slot Generation with Rules", () => {
 
     await expect(
       t.query(api.scheduling.getBlockedSlotsWithoutAppointmentType, {
+        clientType: "MFA",
         date: "2025-10-27",
         practiceId,
         ruleSetId,
@@ -3720,6 +3720,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3739,6 +3740,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3758,6 +3760,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -3880,6 +3883,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           locationLineageKey: mainOfficeId,
           patient: { isNew: false },
         },
@@ -3903,6 +3907,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           locationLineageKey: branchId,
           patient: { isNew: false },
         },
@@ -3926,6 +3931,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           locationLineageKey: mainOfficeId,
           patient: { isNew: false },
         },
@@ -3949,6 +3955,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           locationLineageKey: mainOfficeId,
           patient: { isNew: false },
         },
@@ -4038,6 +4045,7 @@ describe("E2E: Slot Generation with Rules", () => {
       ruleSetId,
       simulatedContext: {
         appointmentTypeLineageKey: generalTypeId,
+        clientType: "MFA",
         patient: { isNew: false },
         requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Fixed request time for consistent test
       },
@@ -4057,6 +4065,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: generalTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
           requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Fixed request time for consistent test
         },
@@ -4143,6 +4152,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4162,6 +4172,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4181,6 +4192,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4200,6 +4212,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4277,6 +4290,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: emergencyTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4296,6 +4310,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4413,6 +4428,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: generalTypeId,
+          clientType: "MFA",
           locationLineageKey: branchId,
           patient: { isNew: false },
         },
@@ -4439,6 +4455,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: generalTypeId,
+          clientType: "MFA",
           locationLineageKey: mainOfficeId,
           patient: { isNew: false },
         },
@@ -4574,6 +4591,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
           requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
         },
@@ -4723,6 +4741,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
           requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Reference date
         },
@@ -4754,6 +4773,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: surgeryTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
           requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]", // Reference date
         },
@@ -4854,6 +4874,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4876,6 +4897,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: emergencyTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },
@@ -4895,6 +4917,7 @@ describe("E2E: Slot Generation with Rules", () => {
         ruleSetId,
         simulatedContext: {
           appointmentTypeLineageKey: checkupTypeId,
+          clientType: "MFA",
           patient: { isNew: false },
         },
       },

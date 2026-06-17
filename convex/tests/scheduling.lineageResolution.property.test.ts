@@ -108,6 +108,7 @@ describe("scheduling lineage resolution properties", () => {
           ruleSetId: copiedRuleSetId,
           simulatedContext: {
             appointmentTypeLineageKey: fixture.appointmentTypeId,
+            clientType: "MFA",
             locationLineageKey: fixture.locationId,
             patient: { isNew: true },
           },

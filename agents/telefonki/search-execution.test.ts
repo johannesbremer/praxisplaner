@@ -7,6 +7,7 @@ const baseArgs = {
   practiceId: "practice_1",
   simulatedContext: {
     appointmentTypeLineageKey: "appointmentType_1",
+    clientType: "Phone-AI",
     locationLineageKey: "location_1",
     patient: {
       dateOfBirth: "1980-01-01",

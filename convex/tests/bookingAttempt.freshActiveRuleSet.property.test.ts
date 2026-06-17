@@ -117,6 +117,7 @@ describe("booking attempt freshness properties", () => {
             practiceId: fixture.practiceId,
             simulatedContext: {
               appointmentTypeLineageKey: fixture.appointmentTypeId,
+              clientType: "MFA",
               locationLineageKey: fixture.locationId,
               patient: { isNew: true },
             },
@@ -128,6 +129,7 @@ describe("booking attempt freshness properties", () => {
             ruleSetId: fixture.ruleSetId,
             simulatedContext: {
               appointmentTypeLineageKey: fixture.appointmentTypeId,
+              clientType: "MFA",
               locationLineageKey: fixture.locationId,
               patient: { isNew: true },
             },
@@ -167,7 +169,6 @@ async function configureRuleSetAvailability(
   const rootId = await db.insert("ruleConditions", {
     childOrder: 0,
     createdAt: now,
-    enabled: true,
     isRoot: true,
     lastModified: now,
     practiceId: args.practiceId,

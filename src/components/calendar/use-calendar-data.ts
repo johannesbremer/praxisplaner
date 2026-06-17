@@ -53,6 +53,7 @@ export function useCalendarData(args: {
     | undefined
     | {
         appointmentTypeLineageKey?: AppointmentTypeLineageKey;
+        clientType?: string;
         locationLineageKey?: LocationLineageKey;
         patient: { dateOfBirth?: string; isNew: boolean };
       };
@@ -524,6 +525,7 @@ export function useCalendarData(args: {
                         appointmentTypeLineageKey,
                       ),
                     }),
+                clientType: "MFA",
                 isNewPatient: args.patient?.isNewPatient ?? false,
                 ...(locationLineageKey === undefined
                   ? {}
@@ -540,10 +542,15 @@ export function useCalendarData(args: {
         : "skip",
   );
 
+  const blockedSlotsClientType =
+    args.simulatedContext === undefined
+      ? "MFA"
+      : args.simulatedContext.clientType;
   const blockedSlotsWithoutAppointmentTypeResult = useQuery(
     api.scheduling.getBlockedSlotsWithoutAppointmentType,
-    args.practiceId && args.ruleSetId
+    args.practiceId && args.ruleSetId && blockedSlotsClientType
       ? {
+          clientType: blockedSlotsClientType,
           date: args.selectedDate.toString(),
           practiceId: args.practiceId,
           ruleSetId: args.ruleSetId,

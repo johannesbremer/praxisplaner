@@ -222,7 +222,6 @@ export const appointmentTypeArgsValidator = v.object({
 export const ruleCreateArgsValidator = v.object({
   conditionTree: conditionTreeTransportValidator,
   copyFromId: v.optional(v.id("ruleConditions")),
-  enabled: v.optional(v.boolean()),
   expectedDraftRevision: expectedDraftRevisionValidator,
   practiceId: v.id("practices"),
   ruleSetId: v.optional(v.id("ruleSets")),

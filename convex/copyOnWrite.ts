@@ -605,7 +605,6 @@ async function copyConditionNode(
       | "TIME_RANGE";
     copyFromId: Id<"ruleConditions">;
     createdAt: bigint;
-    enabled?: boolean;
     isRoot: boolean;
     lastModified: bigint;
     nodeType?: "AND" | "CONDITION" | "NOT";
@@ -634,10 +633,6 @@ async function copyConditionNode(
 
   if (targetParentId !== null) {
     insertData.parentConditionId = targetParentId;
-  }
-
-  if (sourceNode.isRoot && sourceNode.enabled !== undefined) {
-    insertData.enabled = sourceNode.enabled;
   }
 
   if (!sourceNode.isRoot && sourceNode.nodeType) {

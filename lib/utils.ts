@@ -22,6 +22,7 @@ export function cn(...inputs: ClassValue[]) {
  * This ensures consistent context creation across the application.
  * @param options Optional configuration for the context
  * @param options.appointmentTypeLineageKey The default appointment type lineage to set
+ * @param options.clientType The booking channel used for rule evaluation
  * @param options.isNewPatient Whether the patient is new (defaults to true)
  * @param options.locationLineageKey The default location lineage to set
  * @param options.patientDateOfBirth The patient's date of birth (YYYY-MM-DD)
@@ -29,11 +30,15 @@ export function cn(...inputs: ClassValue[]) {
  */
 export function createSimulatedContext(options?: {
   appointmentTypeLineageKey?: AppointmentTypeLineageKey;
+  clientType?: string;
   isNewPatient?: boolean;
   locationLineageKey?: LocationLineageKey;
   patientDateOfBirth?: IsoDateString;
 }): SchedulingSimulatedContext {
   const context: SchedulingSimulatedContext = {
+    ...(options?.clientType !== undefined && {
+      clientType: options.clientType,
+    }),
     patient: {
       isNew: options?.isNewPatient ?? true,
       ...(options?.patientDateOfBirth && {

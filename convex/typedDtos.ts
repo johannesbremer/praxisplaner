@@ -268,9 +268,11 @@ export function asSimulatedContextInput(
     locationLineageKey,
     patient,
     requestedAt,
+    ...rest
   } = value;
   const { dateOfBirth, ...patientRest } = patient;
   return {
+    ...rest,
     ...(appointmentTypeLineageKey !== undefined && {
       appointmentTypeLineageKey: asAppointmentTypeLineageKey(
         appointmentTypeLineageKey,

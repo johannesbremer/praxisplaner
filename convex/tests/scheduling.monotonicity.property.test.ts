@@ -112,7 +112,6 @@ async function querySlotStatus(blockers: ReadonlySet<BlockerKind>) {
       const rootId = await ctx.db.insert("ruleConditions", {
         childOrder: 0,
         createdAt: now,
-        enabled: true,
         isRoot: true,
         lastModified: now,
         practiceId: fixture.practiceId,
@@ -141,6 +140,7 @@ async function querySlotStatus(blockers: ReadonlySet<BlockerKind>) {
     ruleSetId: fixture.ruleSetId,
     simulatedContext: {
       appointmentTypeLineageKey: fixture.appointmentTypeId,
+      clientType: "MFA",
       locationLineageKey: fixture.locationId,
       patient: { isNew: true },
     },

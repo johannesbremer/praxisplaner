@@ -3650,7 +3650,6 @@ export const createRule = mutation({
   args: {
     conditionTree: conditionTreeTransportValidator,
     copyFromId: v.optional(v.id("ruleConditions")),
-    enabled: v.optional(v.boolean()),
     expectedDraftRevision: expectedDraftRevisionValidator,
     name: v.string(),
     practiceId: v.id("practices"),
@@ -3686,7 +3685,6 @@ export const createRule = mutation({
       childOrder: 0, // Root nodes don't have siblings, but we set this for consistency
       ...(canonicalCopyFromId && { copyFromId: canonicalCopyFromId }),
       createdAt: now,
-      enabled: args.enabled ?? true,
       isRoot: true,
       lastModified: now,
       practiceId: args.practiceId,
@@ -3809,84 +3807,6 @@ export const deleteRule = mutation({
 });
 
 /**
- * Update a rule's metadata (enabled status) in an unsaved rule set.
- * Does NOT support updating the condition tree - use deleteRule + createRule for that.
- */
-export const updateRule = mutation({
-  args: {
-    enabled: v.optional(v.boolean()),
-    expectedDraftRevision: expectedDraftRevisionValidator,
-    practiceId: v.id("practices"),
-    ruleId: v.id("ruleConditions"),
-    selectedRuleSetId: v.id("ruleSets"),
-  },
-  handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
-    const ruleSetId = await resolveDraftRuleSetForMutation(
-      ctx.db,
-      args.practiceId,
-      args.expectedDraftRevision,
-      args.selectedRuleSetId,
-    );
-
-    // Get the entity - it might be from the active or unsaved rule set
-    const entity = await ctx.db.get("ruleConditions", args.ruleId);
-    if (!entity) {
-      throw new Error("Rule not found");
-    }
-
-    // If it's already in the unsaved rule set, use it directly
-    // Otherwise, find the copy by copyFromId
-    let rule;
-    if (entity.ruleSetId === ruleSetId) {
-      rule = entity;
-    } else {
-      // Find the copy in the unsaved rule set
-      const copy = await ctx.db
-        .query("ruleConditions")
-        .withIndex("by_copyFromId_ruleSetId", (q) =>
-          q.eq("copyFromId", args.ruleId).eq("ruleSetId", ruleSetId),
-        )
-        .first();
-
-      if (!copy) {
-        throw new Error(
-          "Rule copy not found in unsaved rule set. This should not happen.",
-        );
-      }
-      rule = copy;
-    }
-
-    // Verify it's a root node
-    if (!rule.isRoot) {
-      throw new Error("Can only update root rule nodes, not condition nodes");
-    }
-
-    // Build updates object
-    const updates: Partial<{
-      enabled: boolean;
-      lastModified: bigint;
-    }> = {
-      lastModified: BigInt(Date.now()),
-    };
-
-    if (args.enabled !== undefined) {
-      updates.enabled = args.enabled;
-    }
-
-    // SAFETY: Verify entity belongs to unsaved rule set before patching
-    await verifyEntityInUnsavedRuleSet(ctx.db, rule.ruleSetId, "rule");
-
-    await ctx.db.patch("ruleConditions", rule._id, updates);
-
-    const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
-    return { draftRevision, entityId: rule._id, ruleSetId };
-  },
-  returns: ruleResultValidator,
-});
-
-/**
  * Recursively fetch a condition tree node and its children.
  */
 async function fetchConditionTreeNode(
@@ -3982,7 +3902,6 @@ export const getRules = query({
           conditionTree,
           copyFromId: root.copyFromId,
           createdAt: root.createdAt,
-          enabled: root.enabled ?? true,
           lastModified: root.lastModified,
           practiceId: root.practiceId,
           ruleSetId: root.ruleSetId,

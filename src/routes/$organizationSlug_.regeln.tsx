@@ -210,6 +210,7 @@ function LogicView() {
 
   // Local appointments for simulation
   const [simulatedContext, setSimulatedContext] = useState<SimulatedContext>({
+    clientType: "MFA",
     patient: { isNew: true },
   });
   // URL will be parsed after queries and unsaved draft are known
@@ -517,6 +518,13 @@ function LogicView() {
       patient: { isNew: nextPatientIsNew },
     };
   }, [isNewPatient, locationIdFromUrl, locationsListQuery, simulatedContext]);
+  const patientViewSimulatedContext = useMemo(
+    () => ({
+      ...effectiveSimulatedContext,
+      clientType: "Online",
+    }),
+    [effectiveSimulatedContext],
+  );
   const updateSimulatedContext = useCallback(
     (ctx: SimulatedContext) => {
       setSimulatedContext(ctx);
@@ -529,6 +537,15 @@ function LogicView() {
       });
     },
     [locationsListQuery, pushUrl],
+  );
+  const updatePatientViewSimulatedContext = useCallback(
+    (ctx: SimulatedContext) => {
+      updateSimulatedContext({
+        ...ctx,
+        clientType: "MFA",
+      });
+    },
+    [updateSimulatedContext],
   );
 
   const ruleSetLifecycle = useMemo(
@@ -886,6 +903,7 @@ function LogicView() {
         ...(defaultAppointmentTypeLineageKey && {
           appointmentTypeLineageKey: defaultAppointmentTypeLineageKey,
         }),
+        clientType: "MFA",
         isNewPatient: true,
       });
       setSimulatedContext(resetContext);
@@ -1380,10 +1398,12 @@ function LogicView() {
                       onLocationChange={(locationId) => {
                         pushUrl({ locationId });
                       }}
-                      onUpdateSimulatedContext={updateSimulatedContext}
+                      onUpdateSimulatedContext={
+                        updatePatientViewSimulatedContext
+                      }
                       practiceId={currentPractice._id}
                       ruleSetId={resolvedCurrentWorkingRuleSet._id}
-                      simulatedContext={effectiveSimulatedContext}
+                      simulatedContext={patientViewSimulatedContext}
                     />
                   </div>
                 ) : (

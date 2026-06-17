@@ -356,12 +356,12 @@ function buildStructuredDiffRows(
         after: changedValues
           ? changedValues.after
           : after
-            ? formatStructuredDiffValue(after)
+            ? formatStructuredDiffValueForSection(section, after)
             : "",
         before: changedValues
           ? changedValues.before
           : before
-            ? formatStructuredDiffValue(before)
+            ? formatStructuredDiffValueForSection(section, before)
             : "",
         id: `${section.key}:${key}:${pairIndex}`,
         kind: before && after ? "modified" : after ? "added" : "removed",
@@ -378,7 +378,7 @@ function buildStructuredDiffRows(
       .map(
         (candidate): StructuredDiffRow => ({
           after: "",
-          before: formatStructuredDiffValue(candidate.value),
+          before: formatStructuredDiffValueForSection(section, candidate.value),
           id: `${section.key}:removed:${candidate.index}`,
           kind: "removed",
           path: candidate.path,
@@ -388,7 +388,7 @@ function buildStructuredDiffRows(
       .filter((candidate) => !usedAdded.has(candidate.index))
       .map(
         (candidate): StructuredDiffRow => ({
-          after: formatStructuredDiffValue(candidate.value),
+          after: formatStructuredDiffValueForSection(section, candidate.value),
           before: "",
           id: `${section.key}:added:${candidate.index}`,
           kind: "added",
@@ -615,9 +615,8 @@ function formatRuleDiffSummary(value: Record<string, unknown>) {
     return null;
   }
 
-  const snapshotRuleNameContext = buildRuleNameContextFromTree(tree);
-
   try {
+    const snapshotRuleNameContext = buildRuleNameContextFromTree(tree);
     return generateRuleName(
       conditionTreeToConditions(tree),
       snapshotRuleNameContext.appointmentTypes,
@@ -667,6 +666,18 @@ function formatStructuredDiffValue(value: string) {
     .join("\n");
 }
 
+function formatStructuredDiffValueForSection(
+  section: RuleSetDiffSection,
+  value: string,
+) {
+  const parsed = parseDiffValue(value);
+  if (section.key === "rules" && parsed) {
+    return getRuleSummary(parsed);
+  }
+
+  return formatStructuredDiffValue(value);
+}
+
 function formatStructuredKey(key: string) {
   const labels: Record<string, string> = {
     allowedPractitioners: "Behandler",
@@ -677,7 +688,6 @@ function formatStructuredKey(key: string) {
     date: "Datum",
     dayOfWeek: "Tag",
     duration: "Dauer",
-    enabled: "Aktiv",
     endTime: "Ende",
     followUpPlan: "Folgetermine",
     locationName: "Standort",
@@ -788,7 +798,7 @@ function getDiffItemPath(
   }
 
   if (section.key === "rules") {
-    return getRuleSummary(parsed);
+    return "Regel";
   }
 
   return formatStructuredDiffValue(value).split("\n", 1)[0] ?? section.title;
@@ -1093,6 +1103,59 @@ function normalizeRenamedValue(value: string, renames: Map<string, string>) {
   );
 }
 
+function normalizeRuleDiffTreeCandidate(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  const conditionTree = value["conditionTree"];
+  if (isRecord(conditionTree)) {
+    return normalizeRuleDiffTreeCandidate(conditionTree);
+  }
+
+  const snapshot = value["snapshot"];
+  if (isRecord(snapshot)) {
+    return normalizeRuleDiffTreeCandidate(snapshot);
+  }
+
+  const nodeType = value["nodeType"];
+  const children = Array.isArray(value["children"]) ? value["children"] : [];
+  if (nodeType === null || nodeType === undefined) {
+    if (children.length === 1) {
+      return normalizeRuleDiffTreeCandidate(children[0]);
+    }
+
+    return {
+      children: children.map((child) => normalizeRuleDiffTreeCandidate(child)),
+      nodeType: "AND",
+    };
+  }
+
+  if (nodeType === "CONDITION") {
+    return {
+      conditionType: value["conditionType"],
+      nodeType,
+      operator: value["operator"],
+      ...(typeof value["scope"] === "string" ? { scope: value["scope"] } : {}),
+      ...(Array.isArray(value["valueIds"])
+        ? { valueIds: value["valueIds"] }
+        : {}),
+      ...(typeof value["valueNumber"] === "number"
+        ? { valueNumber: value["valueNumber"] }
+        : {}),
+    };
+  }
+
+  if (nodeType === "AND" || nodeType === "NOT") {
+    return {
+      children: children.map((child) => normalizeRuleDiffTreeCandidate(child)),
+      nodeType,
+    };
+  }
+
+  return value;
+}
+
 function normalizeRuleReferences(
   value: Record<string, unknown>,
   entityRenames: EntityRenameMaps,
@@ -1165,12 +1228,7 @@ function parseDiffValue(value: string): null | Record<string, unknown> {
 function parseRuleDiffTree(
   value: Record<string, unknown>,
 ): ConditionTreeNode | null {
-  const childValues = Array.isArray(value["children"]) ? value["children"] : [];
-  const firstChild: unknown = childValues[0];
-  const treeRoot =
-    value["nodeType"] === null || value["nodeType"] === undefined
-      ? firstChild
-      : value;
+  const treeRoot = normalizeRuleDiffTreeCandidate(value);
 
   return parseConditionTreeNodeOrNull(treeRoot);
 }
@@ -1429,4 +1487,9 @@ function stringValue(value: unknown) {
 // Simulation Controls Component - Extracted from SimulationPanel
 
 export type { RuleSetDiff };
-export { RuleSetDiffView, SaveDialogForm, UNSAVED_RULE_SET_DESCRIPTION };
+export {
+  getProjectedRuleSetDiffSections as __getProjectedRuleSetDiffSectionsForTests,
+  RuleSetDiffView,
+  SaveDialogForm,
+  UNSAVED_RULE_SET_DESCRIPTION,
+};

@@ -113,6 +113,7 @@ function buildSimulatedContext(state: BookingIntentState) {
 
   return {
     appointmentTypeLineageKey: state.appointmentType.lineageKey,
+    clientType: "Phone-AI",
     locationLineageKey: state.location.lineageKey,
     patient: {
       ...(state.birthDate && { dateOfBirth: state.birthDate }),
