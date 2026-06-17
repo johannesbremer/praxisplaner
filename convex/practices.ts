@@ -42,18 +42,24 @@ export function normalizeAppointmentSmileyOptions(
 ): AppointmentSmileyOption[] {
   const normalized: AppointmentSmileyOption[] = [];
   const seen = new Set<string>();
+  const seenIds = new Set<string>();
 
   for (const option of options) {
     const emoji = option.emoji.trim();
+    const id = option.id?.trim() || emoji;
     const name = option.name.trim();
     if (emoji.length === 0 || name.length === 0) {
       throw new Error("Termin-Smileys benötigen Emoji und Name.");
     }
     if (seen.has(emoji)) {
-      continue;
+      throw new Error("Jedes Termin-Smiley darf nur einmal vorkommen.");
     }
+    if (seenIds.has(id)) {
+      throw new Error("Termin-Smiley IDs müssen eindeutig sein.");
+    }
+    seenIds.add(id);
     seen.add(emoji);
-    normalized.push({ emoji, name });
+    normalized.push({ emoji, id, name });
   }
 
   if (normalized.length > MAX_APPOINTMENT_SMILEY_OPTIONS) {

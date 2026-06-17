@@ -510,7 +510,12 @@ async function buildRuleSetCanonicalSnapshot(
   const canonicalAppointmentSmileyOptions = (
     ruleSet?.appointmentSmileyOptions ?? []
   )
-    .map((option) => `${option.emoji} ${option.name}`)
+    .map((option) =>
+      JSON.stringify({
+        __diffKey: option.id ?? option.emoji,
+        line: `${option.emoji} ${option.name}`,
+      }),
+    )
     .toSorted();
 
   return {

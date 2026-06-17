@@ -212,26 +212,34 @@ function buildAppointmentTypeTreeProjectedSection(
 }
 
 function buildPlainTextDiffRows(section: RuleSetDiffSection) {
-  return [
-    ...section.removed.map(
-      (value, index): StructuredDiffRow => ({
-        after: "",
-        before: value,
-        id: `${section.key}:removed:${index}`,
-        kind: "removed",
-        path: value || section.title,
-      }),
-    ),
-    ...section.added.map(
-      (value, index): StructuredDiffRow => ({
-        after: value,
-        before: "",
-        id: `${section.key}:added:${index}`,
-        kind: "added",
-        path: value || section.title,
-      }),
-    ),
-  ].toSorted((a, b) => a.path.localeCompare(b.path));
+  const removed = section.removed.map((value, index) =>
+    parsePlainTextDiffEntry(value, "removed", index),
+  );
+  const added = section.added.map((value, index) =>
+    parsePlainTextDiffEntry(value, "added", index),
+  );
+  const removedByKey = new Map(removed.map((entry) => [entry.key, entry]));
+  const addedByKey = new Map(added.map((entry) => [entry.key, entry]));
+  const keys = [...new Set([...removedByKey.keys(), ...addedByKey.keys()])];
+
+  return keys
+    .toSorted()
+    .map((key): null | StructuredDiffRow => {
+      const before = removedByKey.get(key);
+      const after = addedByKey.get(key);
+      if (before && before.line === after?.line) {
+        return null;
+      }
+      return {
+        after: after?.line ?? "",
+        before: before?.line ?? "",
+        id: `${section.key}:${key}`,
+        kind: before && after ? "modified" : after ? "added" : "removed",
+        path: after?.line ?? before?.line ?? section.title,
+      };
+    })
+    .filter((row): row is StructuredDiffRow => row !== null)
+    .toSorted((a, b) => a.path.localeCompare(b.path));
 }
 
 function buildRuleNameContextFromTree(
@@ -1251,6 +1259,24 @@ function parseDiffValue(value: string): null | Record<string, unknown> {
   } catch {
     return null;
   }
+}
+
+function parsePlainTextDiffEntry(
+  value: string,
+  kind: "added" | "removed",
+  index: number,
+) {
+  const parsed = parseDiffValue(value);
+  const key =
+    parsed && typeof parsed["__diffKey"] === "string"
+      ? parsed["__diffKey"]
+      : `${kind}:${index}:${value}`;
+  const line =
+    parsed && typeof parsed["line"] === "string" ? parsed["line"] : value;
+  return {
+    key,
+    line,
+  };
 }
 
 function parseRuleDiffTree(

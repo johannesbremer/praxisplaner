@@ -66,6 +66,7 @@ const createDraftOptions = (
 ): DraftSmileyOption[] =>
   options.map((option, index) => ({
     ...option,
+    id: option.id ?? `legacy:${option.emoji}`,
     localId: `saved:${index}:${option.emoji}`,
   }));
 
@@ -75,6 +76,7 @@ const toCommittedOptions = (
   rows
     .map((option) => ({
       emoji: option.emoji.trim(),
+      id: option.id?.trim() || option.localId,
       name: option.name.trim(),
     }))
     .filter((option) => option.emoji.length > 0 && option.name.length > 0);
@@ -287,7 +289,10 @@ function AppointmentSmileyOptionsEditor({
   const addRow = () => {
     const localId = `draft:${nextLocalId.current}`;
     nextLocalId.current += 1;
-    setDraftOptions([...draftOptions, { emoji: "", localId, name: "" }]);
+    setDraftOptions([
+      ...draftOptions,
+      { emoji: "", id: crypto.randomUUID(), localId, name: "" },
+    ]);
   };
 
   const updateRow = (

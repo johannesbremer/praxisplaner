@@ -367,44 +367,55 @@ function AppointmentSmileyEditor({
     appointment.smiley === undefined
       ? undefined
       : options.find((option) => option.emoji === appointment.smiley);
+  const hasSmiley = appointment.smiley !== undefined;
 
   return (
     <div className="mt-2 space-y-2">
       <div className="flex items-start gap-2">
-        {appointment.smiley === undefined ? null : (
-          <div className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1.5">
-            <div className="flex items-start gap-2">
-              <span aria-hidden="true" className="text-base leading-none">
-                {appointment.smiley}
-              </span>
-              <div className="min-w-0 text-xs">
-                <div className="truncate font-medium">
-                  {selectedOption?.name ?? "Unbekannter Termin-Smiley"}
-                </div>
-                {selectedOption === undefined ? (
-                  <div className="text-muted-foreground">
-                    Nicht mehr konfiguriert
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        )}
         <Popover>
           <PopoverTrigger asChild>
-            <Button
-              aria-label="Termin-Smiley auswählen"
-              className="h-8 w-8 shrink-0"
-              disabled={disabled}
-              onClick={(event) => {
-                event.stopPropagation();
-              }}
-              size="icon"
-              type="button"
-              variant="outline"
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
+            {hasSmiley ? (
+              <Button
+                aria-label="Termin-Smiley ändern"
+                className="h-auto min-w-0 flex-1 justify-start rounded-md border bg-background px-2 py-1.5 text-left font-normal hover:bg-muted/50"
+                disabled={disabled}
+                onClick={(event) => {
+                  event.stopPropagation();
+                }}
+                type="button"
+                variant="ghost"
+              >
+                <span className="flex min-w-0 items-start gap-2">
+                  <span aria-hidden="true" className="text-base leading-none">
+                    {appointment.smiley}
+                  </span>
+                  <span className="min-w-0 text-xs">
+                    <span className="block truncate font-medium">
+                      {selectedOption?.name ?? "Unbekannter Termin-Smiley"}
+                    </span>
+                    {selectedOption === undefined ? (
+                      <span className="block text-muted-foreground">
+                        Nicht mehr konfiguriert
+                      </span>
+                    ) : null}
+                  </span>
+                </span>
+              </Button>
+            ) : (
+              <Button
+                aria-label="Termin-Smiley auswählen"
+                className="h-8 w-8 shrink-0"
+                disabled={disabled}
+                onClick={(event) => {
+                  event.stopPropagation();
+                }}
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
           </PopoverTrigger>
           <PopoverContent
             align="end"
