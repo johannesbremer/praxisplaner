@@ -188,7 +188,7 @@ export const getAppointmentSmileyOptionsForRuleSet = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await requireRuleSetMember(ctx, args.ruleSetId, "admin");
+    await requireRuleSetMember(ctx, args.ruleSetId);
     const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
     if (ruleSet?.practiceId !== args.practiceId) {
       throw new Error("Rule set does not belong to this practice");
