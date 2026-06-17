@@ -871,6 +871,87 @@ describe("appointments self-service cancellation", () => {
     expect(bookingIdentity?.practiceId).toBe(baseData.practiceId);
   });
 
+  test("createAppointment derives booking identity from persisted temporary patient and keeps history after linking", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_persisted_temporary_patient_booking";
+    const userId = await createUser(t, authId, "persisted-temp@example.com");
+    const authed = t.withIdentity({
+      email: "persisted-temp@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const temporaryPatientId = await authed.mutation(
+      api.patients.createTemporaryPatient,
+      {
+        name: "Persisted Temp",
+        phoneNumber: "+491701234568",
+        practiceId: baseData.practiceId,
+      },
+    );
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        patientId: temporaryPatientId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(7).start,
+        title: "Persistierter temporärer Termin",
+      },
+    );
+    const pvsPatientResult = await authed.mutation(
+      api.patients.createOrUpdatePatient,
+      {
+        firstName: "Petra",
+        lastName: "PVS",
+        patientId: 99123,
+        practiceId: baseData.practiceId,
+      },
+    );
+
+    const appointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", appointmentId);
+    });
+    expect(appointment?.patientId).toBe(temporaryPatientId);
+    expect(appointment?.bookingIdentityId).toBeDefined();
+    const bookingIdentityId = appointment?.bookingIdentityId;
+    if (bookingIdentityId === undefined) {
+      throw new Error("Expected appointment to carry bookingIdentityId");
+    }
+
+    await authed.mutation(
+      api.bookingIdentities.associateBookingIdentityWithPvsPatient,
+      {
+        bookingIdentityId,
+        method: "manual",
+        patientId: pvsPatientResult.convexPatientId,
+        practiceId: baseData.practiceId,
+        pvsPatientNumber: 99123,
+      },
+    );
+
+    const linkedHistory = await authed.query(
+      api.appointments.getAppointmentsForPatient,
+      {
+        patientId: pvsPatientResult.convexPatientId,
+        practiceId: baseData.practiceId,
+      },
+    );
+
+    expect(linkedHistory.map((entry) => entry._id)).toContain(appointmentId);
+  });
+
   test("createAppointment preserves explicit end for simulated replacement", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);

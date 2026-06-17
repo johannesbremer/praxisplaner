@@ -1810,13 +1810,25 @@ async function resolveAppointmentOwnerRefs(
       const patient = await ctx.db.get("patients", args.owner.patientId);
       if (patient?.practiceId === args.scope.practiceId) {
         resolvedRefs.patientId = args.owner.patientId;
+        if (
+          patient.recordType === "temporary" &&
+          patient.bookingIdentityId !== undefined
+        ) {
+          resolvedRefs.bookingIdentityId = patient.bookingIdentityId;
+        }
       }
     } else {
-      await requirePatientInPractice(ctx.db, {
+      const patient = await requirePatientInPractice(ctx.db, {
         patientId: args.owner.patientId,
         scope: args.scope,
       });
       resolvedRefs.patientId = args.owner.patientId;
+      if (
+        patient.recordType === "temporary" &&
+        patient.bookingIdentityId !== undefined
+      ) {
+        resolvedRefs.bookingIdentityId = patient.bookingIdentityId;
+      }
     }
   }
 
@@ -3012,19 +3024,44 @@ export const getAppointmentsForPatient = query({
 
     // Query by patient ID if provided
     if (args.patientId) {
-      const patient = await ctx.db.get("patients", args.patientId);
+      const patientId = args.patientId;
+      const patient = await ctx.db.get("patients", patientId);
       if (patient?.practiceId !== args.practiceId) {
         return [];
       }
       const patientAppointments = await ctx.db
         .query("appointments")
-        .withIndex("by_patientId", (q) => q.eq("patientId", args.patientId))
+        .withIndex("by_patientId", (q) => q.eq("patientId", patientId))
         .collect();
       appointments.push(
         ...patientAppointments.map((appointment) =>
           toAppointmentListItem(appointment),
         ),
       );
+
+      if (patient.recordType === "pvs") {
+        const activeAssociations = await ctx.db
+          .query("bookingIdentityPatientAssociations")
+          .withIndex("by_patientId_status", (q) =>
+            q.eq("patientId", patientId).eq("status", "active"),
+          )
+          .collect();
+        const associatedAppointments = await Promise.all(
+          activeAssociations.map((association) =>
+            ctx.db
+              .query("appointments")
+              .withIndex("by_bookingIdentityId", (q) =>
+                q.eq("bookingIdentityId", association.bookingIdentityId),
+              )
+              .collect(),
+          ),
+        );
+        appointments.push(
+          ...associatedAppointments
+            .flat()
+            .map((appointment) => toAppointmentListItem(appointment)),
+        );
+      }
     }
 
     if (args.userId) {
