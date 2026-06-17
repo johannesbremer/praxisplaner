@@ -1,5 +1,7 @@
+import type { Emoji } from "frimousse";
+
 import { useMutation, useQuery } from "convex/react";
-import { Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -13,12 +15,31 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { api } from "@/convex/_generated/api";
+
+import type { RecordRuleSetCommand } from "../utils/rule-set-replay";
+
+import {
+  appliedLedgerResult,
+  createRuleSetPracticeSettingsCommand,
+} from "../utils/rule-set-replay";
+import {
+  EmojiPicker,
+  EmojiPickerContent,
+  EmojiPickerFooter,
+  EmojiPickerSearch,
+} from "./ui/emoji-picker";
 
 type AppointmentSmileyOption =
   (typeof api.practices.getAppointmentSmileyOptions)["_returnType"][number];
 
 interface AppointmentSmileyOptionsManagementProps {
+  onRecordCommand?: RecordRuleSetCommand;
   practiceId: Id<"practices">;
 }
 
@@ -26,7 +47,56 @@ interface DraftSmileyOption extends AppointmentSmileyOption {
   localId: string;
 }
 
+const formatSmileyOptionLine = (option: AppointmentSmileyOption) =>
+  `${option.emoji} ${option.name}`;
+
+const createDraftOptions = (
+  options: readonly AppointmentSmileyOption[],
+): DraftSmileyOption[] =>
+  options.map((option, index) => ({
+    ...option,
+    localId: `saved:${index}:${option.emoji}`,
+  }));
+
+const toCommittedOptions = (
+  rows: readonly DraftSmileyOption[],
+): AppointmentSmileyOption[] =>
+  rows
+    .map((option) => ({
+      emoji: option.emoji.trim(),
+      name: option.name.trim(),
+    }))
+    .filter((option) => option.emoji.length > 0 && option.name.length > 0);
+
+const optionsEqual = (
+  left: readonly AppointmentSmileyOption[],
+  right: readonly AppointmentSmileyOption[],
+) => {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((option, index) => {
+    const rightOption = right[index];
+    return (
+      option.emoji === rightOption?.emoji && option.name === rightOption.name
+    );
+  });
+};
+
+const hasDuplicateEmoji = (options: readonly AppointmentSmileyOption[]) => {
+  const seen = new Set<string>();
+  for (const option of options) {
+    if (seen.has(option.emoji)) {
+      return true;
+    }
+    seen.add(option.emoji);
+  }
+  return false;
+};
+
 export function AppointmentSmileyOptionsManagement({
+  onRecordCommand,
   practiceId,
 }: AppointmentSmileyOptionsManagementProps) {
   const options = useQuery(api.practices.getAppointmentSmileyOptions, {
@@ -53,6 +123,7 @@ export function AppointmentSmileyOptionsManagement({
             key={options
               .map((option) => `${option.emoji}\u0000${option.name}`)
               .join("\u0001")}
+            {...(onRecordCommand && { onRecordCommand })}
             practiceId={practiceId}
           />
         )}
@@ -63,39 +134,32 @@ export function AppointmentSmileyOptionsManagement({
 
 function AppointmentSmileyOptionsEditor({
   initialOptions,
+  onRecordCommand,
   practiceId,
 }: {
   initialOptions: AppointmentSmileyOption[];
+  onRecordCommand?: RecordRuleSetCommand;
   practiceId: Id<"practices">;
 }) {
   const nextLocalId = useRef(initialOptions.length);
   const updateOptions = useMutation(
     api.practices.updateAppointmentSmileyOptions,
   );
+  const [committedOptions, setCommittedOptions] = useState(initialOptions);
   const [draftOptions, setDraftOptions] = useState<DraftSmileyOption[]>(
-    initialOptions.map((option, index) => ({
-      ...option,
-      localId: `saved:${index}:${option.emoji}`,
-    })),
+    createDraftOptions(initialOptions),
   );
   const [error, setError] = useState<null | string>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [pending, setPending] = useState(false);
 
-  const trimmedOptions = useMemo(
-    () =>
-      draftOptions.map((option) => ({
-        emoji: option.emoji.trim(),
-        name: option.name.trim(),
-      })),
+  const completeOptions = useMemo(
+    () => toCommittedOptions(draftOptions),
     [draftOptions],
   );
   const duplicateEmojis = useMemo(() => {
     const seen = new Set<string>();
     const duplicates = new Set<string>();
-    for (const option of trimmedOptions) {
-      if (option.emoji.length === 0) {
-        continue;
-      }
+    for (const option of completeOptions) {
       if (seen.has(option.emoji)) {
         duplicates.add(option.emoji);
       } else {
@@ -103,16 +167,67 @@ function AppointmentSmileyOptionsEditor({
       }
     }
     return duplicates;
-  }, [trimmedOptions]);
-  const hasIncompleteRow = trimmedOptions.some(
-    (option) => option.emoji.length === 0 || option.name.length === 0,
-  );
-  const hasDuplicateEmoji = duplicateEmojis.size > 0;
-  const validationMessage = hasIncompleteRow
-    ? "Jede Zeile braucht Emoji und Name."
-    : hasDuplicateEmoji
-      ? "Jedes Emoji darf nur einmal vorkommen."
-      : null;
+  }, [completeOptions]);
+  const validationMessage =
+    duplicateEmojis.size > 0 ? "Jedes Emoji darf nur einmal vorkommen." : null;
+
+  const commitOptions = async (
+    nextRows: DraftSmileyOption[],
+    label: string,
+  ) => {
+    const nextOptions = toCommittedOptions(nextRows);
+    if (hasDuplicateEmoji(nextOptions)) {
+      setError("Jedes Emoji darf nur einmal vorkommen.");
+      return;
+    }
+    if (optionsEqual(committedOptions, nextOptions)) {
+      return;
+    }
+
+    const beforeOptions = committedOptions;
+    setError(null);
+    setPending(true);
+    try {
+      const savedOptions = await updateOptions({
+        options: nextOptions,
+        practiceId,
+      });
+      setCommittedOptions(savedOptions);
+      setDraftOptions(createDraftOptions(savedOptions));
+      onRecordCommand?.(
+        createRuleSetPracticeSettingsCommand({
+          kind: "practice.appointmentSmileyOptions.update",
+          label,
+          payload: {
+            after: savedOptions.map((option) => formatSmileyOptionLine(option)),
+            before: beforeOptions.map((option) =>
+              formatSmileyOptionLine(option),
+            ),
+            kind: "practice.appointmentSmileyOptions.update",
+          },
+          target: { entityId: practiceId },
+        }),
+        {
+          redo: async () => {
+            await updateOptions({ options: savedOptions, practiceId });
+            return appliedLedgerResult();
+          },
+          undo: async () => {
+            await updateOptions({ options: beforeOptions, practiceId });
+            return appliedLedgerResult();
+          },
+        },
+      );
+    } catch (error_: unknown) {
+      setError(
+        error_ instanceof Error
+          ? error_.message
+          : "Termin-Smileys konnten nicht gespeichert werden.",
+      );
+    } finally {
+      setPending(false);
+    }
+  };
 
   const addRow = () => {
     const localId = `draft:${nextLocalId.current}`;
@@ -132,30 +247,20 @@ function AppointmentSmileyOptionsEditor({
     );
   };
 
-  const removeRow = (localId: string) => {
-    setDraftOptions(
-      draftOptions.filter((option) => option.localId !== localId),
-    );
-  };
-
-  const saveOptions = () => {
-    if (validationMessage) {
-      setError(validationMessage);
+  const commitRow = (localId: string, label: string) => {
+    const row = draftOptions.find((option) => option.localId === localId);
+    if (!row || row.emoji.trim().length === 0 || row.name.trim().length === 0) {
       return;
     }
-    setError(null);
-    setIsSaving(true);
-    updateOptions({ options: trimmedOptions, practiceId })
-      .catch((error_: unknown) => {
-        setError(
-          error_ instanceof Error
-            ? error_.message
-            : "Termin-Smileys konnten nicht gespeichert werden.",
-        );
-      })
-      .finally(() => {
-        setIsSaving(false);
-      });
+    void commitOptions(draftOptions, label);
+  };
+
+  const removeRow = (localId: string) => {
+    const nextRows = draftOptions.filter(
+      (option) => option.localId !== localId,
+    );
+    setDraftOptions(nextRows);
+    void commitOptions(nextRows, "Termin-Smiley entfernt");
   };
 
   return (
@@ -187,19 +292,47 @@ function AppointmentSmileyOptionsEditor({
                 return (
                   <tr className="border-t" key={option.localId}>
                     <td className="px-3 py-2 align-top">
-                      <Input
-                        aria-label="Emoji"
-                        className="h-9 w-16 text-center text-lg"
-                        onChange={(event) => {
-                          updateRow(
-                            option.localId,
-                            "emoji",
-                            event.target.value,
-                          );
-                        }}
-                        placeholder="😀"
-                        value={option.emoji}
-                      />
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            aria-label="Emoji auswählen"
+                            className="h-9 w-16 text-lg"
+                            disabled={pending}
+                            type="button"
+                            variant="outline"
+                          >
+                            {option.emoji || "😀"}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="h-80 w-80 p-0">
+                          <EmojiPicker
+                            className="h-full w-full"
+                            locale="de"
+                            onEmojiSelect={(emoji: Emoji) => {
+                              const nextRows = draftOptions.map((candidate) =>
+                                candidate.localId === option.localId
+                                  ? { ...candidate, emoji: emoji.emoji }
+                                  : candidate,
+                              );
+                              setDraftOptions(nextRows);
+                              const nextRow = nextRows.find(
+                                (candidate) =>
+                                  candidate.localId === option.localId,
+                              );
+                              if (nextRow && nextRow.name.trim().length > 0) {
+                                void commitOptions(
+                                  nextRows,
+                                  "Termin-Smiley geändert",
+                                );
+                              }
+                            }}
+                          >
+                            <EmojiPickerSearch />
+                            <EmojiPickerContent />
+                            <EmojiPickerFooter />
+                          </EmojiPicker>
+                        </PopoverContent>
+                      </Popover>
                     </td>
                     <td className="px-3 py-2 align-top">
                       <Input
@@ -207,8 +340,17 @@ function AppointmentSmileyOptionsEditor({
                           option.name.trim().length === 0 || isDuplicate
                         }
                         aria-label="Name"
+                        disabled={pending}
+                        onBlur={() => {
+                          commitRow(option.localId, "Termin-Smiley geändert");
+                        }}
                         onChange={(event) => {
                           updateRow(option.localId, "name", event.target.value);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.currentTarget.blur();
+                          }
                         }}
                         placeholder="Patient ist angekommen"
                         value={option.name}
@@ -217,6 +359,7 @@ function AppointmentSmileyOptionsEditor({
                     <td className="px-3 py-2 align-top">
                       <Button
                         aria-label="Smiley entfernen"
+                        disabled={pending}
                         onClick={() => {
                           removeRow(option.localId);
                         }}
@@ -237,20 +380,15 @@ function AppointmentSmileyOptionsEditor({
       {validationMessage || error ? (
         <p className="text-sm text-destructive">{error ?? validationMessage}</p>
       ) : null}
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={addRow} type="button" variant="outline">
-          <Plus className="h-4 w-4" />
-          Zeile hinzufügen
-        </Button>
-        <Button
-          disabled={isSaving || validationMessage !== null}
-          onClick={saveOptions}
-          type="button"
-        >
-          <Save className="h-4 w-4" />
-          {isSaving ? "Speichert..." : "Speichern"}
-        </Button>
-      </div>
+      <Button
+        disabled={pending}
+        onClick={addRow}
+        type="button"
+        variant="outline"
+      >
+        <Plus className="h-4 w-4" />
+        Zeile hinzufügen
+      </Button>
     </div>
   );
 }

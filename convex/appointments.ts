@@ -262,9 +262,15 @@ export type AppointmentResult = Omit<
 export type { AppointmentSmiley } from "./schema";
 export type BlockedSlotResult = BlockedSlotListItem;
 
+const {
+  smiley: _bookedAppointmentSummarySmileyField,
+  ...bookedAppointmentSummaryFields
+} = appointmentResultValidator.fields;
+void _bookedAppointmentSummarySmileyField;
+
 const bookedAppointmentSummaryItemValidator = v.union(
   v.object({
-    ...appointmentResultValidator.fields,
+    ...bookedAppointmentSummaryFields,
     kind: v.literal("appointment"),
   }),
   legacyUnmatchedFutureBookingHoldSummaryValidator,
@@ -1311,8 +1317,10 @@ function toAppointmentListItem(
 function toBookedAppointmentSummaryItem(
   appointment: AppointmentListItem,
 ): BookedAppointmentSummaryItem {
+  const { smiley: _smiley, ...summary } = appointment;
+  void _smiley;
   return {
-    ...appointment,
+    ...summary,
     kind: "appointment",
   };
 }
@@ -2886,6 +2894,74 @@ export const updateAppointmentSmiley = mutation({
     await ctx.db.patch("appointments", args.id, {
       lastModified: BigInt(Date.now()),
       smiley: args.smiley ?? undefined,
+    });
+    return null;
+  },
+  returns: v.null(),
+});
+
+export const updateSimulationAppointmentSmiley = mutation({
+  args: {
+    id: v.id("appointments"),
+    simulationRuleSetId: v.id("ruleSets"),
+    smiley: v.union(appointmentSmileyValidator, v.null()),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const existingAppointment = await ctx.db.get("appointments", args.id);
+    if (!existingAppointment) {
+      throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+    }
+    await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
+    if (args.smiley !== null) {
+      await requireConfiguredAppointmentSmiley(ctx.db, {
+        practiceId: existingAppointment.practiceId,
+        smiley: args.smiley,
+      });
+    }
+
+    const now = BigInt(Date.now());
+    if (existingAppointment.isSimulation === true) {
+      await ctx.db.patch("appointments", args.id, {
+        lastModified: now,
+        smiley: args.smiley ?? undefined,
+      });
+      return null;
+    }
+
+    const existingReplacements = await ctx.db
+      .query("appointments")
+      .withIndex("by_practiceId_isSimulation", (q) =>
+        q
+          .eq("practiceId", existingAppointment.practiceId)
+          .eq("isSimulation", true),
+      )
+      .collect();
+    const replacement = existingReplacements.find(
+      (appointment) =>
+        appointment.replacesAppointmentId === args.id &&
+        appointment.simulationRuleSetId === args.simulationRuleSetId,
+    );
+    if (replacement) {
+      await ctx.db.patch("appointments", replacement._id, {
+        lastModified: now,
+        smiley: args.smiley ?? undefined,
+      });
+      return null;
+    }
+
+    const { _creationTime, _id, ...replacementFields } = existingAppointment;
+    void _creationTime;
+    void _id;
+    await ctx.db.insert("appointments", {
+      ...replacementFields,
+      isSimulation: true,
+      lastModified: now,
+      replacesAppointmentId: args.id,
+      simulationKind: "draft",
+      simulationRuleSetId: args.simulationRuleSetId,
+      simulationValidatedAt: now,
+      ...(args.smiley === null ? {} : { smiley: args.smiley }),
     });
     return null;
   },

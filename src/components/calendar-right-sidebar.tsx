@@ -66,6 +66,12 @@ interface CalendarRightSidebarProps {
     | ((patient?: PracticePatientSelection) => void)
     | undefined;
   onSelectAppointment?: ((appointment: SidebarAppointment) => void) | undefined;
+  onUpdateAppointmentSmiley?:
+    | ((args: {
+        id: Id<"appointments">;
+        smiley: AppointmentSmiley | null;
+      }) => Promise<void>)
+    | undefined;
   patient?: PatientInfo | undefined;
   patientAppointments?: SidebarAppointment[] | undefined;
   practiceId?: Id<"practices"> | undefined;
@@ -132,6 +138,7 @@ const RightSidebarContext =
 export function CalendarRightSidebar({
   onPatientSelected,
   onSelectAppointment,
+  onUpdateAppointmentSmiley,
   patient,
   patientAppointments,
   practiceId,
@@ -205,6 +212,7 @@ export function CalendarRightSidebar({
                   handleOpenInPvs={handleOpenInPvs}
                   onPatientSelected={onPatientSelected}
                   onSelectAppointment={onSelectAppointment}
+                  onUpdateAppointmentSmiley={onUpdateAppointmentSmiley}
                   patient={patient}
                   patientAppointments={patientAppointments}
                   patientDisplayName={patientDisplayName}
@@ -250,6 +258,7 @@ export function CalendarRightSidebar({
                 handleOpenInPvs={handleOpenInPvs}
                 onPatientSelected={onPatientSelected}
                 onSelectAppointment={onSelectAppointment}
+                onUpdateAppointmentSmiley={onUpdateAppointmentSmiley}
                 patient={patient}
                 patientAppointments={patientAppointments}
                 patientDisplayName={patientDisplayName}
@@ -461,6 +470,7 @@ function RightSidebarContent({
   handleOpenInPvs,
   onPatientSelected,
   onSelectAppointment,
+  onUpdateAppointmentSmiley,
   patient,
   patientAppointments,
   patientDisplayName,
@@ -474,6 +484,12 @@ function RightSidebarContent({
   handleOpenInPvs: () => void;
   onPatientSelected: ((patient?: PracticePatientSelection) => void) | undefined;
   onSelectAppointment: ((appointment: SidebarAppointment) => void) | undefined;
+  onUpdateAppointmentSmiley:
+    | ((args: {
+        id: Id<"appointments">;
+        smiley: AppointmentSmiley | null;
+      }) => Promise<void>)
+    | undefined;
   patient: PatientInfo | undefined;
   patientAppointments: SidebarAppointment[] | undefined;
   patientDisplayName: string;
@@ -656,11 +672,6 @@ function RightSidebarContent({
                               type="button"
                             >
                               <div className="flex min-w-0 items-center gap-1.5">
-                                {appointment.smiley && (
-                                  <span aria-hidden="true" className="shrink-0">
-                                    {appointment.smiley}
-                                  </span>
-                                )}
                                 <p className="truncate font-medium">
                                   {appointment.title}
                                 </p>
@@ -678,10 +689,15 @@ function RightSidebarContent({
                                 disabled={pendingSmileyAppointmentId}
                                 onChange={(smiley) => {
                                   startSmileyTransition(() => {
-                                    void updateAppointmentSmiley({
-                                      id: appointment._id,
-                                      smiley,
-                                    });
+                                    void (onUpdateAppointmentSmiley
+                                      ? onUpdateAppointmentSmiley({
+                                          id: appointment._id,
+                                          smiley,
+                                        })
+                                      : updateAppointmentSmiley({
+                                          id: appointment._id,
+                                          smiley,
+                                        }));
                                   });
                                 }}
                                 options={appointmentSmileyOptions}

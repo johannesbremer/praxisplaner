@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { AlertCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -130,6 +130,9 @@ export function NewCalendar({
   const [pendingAppointmentTitle, setPendingAppointmentTitle] = useState<
     string | undefined
   >();
+  const updateSimulationAppointmentSmiley = useMutation(
+    api.appointments.updateSimulationAppointmentSmiley,
+  );
   const patientAppointmentScopeArgs = simulatedContext
     ? {
         scope: "simulation" as const,
@@ -301,6 +304,7 @@ export function NewCalendar({
     runCreateAppointment,
     runCreateBlockedSlot,
     runDeleteBlockedSlot,
+    runUpdateAppointment,
     runUpdateBlockedSlot,
     selectedDate,
     selectedLocationId,
@@ -770,6 +774,17 @@ export function NewCalendar({
                     attemptScroll(0);
                   });
                 }, 50);
+              }}
+              onUpdateAppointmentSmiley={async ({ id, smiley }) => {
+                if (simulatedContext && ruleSetId) {
+                  await updateSimulationAppointmentSmiley({
+                    id,
+                    simulationRuleSetId: ruleSetId,
+                    smiley,
+                  });
+                  return;
+                }
+                await runUpdateAppointment({ id, smiley });
               }}
               patient={activePatient}
               patientAppointments={patientAppointments}

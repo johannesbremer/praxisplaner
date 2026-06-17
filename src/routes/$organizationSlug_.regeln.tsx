@@ -1389,6 +1389,7 @@ function LogicView() {
                   )}
 
                   <AppointmentSmileyOptionsManagement
+                    onRecordCommand={recordRegelnCommand}
                     practiceId={currentPractice._id}
                   />
                 </div>

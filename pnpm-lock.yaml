@@ -139,6 +139,9 @@ importers:
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
+      frimousse:
+        specifier: ^0.3.0
+        version: 0.3.0(react@19.2.7)(typescript@6.0.3)
       ical-generator:
         specifier: ^11.0.0
         version: 11.0.0(@types/node@25.9.3)(dayjs@1.11.21)
@@ -4798,6 +4801,15 @@ packages:
   format@0.2.2:
     resolution: {integrity: sha512-wzsgA6WOq+09wrU1tsJ09udeR/YZRaeArL9e1wPbFg3GG2yDnC2ldKpxs4xunpFF9DgqCqOIra3bc1HWrJ37Ww==}
     engines: {node: '>=0.4.x'}
+
+  frimousse@0.3.0:
+    resolution: {integrity: sha512-kO6LMoKY/cLAYEhXXtqLRaLIE6L/DagpFPrUZaLv3LsUa1/8Iza3HhwZcgN8eZ+weXnhv69eoclNUPohcCa/IQ==}
+    peerDependencies:
+      react: ^18 || ^19
+      typescript: '>=5.1.0'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   fsevents@2.3.2:
     resolution: {integrity: sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==}
@@ -11578,6 +11590,12 @@ snapshots:
       mime-types: 2.1.35
 
   format@0.2.2: {}
+
+  frimousse@0.3.0(react@19.2.7)(typescript@6.0.3):
+    dependencies:
+      react: 19.2.7
+    optionalDependencies:
+      typescript: 6.0.3
 
   fsevents@2.3.2:
     optional: true

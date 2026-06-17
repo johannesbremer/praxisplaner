@@ -43,6 +43,7 @@ export type RuleSetCommand = RuleSetCommandDescription;
 export type RuleSetCommandDescription =
   | RuleSetAbsenceCommand
   | RuleSetNamedLineageCommand
+  | RuleSetPracticeSettingsCommand
   | RuleSetSchedulingRuleCommand
   | RuleSetSnapshotCommand;
 
@@ -61,6 +62,7 @@ export type RuleSetCommandKind =
   | "location.update"
   | "mfa.create"
   | "mfa.delete"
+  | "practice.appointmentSmileyOptions.update"
   | "practitioner.create"
   | "practitioner.deleteWithDependencies"
   | "practitioner.update"
@@ -73,6 +75,7 @@ export type RuleSetCommandPayload =
   | RuleSetNamedLineageCreatePayload
   | RuleSetNamedLineageDeletePayload
   | RuleSetNamedLineageUpdatePayload
+  | RuleSetPracticeSettingsPayload
   | RuleSetSchedulingRulePayload
   | RuleSetSnapshotCommandPayload;
 
@@ -130,6 +133,19 @@ export interface RuleSetNamedLineageUpdatePayload {
   lineageKey: string;
 }
 
+export interface RuleSetPracticeSettingsCommand extends LedgerCommand {
+  kind: Extract<RuleSetCommandKind, "practice.appointmentSmileyOptions.update">;
+  payload: RuleSetPracticeSettingsPayload;
+  snapshots?: never;
+  target: Required<Pick<RuleSetCommandTarget, "entityId">>;
+}
+
+export interface RuleSetPracticeSettingsPayload {
+  after: string[];
+  before: string[];
+  kind: RuleSetPracticeSettingsCommand["kind"];
+}
+
 export interface RuleSetSchedulingRuleCommand extends LedgerCommand {
   kind: Extract<
     RuleSetCommandKind,
@@ -157,6 +173,7 @@ export interface RuleSetSnapshotCommand extends LedgerCommand {
     | "location.update"
     | "mfa.create"
     | "mfa.delete"
+    | "practice.appointmentSmileyOptions.update"
     | "practitioner.create"
     | "practitioner.update"
     | "schedulingRule.create"
@@ -178,6 +195,7 @@ export interface RuleSetSnapshotCommandPayload {
     | "location.update"
     | "mfa.create"
     | "mfa.delete"
+    | "practice.appointmentSmileyOptions.update"
     | "practitioner.create"
     | "practitioner.update"
     | "schedulingRule.create"
@@ -222,6 +240,22 @@ export function createRuleSetNamedLineageCommand(params: {
     payload: params.payload,
     ...(params.scope && { scope: params.scope }),
     ...(params.snapshots && { snapshots: params.snapshots }),
+    target: params.target,
+  };
+}
+
+export function createRuleSetPracticeSettingsCommand(params: {
+  kind: RuleSetPracticeSettingsCommand["kind"];
+  label: string;
+  payload: RuleSetPracticeSettingsPayload;
+  scope?: string;
+  target: RuleSetPracticeSettingsCommand["target"];
+}): RuleSetPracticeSettingsCommand {
+  return {
+    kind: params.kind,
+    label: params.label,
+    payload: params.payload,
+    ...(params.scope && { scope: params.scope }),
     target: params.target,
   };
 }
@@ -297,14 +331,15 @@ export function createRuleSetSnapshotCommand(params: {
 export function withSerializableRuleSetPayload<
   TCommand extends RuleSetCommandDescription,
 >(command: TCommand): TCommand {
-  if (command.payload || !command.snapshots) {
+  if ("payload" in command || !command.snapshots) {
     return command;
   }
+  const snapshots = command.snapshots;
   return {
     ...command,
     payload: {
       kind: command.kind,
-      snapshots: command.snapshots,
+      snapshots,
       ...(command.target && { target: command.target }),
     },
   };
