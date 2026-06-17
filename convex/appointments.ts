@@ -3149,6 +3149,11 @@ export const updateSimulationAppointmentSmiley = mutation({
       return null;
     }
 
+    const requestedSmiley = args.smiley ?? undefined;
+    if (requestedSmiley === existingAppointment.smiley) {
+      return null;
+    }
+
     const { _creationTime, _id, ...replacementFields } = existingAppointment;
     void _creationTime;
     void _id;

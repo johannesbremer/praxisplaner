@@ -5036,6 +5036,63 @@ describe("calendar day appointment queries", () => {
     expect(replacements).toEqual([]);
   });
 
+  test("selecting an unchanged real appointment smiley does not create a simulation replacement", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_simulation_smiley_unchanged";
+    const userId = await createUser(
+      t,
+      authId,
+      "sim-smiley-unchanged@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "sim-smiley-unchanged@example.com",
+      subject: authId,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("ruleSets", baseData.ruleSetId, {
+        appointmentSmileyOptions: [
+          { emoji: "🧪", id: "simulation-marker", name: "Simulation marker" },
+        ],
+      });
+    });
+    const appointmentId = await insertAppointmentRecord(t, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      userId,
+      window: makeSlotWindow(39),
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch("appointments", appointmentId, { smiley: "🧪" });
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: appointmentId,
+        simulationRuleSetId: baseData.ruleSetId,
+        smiley: "🧪",
+      }),
+    ).resolves.toBeNull();
+
+    const replacements = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_simulationRuleSetId", (q) =>
+          q.eq("simulationRuleSetId", baseData.ruleSetId),
+        )
+        .collect();
+    });
+    expect(replacements).toEqual([]);
+  });
+
   test("restore creation allows known historical smileys without exposing the create bypass", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
