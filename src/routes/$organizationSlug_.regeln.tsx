@@ -518,6 +518,13 @@ function LogicView() {
       patient: { isNew: nextPatientIsNew },
     };
   }, [isNewPatient, locationIdFromUrl, locationsListQuery, simulatedContext]);
+  const patientViewSimulatedContext = useMemo(
+    () => ({
+      ...effectiveSimulatedContext,
+      clientType: "Online",
+    }),
+    [effectiveSimulatedContext],
+  );
   const updateSimulatedContext = useCallback(
     (ctx: SimulatedContext) => {
       setSimulatedContext(ctx);
@@ -530,6 +537,15 @@ function LogicView() {
       });
     },
     [locationsListQuery, pushUrl],
+  );
+  const updatePatientViewSimulatedContext = useCallback(
+    (ctx: SimulatedContext) => {
+      updateSimulatedContext({
+        ...ctx,
+        clientType: "MFA",
+      });
+    },
+    [updateSimulatedContext],
   );
 
   const ruleSetLifecycle = useMemo(
@@ -1382,10 +1398,12 @@ function LogicView() {
                       onLocationChange={(locationId) => {
                         pushUrl({ locationId });
                       }}
-                      onUpdateSimulatedContext={updateSimulatedContext}
+                      onUpdateSimulatedContext={
+                        updatePatientViewSimulatedContext
+                      }
                       practiceId={currentPractice._id}
                       ruleSetId={resolvedCurrentWorkingRuleSet._id}
-                      simulatedContext={effectiveSimulatedContext}
+                      simulatedContext={patientViewSimulatedContext}
                     />
                   </div>
                 ) : (
