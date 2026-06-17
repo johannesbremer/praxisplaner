@@ -232,8 +232,6 @@ function AppointmentSmileyOptionsEditor({
       handleDraftMutationResult(savedOptions);
       setCommittedOptions(savedOptions.options);
       setDraftOptions(createDraftOptions(savedOptions.options));
-      let replayDraftRevision = savedOptions.draftRevision;
-      let replayRuleSetId = savedOptions.ruleSetId;
       onRecordCommand?.(
         createRuleSetPracticeSettingsCommand({
           kind: "practice.appointmentSmileyOptions.update",
@@ -252,25 +250,19 @@ function AppointmentSmileyOptionsEditor({
         {
           redo: async () => {
             const redoResult = await updateOptions({
-              expectedDraftRevision: replayDraftRevision,
+              ...getCowMutationArgs(),
               options: savedOptions.options,
               practiceId,
-              selectedRuleSetId: replayRuleSetId,
             });
-            replayDraftRevision = redoResult.draftRevision;
-            replayRuleSetId = redoResult.ruleSetId;
             handleDraftMutationResult(redoResult);
             return appliedLedgerResult();
           },
           undo: async () => {
             const undoResult = await updateOptions({
-              expectedDraftRevision: replayDraftRevision,
+              ...getCowMutationArgs(),
               options: beforeOptions,
               practiceId,
-              selectedRuleSetId: replayRuleSetId,
             });
-            replayDraftRevision = undoResult.draftRevision;
-            replayRuleSetId = undoResult.ruleSetId;
             handleDraftMutationResult(undoResult);
             return appliedLedgerResult();
           },
