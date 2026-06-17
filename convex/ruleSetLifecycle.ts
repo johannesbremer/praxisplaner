@@ -442,6 +442,7 @@ async function applyPendingSimulationAppointmentsForRuleSet(
         ? { patientId: simulationAppointment.patientId }
         : {}),
       occupancyScope: simulationAppointment.occupancyScope,
+      smiley: simulationAppointment.smiley,
       start: simulationAppointment.start,
       title: simulationAppointment.title,
       ...(simulationAppointment.userId

@@ -64,6 +64,7 @@ import {
   legacyUnmatchedFutureBookingHoldSummaryValidator,
   toLegacyUnmatchedFutureBookingHoldSummary,
 } from "./legacyUnmatchedFutureBookingHolds";
+import { requireLineageKey } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
@@ -854,16 +855,14 @@ async function saveAppointmentRestoreSnapshot(
     return;
   }
 
-  const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
-    ctx.db,
-    {
+  const appointmentTypeId =
+    await tryResolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
       lineageKey: asAppointmentTypeLineageKey(
         appointment.appointmentTypeLineageKey,
       ),
       ruleSetId: restoreRuleSetId,
-    },
-  );
-  const locationId = await resolveLocationIdForRuleSetByLineage(ctx.db, {
+    });
+  const locationId = await tryResolveLocationIdForRuleSetByLineage(ctx.db, {
     lineageKey: asLocationLineageKey(appointment.locationLineageKey),
     ruleSetId: restoreRuleSetId,
   });
@@ -873,10 +872,17 @@ async function saveAppointmentRestoreSnapshot(
   const practitionerId =
     practitionerLineageKey === undefined
       ? undefined
-      : await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+      : await tryResolvePractitionerIdForRuleSetByLineage(ctx.db, {
           lineageKey: asPractitionerLineageKey(practitionerLineageKey),
           ruleSetId: restoreRuleSetId,
         });
+  if (
+    appointmentTypeId === undefined ||
+    locationId === undefined ||
+    (practitionerLineageKey !== undefined && practitionerId === undefined)
+  ) {
+    return;
+  }
   const existingSnapshot = await ctx.db
     .query("appointmentRestoreSnapshots")
     .withIndex("by_originalAppointmentId", (q) =>
@@ -969,6 +975,114 @@ function simulationReplacementMatchesRealAppointment(
     replacement.title === real.title &&
     optionalFieldEqual(replacement.userId, real.userId)
   );
+}
+
+async function tryResolveAppointmentTypeIdForRuleSetByLineage(
+  db: DatabaseReader,
+  args: {
+    lineageKey: AppointmentTypeLineageKey;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const direct = await db.get("appointmentTypes", args.lineageKey);
+  const effectiveLineageKey = direct
+    ? asAppointmentTypeLineageKey(
+        requireLineageKey({
+          entityId: direct._id,
+          entityType: "appointment type",
+          lineageKey: direct.lineageKey,
+          ruleSetId: direct.ruleSetId,
+        }),
+      )
+    : args.lineageKey;
+  const entity = await db
+    .query("appointmentTypes")
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q.eq("ruleSetId", args.ruleSetId).eq("lineageKey", effectiveLineageKey),
+    )
+    .first();
+
+  if (entity) {
+    return asAppointmentTypeId(entity._id);
+  }
+
+  if (direct?.ruleSetId === args.ruleSetId) {
+    return asAppointmentTypeId(direct._id);
+  }
+
+  return;
+}
+
+async function tryResolveLocationIdForRuleSetByLineage(
+  db: DatabaseReader,
+  args: {
+    lineageKey: LocationLineageKey;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const direct = await db.get("locations", args.lineageKey);
+  const effectiveLineageKey = direct
+    ? asLocationLineageKey(
+        requireLineageKey({
+          entityId: direct._id,
+          entityType: "location",
+          lineageKey: direct.lineageKey,
+          ruleSetId: direct.ruleSetId,
+        }),
+      )
+    : args.lineageKey;
+  const entity = await db
+    .query("locations")
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q.eq("ruleSetId", args.ruleSetId).eq("lineageKey", effectiveLineageKey),
+    )
+    .first();
+
+  if (entity) {
+    return asLocationId(entity._id);
+  }
+
+  if (direct?.ruleSetId === args.ruleSetId) {
+    return asLocationId(direct._id);
+  }
+
+  return;
+}
+
+async function tryResolvePractitionerIdForRuleSetByLineage(
+  db: DatabaseReader,
+  args: {
+    lineageKey: PractitionerLineageKey;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const direct = await db.get("practitioners", args.lineageKey);
+  const effectiveLineageKey = direct
+    ? asPractitionerLineageKey(
+        requireLineageKey({
+          entityId: direct._id,
+          entityType: "practitioner",
+          lineageKey: direct.lineageKey,
+          ruleSetId: direct.ruleSetId,
+        }),
+      )
+    : args.lineageKey;
+  const entity = await db
+    .query("practitioners")
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q.eq("ruleSetId", args.ruleSetId).eq("lineageKey", effectiveLineageKey),
+    )
+    .first();
+
+  if (entity) {
+    return asPractitionerId(entity._id);
+  }
+
+  if (direct?.ruleSetId === args.ruleSetId) {
+    return asPractitionerId(direct._id);
+  }
+
+  return;
 }
 
 /**
@@ -2553,6 +2667,10 @@ async function updateAppointmentByMode(
   ) {
     await requireConfiguredAppointmentSmiley(ctx.db, {
       practiceId: existingAppointment.practiceId,
+      ...(existingAppointment.isSimulation === true &&
+      existingAppointment.simulationRuleSetId !== undefined
+        ? { ruleSetId: existingAppointment.simulationRuleSetId }
+        : {}),
       smiley: filteredUpdateData.smiley,
     });
   }
