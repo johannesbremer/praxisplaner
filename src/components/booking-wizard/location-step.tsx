@@ -20,7 +20,7 @@ import { api } from "@/convex/_generated/api";
 import type { StepComponentProps } from "./types";
 
 export function LocationStep({ practiceId, ruleSetId }: StepComponentProps) {
-  const locations = useQuery(api.entities.getLocations, { ruleSetId });
+  const locations = useQuery(api.entities.getBookingLocations, { ruleSetId });
   const selectLocation = useMutation(api.bookingSessions.selectLocation);
 
   const handleSelectLocation = async (locationLineageKey: Id<"locations">) => {

@@ -113,6 +113,33 @@ async function finalizeDraftMutation(
   return await bumpDraftRevision(db, ruleSetId);
 }
 
+function patientFacingAppointmentType(
+  appointmentType: Doc<"appointmentTypes">,
+) {
+  return {
+    _id: appointmentType._id,
+    duration: appointmentType.duration,
+    lineageKey: requireAppointmentTypeLineageKey(appointmentType),
+    name: appointmentType.name,
+  };
+}
+
+function patientFacingLocation(location: Doc<"locations">) {
+  return {
+    _id: location._id,
+    lineageKey: requireLocationLineageKey(location),
+    name: location.name,
+  };
+}
+
+function patientFacingPractitioner(practitioner: Doc<"practitioners">) {
+  return {
+    _id: practitioner._id,
+    lineageKey: requirePractitionerLineageKey(practitioner),
+    name: practitioner.name,
+  };
+}
+
 async function resolveDraftRuleSetForMutation(
   db: DatabaseWriter,
   practiceId: Id<"practices">,
@@ -1188,7 +1215,7 @@ export const getAppointmentTypes = query({
     if (args.includeDeleted === true) {
       await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     } else {
-      await requireRuleSetMemberOrCurrentUserBookingScope(ctx, args.ruleSetId);
+      await requireRuleSetMember(ctx, args.ruleSetId);
     }
     const appointmentTypes = await ctx.db
       .query("appointmentTypes")
@@ -1205,6 +1232,29 @@ export const getAppointmentTypes = query({
         ...appointmentType,
         lineageKey: requireAppointmentTypeLineageKey(appointmentType),
       }));
+  },
+});
+
+/**
+ * Get patient-facing appointment types for a rule set.
+ */
+export const getBookingAppointmentTypes = query({
+  args: {
+    ruleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    if (!(await ruleSetExists(ctx, args.ruleSetId))) {
+      return [];
+    }
+    await requireRuleSetMemberOrCurrentUserBookingScope(ctx, args.ruleSetId);
+    const appointmentTypes = await ctx.db
+      .query("appointmentTypes")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect();
+
+    return appointmentTypes
+      .filter((appointmentType) => !isDeletedRuleSetEntity(appointmentType))
+      .map((appointmentType) => patientFacingAppointmentType(appointmentType));
   },
 });
 
@@ -2283,7 +2333,7 @@ export const getPractitioners = query({
     if (args.includeDeleted === true) {
       await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     } else {
-      await requireRuleSetMemberOrCurrentUserBookingScope(ctx, args.ruleSetId);
+      await requireRuleSetMember(ctx, args.ruleSetId);
     }
     const practitioners = await ctx.db
       .query("practitioners")
@@ -2299,6 +2349,29 @@ export const getPractitioners = query({
         ...practitioner,
         lineageKey: requirePractitionerLineageKey(practitioner),
       }));
+  },
+});
+
+/**
+ * Get patient-facing practitioners for a rule set.
+ */
+export const getBookingPractitioners = query({
+  args: {
+    ruleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    if (!(await ruleSetExists(ctx, args.ruleSetId))) {
+      return [];
+    }
+    await requireRuleSetMemberOrCurrentUserBookingScope(ctx, args.ruleSetId);
+    const practitioners = await ctx.db
+      .query("practitioners")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect();
+
+    return practitioners
+      .filter((practitioner) => !isDeletedRuleSetEntity(practitioner))
+      .map((practitioner) => patientFacingPractitioner(practitioner));
   },
 });
 
@@ -2563,7 +2636,7 @@ export const getLocations = query({
     if (args.includeDeleted === true) {
       await requireRuleSetMember(ctx, args.ruleSetId, "admin");
     } else {
-      await requireRuleSetMemberOrCurrentUserBookingScope(ctx, args.ruleSetId);
+      await requireRuleSetMember(ctx, args.ruleSetId);
     }
     const locations = await ctx.db
       .query("locations")
@@ -2579,6 +2652,29 @@ export const getLocations = query({
         ...location,
         lineageKey: requireLocationLineageKey(location),
       }));
+  },
+});
+
+/**
+ * Get patient-facing locations for a rule set.
+ */
+export const getBookingLocations = query({
+  args: {
+    ruleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    if (!(await ruleSetExists(ctx, args.ruleSetId))) {
+      return [];
+    }
+    await requireRuleSetMemberOrCurrentUserBookingScope(ctx, args.ruleSetId);
+    const locations = await ctx.db
+      .query("locations")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect();
+
+    return locations
+      .filter((location) => !isDeletedRuleSetEntity(location))
+      .map((location) => patientFacingLocation(location));
   },
 });
 
