@@ -31,7 +31,7 @@ interface AppointmentConfirmationCardProps {
   isCancelled: boolean;
   isCancelling: boolean;
   onCancel: () => void;
-  practitionerName: string;
+  practitionerName?: string;
   startTime: string;
   title: string;
 }
@@ -101,7 +101,6 @@ export function BookedAppointmentSummary({
   const { cancelAppointment, isCancelled, isCancelling } =
     useAppointmentCancellation(onCancelled);
 
-  const resolvedPractitionerName = practitionerName ?? "Behandlungsteam";
   const duration = getDurationMinutes(appointment.end, appointment.start);
 
   return (
@@ -114,7 +113,7 @@ export function BookedAppointmentSummary({
       onCancel={() => {
         void cancelAppointment(appointment._id);
       }}
-      practitionerName={resolvedPractitionerName}
+      {...(practitionerName ? { practitionerName } : {})}
       startTime={appointment.start}
       title="Sie haben bereits einen gebuchten Termin"
     />
@@ -151,10 +150,12 @@ function AppointmentConfirmationCard({
             <span className="text-muted-foreground">Uhrzeit</span>
             <span className="font-medium">{formatTime(startTime)} Uhr</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Behandler/in</span>
-            <span className="font-medium">{practitionerName}</span>
-          </div>
+          {practitionerName ? (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Behandler/in</span>
+              <span className="font-medium">{practitionerName}</span>
+            </div>
+          ) : null}
         </div>
 
         <div className="rounded-lg bg-muted/50 p-4 space-y-2">
@@ -234,7 +235,6 @@ function BookedAppointmentsSummaryItem({
   const { cancelAppointment, isCancelled, isCancelling } =
     useAppointmentCancellation(onCancelled);
   const duration = getDurationMinutes(appointment.end, appointment.start);
-  const resolvedPractitionerName = practitionerName ?? "Behandlungsteam";
 
   return (
     <div className="rounded-lg border p-4 space-y-4">
@@ -245,9 +245,11 @@ function BookedAppointmentsSummaryItem({
             {formatDate(appointment.start)} um {formatTime(appointment.start)}{" "}
             Uhr
           </p>
-          <p className="text-sm text-muted-foreground">
-            Behandler/in: {resolvedPractitionerName}
-          </p>
+          {practitionerName ? (
+            <p className="text-sm text-muted-foreground">
+              Behandler/in: {practitionerName}
+            </p>
+          ) : null}
         </div>
         {appointment.seriesId ? (
           <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
@@ -266,7 +268,7 @@ function BookedAppointmentsSummaryItem({
               duration,
               appointment.appointmentTypeTitle,
               "Praxis",
-              resolvedPractitionerName,
+              practitionerName,
             );
           }}
           variant="outline"
@@ -306,7 +308,7 @@ function downloadICS(
   duration: number,
   title: string,
   location: string,
-  practitionerName: string,
+  practitionerName?: string,
 ) {
   const start = Temporal.ZonedDateTime.from(startTime);
   const end = start.add({ minutes: duration });
@@ -318,7 +320,9 @@ function downloadICS(
   });
 
   const event = calendar.createEvent({
-    description: `Termin bei ${practitionerName}`,
+    ...(practitionerName
+      ? { description: `Termin bei ${practitionerName}` }
+      : {}),
     end: new Date(end.epochMilliseconds),
     id: `${appointmentId}@praxisplaner`,
     location,
@@ -393,9 +397,11 @@ function LegacyUnmatchedFutureBookingHoldSummaryItem({
           <p className="text-sm text-muted-foreground">
             Standort: {hold.locationName ?? "Praxis"}
           </p>
-          <p className="text-sm text-muted-foreground">
-            Behandler/in: {hold.practitionerName ?? "Behandlungsteam"}
-          </p>
+          {hold.practitionerName ? (
+            <p className="text-sm text-muted-foreground">
+              Behandler/in: {hold.practitionerName}
+            </p>
+          ) : null}
         </div>
         <span className="rounded-md bg-warning-muted px-2 py-1 text-xs text-warning-foreground">
           Importierter Altfall

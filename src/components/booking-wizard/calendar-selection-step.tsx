@@ -97,7 +97,7 @@ export function CalendarSelectionStep({
   const [selectedSlot, setSelectedSlot] = useState<null | SlotInfo>(null);
 
   // Fetch appointment types to get duration info
-  const appointmentTypes = useQuery(api.entities.getAppointmentTypes, {
+  const appointmentTypes = useQuery(api.entities.getBookingAppointmentTypes, {
     ruleSetId,
   });
   const appointmentType = appointmentTypes?.find(

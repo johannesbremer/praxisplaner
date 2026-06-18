@@ -61,6 +61,10 @@ import {
   simulatedContextValidator,
 } from "./validators";
 
+type SchedulingQueryAccess = Awaited<
+  ReturnType<typeof requirePracticeMemberOrCurrentUserBookingScope>
+>;
+
 /**
  * Get the current time as a ZonedDateTime string in the configured timezone.
  */
@@ -257,11 +261,9 @@ async function resolveSchedulingRuleSetId(
 }
 
 function toPublicSchedulingResult(args: {
-  log: string[];
   slots: InternalSchedulingResultSlot[];
-}): { log: string[]; slots: SchedulingResultSlot[] } {
+}): { slots: SchedulingResultSlot[] } {
   return {
-    log: args.log,
     slots: args.slots.map((slot) => toPublicSchedulingResultSlot(slot)),
   };
 }
@@ -666,15 +668,24 @@ function requireSchedulableAppointmentType<T extends { deleted?: boolean }>(
   return appointmentType;
 }
 
+function resolvePublicSchedulingScope(args: {
+  access: SchedulingQueryAccess | undefined;
+  requestedScope: AppointmentBookingScope | undefined;
+}): AppointmentBookingScope | undefined {
+  if (args.access && !args.access.membership) {
+    return "real";
+  }
+
+  return args.requestedScope;
+}
+
 export const getSlotsForDay = query({
   args: getSlotsForDayArgs,
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ log: string[]; slots: SchedulingResultSlot[] }> => {
+  handler: async (ctx, args): Promise<{ slots: SchedulingResultSlot[] }> => {
     await ensureAuthenticatedIdentity(ctx);
+    let access: SchedulingQueryAccess | undefined;
     if (args.ruleSetId) {
-      await requirePracticeMemberOrCurrentUserBookingScope(ctx, {
+      access = await requirePracticeMemberOrCurrentUserBookingScope(ctx, {
         practiceId: args.practiceId,
         ruleSetId: args.ruleSetId,
       });
@@ -687,19 +698,22 @@ export const getSlotsForDay = query({
     });
 
     if (!effectiveRuleSetId) {
-      return asAvailableSlotsResult({ log: [], slots: [] });
+      return asAvailableSlotsResult({ slots: [] });
     }
+    const scope = resolvePublicSchedulingScope({
+      access,
+      requestedScope: args.scope,
+    });
 
-    return asAvailableSlotsResult(
-      toPublicSchedulingResult({
-        ...(await getSlotsForDayImpl(ctx, {
-          ...args,
-          date: asIsoDateString(args.date),
-          ruleSetId: effectiveRuleSetId,
-          simulatedContext: asSimulatedContextInput(args.simulatedContext),
-        })),
-      }),
-    );
+    const result = await getSlotsForDayImpl(ctx, {
+      ...args,
+      date: asIsoDateString(args.date),
+      ruleSetId: effectiveRuleSetId,
+      ...(scope === undefined ? {} : { scope }),
+      simulatedContext: asSimulatedContextInput(args.simulatedContext),
+    });
+
+    return asAvailableSlotsResult(toPublicSchedulingResult(result));
   },
   returns: availableSlotsResultValidator,
 });
@@ -714,8 +728,9 @@ export const getNextAvailableSlot = query({
   },
   handler: async (ctx, args): Promise<null | SchedulingResultSlot> => {
     await ensureAuthenticatedIdentity(ctx);
+    let access: SchedulingQueryAccess | undefined;
     if (args.ruleSetId) {
-      await requirePracticeMemberOrCurrentUserBookingScope(ctx, {
+      access = await requirePracticeMemberOrCurrentUserBookingScope(ctx, {
         practiceId: args.practiceId,
         ruleSetId: args.ruleSetId,
       });
@@ -732,6 +747,10 @@ export const getNextAvailableSlot = query({
     if (!effectiveRuleSetId) {
       return null;
     }
+    const scope = resolvePublicSchedulingScope({
+      access,
+      requestedScope: args.scope,
+    });
 
     const appointmentTypeLineageKey =
       simulatedContext.appointmentTypeLineageKey;
@@ -818,6 +837,7 @@ export const getNextAvailableSlot = query({
           date: day.toString(),
           enforceFutureOnly: true,
           ruleSetId: effectiveRuleSetId,
+          ...(scope === undefined ? {} : { scope }),
           simulatedContext,
         });
 

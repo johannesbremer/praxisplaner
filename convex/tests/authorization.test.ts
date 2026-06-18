@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 import type { Id } from "../_generated/dataModel";
 
 import { api, internal } from "../_generated/api";
-import { insertSelfLineageEntity } from "../lineage";
+import { insertSelfLineageEntity, requireLineageKey } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
 
@@ -43,8 +43,73 @@ async function createPracticeForUser(
     authed,
     practiceId,
     ruleSetId: practice.currentActiveRuleSetId,
+    slug: practice.slug,
     userId: user._id,
   };
+}
+
+async function createPublicBookingSchedulingFixture(
+  t: ReturnType<typeof createTestContext>,
+  args: {
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  return await t.run(async (ctx) => {
+    const practitionerId = await insertSelfLineageEntity(
+      ctx.db,
+      "practitioners",
+      {
+        name: "Dr. Public",
+        practiceId: args.practiceId,
+        ruleSetId: args.ruleSetId,
+      },
+    );
+    const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
+      name: "Public Office",
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+    });
+    const appointmentTypeId = await insertSelfLineageEntity(
+      ctx.db,
+      "appointmentTypes",
+      {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: BigInt(Date.now()),
+        duration: 30,
+        lastModified: BigInt(Date.now()),
+        name: "Public Booking",
+        practiceId: args.practiceId,
+        ruleSetId: args.ruleSetId,
+      },
+    );
+    const practitioner = await ctx.db.get("practitioners", practitionerId);
+    const location = await ctx.db.get("locations", locationId);
+    if (!practitioner || !location) {
+      throw new Error("Expected scheduling fixture entities to exist.");
+    }
+    await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+      breakTimes: [],
+      dayOfWeek: 1,
+      endTime: "10:00",
+      locationLineageKey: requireLineageKey({
+        entityId: location._id,
+        entityType: "location",
+        lineageKey: location.lineageKey,
+        ruleSetId: args.ruleSetId,
+      }),
+      practiceId: args.practiceId,
+      practitionerLineageKey: requireLineageKey({
+        entityId: practitioner._id,
+        entityType: "practitioner",
+        lineageKey: practitioner.lineageKey,
+        ruleSetId: args.ruleSetId,
+      }),
+      ruleSetId: args.ruleSetId,
+      startTime: "09:00",
+    });
+    return { appointmentTypeId, locationId };
+  });
 }
 
 function createTestContext() {
@@ -198,6 +263,57 @@ describe("Convex query authorization", () => {
     ).resolves.toEqual([]);
   });
 
+  test("booking practice discovery omits tenant-internal metadata", async () => {
+    const t = createTestContext();
+    const ownerPractice = await createPracticeForUser(
+      t,
+      "workos_public_practice_owner",
+      "public-practice-owner@example.com",
+    );
+    if (!ownerPractice.slug) {
+      throw new Error("Expected created practice to have a slug.");
+    }
+    await t.run(async (ctx) => {
+      await ctx.db.patch("practices", ownerPractice.practiceId, {
+        workOSOrganizationId: "org_internal_public_practice",
+      });
+    });
+
+    const patientAuthId = "workos_public_practice_patient";
+    await createUser(t, patientAuthId, "public-practice-patient@example.com");
+    const patient = t.withIdentity({
+      email: "public-practice-patient@example.com",
+      subject: patientAuthId,
+    });
+
+    const practices = await patient.query(
+      api.practices.getBookingPractices,
+      {},
+    );
+    expect(practices).toHaveLength(1);
+    expect(practices[0]).toMatchObject({
+      _id: ownerPractice.practiceId,
+      hasActiveRuleSet: true,
+      name: "workos_public_practice_owner practice",
+      slug: ownerPractice.slug,
+    });
+    expect(practices[0]).not.toHaveProperty("currentActiveRuleSetId");
+    expect(practices[0]).not.toHaveProperty("workOSOrganizationId");
+
+    const practiceBySlug = await patient.query(
+      api.practices.getBookingPracticeBySlug,
+      { slug: ownerPractice.slug },
+    );
+    expect(practiceBySlug).toMatchObject({
+      _id: ownerPractice.practiceId,
+      hasActiveRuleSet: true,
+      name: "workos_public_practice_owner practice",
+      slug: ownerPractice.slug,
+    });
+    expect(practiceBySlug).not.toHaveProperty("currentActiveRuleSetId");
+    expect(practiceBySlug).not.toHaveProperty("workOSOrganizationId");
+  });
+
   test("query access rejects duplicate app users for one auth identity", async () => {
     const t = createTestContext();
     const authId = "workos_duplicate_query_user";
@@ -311,7 +427,7 @@ describe("Convex query authorization", () => {
     ).rejects.toThrow("Role staff is insufficient");
   });
 
-  test("authenticated non-members can read active booking reference entities", async () => {
+  test("authenticated non-members can only read projected active booking reference entities", async () => {
     const t = createTestContext();
     const patientUserId = await createUser(
       t,
@@ -356,17 +472,83 @@ describe("Convex query authorization", () => {
       patient.query(api.entities.getAppointmentTypes, {
         ruleSetId: practice.ruleSetId,
       }),
-    ).resolves.toHaveLength(1);
+    ).rejects.toThrow("No access to this practice");
     await expect(
       patient.query(api.entities.getLocations, {
         ruleSetId: practice.ruleSetId,
       }),
-    ).resolves.toHaveLength(1);
+    ).rejects.toThrow("No access to this practice");
     await expect(
       patient.query(api.entities.getPractitioners, {
         ruleSetId: practice.ruleSetId,
       }),
-    ).resolves.toHaveLength(1);
+    ).rejects.toThrow("No access to this practice");
+
+    const appointmentTypes = await patient.query(
+      api.entities.getBookingAppointmentTypes,
+      {
+        ruleSetId: practice.ruleSetId,
+      },
+    );
+    const locations = await patient.query(api.entities.getBookingLocations, {
+      ruleSetId: practice.ruleSetId,
+    });
+    const practitioners = await patient.query(
+      api.entities.getBookingPractitioners,
+      {
+        ruleSetId: practice.ruleSetId,
+      },
+    );
+    const activePracticePractitioners = await patient.query(
+      api.entities.getBookingPractitionersForActivePractice,
+      {
+        practiceId: practice.practiceId,
+      },
+    );
+
+    expect(appointmentTypes).toHaveLength(1);
+    expect(locations).toHaveLength(1);
+    expect(practitioners).toHaveLength(1);
+    expect(activePracticePractitioners).toHaveLength(1);
+
+    const [appointmentType] = appointmentTypes;
+    const [location] = locations;
+    const [practitioner] = practitioners;
+    if (!appointmentType || !location || !practitioner) {
+      throw new Error("Expected booking reference projections.");
+    }
+
+    expect(appointmentType).toEqual({
+      _id: appointmentType._id,
+      duration: 20,
+      lineageKey: appointmentType.lineageKey,
+      name: "Booking reference",
+    });
+    expect(appointmentType).not.toHaveProperty(
+      "allowedPractitionerLineageKeys",
+    );
+    expect(appointmentType).not.toHaveProperty("followUpPlan");
+    expect(appointmentType).not.toHaveProperty("practiceId");
+    expect(appointmentType).not.toHaveProperty("ruleSetId");
+
+    expect(location).toEqual({
+      _id: location._id,
+      lineageKey: location.lineageKey,
+      name: "Booking location",
+    });
+    expect(location).not.toHaveProperty("practiceId");
+    expect(location).not.toHaveProperty("ruleSetId");
+    expect(location).not.toHaveProperty("parentId");
+
+    expect(practitioner).toEqual({
+      _id: practitioner._id,
+      lineageKey: practitioner.lineageKey,
+      name: "Dr. Booking",
+    });
+    expect(practitioner).not.toHaveProperty("practiceId");
+    expect(practitioner).not.toHaveProperty("ruleSetId");
+    expect(practitioner).not.toHaveProperty("parentId");
+    expect(activePracticePractitioners[0]).toEqual(practitioner);
   });
 
   test("authenticated non-members cannot read inactive foreign rule-set entities", async () => {
@@ -420,6 +602,130 @@ describe("Convex query authorization", () => {
     await expect(
       authed.query(api.practices.getPracticeMembers, { practiceId }),
     ).resolves.toHaveLength(1);
+  });
+
+  test("admin can add another practice admin", async () => {
+    const t = createTestContext();
+    const adminAuthId = "workos_authz_admin_adds_admin";
+    const adminEmail = "authz-admin-adds-admin@example.com";
+    const { authed, practiceId, userId } = await createPracticeForUser(
+      t,
+      adminAuthId,
+      adminEmail,
+    );
+    await setMembershipRole(t, { practiceId, role: "admin", userId });
+    const targetUserId = await createUser(
+      t,
+      "workos_authz_admin_target_admin",
+      "authz-admin-target-admin@example.com",
+    );
+
+    const membershipId = await authed.mutation(
+      api.practices.upsertPracticeMember,
+      {
+        practiceId,
+        role: "admin",
+        userId: targetUserId,
+      },
+    );
+    const membership = await t.run(
+      async (ctx) => await ctx.db.get("practiceMembers", membershipId),
+    );
+
+    expect(membership).toMatchObject({
+      practiceId,
+      role: "admin",
+      userId: targetUserId,
+    });
+  });
+
+  test("admin cannot promote a practice member to owner", async () => {
+    const t = createTestContext();
+    const adminAuthId = "workos_authz_admin_promotes_owner";
+    const adminEmail = "authz-admin-promotes-owner@example.com";
+    const { authed, practiceId, userId } = await createPracticeForUser(
+      t,
+      adminAuthId,
+      adminEmail,
+    );
+    await setMembershipRole(t, { practiceId, role: "admin", userId });
+    const targetUserId = await createUser(
+      t,
+      "workos_authz_owner_promotion_target",
+      "authz-owner-promotion-target@example.com",
+    );
+
+    await expect(
+      authed.mutation(api.practices.upsertPracticeMember, {
+        practiceId,
+        role: "owner",
+        userId: targetUserId,
+      }),
+    ).rejects.toThrow("Role admin is insufficient");
+  });
+
+  test("admin cannot demote an existing practice owner", async () => {
+    const t = createTestContext();
+    const adminAuthId = "workos_authz_admin_demotes_owner";
+    const adminEmail = "authz-admin-demotes-owner@example.com";
+    const { authed, practiceId, userId } = await createPracticeForUser(
+      t,
+      adminAuthId,
+      adminEmail,
+    );
+    await setMembershipRole(t, { practiceId, role: "admin", userId });
+    const targetUserId = await createUser(
+      t,
+      "workos_authz_owner_demotion_target",
+      "authz-owner-demotion-target@example.com",
+    );
+    await setMembershipRole(t, {
+      practiceId,
+      role: "owner",
+      userId: targetUserId,
+    });
+
+    await expect(
+      authed.mutation(api.practices.upsertPracticeMember, {
+        practiceId,
+        role: "admin",
+        userId: targetUserId,
+      }),
+    ).rejects.toThrow("Role admin is insufficient");
+  });
+
+  test("owner can promote a practice member to owner", async () => {
+    const t = createTestContext();
+    const ownerAuthId = "workos_authz_owner_promotes_owner";
+    const ownerEmail = "authz-owner-promotes-owner@example.com";
+    const { authed, practiceId } = await createPracticeForUser(
+      t,
+      ownerAuthId,
+      ownerEmail,
+    );
+    const targetUserId = await createUser(
+      t,
+      "workos_authz_owner_target_owner",
+      "authz-owner-target-owner@example.com",
+    );
+
+    const membershipId = await authed.mutation(
+      api.practices.upsertPracticeMember,
+      {
+        practiceId,
+        role: "owner",
+        userId: targetUserId,
+      },
+    );
+    const membership = await t.run(
+      async (ctx) => await ctx.db.get("practiceMembers", membershipId),
+    );
+
+    expect(membership).toMatchObject({
+      practiceId,
+      role: "owner",
+      userId: targetUserId,
+    });
   });
 
   test("practice-scoped user display returns booking personal data from the authorized practice only", async () => {
@@ -523,6 +829,170 @@ describe("Convex query authorization", () => {
         },
       }),
     ).rejects.toThrow("Rule set does not belong to this practice");
+  });
+
+  test("patient booking scope cannot request simulation scheduling occupancy", async () => {
+    const t = createTestContext();
+    const practice = await createPracticeForUser(
+      t,
+      "workos_authz_simulation_scope_owner",
+      "authz-simulation-scope-owner@example.com",
+    );
+    const patientAuthId = "workos_authz_simulation_scope_patient";
+    const patientEmail = "authz-simulation-scope-patient@example.com";
+    await createUser(t, patientAuthId, patientEmail);
+
+    const schedulingRefs = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
+        name: "Simulation Scope Location",
+        practiceId: practice.practiceId,
+        ruleSetId: practice.ruleSetId,
+      });
+      const practitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          name: "Dr. Simulation Scope",
+          practiceId: practice.practiceId,
+          ruleSetId: practice.ruleSetId,
+        },
+      );
+      const appointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [practitionerId],
+          createdAt: now,
+          duration: 5,
+          followUpPlan: [],
+          lastModified: now,
+          name: "Simulation Scope Checkup",
+          practiceId: practice.practiceId,
+          ruleSetId: practice.ruleSetId,
+        },
+      );
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+        dayOfWeek: 1,
+        endTime: "09:05",
+        locationLineageKey: locationId,
+        practiceId: practice.practiceId,
+        practitionerLineageKey: practitionerId,
+        ruleSetId: practice.ruleSetId,
+        startTime: "09:00",
+      });
+      await ctx.db.insert("blockedSlots", {
+        createdAt: now,
+        end: "2026-06-22T09:05:00+02:00[Europe/Berlin]",
+        isSimulation: true,
+        lastModified: now,
+        locationLineageKey: locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: practitionerId,
+        },
+        practiceId: practice.practiceId,
+        start: "2026-06-22T09:00:00+02:00[Europe/Berlin]",
+        title: "Draft-only block",
+      });
+
+      return { appointmentTypeId, locationId, practitionerId };
+    });
+
+    const queryArgs = {
+      date: "2026-06-22",
+      enforceFutureOnly: false,
+      practiceId: practice.practiceId,
+      ruleSetId: practice.ruleSetId,
+      scope: "simulation" as const,
+      simulatedContext: {
+        appointmentTypeLineageKey: schedulingRefs.appointmentTypeId,
+        clientType: "MFA",
+        locationLineageKey: schedulingRefs.locationId,
+        patient: { isNew: true },
+      },
+    };
+    const patient = t.withIdentity({
+      email: patientEmail,
+      subject: patientAuthId,
+    });
+
+    await expect(
+      practice.authed.query(api.scheduling.getSlotsForDay, queryArgs),
+    ).resolves.toMatchObject({
+      slots: [
+        {
+          practitionerLineageKey: schedulingRefs.practitionerId,
+          status: "BLOCKED",
+        },
+      ],
+    });
+    await expect(
+      patient.query(api.scheduling.getSlotsForDay, queryArgs),
+    ).resolves.toMatchObject({
+      slots: [
+        {
+          practitionerLineageKey: schedulingRefs.practitionerId,
+          status: "AVAILABLE",
+        },
+      ],
+    });
+    const nextSlotQueryArgs = {
+      date: queryArgs.date,
+      practiceId: queryArgs.practiceId,
+      ruleSetId: queryArgs.ruleSetId,
+      scope: queryArgs.scope,
+      simulatedContext: queryArgs.simulatedContext,
+    };
+    await expect(
+      practice.authed.query(
+        api.scheduling.getNextAvailableSlot,
+        nextSlotQueryArgs,
+      ),
+    ).resolves.toMatchObject({
+      startTime: "2026-06-29T09:00:00+02:00[Europe/Berlin]",
+      status: "AVAILABLE",
+    });
+    await expect(
+      patient.query(api.scheduling.getNextAvailableSlot, nextSlotQueryArgs),
+    ).resolves.toMatchObject({
+      practitionerLineageKey: schedulingRefs.practitionerId,
+      startTime: "2026-06-22T09:00:00+02:00[Europe/Berlin]",
+      status: "AVAILABLE",
+    });
+  });
+
+  test("patient booking scope does not receive scheduling diagnostics", async () => {
+    const t = createTestContext();
+    const owner = await createPracticeForUser(
+      t,
+      "workos_authz_public_booking_owner",
+      "authz-public-booking-owner@example.com",
+    );
+    const fixture = await createPublicBookingSchedulingFixture(t, owner);
+    const patientAuthId = "workos_authz_public_booking_patient";
+    const patientEmail = "authz-public-booking-patient@example.com";
+    await createUser(t, patientAuthId, patientEmail);
+    const patient = t.withIdentity({
+      email: patientEmail,
+      subject: patientAuthId,
+    });
+
+    const result = await patient.query(api.scheduling.getSlotsForDay, {
+      date: "2026-01-05",
+      enforceFutureOnly: false,
+      practiceId: owner.practiceId,
+      ruleSetId: owner.ruleSetId,
+      simulatedContext: {
+        appointmentTypeLineageKey: fixture.appointmentTypeId,
+        clientType: "MFA",
+        locationLineageKey: fixture.locationId,
+        patient: { isNew: true },
+      },
+    });
+
+    expect(result.slots.length).toBeGreaterThan(0);
+    expect("log" in result).toBe(false);
   });
 
   test("practice-scoped user display query does not expose unrelated users", async () => {

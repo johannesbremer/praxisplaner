@@ -63,6 +63,10 @@ const FLOW_KEY_VALIDATOR = {
   ruleSetId: v.id("ruleSets"),
 } as const;
 
+const ACTIVE_PRACTICE_FLOW_KEY_VALIDATOR = {
+  practiceId: v.id("practices"),
+} as const;
+
 const BOOKING_SESSION_RETURN_VALIDATOR = v.union(
   v.object({
     practiceId: v.id("practices"),
@@ -322,6 +326,34 @@ function flowScope<T extends object>(
   };
 }
 
+async function getActivePracticeFlowKeyForMutation(
+  ctx: MutationCtx,
+  args: Pick<BookingFlowKey, "practiceId">,
+): Promise<BookingFlowKey> {
+  const ruleSetId = await requireActiveRuleSetIdForPractice(
+    ctx,
+    args.practiceId,
+  );
+  return await getFlowKeyForMutation(ctx, {
+    practiceId: args.practiceId,
+    ruleSetId,
+  });
+}
+
+async function getActivePracticeFlowKeyForQuery(
+  ctx: QueryCtx,
+  args: Pick<BookingFlowKey, "practiceId">,
+): Promise<BookingFlowKey> {
+  const ruleSetId = await requireActiveRuleSetIdForPractice(
+    ctx,
+    args.practiceId,
+  );
+  return await getFlowKeyForQuery(ctx, {
+    practiceId: args.practiceId,
+    ruleSetId,
+  });
+}
+
 function getAllowedBackTargetStep(
   state: BookingSessionState,
   calendarReached: boolean,
@@ -409,6 +441,7 @@ async function getFlowKeyForQuery(
     userId,
   };
 }
+
 function getFlowRow(
   ctx: MutationCtx | QueryCtx,
   tableName: "bookingCalendarReachedSteps",
@@ -711,7 +744,6 @@ async function loadFlowRows(
     privacy,
   };
 }
-
 async function markCalendarReached(
   ctx: MutationCtx,
   flowKey: BookingFlowKey,
@@ -1328,6 +1360,20 @@ async function requireActiveFlowAtStep(
   return activeFlow;
 }
 
+async function requireActiveRuleSetIdForPractice(
+  ctx: MutationCtx | QueryCtx,
+  practiceId: Id<"practices">,
+): Promise<Id<"ruleSets">> {
+  const practice = await ctx.db.get("practices", practiceId);
+  if (!practice) {
+    throw new Error("Practice not found.");
+  }
+  if (!practice.currentActiveRuleSetId) {
+    throw new Error("Practice has no active rule set.");
+  }
+  return practice.currentActiveRuleSetId;
+}
+
 async function requireBookingRuleSetBelongsToPractice(
   ctx: MutationCtx | QueryCtx,
   args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
@@ -1901,6 +1947,27 @@ export const getActiveForUser = query({
   returns: BOOKING_SESSION_RETURN_VALIDATOR,
 });
 
+export const getActiveForUserInActivePractice = query({
+  args: ACTIVE_PRACTICE_FLOW_KEY_VALIDATOR,
+  handler: async (ctx, args) => {
+    const flowKey = await getActivePracticeFlowKeyForQuery(ctx, args);
+
+    const rows = await loadFlowRows(ctx, flowKey);
+    const state = await materializeState(ctx, flowKey, rows);
+    if (!state) {
+      return null;
+    }
+
+    return {
+      practiceId: flowKey.practiceId,
+      ruleSetId: flowKey.ruleSetId,
+      state,
+      userId: flowKey.userId,
+    };
+  },
+  returns: BOOKING_SESSION_RETURN_VALIDATOR,
+});
+
 export const create = mutation({
   args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
@@ -1912,10 +1979,31 @@ export const create = mutation({
   returns: v.null(),
 });
 
+export const createInActivePractice = mutation({
+  args: ACTIVE_PRACTICE_FLOW_KEY_VALIDATOR,
+  handler: async (ctx, args) => {
+    const flowKey = await getActivePracticeFlowKeyForMutation(ctx, args);
+    await requireCurrentUserCanStartBooking(ctx, flowKey);
+    await upsertPrivacyStep(ctx, flowKey, false);
+    return null;
+  },
+  returns: v.null(),
+});
+
 export const remove = mutation({
   args: FLOW_KEY_VALIDATOR,
   handler: async (ctx, args) => {
     const flowKey = await getFlowKeyForMutation(ctx, args);
+    await deleteFlowRows(ctx, flowKey);
+    return null;
+  },
+  returns: v.null(),
+});
+
+export const removeInActivePractice = mutation({
+  args: ACTIVE_PRACTICE_FLOW_KEY_VALIDATOR,
+  handler: async (ctx, args) => {
+    const flowKey = await getActivePracticeFlowKeyForMutation(ctx, args);
     await deleteFlowRows(ctx, flowKey);
     return null;
   },

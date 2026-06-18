@@ -59,7 +59,6 @@ export const patientUpsertResultValidator = v.object({
 
 // Available slots result (for scheduling engine)
 export const availableSlotsResultValidator = v.object({
-  log: v.array(v.string()),
   slots: v.array(
     v.object({
       blockedByBlockedSlotId: v.optional(v.id("blockedSlots")), // ID of manual blocked slot that caused this

@@ -44,7 +44,6 @@ import {
 } from "./validators";
 
 export interface AvailableSlotsResult {
-  log: string[];
   slots: SchedulingResultSlot[];
 }
 

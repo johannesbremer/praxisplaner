@@ -887,6 +887,7 @@ export default defineSchema({
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
     name: v.string(),
     slug: v.optional(v.string()),
+    telefonkiIntegrationSecretHash: v.optional(v.string()),
     workOSOrganizationId: v.optional(v.string()),
   })
     .index("by_name", ["name"])

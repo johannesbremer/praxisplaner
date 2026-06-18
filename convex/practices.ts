@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 import { action, mutation, query } from "./_generated/server";
 import { isConvexAuthBypassEnabled } from "./authBypass";
@@ -29,6 +29,58 @@ const practiceListItemValidator = v.object({
   slug: v.optional(v.string()),
   workOSOrganizationId: v.optional(v.string()),
 });
+
+function toPublicPractice(practice: Doc<"practices">): {
+  _creationTime: number;
+  _id: Id<"practices">;
+  currentActiveRuleSetId?: Id<"ruleSets">;
+  name: string;
+  slug?: string;
+  workOSOrganizationId?: string;
+} {
+  return {
+    _creationTime: practice._creationTime,
+    _id: practice._id,
+    ...(practice.currentActiveRuleSetId !== undefined && {
+      currentActiveRuleSetId: practice.currentActiveRuleSetId,
+    }),
+    name: practice.name,
+    ...(practice.slug !== undefined && { slug: practice.slug }),
+    ...(practice.workOSOrganizationId !== undefined && {
+      workOSOrganizationId: practice.workOSOrganizationId,
+    }),
+  };
+}
+
+const publicBookingPracticeValidator = v.object({
+  _creationTime: v.number(),
+  _id: v.id("practices"),
+  hasActiveRuleSet: v.boolean(),
+  name: v.string(),
+  slug: v.optional(v.string()),
+});
+
+function toPublicBookingPractice(practice: {
+  _creationTime: number;
+  _id: Id<"practices">;
+  currentActiveRuleSetId?: Id<"ruleSets">;
+  name: string;
+  slug?: string;
+}): {
+  _creationTime: number;
+  _id: Id<"practices">;
+  hasActiveRuleSet: boolean;
+  name: string;
+  slug?: string;
+} {
+  return {
+    _creationTime: practice._creationTime,
+    _id: practice._id,
+    hasActiveRuleSet: practice.currentActiveRuleSetId !== undefined,
+    name: practice.name,
+    ...(practice.slug === undefined ? {} : { slug: practice.slug }),
+  };
+}
 
 /**
  * Provision a new WorkOS organization and its local practice for the current user.
@@ -70,7 +122,7 @@ export const getAllPractices = query({
       if (!practice) {
         continue;
       }
-      practices.push(practice);
+      practices.push(toPublicPractice(practice));
     }
 
     return practices;
@@ -105,7 +157,9 @@ export const getAllPracticesIfAuthenticated = query({
       ),
     );
 
-    return practiceCandidates.filter((practice) => practice !== null);
+    return practiceCandidates.flatMap((practice) =>
+      practice === null ? [] : [toPublicPractice(practice)],
+    );
   },
   returns: v.array(practiceListItemValidator),
 });
@@ -121,18 +175,10 @@ export const getBookingPractices = query({
   args: {},
   handler: async (ctx) => {
     await requireAuthenticatedUserIdForQuery(ctx);
-    return await ctx.db.query("practices").collect();
+    const practices = await ctx.db.query("practices").collect();
+    return practices.map((practice) => toPublicBookingPractice(practice));
   },
-  returns: v.array(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("practices"),
-      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
-      name: v.string(),
-      slug: v.optional(v.string()),
-      workOSOrganizationId: v.optional(v.string()),
-    }),
-  ),
+  returns: v.array(publicBookingPracticeValidator),
 });
 
 /**
@@ -144,7 +190,8 @@ export const getPractice = query({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    return await ctx.db.get("practices", args.practiceId);
+    const practice = await ctx.db.get("practices", args.practiceId);
+    return practice === null ? null : toPublicPractice(practice);
   },
   returns: v.union(
     v.object({
@@ -171,7 +218,9 @@ export const getAccessiblePracticeBySlug = query({
     const matchingPractices = practices.filter(
       (practice) => practice?.slug === args.slug,
     );
-    return matchingPractices.length === 1 ? matchingPractices[0] : null;
+    return matchingPractices.length === 1 && matchingPractices[0]
+      ? toPublicPractice(matchingPractices[0])
+      : null;
   },
   returns: v.union(
     v.object({
@@ -197,21 +246,12 @@ export const getBookingPracticeBySlug = query({
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .collect();
     if (practicesBySlug.length > 0) {
-      return practicesBySlug.length === 1 ? practicesBySlug[0] : null;
+      const practice = practicesBySlug.length === 1 ? practicesBySlug[0] : null;
+      return practice ? toPublicBookingPractice(practice) : null;
     }
     return null;
   },
-  returns: v.union(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("practices"),
-      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
-      name: v.string(),
-      slug: v.optional(v.string()),
-      workOSOrganizationId: v.optional(v.string()),
-    }),
-    v.null(),
-  ),
+  returns: v.union(publicBookingPracticeValidator, v.null()),
 });
 
 export const listPracticePhoneNumbers = query({
@@ -402,6 +442,10 @@ export const upsertPracticeMember = mutation({
         q.eq("practiceId", args.practiceId).eq("userId", args.userId),
       )
       .first();
+
+    if (args.role === "owner" || existing?.role === "owner") {
+      await ensurePracticeAccessForMutation(ctx, args.practiceId, "owner");
+    }
 
     if (existing) {
       await ctx.db.patch("practiceMembers", existing._id, { role: args.role });

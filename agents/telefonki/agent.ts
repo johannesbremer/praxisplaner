@@ -39,6 +39,7 @@ import { executeTelefonkiSearch } from "./search-execution";
 
 const AGENT_NAME = "telefonki-agent";
 const DEFAULT_INTEGRATION_ACTOR = "telefonki-livekit-agent";
+const TELEFONKI_PRACTICE_SECRETS_ENV = "TELEFONKI_PRACTICE_SECRETS";
 
 type ActiveConfig = FunctionReturnType<
   typeof convexApi.telefonki.getActiveConfig
@@ -149,6 +150,25 @@ function getEnv(name: string): string {
 function getOptionalEnv(name: string): string | undefined {
   const value = process.env[name];
   return value && value.length > 0 ? value : undefined;
+}
+
+function getTelefonkiIntegrationSecret(
+  dialedPracticePhoneNumber: string,
+): string {
+  const normalizedPhoneNumber = sanitizePhoneNumber(dialedPracticePhoneNumber);
+  const parsedSecrets: unknown = JSON.parse(
+    getEnv(TELEFONKI_PRACTICE_SECRETS_ENV),
+  );
+  const secretsByPhoneNumber = z
+    .record(z.string(), z.string().min(1))
+    .parse(parsedSecrets);
+  const integrationSecret = secretsByPhoneNumber[normalizedPhoneNumber];
+  if (!integrationSecret) {
+    throw new Error(
+      `Missing TelefonKI integration secret for ${normalizedPhoneNumber}.`,
+    );
+  }
+  return integrationSecret;
 }
 
 function invalidateOffersForCriteriaChange(
@@ -295,7 +315,6 @@ loadDotenv();
 export default defineAgent({
   entry: async (ctx: JobContext) => {
     const convexUrl = getOptionalEnv("CONVEX_URL") ?? getEnv("VITE_CONVEX_URL");
-    const integrationSecret = getEnv("TELEFONKI_SHARED_SECRET");
     const convex = new ConvexHttpClient(convexUrl);
     const state: CallState = {
       activeOffers: {
@@ -317,6 +336,9 @@ export default defineAgent({
           "Inbound call is missing sip.trunkPhoneNumber and cannot be routed to a practice.",
         );
       }
+      const integrationSecret = getTelefonkiIntegrationSecret(
+        routing.dialedPracticePhoneNumber,
+      );
 
       const practiceResolution = await convex.query(
         convexApi.telefonki.resolvePracticeByDialedPhoneNumber,
