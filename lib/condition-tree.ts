@@ -52,6 +52,7 @@ export type ConditionType =
   | "DAYS_AHEAD"
   | "HOURS_AHEAD"
   | "LOCATION"
+  | "MINIMUM_ADVANCE_TIME"
   | "PATIENT_AGE"
   | "PRACTITIONER"
   | "TIME_RANGE";
@@ -82,6 +83,7 @@ export const CONDITION_TYPES = [
   "DAYS_AHEAD",
   "HOURS_AHEAD",
   "LOCATION",
+  "MINIMUM_ADVANCE_TIME",
   "PATIENT_AGE",
   "PRACTITIONER",
   "TIME_RANGE",
@@ -275,6 +277,7 @@ function isConditionType(value: unknown): value is ConditionType {
     case "DAYS_AHEAD":
     case "HOURS_AHEAD":
     case "LOCATION":
+    case "MINIMUM_ADVANCE_TIME":
     case "PATIENT_AGE":
     case "PRACTITIONER":
     case "TIME_RANGE": {

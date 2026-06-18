@@ -602,6 +602,7 @@ async function copyConditionNode(
       | "DAYS_AHEAD"
       | "HOURS_AHEAD"
       | "LOCATION"
+      | "MINIMUM_ADVANCE_TIME"
       | "PATIENT_AGE"
       | "PRACTITIONER"
       | "TIME_RANGE";

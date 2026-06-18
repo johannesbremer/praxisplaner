@@ -1145,6 +1145,7 @@ export default defineSchema({
         v.literal("TIME_RANGE"), // Test if time is in range
         v.literal("DAYS_AHEAD"), // Test booking advance time
         v.literal("HOURS_AHEAD"), // Test booking advance time in hours
+        v.literal("MINIMUM_ADVANCE_TIME"), // Test booking is at least N minutes/hours/days in the future
         v.literal("PATIENT_AGE"), // Test patient age on appointment day
 
         // Capacity-based

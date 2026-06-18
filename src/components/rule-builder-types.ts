@@ -3,8 +3,10 @@ import type {
   ConditionType as CanonicalConditionType,
   ConditionTreeNode,
 } from "../../lib/condition-tree";
+import type { AdvanceTimeUnit } from "../../lib/rule-name-generator";
 
 export interface Condition {
+  advanceUnit?: AdvanceTimeUnit | null;
   appointmentTypes?: null | string[];
   count?: null | number;
   id: string;

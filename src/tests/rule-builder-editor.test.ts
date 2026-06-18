@@ -55,4 +55,30 @@ describe("validateCondition", () => {
 
     expect(validateCondition(condition)).not.toContain("rangeOrder");
   });
+
+  test("requires a minimum advance amount and unit", () => {
+    const condition = {
+      id: "minimum-advance",
+      operator: "LESS_THAN",
+      type: "MINIMUM_ADVANCE_TIME",
+      valueNumber: null,
+    } satisfies Condition;
+
+    expect(validateCondition(condition)).toEqual([
+      "valueNumber",
+      "advanceUnit",
+    ]);
+  });
+
+  test("accepts minimum advance time with minutes", () => {
+    const condition = {
+      advanceUnit: "minutes",
+      id: "minimum-advance",
+      operator: "LESS_THAN",
+      type: "MINIMUM_ADVANCE_TIME",
+      valueNumber: 15,
+    } satisfies Condition;
+
+    expect(validateCondition(condition)).toEqual([]);
+  });
 });

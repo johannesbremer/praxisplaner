@@ -530,7 +530,7 @@ function asRuleEngineZonedDateTimeString(
  *
  * EXCLUDED conditions (vary per slot OR require DB reads during evaluation):
  * - PRACTITIONER: Varies per slot (different practitioner columns in staff view)
- * - HOURS_AHEAD: Depends on exact slot timestamp, so it can vary within a day
+ * - HOURS_AHEAD, MINIMUM_ADVANCE_TIME: Depend on exact slot timestamp, so they can vary within a day
  * - DAILY_CAPACITY: Queries appointments table to count existing appointments
  * - CONCURRENT_COUNT: Queries appointments table (also time-variant)
  */
@@ -848,6 +848,35 @@ function evaluateCondition(
 
     case "LOCATION": {
       return checkIdMembership(locationLineageKey, valueIds);
+    }
+
+    case "MINIMUM_ADVANCE_TIME": {
+      // Blocks when the appointment is not at least N minutes/hours/days in the future.
+      if (valueNumber === undefined || !context.requestedAt) {
+        return false;
+      }
+
+      const unit = valueIds?.[0];
+      if (unit !== "minutes" && unit !== "hours" && unit !== "days") {
+        throw new Error(
+          "MINIMUM_ADVANCE_TIME condition is missing a valid unit. Data corruption?",
+        );
+      }
+
+      const appointmentZoned = Temporal.ZonedDateTime.from(context.dateTime);
+      const requestZoned = Temporal.ZonedDateTime.from(context.requestedAt);
+      const millisecondsAhead =
+        appointmentZoned.toInstant().epochMilliseconds -
+        requestZoned.toInstant().epochMilliseconds;
+      const actual =
+        unit === "minutes"
+          ? millisecondsAhead / (60 * 1000)
+          : unit === "hours"
+            ? millisecondsAhead / (60 * 60 * 1000)
+            : appointmentZoned.toPlainDate().since(requestZoned.toPlainDate())
+                .days;
+
+      return compareValue(actual, valueNumber);
     }
 
     case "PATIENT_AGE": {
@@ -1247,6 +1276,7 @@ const [
   CONDITION_TYPE_DAYS_AHEAD,
   CONDITION_TYPE_HOURS_AHEAD,
   CONDITION_TYPE_LOCATION,
+  CONDITION_TYPE_MINIMUM_ADVANCE_TIME,
   CONDITION_TYPE_PATIENT_AGE,
   CONDITION_TYPE_PRACTITIONER,
   CONDITION_TYPE_TIME_RANGE,
@@ -1270,6 +1300,7 @@ const conditionTypeValidator = v.union(
   v.literal(CONDITION_TYPE_DAYS_AHEAD),
   v.literal(CONDITION_TYPE_HOURS_AHEAD),
   v.literal(CONDITION_TYPE_LOCATION),
+  v.literal(CONDITION_TYPE_MINIMUM_ADVANCE_TIME),
   v.literal(CONDITION_TYPE_PATIENT_AGE),
   v.literal(CONDITION_TYPE_PRACTITIONER),
   v.literal(CONDITION_TYPE_TIME_RANGE),
@@ -1384,6 +1415,16 @@ export function validateConditionTree(
       node.valueNumber === undefined
     ) {
       errors.push("DAY_OF_WEEK condition must use valueNumber");
+    }
+    if (
+      node.conditionType === "MINIMUM_ADVANCE_TIME" &&
+      node.valueIds?.[0] !== "minutes" &&
+      node.valueIds?.[0] !== "hours" &&
+      node.valueIds?.[0] !== "days"
+    ) {
+      errors.push(
+        "MINIMUM_ADVANCE_TIME condition must use minutes, hours, or days",
+      );
     }
   } else if (isLogicalNode(node)) {
     // Validate logical operator - children array is guaranteed by type guard
