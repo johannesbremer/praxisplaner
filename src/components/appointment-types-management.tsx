@@ -1862,6 +1862,10 @@ export function AppointmentTypesManagement({
               if (
                 existing.name !== normalizedName ||
                 existing.duration !== parsedValue.duration ||
+                !sameAppointmentTypeDefaultOccupancy(
+                  existing.defaultOccupancy,
+                  normalizedDefaultOccupancy,
+                ) ||
                 serializeAppointmentPlan(existing.appointmentPlan?.steps) !==
                   serializeAppointmentPlan(normalizedAppointmentPlan) ||
                 existing.treeFolderId !== resolvedFolder.folderId ||
