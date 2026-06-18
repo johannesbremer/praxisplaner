@@ -495,7 +495,7 @@ function AuthenticatedBookingFlow() {
       : "skip",
   );
   const practitioners = useQuery(
-    api.entities.getPractitioners,
+    api.entities.getBookingPractitioners,
     practiceActiveRuleSetId ? { ruleSetId: practiceActiveRuleSetId } : "skip",
   );
 

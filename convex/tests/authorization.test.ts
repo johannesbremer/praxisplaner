@@ -278,7 +278,7 @@ describe("Convex query authorization", () => {
     ).rejects.toThrow("Role staff is insufficient");
   });
 
-  test("authenticated non-members can read active booking reference entities", async () => {
+  test("authenticated non-members can only read projected active booking reference entities", async () => {
     const t = createTestContext();
     const patientUserId = await createUser(
       t,
@@ -323,17 +323,75 @@ describe("Convex query authorization", () => {
       patient.query(api.entities.getAppointmentTypes, {
         ruleSetId: practice.ruleSetId,
       }),
-    ).resolves.toHaveLength(1);
+    ).rejects.toThrow("No access to this practice");
     await expect(
       patient.query(api.entities.getLocations, {
         ruleSetId: practice.ruleSetId,
       }),
-    ).resolves.toHaveLength(1);
+    ).rejects.toThrow("No access to this practice");
     await expect(
       patient.query(api.entities.getPractitioners, {
         ruleSetId: practice.ruleSetId,
       }),
-    ).resolves.toHaveLength(1);
+    ).rejects.toThrow("No access to this practice");
+
+    const appointmentTypes = await patient.query(
+      api.entities.getBookingAppointmentTypes,
+      {
+        ruleSetId: practice.ruleSetId,
+      },
+    );
+    const locations = await patient.query(api.entities.getBookingLocations, {
+      ruleSetId: practice.ruleSetId,
+    });
+    const practitioners = await patient.query(
+      api.entities.getBookingPractitioners,
+      {
+        ruleSetId: practice.ruleSetId,
+      },
+    );
+
+    expect(appointmentTypes).toHaveLength(1);
+    expect(locations).toHaveLength(1);
+    expect(practitioners).toHaveLength(1);
+
+    const [appointmentType] = appointmentTypes;
+    const [location] = locations;
+    const [practitioner] = practitioners;
+    if (!appointmentType || !location || !practitioner) {
+      throw new Error("Expected booking reference projections.");
+    }
+
+    expect(appointmentType).toEqual({
+      _id: appointmentType._id,
+      duration: 20,
+      lineageKey: appointmentType.lineageKey,
+      name: "Booking reference",
+    });
+    expect(appointmentType).not.toHaveProperty(
+      "allowedPractitionerLineageKeys",
+    );
+    expect(appointmentType).not.toHaveProperty("followUpPlan");
+    expect(appointmentType).not.toHaveProperty("practiceId");
+    expect(appointmentType).not.toHaveProperty("ruleSetId");
+
+    expect(location).toEqual({
+      _id: location._id,
+      lineageKey: location.lineageKey,
+      name: "Booking location",
+    });
+    expect(location).not.toHaveProperty("practiceId");
+    expect(location).not.toHaveProperty("ruleSetId");
+    expect(location).not.toHaveProperty("parentId");
+
+    expect(practitioner).toEqual({
+      _id: practitioner._id,
+      lineageKey: practitioner.lineageKey,
+      name: "Dr. Booking",
+    });
+    expect(practitioner).not.toHaveProperty("practiceId");
+    expect(practitioner).not.toHaveProperty("ruleSetId");
+    expect(practitioner).not.toHaveProperty("parentId");
   });
 
   test("authenticated non-members cannot read inactive foreign rule-set entities", async () => {

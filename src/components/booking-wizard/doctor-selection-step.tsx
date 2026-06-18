@@ -23,7 +23,9 @@ export function DoctorSelectionStep({
   practiceId,
   ruleSetId,
 }: StepComponentProps) {
-  const practitioners = useQuery(api.entities.getPractitioners, { ruleSetId });
+  const practitioners = useQuery(api.entities.getBookingPractitioners, {
+    ruleSetId,
+  });
   const selectDoctor = useMutation(api.bookingSessions.selectDoctor);
 
   const handleSelectDoctor = async (
