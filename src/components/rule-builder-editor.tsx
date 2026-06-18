@@ -65,12 +65,6 @@ interface DayOfWeekConditionProps {
   onUpdate: (updates: Partial<Condition>) => void;
 }
 
-interface DaysAheadConditionProps {
-  condition: Condition;
-  invalidFields?: Map<string, string> | undefined;
-  onUpdate: (updates: Partial<Condition>) => void;
-}
-
 interface MinimumAdvanceTimeConditionProps {
   condition: Condition;
   invalidFields?: Map<string, string> | undefined;
@@ -517,9 +511,7 @@ function ConditionEditor({
     { label: "Patiententyp", value: "CLIENT_TYPE" },
     { label: "Datumsbereich", value: "DATE_RANGE" },
     { label: "Wochentag", value: "DAY_OF_WEEK" },
-    { label: "Tage im Voraus", value: "DAYS_AHEAD" },
     { label: "Zukunftsabstand", value: "MINIMUM_ADVANCE_TIME" },
-    { label: "Stunden im Voraus", value: "HOURS_AHEAD" },
     { label: "Uhrzeitbereich", value: "TIME_RANGE" },
     { label: "Gleichzeitige Termine", value: "CONCURRENT_COUNT" },
     { label: "Termine am gleichen Tag", value: "DAILY_CAPACITY" },
@@ -536,13 +528,11 @@ function ConditionEditor({
                 return;
               }
               const nextOperator: Condition["operator"] =
-                nextType === "HOURS_AHEAD" ||
                 nextType === "MINIMUM_ADVANCE_TIME"
                   ? "LESS_THAN"
                   : [
                         "CONCURRENT_COUNT",
                         "DAILY_CAPACITY",
-                        "DAYS_AHEAD",
                         "PATIENT_AGE",
                       ].includes(nextType)
                     ? "GREATER_THAN_OR_EQUAL"
@@ -598,22 +588,6 @@ function ConditionEditor({
 
           {condition.type === "DAY_OF_WEEK" && (
             <DayOfWeekCondition
-              condition={condition}
-              invalidFields={invalidFields}
-              onUpdate={onUpdate}
-            />
-          )}
-
-          {condition.type === "DAYS_AHEAD" && (
-            <DaysAheadCondition
-              condition={condition}
-              invalidFields={invalidFields}
-              onUpdate={onUpdate}
-            />
-          )}
-
-          {condition.type === "HOURS_AHEAD" && (
-            <HoursAheadCondition
               condition={condition}
               invalidFields={invalidFields}
               onUpdate={onUpdate}
@@ -844,27 +818,6 @@ function DayOfWeekCondition({
   );
 }
 
-function DaysAheadCondition({
-  condition,
-  invalidFields,
-  onUpdate,
-}: DaysAheadConditionProps) {
-  return (
-    <Input
-      aria-invalid={invalidFields?.has("valueNumber")}
-      className="w-auto min-w-[120px]"
-      min="1"
-      onChange={(e) => {
-        const parsed = Number.parseInt(e.target.value);
-        onUpdate({ valueNumber: Number.isNaN(parsed) ? null : parsed });
-      }}
-      placeholder="z.B. 7"
-      type="number"
-      value={condition.valueNumber || ""}
-    />
-  );
-}
-
 function getErrorMessage(condition: Condition, invalidField: string): string {
   switch (condition.type) {
     case "APPOINTMENT_TYPE":
@@ -980,27 +933,6 @@ function getInitialConditions(
   }
 }
 
-function HoursAheadCondition({
-  condition,
-  invalidFields,
-  onUpdate,
-}: DaysAheadConditionProps) {
-  return (
-    <Input
-      aria-invalid={invalidFields?.has("valueNumber")}
-      className="w-auto min-w-[120px]"
-      min="1"
-      onChange={(e) => {
-        const parsed = Number.parseInt(e.target.value);
-        onUpdate({ valueNumber: Number.isNaN(parsed) ? null : parsed });
-      }}
-      placeholder="z.B. 1"
-      type="number"
-      value={condition.valueNumber || ""}
-    />
-  );
-}
-
 function isRangeOrderValid(condition: Condition): boolean {
   const start = condition.valueIds?.[0];
   const end = condition.valueIds?.[1];
@@ -1044,7 +976,7 @@ function MinimumAdvanceTimeCondition({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="LESS_THAN">nicht mindestens</SelectItem>
+          <SelectItem value="LESS_THAN">weniger als</SelectItem>
           <SelectItem value="GREATER_THAN">mehr als</SelectItem>
         </SelectContent>
       </Select>

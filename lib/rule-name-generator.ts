@@ -272,7 +272,7 @@ export function generateRuleName(
           );
         } else {
           parts.push(
-            `der Termin nicht mindestens ${amount} ${unitLabel} in der Zukunft liegt,`,
+            `der Termin weniger als ${amount} ${unitLabel} in der Zukunft liegt,`,
           );
         }
         break;
@@ -459,17 +459,19 @@ function parseConditionNode(
     }
     case "DAYS_AHEAD": {
       return {
+        advanceUnit: "days",
         id,
-        operator: "GREATER_THAN_OR_EQUAL",
-        type: conditionType,
+        operator: "GREATER_THAN",
+        type: "MINIMUM_ADVANCE_TIME",
         valueNumber: valueNumber ?? null,
       };
     }
     case "HOURS_AHEAD": {
       return {
+        advanceUnit: "hours",
         id,
         operator: "LESS_THAN",
-        type: conditionType,
+        type: "MINIMUM_ADVANCE_TIME",
         valueNumber: valueNumber ?? null,
       };
     }

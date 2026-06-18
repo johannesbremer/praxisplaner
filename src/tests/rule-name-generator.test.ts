@@ -43,8 +43,45 @@ describe("rule-name-generator", () => {
     expect(
       generateRuleName(conditionTreeToConditions(conditionTree), [], [], []),
     ).toBe(
-      "Wenn der Patiententyp Online ist, und das Datum zwischen 02.01.2026 und 09.01.2026 liegt, und die Uhrzeit nicht zwischen 08:00 und 09:30 liegt, und der Termin nicht mindestens 15 Minuten in der Zukunft liegt, darf der Termin nicht vergeben werden.",
+      "Wenn der Patiententyp Online ist, und das Datum zwischen 02.01.2026 und 09.01.2026 liegt, und die Uhrzeit nicht zwischen 08:00 und 09:30 liegt, und der Termin weniger als 15 Minuten in der Zukunft liegt, darf der Termin nicht vergeben werden.",
     );
+  });
+
+  test("normalizes legacy advance-time conditions to Zukunftsabstand", () => {
+    const conditionTree = {
+      children: [
+        {
+          conditionType: "HOURS_AHEAD",
+          nodeType: "CONDITION",
+          operator: "LESS_THAN",
+          valueNumber: 3,
+        },
+        {
+          conditionType: "DAYS_AHEAD",
+          nodeType: "CONDITION",
+          operator: "GREATER_THAN_OR_EQUAL",
+          valueNumber: 14,
+        },
+      ],
+      nodeType: "AND",
+    } satisfies ConditionTreeNode;
+
+    expect(conditionTreeToConditions(conditionTree)).toEqual([
+      {
+        advanceUnit: "hours",
+        id: "0.0",
+        operator: "LESS_THAN",
+        type: "MINIMUM_ADVANCE_TIME",
+        valueNumber: 3,
+      },
+      {
+        advanceUnit: "days",
+        id: "0.1",
+        operator: "GREATER_THAN",
+        type: "MINIMUM_ADVANCE_TIME",
+        valueNumber: 14,
+      },
+    ]);
   });
 
   test("refuses to flatten negated condition trees", () => {
