@@ -25,6 +25,7 @@ import {
   getAppointmentPractitionerLineageKey,
   getBlockedSlotPractitionerLineageKey,
 } from "./appointmentOccupancy";
+import { hasAppointmentPlan } from "./appointmentPlans";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveAppointmentTypeLineageKey,
@@ -50,7 +51,6 @@ import {
   appointmentSimulationKindValidator,
   isActivationBoundSimulation,
 } from "./appointmentSimulation";
-import { hasAppointmentPlan } from "./followUpPlans";
 import {
   type AppointmentTypeLineageKey,
   asAppointmentTypeId,
@@ -3363,9 +3363,6 @@ async function updateAppointmentByMode(
         : {}),
       appointmentPlanSnapshot: seriesRecord.appointmentPlanSnapshot,
       createdAt: seriesRecord.createdAt,
-      ...(seriesRecord.followUpPlanSnapshot && {
-        followUpPlanSnapshot: seriesRecord.followUpPlanSnapshot,
-      }),
       lastModified: now,
       ...(resolvedPatientDateOfBirth && {
         patientDateOfBirth: resolvedPatientDateOfBirth,

@@ -183,7 +183,8 @@ export function StaffAppointmentCreationModal({
     (type) => type._id === appointmentTypeId,
   );
   const location = locations?.find((entry) => entry._id === locationId);
-  const hasFollowUpPlan = (appointmentType?.followUpPlan?.length ?? 0) > 0;
+  const hasAppointmentPlan =
+    (appointmentType?.appointmentPlan?.steps.length ?? 0) > 0;
   const effectivePatient = selectedFallbackPatient?.info ?? patient;
   const effectiveSelectedPatientId =
     selectedFallbackPatient && "id" in selectedFallbackPatient
@@ -239,7 +240,7 @@ export function StaffAppointmentCreationModal({
     api.appointments.previewAppointmentSeries,
     open &&
       mode === "next" &&
-      hasFollowUpPlan &&
+      hasAppointmentPlan &&
       nextAvailableSlot &&
       nextAvailablePractitionerId
       ? {
@@ -461,7 +462,7 @@ export function StaffAppointmentCreationModal({
             "recipient" in createTarget ? createTarget.recipient : undefined,
           );
           toast.success(
-            hasFollowUpPlan
+            hasAppointmentPlan
               ? "Kettentermine erfolgreich erstellt"
               : "Termin erfolgreich erstellt",
           );
@@ -514,7 +515,7 @@ export function StaffAppointmentCreationModal({
   const canRunSeriesPreview =
     open &&
     mode === "next" &&
-    hasFollowUpPlan &&
+    hasAppointmentPlan &&
     nextAvailableSlot !== undefined &&
     nextAvailableSlot !== null;
   const isSeriesPreviewLoading =
@@ -527,12 +528,12 @@ export function StaffAppointmentCreationModal({
     isNextAvailableSlotLoading ||
     hasNoNextAvailableSlot ||
     !hasAnyPatient ||
-    (hasFollowUpPlan && (isSeriesPreviewLoading || isSeriesPreviewBlocked));
+    (hasAppointmentPlan && (isSeriesPreviewLoading || isSeriesPreviewBlocked));
   const submitButtonLabel = isNextAvailableSlotLoading
     ? "Termin wird gesucht..."
     : hasNoNextAvailableSlot
       ? "Kein Termin verfügbar"
-      : hasFollowUpPlan
+      : hasAppointmentPlan
         ? isSeriesPreviewLoading
           ? "Kettentermine werden geprüft..."
           : isSeriesPreviewBlocked
@@ -611,7 +612,7 @@ export function StaffAppointmentCreationModal({
                   practiceId={practiceId}
                 />
 
-                {hasFollowUpPlan && (
+                {hasAppointmentPlan && (
                   <div className="rounded-md border p-3 space-y-2">
                     <div className="text-sm font-medium">
                       Geplante Kettentermine
@@ -677,7 +678,7 @@ export function StaffAppointmentCreationModal({
               </div>
 
               <DialogFooter>
-                {hasFollowUpPlan &&
+                {hasAppointmentPlan &&
                   (isSeriesPreviewLoading || isSeriesPreviewBlocked) && (
                     <div className="mr-auto text-sm text-muted-foreground">
                       {isSeriesPreviewLoading
@@ -685,7 +686,7 @@ export function StaffAppointmentCreationModal({
                         : "Der Termin kann erst erstellt werden, wenn alle Kettentermine planbar sind."}
                     </div>
                   )}
-                {!hasFollowUpPlan && isNextAvailableSlotLoading && (
+                {!hasAppointmentPlan && isNextAvailableSlotLoading && (
                   <div className="mr-auto text-sm text-muted-foreground">
                     Der nächste verfügbare Termin wird gesucht.
                   </div>
@@ -769,7 +770,7 @@ export function StaffAppointmentCreationModal({
                       {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
                         .toPlainDate()
                         .toLocaleString("de-DE")}
-                      {hasFollowUpPlan ? " (mit Kettenterminen)" : ""}
+                      {hasAppointmentPlan ? " (mit Kettenterminen)" : ""}
                     </>
                   ) : (
                     "Nächster verfügbarer Termin"

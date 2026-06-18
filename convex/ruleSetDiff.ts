@@ -417,7 +417,6 @@ async function buildRuleSetCanonicalSnapshot(
             stepId: step.stepId,
             timing: step.timing,
           })) ?? [],
-        bookableVia: toSortedStrings(appointmentType.bookableVia ?? []),
         defaultOccupancy: appointmentType.defaultOccupancy ?? null,
         duration: appointmentType.duration,
         folderPath: appointmentType.treeFolderId

@@ -24,21 +24,19 @@ import {
   getAppointmentPractitionerLineageKey,
 } from "./appointmentOccupancy";
 import {
-  resolveLocationLineageKey,
-  resolveOccupancyReferenceLineageKeys,
-  resolvePractitionerIdForRuleSetByLineage,
-  resolvePractitionerLineageKey,
-} from "./appointmentReferences";
-import {
   type AppointmentPlanOccupancy,
   type AppointmentPlanStep,
   type AppointmentPlanTiming,
   type AppointmentTypeDefaultOccupancy,
-  followUpPlanToAppointmentPlan,
   normalizeAppointmentPlan,
   normalizeDefaultOccupancy,
   requireAppointmentTypeByLineageKey,
-} from "./followUpPlans";
+} from "./appointmentPlans";
+import {
+  resolveLocationLineageKey,
+  resolveOccupancyReferenceLineageKeys,
+  resolvePractitionerLineageKey,
+} from "./appointmentReferences";
 import {
   type AppointmentTypeLineageKey,
   asAppointmentTypeLineageKey,
@@ -144,12 +142,6 @@ export interface PlannedSeriesStep {
   start: ZonedDateTimeString;
   stepId: string;
 }
-
-type AppointmentPlanSearchPolicy =
-  | "exact_after_previous"
-  | "same_day_after_offset"
-  | "target_date_or_later"
-  | "target_day_only";
 
 interface ResolvedPlanOccupancy {
   calendarResourceColumn?: CalendarResourceColumn;
@@ -359,9 +351,6 @@ export async function createAppointmentSeries(
     appointmentPlanSnapshot:
       normalizeAppointmentPlanSnapshotFromType(rootAppointmentType),
     createdAt: now,
-    ...(rootAppointmentType.followUpPlan && {
-      followUpPlanSnapshot: rootAppointmentType.followUpPlan,
-    }),
     lastModified: now,
     ...(patientDateOfBirth && { patientDateOfBirth }),
     ...(args.patientId && { patientId: args.patientId }),
@@ -857,7 +846,6 @@ async function findFirstAvailableStepStart(
     practiceId: args.practiceId,
     practitionerId: args.occupancy.practitionerId,
     ruleSetId: args.ruleSetId,
-    searchPolicy: "target_date_or_later",
   });
 
   for (const searchDate of searchDates) {
@@ -895,22 +883,14 @@ async function findFirstAvailableStepStart(
 
 function getAppointmentPlanSearchWindow(
   earliestStart: Temporal.ZonedDateTime,
-  searchPolicy: AppointmentPlanSearchPolicy,
 ): {
   endDate: Temporal.PlainDate;
   startDate: Temporal.PlainDate;
 } {
   const targetDate = earliestStart.toPlainDate();
 
-  if (searchPolicy === "target_date_or_later") {
-    return {
-      endDate: targetDate.add({ days: MAX_SERIES_SEARCH_DAYS }),
-      startDate: targetDate,
-    };
-  }
-
   return {
-    endDate: targetDate,
+    endDate: targetDate.add({ days: MAX_SERIES_SEARCH_DAYS }),
     startDate: targetDate,
   };
 }
@@ -1018,7 +998,6 @@ async function getSearchDatesOnOrAfter(
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     ruleSetId: Id<"ruleSets">;
-    searchPolicy: AppointmentPlanSearchPolicy;
   },
 ) {
   const eligibleWeekdays = await getEligibleWeekdays(ctx, args);
@@ -1029,7 +1008,6 @@ async function getSearchDatesOnOrAfter(
 
   const { endDate, startDate } = getAppointmentPlanSearchWindow(
     args.earliestStart,
-    args.searchPolicy,
   );
   const totalDays = startDate.until(endDate).days;
 
@@ -1174,15 +1152,9 @@ function normalizeAppointmentPlanSnapshot(
 }
 
 function normalizeAppointmentPlanSnapshotFromType(
-  appointmentType: Pick<
-    Doc<"appointmentTypes">,
-    "appointmentPlan" | "followUpPlan"
-  >,
+  appointmentType: Pick<Doc<"appointmentTypes">, "appointmentPlan">,
 ): AppointmentPlanStep[] {
-  return normalizeAppointmentPlanSnapshot(
-    appointmentType.appointmentPlan ??
-      followUpPlanToAppointmentPlan(appointmentType.followUpPlan),
-  );
+  return normalizeAppointmentPlanSnapshot(appointmentType.appointmentPlan);
 }
 
 async function planAppointmentPlanStep(
@@ -1208,7 +1180,6 @@ async function planAppointmentPlanStep(
   const occupancy = await resolveStepOccupancy(ctx, {
     occupancy: args.step.occupancy,
     rootStep: args.rootStep,
-    ruleSetId: args.ruleSetId,
     targetAppointmentType: args.targetAppointmentType,
   });
   if (!occupancy) {
@@ -1458,22 +1429,6 @@ async function resolveDefaultOccupancy(
         }),
       );
     }
-    case "specificPractitioner": {
-      return requireResolvedPractitionerOccupancy(
-        await resolvePractitionerOccupancy(ctx, {
-          appointmentType: args.appointmentType,
-          practitionerId: await resolvePractitionerIdForRuleSetByLineage(
-            ctx.db,
-            {
-              lineageKey: asPractitionerLineageKey(
-                args.defaultOccupancy.practitionerLineageKey,
-              ),
-              ruleSetId: args.ruleSetId,
-            },
-          ),
-        }),
-      );
-    }
   }
 }
 
@@ -1572,7 +1527,6 @@ async function resolveStepOccupancy(
   args: {
     occupancy: AppointmentPlanOccupancy;
     rootStep: PlannedSeriesStep;
-    ruleSetId: Id<"ruleSets">;
     targetAppointmentType: Doc<"appointmentTypes">;
   },
 ): Promise<null | ResolvedPlanOccupancy> {
@@ -1593,17 +1547,6 @@ async function resolveStepOccupancy(
           calendarResourceColumn: args.occupancy.calendarResourceColumn,
         }),
       };
-    }
-    case "specificPractitioner": {
-      return await resolvePractitionerOccupancy(ctx, {
-        appointmentType: args.targetAppointmentType,
-        practitionerId: await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
-          lineageKey: asPractitionerLineageKey(
-            args.occupancy.practitionerLineageKey,
-          ),
-          ruleSetId: args.ruleSetId,
-        }),
-      });
     }
   }
 }

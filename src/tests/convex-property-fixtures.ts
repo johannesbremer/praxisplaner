@@ -78,9 +78,9 @@ export async function createPropertySchedulingFixture(
       "appointmentTypes",
       {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
         duration: 5,
-        followUpPlan: [],
         lastModified: now,
         name: "Property Checkup",
         practiceId,

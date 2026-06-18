@@ -1833,9 +1833,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
       await insertWithLineage(ctx, "appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerLineageKey],
+        appointmentPlan: { steps: [] },
         createdAt: BigInt(Date.now()),
         duration: 30,
-        followUpPlan: [],
         lastModified: BigInt(Date.now()),
         name: "Kontrolle",
         practiceId,
@@ -2068,9 +2068,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: BigInt(Date.now()),
           duration: 30,
-          followUpPlan: [],
           lastModified: BigInt(Date.now()),
           name: "Dependency Type",
           practiceId,
@@ -2144,9 +2144,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: BigInt(Date.now()),
           duration: 30,
-          followUpPlan: [],
           lastModified: BigInt(Date.now()),
           name: "Active Type",
           practiceId,
@@ -2158,10 +2158,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: BigInt(Date.now()),
           deleted: true,
           duration: 30,
-          followUpPlan: [],
           lastModified: BigInt(Date.now()),
           name: "Deleted Type",
           practiceId,

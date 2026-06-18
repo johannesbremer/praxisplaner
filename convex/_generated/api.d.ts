@@ -11,6 +11,7 @@
 import type * as appointmentConflicts from "../appointmentConflicts.js";
 import type * as appointmentCoverage from "../appointmentCoverage.js";
 import type * as appointmentOccupancy from "../appointmentOccupancy.js";
+import type * as appointmentPlans from "../appointmentPlans.js";
 import type * as appointmentReferences from "../appointmentReferences.js";
 import type * as appointmentSeries from "../appointmentSeries.js";
 import type * as appointmentSimulation from "../appointmentSimulation.js";
@@ -25,7 +26,6 @@ import type * as devAuth from "../devAuth.js";
 import type * as devAuthData from "../devAuthData.js";
 import type * as e164PhoneNumber from "../e164PhoneNumber.js";
 import type * as entities from "../entities.js";
-import type * as followUpPlans from "../followUpPlans.js";
 import type * as gdt_processing from "../gdt/processing.js";
 import type * as gdt_types from "../gdt/types.js";
 import type * as gdt_validation from "../gdt/validation.js";
@@ -74,6 +74,7 @@ declare const fullApi: ApiFromModules<{
   appointmentConflicts: typeof appointmentConflicts;
   appointmentCoverage: typeof appointmentCoverage;
   appointmentOccupancy: typeof appointmentOccupancy;
+  appointmentPlans: typeof appointmentPlans;
   appointmentReferences: typeof appointmentReferences;
   appointmentSeries: typeof appointmentSeries;
   appointmentSimulation: typeof appointmentSimulation;
@@ -88,7 +89,6 @@ declare const fullApi: ApiFromModules<{
   devAuthData: typeof devAuthData;
   e164PhoneNumber: typeof e164PhoneNumber;
   entities: typeof entities;
-  followUpPlans: typeof followUpPlans;
   "gdt/processing": typeof gdt_processing;
   "gdt/types": typeof gdt_types;
   "gdt/validation": typeof gdt_validation;
