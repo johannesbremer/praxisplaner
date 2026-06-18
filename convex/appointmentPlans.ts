@@ -28,7 +28,13 @@ export const appointmentTypeDefaultOccupancyValidator = v.union(
 export const appointmentPlanTimingValidator = v.union(
   v.object({
     kind: v.literal("afterPreviousEnd"),
-    offsetMinutes: v.number(),
+    offsetUnit: v.union(
+      v.literal("minutes"),
+      v.literal("days"),
+      v.literal("weeks"),
+      v.literal("months"),
+    ),
+    offsetValue: v.number(),
   }),
   v.object({
     kind: v.literal("beforeRootStart"),
@@ -37,16 +43,6 @@ export const appointmentPlanTimingValidator = v.union(
   v.object({
     anchorStepId: v.string(),
     kind: v.literal("sameStartAs"),
-  }),
-  v.object({
-    anchorStepId: v.string(),
-    kind: v.literal("firstAvailableOnOrAfter"),
-    offsetUnit: v.union(
-      v.literal("days"),
-      v.literal("weeks"),
-      v.literal("months"),
-    ),
-    offsetValue: v.number(),
   }),
 );
 
@@ -299,17 +295,11 @@ function validateTiming(
   previousStepIds: ReadonlySet<string>,
 ) {
   switch (step.timing.kind) {
-    case "afterPreviousEnd":
-    case "beforeRootStart": {
-      validateIntegerMinutes(step.timing.offsetMinutes, step.stepId);
-      return;
-    }
-    case "firstAvailableOnOrAfter": {
-      validateAnchorStepId(
-        step.stepId,
-        step.timing.anchorStepId,
-        previousStepIds,
-      );
+    case "afterPreviousEnd": {
+      if (step.timing.offsetUnit === "minutes") {
+        validateIntegerMinutes(step.timing.offsetValue, step.stepId);
+        return;
+      }
       if (
         !Number.isInteger(step.timing.offsetValue) ||
         step.timing.offsetValue < 1
@@ -319,6 +309,10 @@ function validateTiming(
           `Der Datumsversatz für Schritt "${step.stepId}" muss mindestens 1 sein.`,
         );
       }
+      return;
+    }
+    case "beforeRootStart": {
+      validateIntegerMinutes(step.timing.offsetMinutes, step.stepId);
       return;
     }
     case "sameStartAs": {

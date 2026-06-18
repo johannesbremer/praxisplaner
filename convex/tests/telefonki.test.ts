@@ -632,8 +632,7 @@ describe("TelefonKI availability", () => {
               required: true,
               stepId: "plan-step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 7,
               },
