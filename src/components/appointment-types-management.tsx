@@ -82,6 +82,7 @@ import type {
 import type { FrontendLineageEntity } from "../utils/frontend-lineage";
 import type { RecordRuleSetCommand } from "../utils/rule-set-replay";
 
+import { sameAppointmentTypeDefaultOccupancy } from "../utils/appointment-type-default-occupancy";
 import { recordAppointmentTypeDeleteReplayCommand } from "../utils/appointment-type-delete-replay";
 import { recordAppointmentTypeFolderSubtreeReplayCommand } from "../utils/appointment-type-folder-subtree-replay";
 import {
@@ -1640,6 +1641,10 @@ export function AppointmentTypesManagement({
                 current.name !== beforeState.name ||
                 current.color !== beforeState.color ||
                 current.duration !== beforeState.duration ||
+                !sameAppointmentTypeDefaultOccupancy(
+                  current.defaultOccupancy,
+                  beforeState.defaultOccupancy,
+                ) ||
                 serializeAppointmentPlan(current.appointmentPlan?.steps) !==
                   serializeAppointmentPlan(
                     beforeState.appointmentPlan?.steps,
@@ -1660,6 +1665,10 @@ export function AppointmentTypesManagement({
                 current.name !== afterState.name ||
                 current.color !== afterState.color ||
                 current.duration !== afterState.duration ||
+                !sameAppointmentTypeDefaultOccupancy(
+                  current.defaultOccupancy,
+                  afterState.defaultOccupancy,
+                ) ||
                 serializeAppointmentPlan(current.appointmentPlan?.steps) !==
                   serializeAppointmentPlan(afterState.appointmentPlan?.steps) ||
                 !samePractitionerLineageIds(
@@ -2594,6 +2603,10 @@ export function AppointmentTypesManagement({
                 existingByLineage &&
                 (existingByLineage.name !== snapshot.name ||
                   existingByLineage.duration !== snapshot.duration ||
+                  !sameAppointmentTypeDefaultOccupancy(
+                    existingByLineage.defaultOccupancy,
+                    snapshot.defaultOccupancy,
+                  ) ||
                   serializeAppointmentPlan(
                     existingByLineage.appointmentPlan?.steps,
                   ) !==
@@ -3317,6 +3330,10 @@ export function AppointmentTypesManagement({
             existingByLineage.name === snapshot.name &&
             existingByLineage.treeFolderId === resolvedFolder.folderId &&
             existingByLineage.duration === snapshot.duration &&
+            sameAppointmentTypeDefaultOccupancy(
+              existingByLineage.defaultOccupancy,
+              snapshot.defaultOccupancy,
+            ) &&
             serializeAppointmentPlan(
               existingByLineage.appointmentPlan?.steps,
             ) === serializeAppointmentPlan(snapshot.appointmentPlan?.steps) &&
