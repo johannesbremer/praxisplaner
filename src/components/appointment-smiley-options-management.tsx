@@ -120,6 +120,17 @@ const hasDuplicateEmoji = (options: readonly AppointmentSmileyOption[]) => {
   return false;
 };
 
+const hasRequiredFieldError = (rows: readonly DraftSmileyOption[]) =>
+  rows.some((option) => {
+    const hasEmoji = option.emoji.trim().length > 0;
+    const hasName = option.name.trim().length > 0;
+    const isSavedRow = option.localId.startsWith("saved:");
+    if (isSavedRow) {
+      return !hasEmoji || !hasName;
+    }
+    return hasEmoji !== hasName;
+  });
+
 const createEditorState = (
   options: AppointmentSmileyOption[],
   sourceKey = createOptionsSourceKey(options),
@@ -288,8 +299,11 @@ function AppointmentSmileyOptionsEditor({
     }
     return duplicates;
   })();
-  const validationMessage =
-    duplicateEmojis.size > 0 ? "Jedes Emoji darf nur einmal vorkommen." : null;
+  const validationMessage = hasRequiredFieldError(draftOptions)
+    ? "Termin-Smileys benötigen Emoji und Name."
+    : duplicateEmojis.size > 0
+      ? "Jedes Emoji darf nur einmal vorkommen."
+      : null;
 
   if (activeEditorState === null) {
     return (
@@ -304,6 +318,10 @@ function AppointmentSmileyOptionsEditor({
     nextRows: DraftSmileyOption[],
     label: string,
   ) => {
+    if (hasRequiredFieldError(nextRows)) {
+      setEditorError("Termin-Smileys benötigen Emoji und Name.");
+      return;
+    }
     const nextOptions = toCommittedOptions(nextRows);
     if (hasDuplicateEmoji(nextOptions)) {
       setEditorError("Jedes Emoji darf nur einmal vorkommen.");

@@ -415,6 +415,51 @@ describe("AppointmentSmileyOptionsManagement", () => {
     expect(secondCommand.payload.after).toEqual(["👍 Patient sitzt"]);
   });
 
+  test("rejects incomplete saved rows instead of dropping them on another row save", () => {
+    useQueryMock.mockReturnValue([
+      {
+        emoji: "👍",
+        id: "arrived",
+        name: "Patient ist angekommen",
+      },
+      {
+        emoji: "😥",
+        id: "needs-help",
+        name: "Patient braucht Hilfe",
+      },
+    ]);
+
+    render(
+      <AppointmentSmileyOptionsManagement
+        practiceId={practiceId}
+        ruleSetReplayTarget={{
+          kind: "saved-parent",
+          parentRuleSetId,
+        }}
+      />,
+    );
+
+    const nameFields = screen.getAllByLabelText("Name");
+    const arrivedNameField = nameFields[0];
+    const needsHelpNameField = nameFields[1];
+    if (!arrivedNameField || !needsHelpNameField) {
+      throw new Error("Expected two smiley name fields.");
+    }
+
+    fireEvent.change(arrivedNameField, { target: { value: "" } });
+    fireEvent.change(needsHelpNameField, {
+      target: { value: "Patient braucht dringend Hilfe" },
+    });
+    fireEvent.blur(needsHelpNameField);
+
+    expect(updateOptionsMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("Termin-Smileys benötigen Emoji und Name."),
+    ).toBeInTheDocument();
+    expect(arrivedNameField).toHaveValue("");
+    expect(needsHelpNameField).toHaveValue("Patient braucht dringend Hilfe");
+  });
+
   test("shows a plus icon for empty emoji rows", () => {
     render(
       <AppointmentSmileyOptionsManagement
