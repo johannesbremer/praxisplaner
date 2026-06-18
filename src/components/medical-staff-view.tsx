@@ -14,6 +14,7 @@ import type {
 import { PraxisCalendar } from "./praxis-calendar";
 
 interface MedicalStaffViewProps {
+  canManageCalendarPlanning?: boolean | undefined;
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   patient?: PatientInfo;
@@ -24,6 +25,7 @@ interface MedicalStaffViewProps {
 }
 
 export function MedicalStaffView({
+  canManageCalendarPlanning,
   onSlotClick,
   onUpdateSimulatedContext,
   patient,
@@ -37,6 +39,7 @@ export function MedicalStaffView({
     <SidebarProvider>
       <div className="flex h-full w-full">
         <PraxisCalendar
+          canManageCalendarPlanning={canManageCalendarPlanning}
           onSlotClick={onSlotClick}
           onUpdateSimulatedContext={onUpdateSimulatedContext}
           patient={patient}

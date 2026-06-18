@@ -13,6 +13,7 @@ import { MedicalStaffView } from "./medical-staff-view";
 import { ProDisplayXDRDevice } from "./xdr-device";
 
 interface MedicalStaffDisplayProps {
+  canManageCalendarPlanning?: boolean | undefined;
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   patient?: PatientInfo;
@@ -23,6 +24,7 @@ interface MedicalStaffDisplayProps {
 }
 
 export function MedicalStaffDisplay({
+  canManageCalendarPlanning,
   onSlotClick,
   onUpdateSimulatedContext,
   patient,
@@ -35,6 +37,7 @@ export function MedicalStaffDisplay({
     <div className="w-full px-6">
       <ProDisplayXDRDevice>
         <MedicalStaffView
+          canManageCalendarPlanning={canManageCalendarPlanning}
           {...(onSlotClick && { onSlotClick })}
           {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
           {...(patient && { patient })}

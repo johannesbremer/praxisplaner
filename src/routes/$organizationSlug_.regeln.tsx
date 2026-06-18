@@ -1525,6 +1525,7 @@ function LogicView() {
               <div className="space-y-6">
                 {resolvedCurrentWorkingRuleSet ? (
                   <MedicalStaffDisplay
+                    canManageCalendarPlanning
                     onUpdateSimulatedContext={updateSimulatedContext}
                     practiceId={currentPractice._id}
                     ruleSetId={resolvedCurrentWorkingRuleSet._id}
