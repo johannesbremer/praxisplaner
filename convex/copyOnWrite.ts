@@ -19,6 +19,7 @@ import type {
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DataModel } from "./_generated/dataModel";
 
+import { DEFAULT_APPOINTMENT_LEAD_TIMES } from "./appointmentLeadTimes";
 import { asMfaId, asMfaLineageKey, type MfaId, toTableId } from "./identity";
 import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
@@ -144,6 +145,7 @@ export async function createInitialRuleSet(
 ): Promise<Id<"ruleSets">> {
   // Create the initial saved rule set
   const ruleSetId = await db.insert("ruleSets", {
+    appointmentLeadTimes: DEFAULT_APPOINTMENT_LEAD_TIMES,
     appointmentSmileyOptions: [],
     createdAt: Date.now(),
     description: "Initiale Konfiguration",
@@ -194,6 +196,8 @@ export async function createDraftRuleSetFromSource(
   // Create new unsaved rule set
   const newVersion = sourceRuleSet.version + 1;
   const newRuleSetId = await db.insert("ruleSets", {
+    appointmentLeadTimes:
+      sourceRuleSet.appointmentLeadTimes ?? DEFAULT_APPOINTMENT_LEAD_TIMES,
     appointmentSmileyOptions: sourceRuleSet.appointmentSmileyOptions ?? [],
     createdAt: Date.now(),
     description: "Ungespeicherte Änderungen",

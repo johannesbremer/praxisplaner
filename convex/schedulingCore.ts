@@ -12,6 +12,7 @@ import {
 } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
 import { getOccupancyViewForBookingScope } from "./appointmentConflicts";
+import { getAppointmentLeadTimeMinutesForClientType } from "./appointmentLeadTimes";
 import {
   getAppointmentPractitionerLineageKey,
   getBlockedSlotPractitionerLineageKey,
@@ -172,8 +173,18 @@ export async function evaluateCandidateSlotsForDay(
   if (args.enforceFutureOnly === true) {
     const previousCount = candidateSlots.length;
     const nowInstant = Temporal.Now.instant();
+    const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
+    const clientType = requireCandidateSlotClientType(
+      args.bookingContext.simulatedContext.clientType,
+    );
+    const minimumStartInstant = nowInstant.add({
+      minutes: getAppointmentLeadTimeMinutesForClientType({
+        clientType,
+        leadTimes: ruleSet?.appointmentLeadTimes,
+      }),
+    });
     candidateSlots = candidateSlots.filter((slot) =>
-      isSlotStartInFuture(slot.startTime, nowInstant),
+      isSlotStartAfterInstant(slot.startTime, minimumStartInstant),
     );
     diagnostics.slotsPastFiltered = previousCount - candidateSlots.length;
   }
@@ -431,12 +442,7 @@ export function isSlotStartInFuture(
   startTime: string,
   nowInstant: Temporal.Instant,
 ): boolean {
-  try {
-    const slotInstant = Temporal.ZonedDateTime.from(startTime).toInstant();
-    return Temporal.Instant.compare(slotInstant, nowInstant) > 0;
-  } catch {
-    return false;
-  }
+  return isSlotStartAfterInstant(startTime, nowInstant);
 }
 
 export function slotOverlapsAppointment(
@@ -658,6 +664,18 @@ function getRequiredDisplayReferences(
     );
   }
   return displayReferences;
+}
+
+function isSlotStartAfterInstant(
+  startTime: string,
+  minimumStartInstant: Temporal.Instant,
+): boolean {
+  try {
+    const slotInstant = Temporal.ZonedDateTime.from(startTime).toInstant();
+    return Temporal.Instant.compare(slotInstant, minimumStartInstant) > 0;
+  } catch {
+    return false;
+  }
 }
 
 async function loadManualBlockedSlotsForDay(
@@ -909,6 +927,17 @@ function preEvaluateCandidateDayRules(args: {
     args.rulesData,
     args.preloadedData,
   );
+}
+
+function requireCandidateSlotClientType(
+  clientType: string | undefined,
+): string {
+  if (!clientType) {
+    throw new Error(
+      "clientType is required in simulatedContext for future slot filtering",
+    );
+  }
+  return clientType;
 }
 
 function resolveCandidateSlotDisplayReferences(

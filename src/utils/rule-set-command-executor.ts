@@ -40,6 +40,7 @@ export function executeRuleSetCommand(
     case "location.update":
     case "mfa.create":
     case "mfa.delete":
+    case "practice.appointmentLeadTimes.update":
     case "practice.appointmentSmileyOptions.update":
     case "practitioner.create":
     case "practitioner.deleteWithDependencies":

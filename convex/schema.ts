@@ -3,6 +3,7 @@ import type { Infer } from "convex/values";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+import { appointmentLeadTimesValidator } from "./appointmentLeadTimes";
 import {
   appointmentOccupancyScopeValidator,
   blockedSlotOccupancyScopeValidator,
@@ -1034,6 +1035,7 @@ export default defineSchema({
     .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
 
   ruleSets: defineTable({
+    appointmentLeadTimes: v.optional(appointmentLeadTimesValidator),
     appointmentSmileyOptions: v.optional(
       v.array(appointmentSmileyOptionValidator),
     ),

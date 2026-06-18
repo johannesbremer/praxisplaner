@@ -62,6 +62,7 @@ export type RuleSetCommandKind =
   | "location.update"
   | "mfa.create"
   | "mfa.delete"
+  | "practice.appointmentLeadTimes.update"
   | "practice.appointmentSmileyOptions.update"
   | "practitioner.create"
   | "practitioner.deleteWithDependencies"
@@ -134,7 +135,11 @@ export interface RuleSetNamedLineageUpdatePayload {
 }
 
 export interface RuleSetPracticeSettingsCommand extends LedgerCommand {
-  kind: Extract<RuleSetCommandKind, "practice.appointmentSmileyOptions.update">;
+  kind: Extract<
+    RuleSetCommandKind,
+    | "practice.appointmentLeadTimes.update"
+    | "practice.appointmentSmileyOptions.update"
+  >;
   payload: RuleSetPracticeSettingsPayload;
   snapshots?: never;
   target: Required<Pick<RuleSetCommandTarget, "entityId">>;
@@ -173,6 +178,7 @@ export interface RuleSetSnapshotCommand extends LedgerCommand {
     | "location.update"
     | "mfa.create"
     | "mfa.delete"
+    | "practice.appointmentLeadTimes.update"
     | "practice.appointmentSmileyOptions.update"
     | "practitioner.create"
     | "practitioner.update"
@@ -195,6 +201,7 @@ export interface RuleSetSnapshotCommandPayload {
     | "location.update"
     | "mfa.create"
     | "mfa.delete"
+    | "practice.appointmentLeadTimes.update"
     | "practice.appointmentSmileyOptions.update"
     | "practitioner.create"
     | "practitioner.update"

@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
+import {
+  type AppointmentLeadTimes,
+  appointmentLeadTimesValidator,
+  DEFAULT_APPOINTMENT_LEAD_TIMES,
+  normalizeAppointmentLeadTimes,
+} from "./appointmentLeadTimes";
 import { bumpDraftRevision, findUnsavedRuleSet } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
@@ -86,6 +92,7 @@ export const getUnsavedRuleSet = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("ruleSets"),
+      appointmentLeadTimes: v.optional(appointmentLeadTimesValidator),
       appointmentSmileyOptions: v.optional(
         v.array(appointmentSmileyOptionValidator),
       ),
@@ -196,6 +203,48 @@ export const getAppointmentSmileyOptionsForRuleSet = query({
     return ruleSet.appointmentSmileyOptions ?? [];
   },
   returns: v.array(appointmentSmileyOptionValidator),
+});
+
+export const getAppointmentLeadTimesForRuleSet = query({
+  args: {
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args): Promise<AppointmentLeadTimes> => {
+    await requireRuleSetMember(ctx, args.ruleSetId);
+    const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
+    if (ruleSet?.practiceId !== args.practiceId) {
+      throw new Error("Rule set does not belong to this practice");
+    }
+    return normalizeAppointmentLeadTimes(
+      ruleSet.appointmentLeadTimes ?? DEFAULT_APPOINTMENT_LEAD_TIMES,
+    );
+  },
+  returns: appointmentLeadTimesValidator,
+});
+
+export const updateAppointmentLeadTimesForRuleSet = mutation({
+  args: {
+    expectedDraftRevision: v.union(v.number(), v.null()),
+    leadTimes: appointmentLeadTimesValidator,
+    practiceId: v.id("practices"),
+    selectedRuleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    const { ruleSetId } = await selectDraftRuleSetForEdit(ctx.db, args);
+    const leadTimes = normalizeAppointmentLeadTimes(args.leadTimes);
+    await ctx.db.patch("ruleSets", ruleSetId, {
+      appointmentLeadTimes: leadTimes,
+    });
+    const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
+    return { draftRevision, leadTimes, ruleSetId };
+  },
+  returns: v.object({
+    draftRevision: v.number(),
+    leadTimes: appointmentLeadTimesValidator,
+    ruleSetId: v.id("ruleSets"),
+  }),
 });
 
 export const updateAppointmentSmileyOptionsForRuleSet = mutation({

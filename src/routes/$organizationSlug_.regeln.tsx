@@ -43,6 +43,7 @@ import type {
 
 import { createSimulatedContext } from "../../lib/utils";
 import { PraxismanagerAuthGate } from "../auth/access-control";
+import { AppointmentLeadTimesManagement } from "../components/appointment-lead-times-management";
 import { AppointmentSmileyOptionsManagement } from "../components/appointment-smiley-options-management";
 import { AppointmentTypesManagement } from "../components/appointment-types-management";
 import BaseScheduleManagement from "../components/base-schedule-management";
@@ -1382,6 +1383,15 @@ function LogicView() {
                   {/* Locations Management */}
                   {ruleSetReplayTarget && (
                     <LocationsManagement
+                      onDraftMutation={handleDraftMutation}
+                      onRecordCommand={recordRegelnCommand}
+                      practiceId={currentPractice._id}
+                      ruleSetReplayTarget={ruleSetReplayTarget}
+                    />
+                  )}
+
+                  {ruleSetReplayTarget && (
+                    <AppointmentLeadTimesManagement
                       onDraftMutation={handleDraftMutation}
                       onRecordCommand={recordRegelnCommand}
                       practiceId={currentPractice._id}

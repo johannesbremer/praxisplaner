@@ -5,6 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
+import { getAppointmentLeadTimeMinutesForClientType } from "./appointmentLeadTimes";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
@@ -177,16 +178,30 @@ async function assertSlotAllowedByRules(
   }
 }
 
-function assertSlotStartIsInFuture(startTime: string): void {
+async function assertSlotStartSatisfiesOnlineLeadTime(
+  ctx: MutationCtx,
+  args: {
+    ruleSetId: Id<"ruleSets">;
+    startTime: string;
+  },
+): Promise<void> {
+  const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
+  const leadTimeMinutes = getAppointmentLeadTimeMinutesForClientType({
+    clientType: "Online",
+    leadTimes: ruleSet?.appointmentLeadTimes,
+  });
   let slotStartInstant: Temporal.Instant;
   try {
-    slotStartInstant = Temporal.ZonedDateTime.from(startTime).toInstant();
+    slotStartInstant = Temporal.ZonedDateTime.from(args.startTime).toInstant();
   } catch {
     throw new Error("Invalid slot start time");
   }
 
-  if (Temporal.Instant.compare(slotStartInstant, Temporal.Now.instant()) <= 0) {
-    throw new Error("Appointments must be booked in the future");
+  const minimumStartInstant = Temporal.Now.instant().add({
+    minutes: leadTimeMinutes,
+  });
+  if (Temporal.Instant.compare(slotStartInstant, minimumStartInstant) <= 0) {
+    throw new Error("Appointments must be booked outside the lead time window");
   }
 }
 
@@ -2389,7 +2404,10 @@ export const selectNewPatientSlot = mutation({
     if (reasonDescription.length === 0) {
       throw new Error("Reason description is required");
     }
-    assertSlotStartIsInFuture(selectedSlot.startTime);
+    await assertSlotStartSatisfiesOnlineLeadTime(ctx, {
+      ruleSetId: flowKey.ruleSetId,
+      startTime: selectedSlot.startTime,
+    });
 
     const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
       ctx.db,
@@ -2492,7 +2510,10 @@ export const selectExistingPatientSlot = mutation({
     if (reasonDescription.length === 0) {
       throw new Error("Reason description is required");
     }
-    assertSlotStartIsInFuture(selectedSlot.startTime);
+    await assertSlotStartSatisfiesOnlineLeadTime(ctx, {
+      ruleSetId: flowKey.ruleSetId,
+      startTime: selectedSlot.startTime,
+    });
 
     const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
       ctx.db,
