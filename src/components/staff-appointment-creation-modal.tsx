@@ -544,7 +544,7 @@ export function StaffAppointmentCreationModal({
   return (
     <>
       <Dialog onOpenChange={handleDialogOpenChange} open={open}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           {mode === "next" ? (
             <form
               onSubmit={(e) => {

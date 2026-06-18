@@ -409,6 +409,37 @@ describe("CalendarGrid", () => {
       expect(preview).toBeInTheDocument();
     });
 
+    test("marks drag preview as blocked when it overlaps a projected blocked slot", () => {
+      const dragPreview = {
+        column: practitionerColumn1,
+        slot: 12,
+        visible: true,
+      };
+
+      const draggedApt = mockAppointments[0];
+      if (!draggedApt) {
+        return;
+      }
+
+      const { container } = render(
+        <CalendarGrid
+          {...defaultProps}
+          blockedSlots={[
+            {
+              column: practitionerColumn1,
+              reason: "Regel",
+              slot: 14,
+            },
+          ]}
+          draggedAppointment={draggedApt}
+          dragPreview={dragPreview}
+        />,
+      );
+
+      const preview = container.querySelector(".border-dashed");
+      expect(preview).toHaveClass("bg-destructive/80");
+    });
+
     test("does not render drag preview when not dragging", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 

@@ -46,6 +46,7 @@ export function useCalendarData(args: {
   patient: PatientInfo | undefined;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets"> | undefined;
+  schedulingAppointmentTypeLineageKey?: AppointmentTypeLineageKey | undefined;
   selectedAppointmentTypeId: Id<"appointmentTypes"> | undefined;
   selectedDate: Temporal.PlainDate;
   selectedLocationId: Id<"locations"> | undefined;
@@ -500,16 +501,19 @@ export function useCalendarData(args: {
           scope: "simulation",
           simulatedContext: args.simulatedContext,
         }
-      : args.selectedAppointmentTypeId &&
+      : (args.schedulingAppointmentTypeLineageKey ||
+            args.selectedAppointmentTypeId) &&
           args.selectedLocationId &&
           args.practiceId &&
           args.ruleSetId
         ? (() => {
             const patientDateOfBirth = args.patient?.dateOfBirth;
-            const appointmentTypeLineageKey = appointmentTypesData?.find(
-              (appointmentType) =>
-                appointmentType._id === args.selectedAppointmentTypeId,
-            )?.lineageKey;
+            const appointmentTypeLineageKey =
+              args.schedulingAppointmentTypeLineageKey ??
+              appointmentTypesData?.find(
+                (appointmentType) =>
+                  appointmentType._id === args.selectedAppointmentTypeId,
+              )?.lineageKey;
             const locationLineageKey = locationsData?.find(
               (location) => location._id === args.selectedLocationId,
             )?.lineageKey;
