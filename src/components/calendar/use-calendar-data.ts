@@ -40,7 +40,7 @@ interface CalendarAppointmentTypeInfo {
   allowedPractitionerLineageKeys: PractitionerLineageKey[];
   color: AppointmentColor;
   duration: number;
-  hasFollowUpPlan: boolean;
+  hasAppointmentPlan: boolean;
   lineageKey: AppointmentTypeLineageKey;
   name: string;
 }
@@ -488,7 +488,8 @@ export function useCalendarData(args: {
         allowedPractitionerLineageKeys,
         color: resolveAppointmentTypeColor(appointmentType),
         duration: appointmentType.duration,
-        hasFollowUpPlan: (appointmentType.followUpPlan?.length ?? 0) > 0,
+        hasAppointmentPlan:
+          (appointmentType.appointmentPlan?.steps.length ?? 0) > 0,
         lineageKey: asAppointmentTypeLineageKey(appointmentType.lineageKey),
         name: appointmentType.name,
       });

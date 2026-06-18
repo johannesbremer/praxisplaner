@@ -565,16 +565,6 @@ describe("Convex query authorization", () => {
         practiceId: practice.practiceId,
         ruleSetId: practice.ruleSetId,
       });
-      await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
-        allowedPractitionerLineageKeys: [],
-        bookableVia: ["planStep"],
-        createdAt: BigInt(Date.now()),
-        duration: 10,
-        lastModified: BigInt(Date.now()),
-        name: "Plan-only booking reference",
-        practiceId: practice.practiceId,
-        ruleSetId: practice.ruleSetId,
-      });
       await insertSelfLineageEntity(ctx.db, "locations", {
         name: "Booking location",
         practiceId: practice.practiceId,
@@ -637,12 +627,6 @@ describe("Convex query authorization", () => {
     );
 
     expect(appointmentTypes).toHaveLength(1);
-    expect(
-      appointmentTypes.some(
-        (appointmentType) =>
-          appointmentType.name === "Plan-only booking reference",
-      ),
-    ).toBe(false);
     expect(locations).toHaveLength(1);
     expect(practitioners).toHaveLength(1);
     expect(activePracticePractitioners).toHaveLength(1);
@@ -663,7 +647,7 @@ describe("Convex query authorization", () => {
     expect(appointmentType).not.toHaveProperty(
       "allowedPractitionerLineageKeys",
     );
-    expect(appointmentType).not.toHaveProperty("followUpPlan");
+    expect(appointmentType).not.toHaveProperty("appointmentPlan");
     expect(appointmentType).not.toHaveProperty("practiceId");
     expect(appointmentType).not.toHaveProperty("ruleSetId");
 
@@ -1071,9 +1055,9 @@ describe("Convex query authorization", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
           duration: 5,
-          followUpPlan: [],
           lastModified: now,
           name: "Simulation Scope Checkup",
           practiceId: practice.practiceId,

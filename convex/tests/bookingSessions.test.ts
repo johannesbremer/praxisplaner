@@ -110,9 +110,9 @@ async function createFlowFixture(
       "appointmentTypes",
       {
         allowedPractitionerLineageKeys: [practitionerLineageKey],
+        appointmentPlan: { steps: [] },
         createdAt: now,
         duration: 20,
-        followUpPlan: [],
         lastModified: now,
         name: "Akuttermin",
         practiceId,

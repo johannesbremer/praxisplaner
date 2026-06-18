@@ -214,7 +214,7 @@ describe("calendar planning workbench", () => {
         getRequiredAppointmentTypeInfo: () => ({
           color: "blue",
           duration: 30,
-          hasFollowUpPlan: false,
+          hasAppointmentPlan: false,
           name: "Check-up",
         }),
         parseZonedDateTime,
@@ -612,7 +612,7 @@ describe("calendar planning workbench", () => {
         getRequiredAppointmentTypeInfo: () => ({
           color: "blue",
           duration: 30,
-          hasFollowUpPlan: false,
+          hasAppointmentPlan: false,
           name: "Check-up",
         }),
         parseZonedDateTime,

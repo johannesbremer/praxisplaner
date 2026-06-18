@@ -8,6 +8,11 @@ import {
   blockedSlotOccupancyScopeValidator,
 } from "./appointmentOccupancy";
 import {
+  appointmentPlanStepValidator,
+  appointmentPlanValidator,
+  appointmentTypeDefaultOccupancyValidator,
+} from "./appointmentPlans";
+import {
   beihilfeStatusValidator,
   dataSharingContactInputValidator,
   genderValidator,
@@ -18,14 +23,6 @@ import {
   pkvInsuranceTypeValidator,
   pkvTariffValidator,
 } from "./bookingValidators";
-import {
-  appointmentPlanStepValidator,
-  appointmentPlanValidator,
-  appointmentTypeBookableViaValidator,
-  appointmentTypeDefaultOccupancyValidator,
-  followUpPlanValidator,
-  followUpStepValidator,
-} from "./followUpPlans";
 
 export const appointmentSmileyValidator = v.string();
 export const appointmentColorValidator = v.union(
@@ -446,7 +443,6 @@ export default defineSchema({
     appointmentPlanSnapshot: v.array(appointmentPlanStepValidator),
     bookingIdentityId: v.optional(v.id("bookingIdentities")),
     createdAt: v.int64(),
-    followUpPlanSnapshot: v.optional(v.array(followUpStepValidator)),
     lastModified: v.int64(),
     patientDateOfBirth: v.optional(v.string()),
     patientId: v.optional(v.id("patients")),
@@ -543,12 +539,10 @@ export default defineSchema({
     allowedPractitionerLineageKeys: v.array(v.id("practitioners")),
     color: v.optional(appointmentColorValidator),
     appointmentPlan: appointmentPlanValidator,
-    bookableVia: v.optional(appointmentTypeBookableViaValidator),
     createdAt: v.int64(),
     defaultOccupancy: v.optional(appointmentTypeDefaultOccupancyValidator),
     deleted: v.optional(v.boolean()),
     duration: v.number(), // duration in minutes (simplified - no more separate durations table)
-    followUpPlan: followUpPlanValidator,
     lastModified: v.int64(),
     lineageKey: v.optional(v.id("appointmentTypes")), // Stable identity across copied rule sets
     name: v.string(),

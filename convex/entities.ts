@@ -22,6 +22,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { type AppointmentColor, appointmentColorValidator } from "./schema";
 
 import { parseConditionTreeTransport } from "../lib/condition-tree.js";
 import { mutation, query } from "./_generated/server";
@@ -36,6 +37,14 @@ import {
   appointmentOccupancyScopeFromRefs,
   getAppointmentPractitionerLineageKey,
 } from "./appointmentOccupancy";
+import {
+  type AppointmentPlan,
+  appointmentPlanValidator,
+  type AppointmentTypeDefaultOccupancy,
+  appointmentTypeDefaultOccupancyValidator,
+  validateAppointmentPlan,
+  validateDefaultOccupancy,
+} from "./appointmentPlans";
 import {
   resolveLocationLineageKey,
   resolvePractitionerLineageKey,
@@ -69,18 +78,6 @@ import {
   ruleResultValidator,
 } from "./entities.validators";
 import {
-  type AppointmentPlan,
-  appointmentPlanValidator,
-  appointmentTypeBookableViaValidator,
-  type AppointmentTypeDefaultOccupancy,
-  appointmentTypeDefaultOccupancyValidator,
-  followUpPlanToAppointmentPlan,
-  followUpPlanValidator,
-  normalizeBookableVia,
-  validateAppointmentPlan,
-  validateDefaultOccupancy,
-} from "./followUpPlans";
-import {
   type AppointmentTypeLineageKey,
   asAppointmentTypeLineageKey,
   asBaseScheduleLineageKey,
@@ -103,7 +100,6 @@ import {
 import { type ConditionTreeNode, validateConditionTree } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import { selectDraftRuleSetForEdit } from "./ruleSetLifecycle";
-import { type AppointmentColor, appointmentColorValidator } from "./schema";
 import {
   asBaseScheduleCreatePayload,
   asBaseSchedulePayload,
@@ -117,13 +113,6 @@ type DatabaseWriter = GenericDatabaseWriter<DataModel>;
 // ================================
 // SHARED TYPES
 // ================================
-
-function appointmentTypeIsBookableVia(
-  appointmentType: Doc<"appointmentTypes">,
-  channel: "online" | "planStep" | "staff" | "telefonki",
-): boolean {
-  return normalizeBookableVia(appointmentType.bookableVia).includes(channel);
-}
 
 async function finalizeDraftMutation(
   db: DatabaseWriter,
@@ -930,11 +919,9 @@ export const createAppointmentType = mutation({
   args: {
     color: v.optional(v.union(appointmentColorValidator, v.null())),
     appointmentPlan: appointmentPlanValidator,
-    bookableVia: v.optional(appointmentTypeBookableViaValidator),
     defaultOccupancy: v.optional(appointmentTypeDefaultOccupancyValidator),
     duration: v.number(), // duration in minutes
     expectedDraftRevision: expectedDraftRevisionValidator,
-    followUpPlan: followUpPlanValidator,
     lineageKey: v.optional(v.id("appointmentTypes")),
     name: v.string(),
     practiceId: v.id("practices"),
@@ -968,22 +955,15 @@ export const createAppointmentType = mutation({
             practiceId: args.practiceId,
             ruleSetId,
           });
-    const rawAppointmentPlan =
-      args.appointmentPlan ?? followUpPlanToAppointmentPlan(args.followUpPlan);
     const appointmentPlan = await validateAppointmentPlan(
       ctx.db,
       ruleSetId,
-      rawAppointmentPlan,
+      args.appointmentPlan,
       args.lineageKey
         ? asAppointmentTypeLineageKey(args.lineageKey)
         : undefined,
     );
-    const defaultOccupancy = await validateDefaultOccupancy(
-      ctx.db,
-      ruleSetId,
-      args.defaultOccupancy,
-    );
-    const bookableVia = normalizeBookableVia(args.bookableVia);
+    const defaultOccupancy = validateDefaultOccupancy(args.defaultOccupancy);
 
     await assertAppointmentTypeNameIsUniqueInRuleSet(ctx.db, {
       name,
@@ -1018,14 +998,10 @@ export const createAppointmentType = mutation({
           allowedPractitionerLineageKeys:
             normalizedAllowedPractitionerLineageKeys,
           appointmentPlan: appointmentPlan ?? { steps: [] },
-          bookableVia,
           defaultOccupancy,
           deleted: false,
           ...(args.color !== undefined && { color: args.color ?? undefined }),
           duration: args.duration,
-          ...(args.followUpPlan !== undefined && {
-            followUpPlan: args.followUpPlan ?? [],
-          }),
           lastModified: BigInt(Date.now()),
           name,
           ...(args.treeFolderId !== undefined && {
@@ -1049,13 +1025,9 @@ export const createAppointmentType = mutation({
         ? { color: args.color }
         : {}),
       appointmentPlan: appointmentPlan ?? { steps: [] },
-      bookableVia,
       createdAt: BigInt(Date.now()),
       defaultOccupancy,
       duration: args.duration,
-      ...(args.followUpPlan !== undefined && {
-        followUpPlan: args.followUpPlan ?? [],
-      }),
       lastModified: BigInt(Date.now()),
       ...(args.lineageKey && { lineageKey: args.lineageKey }),
       name,
@@ -1078,11 +1050,9 @@ export const updateAppointmentType = mutation({
     appointmentPlan: appointmentPlanValidator,
     appointmentTypeId: v.id("appointmentTypes"),
     color: v.optional(v.union(appointmentColorValidator, v.null())),
-    bookableVia: v.optional(appointmentTypeBookableViaValidator),
     defaultOccupancy: v.optional(appointmentTypeDefaultOccupancyValidator),
     duration: v.optional(v.number()),
     expectedDraftRevision: expectedDraftRevisionValidator,
-    followUpPlan: followUpPlanValidator,
     name: v.optional(v.string()),
     practiceId: v.id("practices"),
     practitionerIds: v.optional(v.array(v.id("practitioners"))),
@@ -1125,12 +1095,8 @@ export const updateAppointmentType = mutation({
       allowedPractitionerLineageKeys: PractitionerLineageKey[];
       color: AppointmentColor | undefined;
       appointmentPlan: AppointmentPlan;
-      bookableVia: ReturnType<typeof normalizeBookableVia>;
       defaultOccupancy: AppointmentTypeDefaultOccupancy;
       duration: number;
-      followUpPlan: NonNullable<
-        Parameters<typeof followUpPlanToAppointmentPlan>[0]
-      >;
       lastModified: bigint;
       name: string;
     }> = {
@@ -1154,32 +1120,20 @@ export const updateAppointmentType = mutation({
       );
       updates.allowedPractitionerLineageKeys = resolved ?? [];
     }
-    if (args.appointmentPlan !== undefined || args.followUpPlan !== undefined) {
-      const rawAppointmentPlan =
-        args.appointmentPlan ??
-        followUpPlanToAppointmentPlan(args.followUpPlan);
+    if (args.appointmentPlan !== undefined) {
       const validatedAppointmentPlan = await validateAppointmentPlan(
         ctx.db,
         ruleSetId,
-        rawAppointmentPlan,
+        args.appointmentPlan,
         requireAppointmentTypeLineageKey(appointmentType),
       );
       updates.appointmentPlan = validatedAppointmentPlan ?? { steps: [] };
-      if (args.followUpPlan !== undefined) {
-        updates.followUpPlan = args.followUpPlan ?? [];
-      }
     }
     if (args.defaultOccupancy !== undefined) {
-      updates.defaultOccupancy = await validateDefaultOccupancy(
-        ctx.db,
-        ruleSetId,
+      updates.defaultOccupancy = validateDefaultOccupancy(
         args.defaultOccupancy,
       );
     }
-    if (args.bookableVia !== undefined) {
-      updates.bookableVia = normalizeBookableVia(args.bookableVia);
-    }
-
     // SAFETY: Verify entity belongs to unsaved rule set before patching
     await verifyEntityInUnsavedRuleSet(
       ctx.db,
@@ -1322,11 +1276,7 @@ export const getBookingAppointmentTypes = query({
       .collect();
 
     return appointmentTypes
-      .filter(
-        (appointmentType) =>
-          !isDeletedRuleSetEntity(appointmentType) &&
-          appointmentTypeIsBookableVia(appointmentType, "online"),
-      )
+      .filter((appointmentType) => !isDeletedRuleSetEntity(appointmentType))
       .map((appointmentType) => patientFacingAppointmentType(appointmentType));
   },
 });
@@ -1339,7 +1289,7 @@ export const getAppointmentTypeFolders = query({
     if (!(await ruleSetExists(ctx, args.ruleSetId))) {
       return [];
     }
-    await requireRuleSetMember(ctx, args.ruleSetId);
+    await requireManagerRuleSetScope(ctx, args.ruleSetId);
 
     const folders = await ctx.db
       .query("appointmentTypeFolders")
@@ -1350,31 +1300,8 @@ export const getAppointmentTypeFolders = query({
   },
 });
 
-export const getAppointmentTypeFoldersFromActive = query({
-  args: {
-    practiceId: v.id("practices"),
-  },
-  handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await requirePracticeStaff(ctx, args.practiceId);
-    const practice = await ctx.db.get("practices", args.practiceId);
-    if (!practice?.currentActiveRuleSetId) {
-      return [];
-    }
-    const ruleSetId = practice.currentActiveRuleSetId;
-
-    const folders = await ctx.db
-      .query("appointmentTypeFolders")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .collect();
-
-    return folders.filter((folder) => !isDeletedRuleSetEntity(folder));
-  },
-});
-
 export const createAppointmentTypeFolder = mutation({
   args: {
-    color: v.optional(v.union(appointmentColorValidator, v.null())),
     expectedDraftRevision: expectedDraftRevisionValidator,
     lineageKey: v.optional(v.id("appointmentTypeFolders")),
     name: v.string(),
@@ -1424,7 +1351,6 @@ export const createAppointmentTypeFolder = mutation({
 
         await ctx.db.patch("appointmentTypeFolders", existingFolder._id, {
           deleted: false,
-          ...(args.color !== undefined && { color: args.color ?? undefined }),
           lastModified: BigInt(Date.now()),
           lineageKey: args.lineageKey,
           name,
@@ -1437,9 +1363,6 @@ export const createAppointmentTypeFolder = mutation({
     }
 
     const folderId = await ctx.db.insert("appointmentTypeFolders", {
-      ...(args.color !== undefined && args.color !== null
-        ? { color: args.color }
-        : {}),
       createdAt: BigInt(Date.now()),
       lastModified: BigInt(Date.now()),
       ...(args.lineageKey && { lineageKey: args.lineageKey }),
@@ -1466,7 +1389,6 @@ export const createAppointmentTypeFolder = mutation({
 
 export const updateAppointmentTypeFolder = mutation({
   args: {
-    color: v.optional(v.union(appointmentColorValidator, v.null())),
     expectedDraftRevision: expectedDraftRevisionValidator,
     folderId: v.id("appointmentTypeFolders"),
     name: v.optional(v.string()),
@@ -1520,7 +1442,6 @@ export const updateAppointmentTypeFolder = mutation({
     }
 
     await ctx.db.patch("appointmentTypeFolders", folder._id, {
-      ...(args.color !== undefined && { color: args.color ?? undefined }),
       lastModified: BigInt(Date.now()),
       ...(name !== undefined && { name }),
       ...(args.parentFolderId !== undefined && { parentFolderId }),
@@ -2346,7 +2267,6 @@ export const restorePractitionerWithDependencies = mutation({
           allowedPractitionerLineageKeys:
             restoredAllowedPractitionerLineageKeys,
           appointmentPlan: { steps: [] },
-          bookableVia: normalizeBookableVia(),
           createdAt: now,
           defaultOccupancy: { kind: "selectedPractitioner" },
           duration: patchDuration,

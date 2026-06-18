@@ -110,6 +110,25 @@ import { createRuleSetSnapshotCommand } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
 import { Combobox, type ComboboxOption } from "./combobox";
 type AppointmentColorSelection = "inherit" | AppointmentColor;
+interface AppointmentPlanFormStep {
+  anchorStepId: string;
+  appointmentTypeLineageKey: AppointmentPlanTargetSelection;
+  occupancyKind: AppointmentPlanOccupancyKind;
+  offsetUnit: AppointmentPlanOffsetUnit;
+  offsetValue: number;
+  timingKind: AppointmentPlanTimingKind;
+}
+type AppointmentPlanOccupancyKind =
+  | "inheritRootPractitioner"
+  | "resource-ekg"
+  | "resource-labor";
+
+type AppointmentPlanOffsetUnit = "days" | "minutes" | "months" | "weeks";
+type AppointmentPlanStep = NonNullable<
+  AppointmentType["appointmentPlan"]
+>["steps"][number];
+type AppointmentPlanTargetSelection = "" | AppointmentTypeLineageKey;
+type AppointmentPlanTimingKind = AppointmentPlanStep["timing"]["kind"];
 type AppointmentTreeItem =
   | {
       appointmentType: AppointmentType;
@@ -121,7 +140,6 @@ type AppointmentTreeItem =
       id: Id<"appointmentTypeFolders">;
       kind: "folder";
     };
-
 interface AppointmentTreeModel {
   expandedPaths: string[];
   itemByPath: ReadonlyMap<string, AppointmentTreeItem>;
@@ -133,27 +151,24 @@ type AppointmentType = FrontendLineageEntity<
   "appointmentTypes",
   AppointmentTypeQueryResult[number]
 >;
-type AppointmentTypeBookableViaOption = NonNullable<
-  AppointmentType["bookableVia"]
->[number];
 type AppointmentTypeDefaultOccupancyKind =
   | "resource-ekg"
   | "resource-labor"
-  | "selectedPractitioner"
-  | `practitioner:${string}`;
+  | "selectedPractitioner";
 type AppointmentTypeFolder = AppointmentTypeFolderQueryResult[number];
+
 type AppointmentTypeFolderHistoryTarget =
   | { kind: "folder"; lineageKey: AppointmentTypeFolderLineageKey }
   | { kind: "root" };
+
 type AppointmentTypeFolderLineageKey = Id<"appointmentTypeFolders">;
 type AppointmentTypeFolderQueryResult =
   (typeof api.entities.getAppointmentTypeFolders)["_returnType"];
 interface AppointmentTypeFormValues {
   color: AppointmentColorSelection;
-  bookableVia: AppointmentTypeBookableViaOption[];
+  appointmentPlan: AppointmentPlanFormStep[];
   defaultOccupancyKind: AppointmentTypeDefaultOccupancyKind;
   duration: number;
-  followUpPlan: FollowUpPlanFormStep[];
   name: string;
   practitionerIds: Id<"practitioners">[];
 }
@@ -166,7 +181,6 @@ interface AppointmentTypesManagementProps {
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
 }
-
 interface DeletedAppointmentTypeFolderSnapshot {
   color: AppointmentColor | undefined;
   lineageKey: AppointmentTypeFolderLineageKey;
@@ -176,35 +190,14 @@ interface DeletedAppointmentTypeFolderSnapshot {
 
 interface DeletedAppointmentTypeSnapshot {
   color: AppointmentColor | undefined;
-  bookableVia: NonNullable<AppointmentType["bookableVia"]>;
+  appointmentPlan: AppointmentType["appointmentPlan"];
   defaultOccupancy: NonNullable<AppointmentType["defaultOccupancy"]>;
   duration: number;
-  followUpPlan: AppointmentType["appointmentPlan"];
   lineageKey: AppointmentTypeLineageKey;
   name: string;
   practitionerSnapshots: PractitionerHistorySnapshot[];
   treeFolderLineageKey: AppointmentTypeFolderLineageKey;
 }
-interface FollowUpPlanFormStep {
-  anchorStepId: string;
-  appointmentTypeLineageKey: FollowUpPlanTargetSelection;
-  occupancyKind: FollowUpPlanOccupancyKind;
-  offsetUnit: FollowUpPlanOffsetUnit;
-  offsetValue: number;
-  timingKind: FollowUpPlanTimingKind;
-}
-type FollowUpPlanOccupancyKind =
-  | "inheritRootPractitioner"
-  | "resource-ekg"
-  | "resource-labor"
-  | `practitioner:${string}`;
-type FollowUpPlanOffsetUnit = "days" | "minutes" | "months" | "weeks";
-type FollowUpPlanStep = NonNullable<
-  AppointmentType["appointmentPlan"]
->["steps"][number];
-type FollowUpPlanTargetSelection = "" | AppointmentTypeLineageKey;
-
-type FollowUpPlanTimingKind = FollowUpPlanStep["timing"]["kind"];
 
 type OptimisticAppointmentTypeTreeRestore = AppointmentTypeTreeOverlay<
   AppointmentType,
@@ -223,10 +216,9 @@ type PractitionerQueryResult =
 
 const defaultAppointmentTypeFormValues: AppointmentTypeFormValues = {
   color: "inherit",
-  bookableVia: ["staff", "online", "telefonki", "planStep"],
+  appointmentPlan: [],
   defaultOccupancyKind: "selectedPractitioner",
   duration: 30,
-  followUpPlan: [],
   name: "",
   practitionerIds: [],
 };
@@ -312,7 +304,7 @@ function AppointmentColorCombobox({
   );
 }
 
-const createEmptyFollowUpStep = (): FollowUpPlanFormStep => ({
+const createEmptyAppointmentPlanStep = (): AppointmentPlanFormStep => ({
   anchorStepId: "root",
   appointmentTypeLineageKey: "",
   occupancyKind: "inheritRootPractitioner",
@@ -321,10 +313,9 @@ const createEmptyFollowUpStep = (): FollowUpPlanFormStep => ({
   timingKind: "afterPreviousEnd",
 });
 
-const normalizeFollowUpPlanForSubmit = (
-  steps: FollowUpPlanFormStep[],
-  practitioners: readonly Practitioner[],
-): Result<FollowUpPlanStep[], string> => {
+const normalizeAppointmentPlanForSubmit = (
+  steps: AppointmentPlanFormStep[],
+): Result<AppointmentPlanStep[], string> => {
   if (steps.length === 0) {
     return ok([]);
   }
@@ -333,34 +324,34 @@ const normalizeFollowUpPlanForSubmit = (
     steps.map((step, index) =>
       Result.combine([
         resolveSelectedAppointmentTypeLineageKey(step),
-        normalizeFollowUpOccupancy(step.occupancyKind, practitioners),
+        normalizeAppointmentPlanOccupancy(step.occupancyKind),
       ]).map(([appointmentTypeLineageKey, occupancy]) => ({
         appointmentTypeLineageKey,
         occupancy,
         required: true,
         stepId: `step-${index + 1}`,
-        timing: normalizeFollowUpTiming(step),
+        timing: normalizeAppointmentPlanTiming(step),
       })),
     ),
   );
 };
 
-const createFollowUpPlanCreateArgs = (
-  followUpPlan: FollowUpPlanStep[] | undefined,
+const createAppointmentPlanCreateArgs = (
+  appointmentPlan: AppointmentPlanStep[] | undefined,
 ) =>
-  followUpPlan === undefined
+  appointmentPlan === undefined
     ? {}
-    : { appointmentPlan: { steps: followUpPlan } };
+    : { appointmentPlan: { steps: appointmentPlan } };
 
-const createFollowUpPlanUpdateArgs = (
-  followUpPlan: FollowUpPlanStep[] | undefined,
-) => ({ appointmentPlan: { steps: followUpPlan ?? [] } });
+const createAppointmentPlanUpdateArgs = (
+  appointmentPlan: AppointmentPlanStep[] | undefined,
+) => ({ appointmentPlan: { steps: appointmentPlan ?? [] } });
 
 const parseNumberInput = (valueAsNumber: number, fallback = 0) =>
   Number.isNaN(valueAsNumber) ? fallback : valueAsNumber;
 
-const normalizeFollowUpOffsetValue = (
-  offsetUnit: FollowUpPlanFormStep["offsetUnit"],
+const normalizeAppointmentPlanOffsetValue = (
+  offsetUnit: AppointmentPlanFormStep["offsetUnit"],
   rawValue: number,
 ) => {
   const normalizedInteger = Number.isFinite(rawValue)
@@ -374,9 +365,9 @@ const normalizeFollowUpOffsetValue = (
   return Math.max(1, normalizedInteger);
 };
 
-const normalizeFollowUpTiming = (
-  step: FollowUpPlanFormStep,
-): FollowUpPlanStep["timing"] => {
+const normalizeAppointmentPlanTiming = (
+  step: AppointmentPlanFormStep,
+): AppointmentPlanStep["timing"] => {
   if (step.timingKind === "sameStartAs") {
     return {
       anchorStepId: step.anchorStepId,
@@ -390,66 +381,42 @@ const normalizeFollowUpTiming = (
       anchorStepId: step.anchorStepId,
       kind: "firstAvailableOnOrAfter",
       offsetUnit,
-      offsetValue: normalizeFollowUpOffsetValue(offsetUnit, step.offsetValue),
+      offsetValue: normalizeAppointmentPlanOffsetValue(
+        offsetUnit,
+        step.offsetValue,
+      ),
     };
   }
 
   return {
     kind: step.timingKind,
-    offsetMinutes: normalizeFollowUpOffsetValue("minutes", step.offsetValue),
+    offsetMinutes: normalizeAppointmentPlanOffsetValue(
+      "minutes",
+      step.offsetValue,
+    ),
   };
 };
 
-const normalizeFollowUpOccupancy = (
-  occupancyKind: FollowUpPlanOccupancyKind,
-  practitioners: readonly Practitioner[],
-): Result<FollowUpPlanStep["occupancy"], string> => {
+const normalizeAppointmentPlanOccupancy = (
+  occupancyKind: AppointmentPlanOccupancyKind,
+): Result<AppointmentPlanStep["occupancy"], string> => {
   if (occupancyKind === "resource-ekg") {
     return ok({ calendarResourceColumn: "ekg", kind: "resourceColumn" });
   }
   if (occupancyKind === "resource-labor") {
     return ok({ calendarResourceColumn: "labor", kind: "resourceColumn" });
-  }
-  if (occupancyKind.startsWith("practitioner:")) {
-    const rawLineageKey = occupancyKind.slice("practitioner:".length);
-    const practitioner = practitioners.find(
-      (candidate) => candidate.lineageKey === rawLineageKey,
-    );
-    if (!practitioner) {
-      return err("Bitte wählen Sie einen gültigen Behandler für die Belegung.");
-    }
-    return ok({
-      kind: "specificPractitioner",
-      practitionerLineageKey: practitioner.lineageKey,
-    });
   }
   return ok({ kind: "inheritRootPractitioner" });
 };
 
 const normalizeDefaultOccupancyForSubmit = (
   occupancyKind: AppointmentTypeDefaultOccupancyKind,
-  practitioners: readonly Practitioner[],
 ): Result<NonNullable<AppointmentType["defaultOccupancy"]>, string> => {
   if (occupancyKind === "resource-ekg") {
     return ok({ calendarResourceColumn: "ekg", kind: "resourceColumn" });
   }
   if (occupancyKind === "resource-labor") {
     return ok({ calendarResourceColumn: "labor", kind: "resourceColumn" });
-  }
-  if (occupancyKind.startsWith("practitioner:")) {
-    const rawLineageKey = occupancyKind.slice("practitioner:".length);
-    const practitioner = practitioners.find(
-      (candidate) => candidate.lineageKey === rawLineageKey,
-    );
-    if (!practitioner) {
-      return err(
-        "Bitte wählen Sie einen gültigen Behandler für die Standard-Belegung.",
-      );
-    }
-    return ok({
-      kind: "specificPractitioner",
-      practitionerLineageKey: practitioner.lineageKey,
-    });
   }
   return ok({ kind: "selectedPractitioner" });
 };
@@ -460,17 +427,12 @@ const defaultOccupancyKindForForm = (
   if (!defaultOccupancy || defaultOccupancy.kind === "selectedPractitioner") {
     return "selectedPractitioner";
   }
-  if (defaultOccupancy.kind === "resourceColumn") {
-    return `resource-${defaultOccupancy.calendarResourceColumn}`;
-  }
-  return `practitioner:${asPractitionerLineageKey(
-    defaultOccupancy.practitionerLineageKey,
-  )}`;
+  return `resource-${defaultOccupancy.calendarResourceColumn}`;
 };
 
-const parseFollowUpOffsetUnit = (
+const parseAppointmentPlanOffsetUnit = (
   value: string,
-): FollowUpPlanOffsetUnit | undefined => {
+): AppointmentPlanOffsetUnit | undefined => {
   switch (value) {
     case "days":
     case "minutes":
@@ -484,9 +446,9 @@ const parseFollowUpOffsetUnit = (
   }
 };
 
-const parseFollowUpTimingKind = (
+const parseAppointmentPlanTimingKind = (
   value: string,
-): FollowUpPlanTimingKind | undefined => {
+): AppointmentPlanTimingKind | undefined => {
   switch (value) {
     case "afterPreviousEnd":
     case "beforeRootStart":
@@ -500,21 +462,21 @@ const parseFollowUpTimingKind = (
   }
 };
 
-const normalizeFollowUpPlanForForm = (
+const normalizeAppointmentPlanForForm = (
   appointmentPlan: AppointmentType["appointmentPlan"] | undefined,
-): FollowUpPlanFormStep[] =>
+): AppointmentPlanFormStep[] =>
   (appointmentPlan?.steps ?? []).map((step) => ({
     anchorStepId:
       "anchorStepId" in step.timing ? step.timing.anchorStepId : "root",
     appointmentTypeLineageKey: asAppointmentTypeLineageKey(
       step.appointmentTypeLineageKey,
     ),
-    occupancyKind: followUpOccupancyKindForForm(step.occupancy),
+    occupancyKind: appointmentPlanOccupancyKindForForm(step.occupancy),
     offsetUnit:
       step.timing.kind === "firstAvailableOnOrAfter"
         ? step.timing.offsetUnit
         : "minutes",
-    offsetValue: normalizeFollowUpOffsetValue(
+    offsetValue: normalizeAppointmentPlanOffsetValue(
       step.timing.kind === "firstAvailableOnOrAfter"
         ? step.timing.offsetUnit
         : "minutes",
@@ -527,21 +489,16 @@ const normalizeFollowUpPlanForForm = (
     timingKind: step.timing.kind,
   }));
 
-const followUpOccupancyKindForForm = (
-  occupancy: FollowUpPlanStep["occupancy"],
-): FollowUpPlanOccupancyKind => {
+const appointmentPlanOccupancyKindForForm = (
+  occupancy: AppointmentPlanStep["occupancy"],
+): AppointmentPlanOccupancyKind => {
   if (occupancy.kind === "resourceColumn") {
     return `resource-${occupancy.calendarResourceColumn}`;
-  }
-  if (occupancy.kind === "specificPractitioner") {
-    return `practitioner:${asPractitionerLineageKey(
-      occupancy.practitionerLineageKey,
-    )}`;
   }
   return "inheritRootPractitioner";
 };
 
-const serializeFollowUpPlan = (steps: FollowUpPlanStep[] | undefined) =>
+const serializeAppointmentPlan = (steps: AppointmentPlanStep[] | undefined) =>
   JSON.stringify(
     (steps ?? []).map((step) => ({
       appointmentTypeLineageKey: step.appointmentTypeLineageKey,
@@ -558,63 +515,7 @@ interface PractitionerHistorySnapshot {
   name: string;
 }
 
-function createAppointmentTypeFormSchema(params: {
-  appointmentTypeLineageKeys: readonly AppointmentTypeLineageKey[];
-  practitionerIds: readonly Id<"practitioners">[];
-}) {
-  return z.object({
-    color: z.union([z.literal("inherit"), z.enum(APPOINTMENT_COLOR_VALUES)]),
-    bookableVia: z.array(z.enum(["staff", "online", "telefonki", "planStep"])),
-    defaultOccupancyKind: z
-      .string()
-      .transform((value) => normalizeDefaultOccupancyKindSelection(value)),
-    duration: z
-      .number()
-      .min(5, "Dauer muss mindestens 5 Minuten betragen")
-      .max(480, "Dauer darf maximal 480 Minuten (8 Stunden) betragen")
-      .refine((val) => val % 5 === 0, {
-        message: "Dauer muss in 5-Minuten-Schritten angegeben werden",
-      }),
-    followUpPlan: z.array(
-      createFollowUpStepSchema(params.appointmentTypeLineageKeys),
-    ),
-    name: z
-      .string()
-      .trim()
-      .min(2, "Name muss mindestens 2 Zeichen lang sein")
-      .max(50, "Name darf maximal 50 Zeichen lang sein"),
-    practitionerIds: z.array(
-      createPractitionerIdSchema(params.practitionerIds),
-    ),
-  }) satisfies z.ZodType<AppointmentTypeFormValues>;
-}
-
-function createAppointmentTypeLineageSelectionSchema(
-  availableLineageKeys: readonly AppointmentTypeLineageKey[],
-) {
-  return z
-    .string()
-    .transform((value, ctx): FollowUpPlanTargetSelection | typeof z.NEVER => {
-      if (value === "") {
-        return "";
-      }
-
-      const matchingLineageKey = availableLineageKeys.find(
-        (lineageKey) => lineageKey === value,
-      );
-      if (!matchingLineageKey) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Bitte wählen Sie eine gültige Terminart",
-        });
-        return z.NEVER;
-      }
-
-      return matchingLineageKey;
-    });
-}
-
-function createFollowUpStepSchema(
+function createAppointmentPlanStepSchema(
   availableLineageKeys: readonly AppointmentTypeLineageKey[],
 ) {
   return z
@@ -625,7 +526,9 @@ function createFollowUpStepSchema(
       ).refine((value) => value !== "", "Bitte wählen Sie eine Terminart"),
       occupancyKind: z
         .string()
-        .transform((value) => normalizeFollowUpOccupancyKindSelection(value)),
+        .transform((value) =>
+          normalizeAppointmentPlanOccupancyKindSelection(value),
+        ),
       offsetUnit: z.enum(["minutes", "days", "weeks", "months"]),
       offsetValue: z.number().int("Der Versatz muss eine ganze Zahl sein"),
       timingKind: z.enum([
@@ -676,6 +579,63 @@ function createFollowUpStepSchema(
     });
 }
 
+function createAppointmentTypeFormSchema(params: {
+  appointmentTypeLineageKeys: readonly AppointmentTypeLineageKey[];
+  practitionerIds: readonly Id<"practitioners">[];
+}) {
+  return z.object({
+    color: z.union([z.literal("inherit"), z.enum(APPOINTMENT_COLOR_VALUES)]),
+    appointmentPlan: z.array(
+      createAppointmentPlanStepSchema(params.appointmentTypeLineageKeys),
+    ),
+    defaultOccupancyKind: z
+      .string()
+      .transform((value) => normalizeDefaultOccupancyKindSelection(value)),
+    duration: z
+      .number()
+      .min(5, "Dauer muss mindestens 5 Minuten betragen")
+      .max(480, "Dauer darf maximal 480 Minuten (8 Stunden) betragen")
+      .refine((val) => val % 5 === 0, {
+        message: "Dauer muss in 5-Minuten-Schritten angegeben werden",
+      }),
+    name: z
+      .string()
+      .trim()
+      .min(2, "Name muss mindestens 2 Zeichen lang sein")
+      .max(50, "Name darf maximal 50 Zeichen lang sein"),
+    practitionerIds: z.array(
+      createPractitionerIdSchema(params.practitionerIds),
+    ),
+  }) satisfies z.ZodType<AppointmentTypeFormValues>;
+}
+
+function createAppointmentTypeLineageSelectionSchema(
+  availableLineageKeys: readonly AppointmentTypeLineageKey[],
+) {
+  return z
+    .string()
+    .transform(
+      (value, ctx): AppointmentPlanTargetSelection | typeof z.NEVER => {
+        if (value === "") {
+          return "";
+        }
+
+        const matchingLineageKey = availableLineageKeys.find(
+          (lineageKey) => lineageKey === value,
+        );
+        if (!matchingLineageKey) {
+          ctx.addIssue({
+            code: "custom",
+            message: "Bitte wählen Sie eine gültige Terminart",
+          });
+          return z.NEVER;
+        }
+
+        return matchingLineageKey;
+      },
+    );
+}
+
 function createPractitionerIdSchema(
   availablePractitionerIds: readonly Id<"practitioners">[],
 ) {
@@ -695,6 +655,20 @@ function createPractitionerIdSchema(
     });
 }
 
+function normalizeAppointmentPlanOccupancyKindSelection(
+  value: string,
+): AppointmentPlanOccupancyKind {
+  switch (value) {
+    case "inheritRootPractitioner":
+    case "resource-ekg":
+    case "resource-labor": {
+      return value;
+    }
+  }
+
+  return "inheritRootPractitioner";
+}
+
 function normalizeDefaultOccupancyKindSelection(
   value: string,
 ): AppointmentTypeDefaultOccupancyKind {
@@ -706,29 +680,7 @@ function normalizeDefaultOccupancyKindSelection(
     }
   }
 
-  if (value.startsWith("practitioner:")) {
-    return `practitioner:${value.slice("practitioner:".length)}`;
-  }
-
   return "selectedPractitioner";
-}
-
-function normalizeFollowUpOccupancyKindSelection(
-  value: string,
-): FollowUpPlanOccupancyKind {
-  switch (value) {
-    case "inheritRootPractitioner":
-    case "resource-ekg":
-    case "resource-labor": {
-      return value;
-    }
-  }
-
-  if (value.startsWith("practitioner:")) {
-    return `practitioner:${value.slice("practitioner:".length)}`;
-  }
-
-  return "inheritRootPractitioner";
 }
 
 const toSnapshotLineageIds = (snapshots: PractitionerHistorySnapshot[]) =>
@@ -780,7 +732,7 @@ const isMissingEntityError = (error: unknown) =>
   isMissingRuleSetEntityError(error, APPOINTMENT_TYPE_MISSING_ENTITY_REGEX);
 
 const resolveSelectedAppointmentTypeLineageKey = (
-  step: FollowUpPlanFormStep,
+  step: AppointmentPlanFormStep,
 ): Result<AppointmentTypeLineageKey, string> => {
   if (step.appointmentTypeLineageKey === "") {
     return err("Bitte wählen Sie eine Terminart.");
@@ -867,49 +819,6 @@ const createAppointmentTypeFolderHistoryTarget = (
         lineageKey: getAppointmentTypeFolderLineageKey(folder),
       };
 
-const resolveAppointmentTypeFolderColor = (
-  folder: AppointmentTypeFolder,
-  folderById: ReadonlyMap<Id<"appointmentTypeFolders">, AppointmentTypeFolder>,
-): AppointmentColor => {
-  let cursor: AppointmentTypeFolder | undefined = folder;
-  const visited = new Set<Id<"appointmentTypeFolders">>();
-
-  while (cursor !== undefined && !visited.has(cursor._id)) {
-    visited.add(cursor._id);
-    if (cursor.color !== undefined) {
-      return cursor.color;
-    }
-    cursor =
-      cursor.parentFolderId === undefined
-        ? undefined
-        : folderById.get(cursor.parentFolderId);
-  }
-
-  return DEFAULT_APPOINTMENT_COLOR;
-};
-
-const resolveAppointmentTreeItemColor = (
-  item: AppointmentTreeItem,
-  folderById: ReadonlyMap<Id<"appointmentTypeFolders">, AppointmentTypeFolder>,
-): AppointmentColor => {
-  if (item.kind === "folder") {
-    return resolveAppointmentTypeFolderColor(item.folder, folderById);
-  }
-
-  if (item.appointmentType.color !== undefined) {
-    return item.appointmentType.color;
-  }
-
-  if (item.appointmentType.treeFolderId === undefined) {
-    return DEFAULT_APPOINTMENT_COLOR;
-  }
-
-  const folder = folderById.get(item.appointmentType.treeFolderId);
-  return folder === undefined
-    ? DEFAULT_APPOINTMENT_COLOR
-    : resolveAppointmentTypeFolderColor(folder, folderById);
-};
-
 const appointmentTreeStyle: AppointmentTreeStyle = {
   "--trees-accent-override": "var(--primary)",
   "--trees-bg-muted-override": "var(--accent)",
@@ -932,18 +841,6 @@ const appointmentTreeStyle: AppointmentTreeStyle = {
   "--trees-selected-focused-border-color-override": "var(--ring)",
 };
 
-const appointmentTreeIconColorCss = `
-  [data-item-appointment-color='true'] > [data-item-section='icon'] {
-    color: var(--appointment-type-tree-icon-color);
-    fill: currentColor;
-  }
-
-  [data-item-appointment-color='true'] > [data-item-section='icon'] svg {
-    color: inherit;
-    fill: currentColor;
-  }
-`;
-
 export function AppointmentTypesManagement({
   onDraftMutation,
   onRecordCommand,
@@ -961,8 +858,6 @@ export function AppointmentTypesManagement({
     Id<"appointmentTypeFolders"> | undefined
   >();
   const [createFolderName, setCreateFolderName] = useState("");
-  const [createFolderColor, setCreateFolderColor] =
-    useState<AppointmentColorSelection>("blue");
   const [newAppointmentTypeFolderId, setNewAppointmentTypeFolderId] = useState<
     Id<"appointmentTypeFolders"> | undefined
   >();
@@ -1076,18 +971,6 @@ export function AppointmentTypesManagement({
     () => buildAppointmentTreeModel(appointmentTypes, appointmentTypeFolders),
     [appointmentTypeFolders, appointmentTypes],
   );
-  const appointmentTreeHostRef = useRef<HTMLDivElement | null>(null);
-  const appointmentTypeTreeColorByPath = useMemo(() => {
-    const folderById = new Map(
-      appointmentTypeFolders.map((folder) => [folder._id, folder]),
-    );
-    const colorByPath = new Map<string, string>();
-    for (const [path, item] of treeModel.itemByPath) {
-      const color = resolveAppointmentTreeItemColor(item, folderById);
-      colorByPath.set(path, APPOINTMENT_COLOR_BY_VALUE[color].background);
-    }
-    return colorByPath;
-  }, [appointmentTypeFolders, treeModel.itemByPath]);
   const treeModelRef = useRef(treeModel);
   useEffect(() => {
     treeModelRef.current = treeModel;
@@ -1125,51 +1008,12 @@ export function AppointmentTypesManagement({
     },
     paths: treeModel.paths,
     search: true,
-    unsafeCSS: appointmentTreeIconColorCss,
   });
   useEffect(() => {
     fileTree.model.resetPaths(treeModel.paths, {
       initialExpandedPaths: treeModel.expandedPaths,
     });
   }, [fileTree.model, treeModel.expandedPaths, treeModel.paths]);
-  useEffect(() => {
-    const host = appointmentTreeHostRef.current?.querySelector(
-      "file-tree-container",
-    );
-    const shadowRoot = host?.shadowRoot;
-    if (shadowRoot === undefined || shadowRoot === null) {
-      return;
-    }
-
-    const syncTreeIconColors = () => {
-      for (const row of shadowRoot.querySelectorAll<HTMLElement>(
-        "[data-item-path]",
-      )) {
-        const itemPath = normalizeTreeLookupPath(row.dataset["itemPath"]);
-        const color = itemPath
-          ? appointmentTypeTreeColorByPath.get(itemPath)
-          : undefined;
-        if (color === undefined) {
-          row.style.removeProperty("--appointment-type-tree-icon-color");
-          delete row.dataset["itemAppointmentColor"];
-          continue;
-        }
-
-        row.style.setProperty("--appointment-type-tree-icon-color", color);
-        row.dataset["itemAppointmentColor"] = "true";
-      }
-    };
-
-    syncTreeIconColors();
-    const animationFrame = globalThis.requestAnimationFrame(syncTreeIconColors);
-    const observer = new MutationObserver(syncTreeIconColors);
-    observer.observe(shadowRoot, { childList: true, subtree: true });
-
-    return () => {
-      globalThis.cancelAnimationFrame(animationFrame);
-      observer.disconnect();
-    };
-  }, [appointmentTypeTreeColorByPath, treeModel.paths]);
   const formSchema = useMemo(
     () =>
       createAppointmentTypeFormSchema({
@@ -1275,7 +1119,6 @@ export function AppointmentTypesManagement({
   );
   const removeAppointmentTypeFolderFromRef = useCallback(
     (params: {
-      color?: AppointmentColor | undefined;
       id: Id<"appointmentTypeFolders">;
       lineageKey?: AppointmentTypeFolderLineageKey | undefined;
     }) => {
@@ -1291,7 +1134,6 @@ export function AppointmentTypesManagement({
   );
   const createAppointmentTypeFolderRefSnapshot = useCallback(
     (params: {
-      color?: AppointmentColor | undefined;
       id: Id<"appointmentTypeFolders">;
       lineageKey: AppointmentTypeFolderLineageKey;
       name: string;
@@ -1300,7 +1142,6 @@ export function AppointmentTypesManagement({
     }): AppointmentTypeFolder => ({
       _creationTime: 0,
       _id: params.id,
-      ...(params.color === undefined ? {} : { color: params.color }),
       createdAt: 0n,
       lastModified: 0n,
       lineageKey: params.lineageKey,
@@ -1316,9 +1157,7 @@ export function AppointmentTypesManagement({
   const createAppointmentTypeRefSnapshot = useCallback(
     (params: {
       allowedPractitionerLineageKeys: AppointmentType["allowedPractitionerLineageKeys"];
-      color?: AppointmentColor | undefined;
       appointmentPlan: NonNullable<AppointmentType["appointmentPlan"]>;
-      bookableVia: NonNullable<AppointmentType["bookableVia"]>;
       defaultOccupancy: NonNullable<AppointmentType["defaultOccupancy"]>;
       duration: number;
       id: AppointmentTypeId;
@@ -1330,9 +1169,7 @@ export function AppointmentTypesManagement({
       _creationTime: 0,
       _id: params.id,
       allowedPractitionerLineageKeys: params.allowedPractitionerLineageKeys,
-      ...(params.color === undefined ? {} : { color: params.color }),
       appointmentPlan: params.appointmentPlan,
-      bookableVia: params.bookableVia,
       createdAt: 0n,
       defaultOccupancy: params.defaultOccupancy,
       duration: params.duration,
@@ -1563,9 +1400,8 @@ export function AppointmentTypesManagement({
           return;
         }
 
-        const normalizedFollowUpPlan = normalizeFollowUpPlanForSubmit(
-          parsedValue.followUpPlan,
-          practitionersRef.current,
+        const normalizedAppointmentPlan = normalizeAppointmentPlanForSubmit(
+          parsedValue.appointmentPlan,
         ).match(
           (normalizedPlan) =>
             normalizedPlan.length === 0 ? undefined : normalizedPlan,
@@ -1576,12 +1412,11 @@ export function AppointmentTypesManagement({
             return null;
           },
         );
-        if (normalizedFollowUpPlan === null) {
+        if (normalizedAppointmentPlan === null) {
           return;
         }
         const normalizedDefaultOccupancy = normalizeDefaultOccupancyForSubmit(
           parsedValue.defaultOccupancyKind,
-          practitionersRef.current,
         ).match(
           (defaultOccupancy) => defaultOccupancy,
           (message) => {
@@ -1614,12 +1449,6 @@ export function AppointmentTypesManagement({
           const beforeState = {
             color: editingAppointmentType.color,
             appointmentPlan: editingAppointmentType.appointmentPlan,
-            bookableVia: editingAppointmentType.bookableVia ?? [
-              "staff",
-              "online",
-              "telefonki",
-              "planStep",
-            ],
             defaultOccupancy: editingAppointmentType.defaultOccupancy,
             duration: editingAppointmentType.duration,
             name: editingAppointmentType.name,
@@ -1631,10 +1460,9 @@ export function AppointmentTypesManagement({
           const afterState = {
             color: appointmentTypeColorMutationValue(parsedValue.color),
             appointmentPlan:
-              normalizedFollowUpPlan === undefined
+              normalizedAppointmentPlan === undefined
                 ? undefined
-                : { steps: normalizedFollowUpPlan },
-            bookableVia: parsedValue.bookableVia,
+                : { steps: normalizedAppointmentPlan },
             defaultOccupancy: normalizedDefaultOccupancy,
             duration: parsedValue.duration,
             name: normalizedName,
@@ -1659,34 +1487,27 @@ export function AppointmentTypesManagement({
           const updateResult = await updateAppointmentTypeMutation({
             appointmentTypeId: editingAppointmentType._id,
             color: afterState.color,
-            bookableVia: afterState.bookableVia,
             defaultOccupancy: afterState.defaultOccupancy,
             duration: parsedValue.duration,
             name: normalizedName,
             practiceId,
             practitionerIds: resolvedFormPractitionerIds.ids,
             ...getCowMutationArgs(),
-            ...createFollowUpPlanUpdateArgs(normalizedFollowUpPlan),
+            ...createAppointmentPlanUpdateArgs(normalizedAppointmentPlan),
           });
           handleDraftMutationResult(updateResult);
-          const {
-            color: _previousColor,
-            ...editingAppointmentTypeWithoutColor
-          } = editingAppointmentType;
-          void _previousColor;
           upsertAppointmentTypeRef(
             {
-              ...editingAppointmentTypeWithoutColor,
+              ...editingAppointmentType,
               _id: asAppointmentTypeId(updateResult.entityId),
               allowedPractitionerLineageKeys:
                 afterState.practitionerLineageKeys,
+              color: afterState.color ?? undefined,
               appointmentPlan: afterState.appointmentPlan ?? { steps: [] },
-              bookableVia: afterState.bookableVia,
               defaultOccupancy: afterState.defaultOccupancy,
               duration: afterState.duration,
               name: afterState.name,
               ruleSetId: updateResult.ruleSetId,
-              ...(afterState.color === null ? {} : { color: afterState.color }),
             },
             { previousLineageKey: appointmentTypeLineageKey },
           );
@@ -1711,14 +1532,13 @@ export function AppointmentTypesManagement({
               const redoResult = await updateAppointmentTypeMutation({
                 appointmentTypeId: currentAppointmentTypeId,
                 color: afterState.color,
-                bookableVia: afterState.bookableVia,
                 defaultOccupancy: afterState.defaultOccupancy,
                 duration: afterState.duration,
                 name: afterState.name,
                 practiceId,
                 practitionerIds: resolvedRedoPractitionerIds.ids,
                 ...getCowMutationArgs(),
-                ...createFollowUpPlanUpdateArgs(
+                ...createAppointmentPlanUpdateArgs(
                   afterState.appointmentPlan?.steps,
                 ),
               });
@@ -1737,7 +1557,6 @@ export function AppointmentTypesManagement({
               const undoResult = await updateAppointmentTypeMutation({
                 appointmentTypeId: currentAppointmentTypeId,
                 color: beforeState.color ?? null,
-                bookableVia: beforeState.bookableVia,
                 defaultOccupancy: beforeState.defaultOccupancy ?? {
                   kind: "selectedPractitioner",
                 },
@@ -1746,7 +1565,7 @@ export function AppointmentTypesManagement({
                 practiceId,
                 practitionerIds: resolvedUndoPractitionerIds.ids,
                 ...getCowMutationArgs(),
-                ...createFollowUpPlanUpdateArgs(
+                ...createAppointmentPlanUpdateArgs(
                   beforeState.appointmentPlan?.steps,
                 ),
               });
@@ -1764,8 +1583,10 @@ export function AppointmentTypesManagement({
                 current.name !== beforeState.name ||
                 current.color !== beforeState.color ||
                 current.duration !== beforeState.duration ||
-                serializeFollowUpPlan(current.appointmentPlan?.steps) !==
-                  serializeFollowUpPlan(beforeState.appointmentPlan?.steps) ||
+                serializeAppointmentPlan(current.appointmentPlan?.steps) !==
+                  serializeAppointmentPlan(
+                    beforeState.appointmentPlan?.steps,
+                  ) ||
                 !samePractitionerLineageIds(
                   current.allowedPractitionerLineageKeys
                     .map((lineageKey) => asPractitionerLineageKey(lineageKey))
@@ -1780,10 +1601,10 @@ export function AppointmentTypesManagement({
             validateUndo: (current) => {
               if (
                 current.name !== afterState.name ||
-                current.color !== (afterState.color ?? undefined) ||
+                current.color !== afterState.color ||
                 current.duration !== afterState.duration ||
-                serializeFollowUpPlan(current.appointmentPlan?.steps) !==
-                  serializeFollowUpPlan(afterState.appointmentPlan?.steps) ||
+                serializeAppointmentPlan(current.appointmentPlan?.steps) !==
+                  serializeAppointmentPlan(afterState.appointmentPlan?.steps) ||
                 !samePractitionerLineageIds(
                   current.allowedPractitionerLineageKeys
                     .map((lineageKey) => asPractitionerLineageKey(lineageKey))
@@ -1808,7 +1629,6 @@ export function AppointmentTypesManagement({
           // Create new appointment type
           const createResult = await createAppointmentTypeMutation({
             color: appointmentTypeColorMutationValue(parsedValue.color),
-            bookableVia: parsedValue.bookableVia,
             defaultOccupancy: normalizedDefaultOccupancy,
             duration: parsedValue.duration,
             name: normalizedName,
@@ -1816,7 +1636,7 @@ export function AppointmentTypesManagement({
             practitionerIds: resolvedFormPractitionerIds.ids,
             ...createTreeFolderArg(newAppointmentTypeFolderId),
             ...getCowMutationArgs(),
-            ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
+            ...createAppointmentPlanCreateArgs(normalizedAppointmentPlan),
           });
           handleDraftMutationResult(createResult);
           const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
@@ -1826,14 +1646,11 @@ export function AppointmentTypesManagement({
             allowedPractitionerLineageKeys: toSnapshotLineageIds(
               formPractitionerSnapshots,
             ),
-            ...(parsedValue.color === "inherit"
-              ? {}
-              : { color: parsedValue.color }),
+            color: colorSnapshotValue(parsedValue.color),
             appointmentPlan:
-              normalizedFollowUpPlan === undefined
+              normalizedAppointmentPlan === undefined
                 ? { steps: [] }
-                : { steps: normalizedFollowUpPlan },
-            bookableVia: parsedValue.bookableVia,
+                : { steps: normalizedAppointmentPlan },
             defaultOccupancy: normalizedDefaultOccupancy,
             duration: parsedValue.duration,
             id: asAppointmentTypeId(createResult.entityId),
@@ -1845,11 +1662,11 @@ export function AppointmentTypesManagement({
           upsertAppointmentTypeRef(createdAppointmentType);
           const { entityId } = createResult;
           const createdSnapshot = encodeRuleSetSnapshot({
-            color: appointmentTypeColorMutationValue(parsedValue.color),
+            color: colorSnapshotValue(parsedValue.color),
             appointmentPlan:
-              normalizedFollowUpPlan === undefined
+              normalizedAppointmentPlan === undefined
                 ? undefined
-                : { steps: normalizedFollowUpPlan },
+                : { steps: normalizedAppointmentPlan },
             duration: parsedValue.duration,
             name: normalizedName,
             practitionerLineageKeys: toSnapshotLineageIds(
@@ -1896,7 +1713,6 @@ export function AppointmentTypesManagement({
               }
               const recreateResult = await createAppointmentTypeMutation({
                 color: appointmentTypeColorMutationValue(parsedValue.color),
-                bookableVia: parsedValue.bookableVia,
                 defaultOccupancy: normalizedDefaultOccupancy,
                 duration: parsedValue.duration,
                 lineageKey: appointmentTypeLineageKey,
@@ -1905,18 +1721,18 @@ export function AppointmentTypesManagement({
                 practitionerIds: resolvedCreatePractitionerIds.ids,
                 ...createTreeFolderArg(resolvedFolder.folderId),
                 ...getCowMutationArgs(),
-                ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
+                ...createAppointmentPlanCreateArgs(normalizedAppointmentPlan),
               });
               handleDraftMutationResult(recreateResult);
               const restoredAppointmentType = createAppointmentTypeRefSnapshot({
                 allowedPractitionerLineageKeys: toSnapshotLineageIds(
                   formPractitionerSnapshots,
                 ),
+                color: colorSnapshotValue(parsedValue.color),
                 appointmentPlan:
-                  normalizedFollowUpPlan === undefined
+                  normalizedAppointmentPlan === undefined
                     ? { steps: [] }
-                    : { steps: normalizedFollowUpPlan },
-                bookableVia: parsedValue.bookableVia,
+                    : { steps: normalizedAppointmentPlan },
                 defaultOccupancy: normalizedDefaultOccupancy,
                 duration: parsedValue.duration,
                 id: asAppointmentTypeId(recreateResult.entityId),
@@ -1924,9 +1740,6 @@ export function AppointmentTypesManagement({
                 name: normalizedName,
                 ruleSetId: recreateResult.ruleSetId,
                 treeFolderId: resolvedFolder.folderId,
-                ...(parsedValue.color === "inherit"
-                  ? {}
-                  : { color: parsedValue.color }),
               });
               upsertAppointmentTypeRef(restoredAppointmentType, {
                 previousLineageKey: appointmentTypeLineageKey,
@@ -1982,12 +1795,9 @@ export function AppointmentTypesManagement({
               );
               if (
                 existing.name !== normalizedName ||
-                existing.color !==
-                  (appointmentTypeColorMutationValue(parsedValue.color) ??
-                    undefined) ||
                 existing.duration !== parsedValue.duration ||
-                serializeFollowUpPlan(existing.appointmentPlan?.steps) !==
-                  serializeFollowUpPlan(normalizedFollowUpPlan) ||
+                serializeAppointmentPlan(existing.appointmentPlan?.steps) !==
+                  serializeAppointmentPlan(normalizedAppointmentPlan) ||
                 existing.treeFolderId !== resolvedFolder.folderId ||
                 !samePractitionerLineageIds(
                   existingPractitionerLineageIds,
@@ -2055,16 +1865,6 @@ export function AppointmentTypesManagement({
 
       setEditingAppointmentType(appointmentType);
       setNewAppointmentTypeFolderId(undefined);
-      form.setFieldValue("color", appointmentType.color ?? "inherit");
-      form.setFieldValue(
-        "bookableVia",
-        appointmentType.bookableVia ?? [
-          "staff",
-          "online",
-          "telefonki",
-          "planStep",
-        ],
-      );
       form.setFieldValue(
         "defaultOccupancyKind",
         defaultOccupancyKindForForm(appointmentType.defaultOccupancy),
@@ -2072,8 +1872,8 @@ export function AppointmentTypesManagement({
       form.setFieldValue("name", appointmentType.name);
       form.setFieldValue("duration", appointmentType.duration);
       form.setFieldValue(
-        "followUpPlan",
-        normalizeFollowUpPlanForForm(appointmentType.appointmentPlan),
+        "appointmentPlan",
+        normalizeAppointmentPlanForForm(appointmentType.appointmentPlan),
       );
       form.setFieldValue("practitionerIds", validPractitionerIds);
 
@@ -2115,7 +1915,6 @@ export function AppointmentTypesManagement({
   const openEditFolderDialog = useCallback((folder: AppointmentTypeFolder) => {
     setEditingAppointmentTypeFolder(folder);
     setCreateFolderParentId(folder.parentFolderId);
-    setCreateFolderColor(folder.color ?? "inherit");
     setCreateFolderName(folder.name);
     setIsFolderDialogOpen(true);
   }, []);
@@ -2242,7 +2041,6 @@ export function AppointmentTypesManagement({
   ) {
     setEditingAppointmentTypeFolder(null);
     setCreateFolderParentId(parentFolderId);
-    setCreateFolderColor(parentFolderId === undefined ? "blue" : "inherit");
     setCreateFolderName("");
     setIsFolderDialogOpen(true);
   }
@@ -2276,12 +2074,9 @@ export function AppointmentTypesManagement({
         const folderBefore = editingAppointmentTypeFolder;
         const folderLineageKey =
           getAppointmentTypeFolderLineageKey(folderBefore);
-        const previousColor = folderBefore.color;
-        const nextColor = colorSnapshotValue(createFolderColor);
         const previousName = folderBefore.name;
         const parentFolderId = folderBefore.parentFolderId;
         const result = await updateAppointmentTypeFolderMutation({
-          color: appointmentTypeColorMutationValue(createFolderColor),
           folderId: folderBefore._id,
           name,
           practiceId,
@@ -2290,7 +2085,6 @@ export function AppointmentTypesManagement({
         handleDraftMutationResult(result);
         upsertAppointmentTypeFolderRef(
           createAppointmentTypeFolderRefSnapshot({
-            ...(nextColor === undefined ? {} : { color: nextColor }),
             id: result.entityId,
             lineageKey: folderLineageKey,
             name,
@@ -2300,7 +2094,6 @@ export function AppointmentTypesManagement({
           { previousLineageKey: folderLineageKey },
         );
         const previousFolderSnapshot = encodeRuleSetSnapshot({
-          ...(previousColor === undefined ? {} : { color: previousColor }),
           lineageKey: folderLineageKey,
           name: previousName,
           parent: createAppointmentTypeFolderHistoryTarget(
@@ -2312,7 +2105,6 @@ export function AppointmentTypesManagement({
           ),
         });
         const renamedFolderSnapshot = encodeRuleSetSnapshot({
-          ...(nextColor === undefined ? {} : { color: nextColor }),
           lineageKey: folderLineageKey,
           name,
           parent: createAppointmentTypeFolderHistoryTarget(
@@ -2334,7 +2126,6 @@ export function AppointmentTypesManagement({
             "Der Ordner wurde bereits gelöscht und kann nicht erneut umbenannt werden.",
           runRedo: async (currentFolderId) => {
             const redoResult = await updateAppointmentTypeFolderMutation({
-              color: appointmentTypeColorMutationValue(createFolderColor),
               folderId: currentFolderId,
               name,
               practiceId,
@@ -2343,7 +2134,6 @@ export function AppointmentTypesManagement({
             handleDraftMutationResult(redoResult);
             upsertAppointmentTypeFolderRef(
               createAppointmentTypeFolderRefSnapshot({
-                ...(nextColor === undefined ? {} : { color: nextColor }),
                 id: redoResult.entityId,
                 lineageKey: folderLineageKey,
                 name,
@@ -2356,7 +2146,6 @@ export function AppointmentTypesManagement({
           },
           runUndo: async (currentFolderId) => {
             const undoResult = await updateAppointmentTypeFolderMutation({
-              color: previousColor ?? null,
               folderId: currentFolderId,
               name: previousName,
               practiceId,
@@ -2365,9 +2154,6 @@ export function AppointmentTypesManagement({
             handleDraftMutationResult(undoResult);
             upsertAppointmentTypeFolderRef(
               createAppointmentTypeFolderRefSnapshot({
-                ...(previousColor === undefined
-                  ? {}
-                  : { color: previousColor }),
                 id: undoResult.entityId,
                 lineageKey: folderLineageKey,
                 name: previousName,
@@ -2385,10 +2171,7 @@ export function AppointmentTypesManagement({
           undoMissingMessage:
             "Der Ordner wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
           validateRedo: (current) => {
-            if (
-              current.name !== previousName ||
-              current.color !== previousColor
-            ) {
+            if (current.name !== previousName) {
               return "Der Ordner wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.";
             }
             return validateTreeChildNameForHistory({
@@ -2398,7 +2181,7 @@ export function AppointmentTypesManagement({
             });
           },
           validateUndo: (current) => {
-            if (current.name !== name || current.color !== nextColor) {
+            if (current.name !== name) {
               return "Der Ordner wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
             }
             return validateTreeChildNameForHistory({
@@ -2409,7 +2192,6 @@ export function AppointmentTypesManagement({
           },
         });
       } else {
-        const createdColor = colorSnapshotValue(createFolderColor);
         const parentFolderId = createFolderParentId;
         const parentFolderTarget = createAppointmentTypeFolderHistoryTarget(
           parentFolderId
@@ -2419,7 +2201,6 @@ export function AppointmentTypesManagement({
             : undefined,
         );
         const result = await createAppointmentTypeFolderMutation({
-          color: appointmentTypeColorMutationValue(createFolderColor),
           name,
           practiceId,
           ...createParentFolderArg(parentFolderId),
@@ -2429,7 +2210,6 @@ export function AppointmentTypesManagement({
         const folderLineageKey = result.entityId;
         upsertAppointmentTypeFolderRef(
           createAppointmentTypeFolderRefSnapshot({
-            ...(createdColor === undefined ? {} : { color: createdColor }),
             id: result.entityId,
             lineageKey: folderLineageKey,
             name,
@@ -2438,7 +2218,6 @@ export function AppointmentTypesManagement({
           }),
         );
         const createdFolderSnapshot = encodeRuleSetSnapshot({
-          ...(createdColor === undefined ? {} : { color: createdColor }),
           lineageKey: folderLineageKey,
           name,
           parent: parentFolderTarget,
@@ -2465,7 +2244,6 @@ export function AppointmentTypesManagement({
               return { message: createConflict, status: "conflict" as const };
             }
             const recreateResult = await createAppointmentTypeFolderMutation({
-              color: appointmentTypeColorMutationValue(createFolderColor),
               lineageKey: folderLineageKey,
               name,
               practiceId,
@@ -2474,7 +2252,6 @@ export function AppointmentTypesManagement({
             });
             handleDraftMutationResult(recreateResult);
             const restoredFolder = createAppointmentTypeFolderRefSnapshot({
-              ...(createdColor === undefined ? {} : { color: createdColor }),
               id: recreateResult.entityId,
               lineageKey: folderLineageKey,
               name,
@@ -2525,7 +2302,6 @@ export function AppointmentTypesManagement({
             }
             if (
               existing.name !== name ||
-              existing.color !== createdColor ||
               existing.parentFolderId !== resolvedParent.folderId
             ) {
               return `[HISTORY:APPOINTMENT_TYPE_FOLDER_LINEAGE_CONFLICT] Der Ordner mit lineageKey ${folderLineageKey} existiert bereits, hat aber abweichende Einstellungen.`;
@@ -2535,7 +2311,6 @@ export function AppointmentTypesManagement({
         });
       }
       setIsFolderDialogOpen(false);
-      setCreateFolderColor("blue");
       setCreateFolderName("");
       setCreateFolderParentId(undefined);
       setEditingAppointmentTypeFolder(null);
@@ -2607,7 +2382,6 @@ export function AppointmentTypesManagement({
                 )
               : undefined;
             return {
-              color: candidate.color,
               lineageKey: getAppointmentTypeFolderLineageKey(candidate),
               name: candidate.name,
               parentLineageKey: parentFolder
@@ -2636,18 +2410,11 @@ export function AppointmentTypesManagement({
               return;
             }
             return {
-              color: appointmentType.color,
-              bookableVia: appointmentType.bookableVia ?? [
-                "staff",
-                "online",
-                "telefonki",
-                "planStep",
-              ],
+              appointmentPlan: appointmentType.appointmentPlan,
               defaultOccupancy: appointmentType.defaultOccupancy ?? {
                 kind: "selectedPractitioner",
               },
               duration: appointmentType.duration,
-              followUpPlan: appointmentType.appointmentPlan,
               lineageKey: appointmentType.lineageKey,
               name: appointmentType.name,
               practitionerSnapshots: createPractitionerSnapshots(
@@ -2769,11 +2536,11 @@ export function AppointmentTypesManagement({
               if (
                 existingByLineage &&
                 (existingByLineage.name !== snapshot.name ||
-                  existingByLineage.color !== snapshot.color ||
                   existingByLineage.duration !== snapshot.duration ||
-                  serializeFollowUpPlan(
+                  serializeAppointmentPlan(
                     existingByLineage.appointmentPlan?.steps,
-                  ) !== serializeFollowUpPlan(snapshot.followUpPlan?.steps))
+                  ) !==
+                    serializeAppointmentPlan(snapshot.appointmentPlan?.steps))
               ) {
                 return {
                   message: `[HISTORY:APPOINTMENT_TYPE_LINEAGE_CONFLICT] Die Terminart mit lineageKey ${snapshot.lineageKey} existiert bereits, hat aber abweichende Einstellungen.`,
@@ -2837,7 +2604,6 @@ export function AppointmentTypesManagement({
               if (
                 existingFolderByLineage !== undefined &&
                 (existingFolderByLineage.name !== snapshot.name ||
-                  existingFolderByLineage.color !== snapshot.color ||
                   existingFolderByLineage.parentFolderId !== parentFolderId)
               ) {
                 return {
@@ -2868,9 +2634,6 @@ export function AppointmentTypesManagement({
                 plannedFolderIds.set(snapshot.lineageKey, snapshot.lineageKey);
                 plannedFolders.push(
                   createAppointmentTypeFolderRefSnapshot({
-                    ...(snapshot.color === undefined
-                      ? {}
-                      : { color: snapshot.color }),
                     id: snapshot.lineageKey,
                     lineageKey: snapshot.lineageKey,
                     name: snapshot.name,
@@ -2891,9 +2654,6 @@ export function AppointmentTypesManagement({
                   ? undefined
                   : optimisticFolderIds.get(snapshot.parentLineageKey);
               return createAppointmentTypeFolderRefSnapshot({
-                ...(snapshot.color === undefined
-                  ? {}
-                  : { color: snapshot.color }),
                 id: snapshot.lineageKey,
                 lineageKey: snapshot.lineageKey,
                 name: snapshot.name,
@@ -2923,12 +2683,8 @@ export function AppointmentTypesManagement({
                     allowedPractitionerLineageKeys: toSnapshotLineageIds(
                       snapshot.practitionerSnapshots,
                     ),
-                    appointmentPlan: snapshot.followUpPlan ?? { steps: [] },
-                    bookableVia: snapshot.bookableVia,
+                    appointmentPlan: snapshot.appointmentPlan ?? { steps: [] },
                     createdAt: 0n,
-                    ...(snapshot.color === undefined
-                      ? {}
-                      : { color: snapshot.color }),
                     defaultOccupancy: snapshot.defaultOccupancy,
                     duration: snapshot.duration,
                     lastModified: 0n,
@@ -2975,7 +2731,6 @@ export function AppointmentTypesManagement({
                 }
                 const recreateResult =
                   await createAppointmentTypeFolderMutation({
-                    color: snapshot.color ?? null,
                     lineageKey: snapshot.lineageKey,
                     name: snapshot.name,
                     practiceId,
@@ -2989,9 +2744,6 @@ export function AppointmentTypesManagement({
                 );
                 upsertAppointmentTypeFolderRef(
                   createAppointmentTypeFolderRefSnapshot({
-                    ...(snapshot.color === undefined
-                      ? {}
-                      : { color: snapshot.color }),
                     id: recreateResult.entityId,
                     lineageKey: snapshot.lineageKey,
                     name: snapshot.name,
@@ -3026,8 +2778,6 @@ export function AppointmentTypesManagement({
                   };
                 }
                 const recreateResult = await createAppointmentTypeMutation({
-                  color: snapshot.color ?? null,
-                  bookableVia: snapshot.bookableVia,
                   defaultOccupancy: snapshot.defaultOccupancy,
                   duration: snapshot.duration,
                   lineageKey: snapshot.lineageKey,
@@ -3036,7 +2786,9 @@ export function AppointmentTypesManagement({
                   practitionerIds,
                   treeFolderId,
                   ...getCowMutationArgs(),
-                  ...createFollowUpPlanCreateArgs(snapshot.followUpPlan?.steps),
+                  ...createAppointmentPlanCreateArgs(
+                    snapshot.appointmentPlan?.steps,
+                  ),
                 });
                 handleDraftMutationResult(recreateResult);
                 upsertAppointmentTypeRef({
@@ -3045,12 +2797,8 @@ export function AppointmentTypesManagement({
                   allowedPractitionerLineageKeys: toSnapshotLineageIds(
                     snapshot.practitionerSnapshots,
                   ),
-                  appointmentPlan: snapshot.followUpPlan ?? { steps: [] },
-                  bookableVia: snapshot.bookableVia,
+                  appointmentPlan: snapshot.appointmentPlan ?? { steps: [] },
                   createdAt: 0n,
-                  ...(snapshot.color === undefined
-                    ? {}
-                    : { color: snapshot.color }),
                   defaultOccupancy: snapshot.defaultOccupancy,
                   duration: snapshot.duration,
                   lastModified: 0n,
@@ -3273,7 +3021,6 @@ export function AppointmentTypesManagement({
         handleDraftMutationResult(result);
         upsertAppointmentTypeFolderRef(
           createAppointmentTypeFolderRefSnapshot({
-            ...(folder.color === undefined ? {} : { color: folder.color }),
             id: result.entityId,
             lineageKey: folderLineageKey,
             name: folder.name,
@@ -3314,7 +3061,6 @@ export function AppointmentTypesManagement({
             handleDraftMutationResult(redoResult);
             upsertAppointmentTypeFolderRef(
               createAppointmentTypeFolderRefSnapshot({
-                ...(folder.color === undefined ? {} : { color: folder.color }),
                 id: redoResult.entityId,
                 lineageKey: folderLineageKey,
                 name: folder.name,
@@ -3340,7 +3086,6 @@ export function AppointmentTypesManagement({
             handleDraftMutationResult(undoResult);
             upsertAppointmentTypeFolderRef(
               createAppointmentTypeFolderRefSnapshot({
-                ...(folder.color === undefined ? {} : { color: folder.color }),
                 id: undoResult.entityId,
                 lineageKey: folderLineageKey,
                 name: folder.name,
@@ -3402,18 +3147,11 @@ export function AppointmentTypesManagement({
   const handleDelete = async (appointmentType: AppointmentType) => {
     try {
       const deletedSnapshot = {
-        color: appointmentType.color,
-        bookableVia: appointmentType.bookableVia ?? [
-          "staff",
-          "online",
-          "telefonki",
-          "planStep",
-        ],
+        appointmentPlan: appointmentType.appointmentPlan,
         defaultOccupancy: appointmentType.defaultOccupancy ?? {
           kind: "selectedPractitioner",
         },
         duration: appointmentType.duration,
-        followUpPlan: appointmentType.appointmentPlan,
         lineageKey: appointmentType.lineageKey,
         name: appointmentType.name,
         practitionerLineageKeys:
@@ -3472,8 +3210,6 @@ export function AppointmentTypesManagement({
           treeFolderId: Id<"appointmentTypeFolders"> | null,
         ) => {
           const recreateResult = await createAppointmentTypeMutation({
-            color: snapshot.color ?? null,
-            bookableVia: snapshot.bookableVia,
             defaultOccupancy: snapshot.defaultOccupancy,
             duration: snapshot.duration,
             lineageKey: snapshot.lineageKey,
@@ -3482,7 +3218,7 @@ export function AppointmentTypesManagement({
             practitionerIds,
             treeFolderId,
             ...getCowMutationArgs(),
-            ...createFollowUpPlanCreateArgs(snapshot.followUpPlan?.steps),
+            ...createAppointmentPlanCreateArgs(snapshot.appointmentPlan?.steps),
           });
           handleDraftMutationResult(recreateResult);
           return {
@@ -3522,11 +3258,11 @@ export function AppointmentTypesManagement({
           );
           return (
             existingByLineage.name === snapshot.name &&
-            existingByLineage.color === snapshot.color &&
             existingByLineage.treeFolderId === resolvedFolder.folderId &&
             existingByLineage.duration === snapshot.duration &&
-            serializeFollowUpPlan(existingByLineage.appointmentPlan?.steps) ===
-              serializeFollowUpPlan(snapshot.followUpPlan?.steps) &&
+            serializeAppointmentPlan(
+              existingByLineage.appointmentPlan?.steps,
+            ) === serializeAppointmentPlan(snapshot.appointmentPlan?.steps) &&
             samePractitionerLineageIds(
               existingPractitionerLineageIds,
               deletedPractitionerLineageIds,
@@ -3573,9 +3309,7 @@ export function AppointmentTypesManagement({
           allowedPractitionerLineageKeys: toSnapshotLineageIds(
             deletedPractitionerSnapshots,
           ),
-          ...(snapshot.color === undefined ? {} : { color: snapshot.color }),
-          appointmentPlan: snapshot.followUpPlan ?? { steps: [] },
-          bookableVia: snapshot.bookableVia,
+          appointmentPlan: snapshot.appointmentPlan ?? { steps: [] },
           createdAt: 0n,
           defaultOccupancy: snapshot.defaultOccupancy,
           duration: snapshot.duration,
@@ -3691,19 +3425,6 @@ export function AppointmentTypesManagement({
                         }}
                       </form.Field>
 
-                      <form.Field name="color">
-                        {(field) => (
-                          <Field>
-                            <FieldLabel>Farbe</FieldLabel>
-                            <AppointmentColorCombobox
-                              includeInherit
-                              onChange={field.handleChange}
-                              value={field.state.value}
-                            />
-                          </Field>
-                        )}
-                      </form.Field>
-
                       <form.Field name="duration">
                         {(field) => {
                           const isInvalid =
@@ -3765,67 +3486,13 @@ export function AppointmentTypesManagement({
                                 <SelectItem value="resource-labor">
                                   Labor
                                 </SelectItem>
-                                {practitioners.map((practitioner) => (
-                                  <SelectItem
-                                    key={practitioner.lineageKey}
-                                    value={`practitioner:${practitioner.lineageKey}`}
-                                  >
-                                    {practitioner.name}
-                                  </SelectItem>
-                                ))}
                               </SelectContent>
                             </Select>
                           </Field>
                         )}
                       </form.Field>
 
-                      <form.Field mode="array" name="bookableVia">
-                        {(field) => (
-                          <FieldSet>
-                            <FieldLegend variant="label">
-                              Buchbarkeit
-                            </FieldLegend>
-                            <FieldGroup className="grid gap-3 md:grid-cols-4">
-                              {(
-                                [
-                                  ["staff", "Praxis"],
-                                  ["online", "Online"],
-                                  ["telefonki", "TelefonKI"],
-                                  ["planStep", "Kettentermin"],
-                                ] as const
-                              ).map(([channel, label]) => (
-                                <Field key={channel} orientation="horizontal">
-                                  <Checkbox
-                                    checked={field.state.value.includes(
-                                      channel,
-                                    )}
-                                    id={`bookable-${channel}`}
-                                    onCheckedChange={(checked) => {
-                                      if (checked) {
-                                        field.pushValue(channel);
-                                        return;
-                                      }
-                                      const existingIndex =
-                                        field.state.value.indexOf(channel);
-                                      if (existingIndex !== -1) {
-                                        field.removeValue(existingIndex);
-                                      }
-                                    }}
-                                  />
-                                  <FieldLabel
-                                    className="font-normal"
-                                    htmlFor={`bookable-${channel}`}
-                                  >
-                                    {label}
-                                  </FieldLabel>
-                                </Field>
-                              ))}
-                            </FieldGroup>
-                          </FieldSet>
-                        )}
-                      </form.Field>
-
-                      <form.Field mode="array" name="followUpPlan">
+                      <form.Field mode="array" name="appointmentPlan">
                         {(field) => {
                           const availableTargets = appointmentTypes.filter(
                             (appointmentType) =>
@@ -3855,7 +3522,9 @@ export function AppointmentTypesManagement({
                                     return (
                                       <form.Field
                                         key={`${index}-${step.appointmentTypeLineageKey}`}
-                                        name={`followUpPlan[${index}]` as const}
+                                        name={
+                                          `appointmentPlan[${index}]` as const
+                                        }
                                       >
                                         {(itemField) => (
                                           <div className="rounded-lg border p-4 space-y-4">
@@ -3990,7 +3659,7 @@ export function AppointmentTypesManagement({
                                                 <Select
                                                   onValueChange={(value) => {
                                                     const timingKind =
-                                                      parseFollowUpTimingKind(
+                                                      parseAppointmentPlanTimingKind(
                                                         value,
                                                       );
                                                     if (!timingKind) {
@@ -4098,7 +3767,7 @@ export function AppointmentTypesManagement({
                                                   }
                                                   onBlur={(e) => {
                                                     const normalizedOffsetValue =
-                                                      normalizeFollowUpOffsetValue(
+                                                      normalizeAppointmentPlanOffsetValue(
                                                         itemField.state.value
                                                           .offsetUnit,
                                                         parseNumberInput(
@@ -4158,7 +3827,7 @@ export function AppointmentTypesManagement({
                                                   }
                                                   onValueChange={(value) => {
                                                     const nextOffsetUnit =
-                                                      parseFollowUpOffsetUnit(
+                                                      parseAppointmentPlanOffsetUnit(
                                                         value,
                                                       );
                                                     if (!nextOffsetUnit) {
@@ -4169,7 +3838,7 @@ export function AppointmentTypesManagement({
                                                       offsetUnit:
                                                         nextOffsetUnit,
                                                       offsetValue:
-                                                        normalizeFollowUpOffsetValue(
+                                                        normalizeAppointmentPlanOffsetValue(
                                                           nextOffsetUnit,
                                                           itemField.state.value
                                                             .offsetValue,
@@ -4214,7 +3883,7 @@ export function AppointmentTypesManagement({
                                                     itemField.handleChange({
                                                       ...itemField.state.value,
                                                       occupancyKind:
-                                                        normalizeFollowUpOccupancyKindSelection(
+                                                        normalizeAppointmentPlanOccupancyKindSelection(
                                                           value,
                                                         ),
                                                     });
@@ -4237,18 +3906,6 @@ export function AppointmentTypesManagement({
                                                     <SelectItem value="resource-labor">
                                                       Labor
                                                     </SelectItem>
-                                                    {practitioners.map(
-                                                      (practitioner) => (
-                                                        <SelectItem
-                                                          key={
-                                                            practitioner.lineageKey
-                                                          }
-                                                          value={`practitioner:${practitioner.lineageKey}`}
-                                                        >
-                                                          {practitioner.name}
-                                                        </SelectItem>
-                                                      ),
-                                                    )}
                                                   </SelectContent>
                                                 </Select>
                                               </Field>
@@ -4262,7 +3919,9 @@ export function AppointmentTypesManagement({
 
                                 <Button
                                   onClick={() => {
-                                    field.pushValue(createEmptyFollowUpStep());
+                                    field.pushValue(
+                                      createEmptyAppointmentPlanStep(),
+                                    );
                                   }}
                                   size="sm"
                                   type="button"
@@ -4391,7 +4050,6 @@ export function AppointmentTypesManagement({
               if (!open) {
                 setEditingAppointmentTypeFolder(null);
                 setCreateFolderParentId(undefined);
-                setCreateFolderColor("blue");
                 setCreateFolderName("");
               }
             }}
@@ -4429,21 +4087,12 @@ export function AppointmentTypesManagement({
                     value={createFolderName}
                   />
                 </Field>
-                <Field className="mt-4">
-                  <FieldLabel>Farbe</FieldLabel>
-                  <AppointmentColorCombobox
-                    includeInherit
-                    onChange={setCreateFolderColor}
-                    value={createFolderColor}
-                  />
-                </Field>
                 <DialogFooter className="mt-6">
                   <Button
                     onClick={() => {
                       setIsFolderDialogOpen(false);
                       setEditingAppointmentTypeFolder(null);
                       setCreateFolderParentId(undefined);
-                      setCreateFolderColor("blue");
                       setCreateFolderName("");
                     }}
                     type="button"
@@ -4481,7 +4130,7 @@ export function AppointmentTypesManagement({
               {appointmentTypeFolders.length} Ordnern
             </div>
 
-            <div className="rounded-md border" ref={appointmentTreeHostRef}>
+            <div className="rounded-md border">
               <FileTree
                 className="h-[420px] bg-card text-card-foreground"
                 model={fileTree.model}

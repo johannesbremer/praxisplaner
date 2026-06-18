@@ -1074,7 +1074,7 @@ describe("appointments self-service cancellation", () => {
       }
 
       const now = BigInt(Date.now());
-      const followUpTypeId = await insertSelfLineageEntity(
+      const planStepTypeId = await insertSelfLineageEntity(
         ctx.db,
         "appointmentTypes",
         {
@@ -1093,20 +1093,24 @@ describe("appointments self-service cancellation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: planStepTypeId,
+                occupancy: { kind: "inheritRootPractitioner" },
+                required: true,
+                stepId: "step-1",
+                timing: {
+                  anchorStepId: "root",
+                  kind: "firstAvailableOnOrAfter",
+                  offsetUnit: "days",
+                  offsetValue: 2,
+                },
+              },
+            ],
+          },
           createdAt: now,
           duration: 30,
-          followUpPlan: [
-            {
-              appointmentTypeLineageKey: followUpTypeId,
-              locationMode: "inherit",
-              offsetUnit: "days",
-              offsetValue: 2,
-              practitionerMode: "inherit",
-              required: true,
-              searchMode: "first_available_on_or_after",
-              stepId: "step-1",
-            },
-          ],
           lastModified: now,
           name: "Ersttermin",
           practiceId,
@@ -1145,14 +1149,14 @@ describe("appointments self-service cancellation", () => {
       },
     );
 
-    const followUpAppointmentId = createdSeries.steps[1]?.appointmentId;
-    expect(followUpAppointmentId).toBeDefined();
-    if (!followUpAppointmentId) {
+    const planStepAppointmentId = createdSeries.steps[1]?.appointmentId;
+    expect(planStepAppointmentId).toBeDefined();
+    if (!planStepAppointmentId) {
       throw new Error("Follow-up appointment should exist");
     }
 
     await authed.mutation(api.appointments.cancelOwnAppointment, {
-      appointmentId: followUpAppointmentId,
+      appointmentId: planStepAppointmentId,
     });
 
     const cancelledSeries = await t.run(async (ctx) => {
@@ -1427,10 +1431,10 @@ describe("appointments self-service cancellation", () => {
     const authId = "workos_series_cancel_user";
     const userId = await createUser(t, authId, "series-cancel@example.com");
     const rootWindow = makeSlotWindow(4);
-    const followUpStart = Temporal.ZonedDateTime.from(rootWindow.start)
+    const planStepStart = Temporal.ZonedDateTime.from(rootWindow.start)
       .add({ days: 5 })
       .toString();
-    const followUpEnd = Temporal.ZonedDateTime.from(followUpStart)
+    const planStepEnd = Temporal.ZonedDateTime.from(planStepStart)
       .add({ minutes: 30 })
       .toString();
     const seriesId = "series_test_cancel";
@@ -1460,7 +1464,7 @@ describe("appointments self-service cancellation", () => {
         appointmentTypeLineageKey: baseData.appointmentTypeId,
         appointmentTypeTitle: "Checkup",
         createdAt: now,
-        end: followUpEnd,
+        end: planStepEnd,
         lastModified: now,
         locationLineageKey: baseData.locationId,
         occupancyScope: {
@@ -1470,7 +1474,7 @@ describe("appointments self-service cancellation", () => {
         practiceId: baseData.practiceId,
         seriesId,
         seriesStepIndex: 1n,
-        start: followUpStart,
+        start: planStepStart,
         title: "Follow-up",
         userId,
       });
