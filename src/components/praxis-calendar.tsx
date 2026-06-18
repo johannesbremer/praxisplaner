@@ -13,8 +13,12 @@ import { NewCalendar } from "./new-calendar";
 interface PraxisCalendarProps {
   canManageCalendarPlanning?: boolean | undefined;
   // Notify parent when the current date changes
+  hiddenColumnNames?: readonly string[] | undefined;
   locationName?: string | undefined;
   onDateChange?: ((date: Temporal.PlainDate) => void) | undefined;
+  onHiddenColumnNamesChange?:
+    | ((hiddenColumnNames: readonly string[]) => void)
+    | undefined;
   onLocationResolved?:
     | ((locationId: Id<"locations">, locationName: string) => void)
     | undefined;

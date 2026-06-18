@@ -68,7 +68,9 @@ import { readOrganizationSlugParam } from "../utils/organization-route-params";
 import {
   NERDS_TAB_SEARCH_VALUE,
   normalizePraxisplanerSearch,
+  parseHiddenColumnNamesFromSearch,
   type PraxisplanerSearchParams,
+  serializeHiddenColumnNamesForSearch,
   VACATION_TAB_SEARCH_VALUE,
 } from "../utils/praxisplaner-search";
 
@@ -108,10 +110,16 @@ function isObservedGdtFileRecord(
 const buildSearchFromState = (
   date: Temporal.PlainDate,
   tab: string,
+  hiddenColumnNames: readonly string[],
   standort?: string,
 ): PraxisplanerSearchParams => {
+  const ohne = serializeHiddenColumnNamesForSearch(hiddenColumnNames);
+
   if (tab === SETTINGS_TAB) {
-    return { tab: NERDS_TAB_SEARCH_VALUE };
+    return {
+      ...(ohne && { ohne }),
+      tab: NERDS_TAB_SEARCH_VALUE,
+    };
   }
 
   if (tab === VACATION_TAB) {
@@ -121,6 +129,9 @@ const buildSearchFromState = (
     };
     if (dateOut) {
       result.datum = dateOut;
+    }
+    if (ohne) {
+      result.ohne = ohne;
     }
     return result;
   }
@@ -134,6 +145,10 @@ const buildSearchFromState = (
 
   if (standort) {
     result.standort = standort;
+  }
+
+  if (ohne) {
+    result.ohne = ohne;
   }
 
   return result;
@@ -176,8 +191,16 @@ function PraxisPlanerComponent() {
   const navigate = useNavigate({ from: Route.fullPath });
   const search: PraxisplanerSearchParams = Route.useSearch();
   const dateParam = search.datum;
+  const hiddenColumnsParam = search.ohne;
   const tabParam = search.tab;
   const standortParam = search.standort;
+  const hiddenColumnNames = useMemo(
+    () =>
+      typeof hiddenColumnsParam === "string"
+        ? parseHiddenColumnNamesFromSearch(hiddenColumnsParam)
+        : [],
+    [hiddenColumnsParam],
+  );
 
   // Query practices to get practiceId for patient mutations
   const currentPractice = useQuery(api.practices.getAccessiblePracticeBySlug, {
@@ -275,11 +298,22 @@ function PraxisPlanerComponent() {
 
   // Helper to push URL state
   const pushParams = useCallback(
-    (d: Temporal.PlainDate, tab: string, standort?: string) => {
-      const nextSearch = buildSearchFromState(d, tab, standort);
+    (
+      d: Temporal.PlainDate,
+      tab: string,
+      nextHiddenColumnNames: readonly string[],
+      standort?: string,
+    ) => {
+      const nextSearch = buildSearchFromState(
+        d,
+        tab,
+        nextHiddenColumnNames,
+        standort,
+      );
 
       if (
         nextSearch.datum === dateParam &&
+        nextSearch.ohne === hiddenColumnsParam &&
         nextSearch.tab === tabParam &&
         nextSearch.standort === standortParam
       ) {
@@ -291,22 +325,29 @@ function PraxisPlanerComponent() {
         to: Route.fullPath,
       });
     },
-    [dateParam, standortParam, navigate, tabParam],
+    [dateParam, hiddenColumnsParam, standortParam, navigate, tabParam],
   );
 
   const handleDateChange = useCallback(
     (nextDate: Temporal.PlainDate) => {
-      pushParams(nextDate, activeTab, standortParam);
+      pushParams(nextDate, activeTab, hiddenColumnNames, standortParam);
     },
-    [activeTab, standortParam, pushParams],
+    [activeTab, hiddenColumnNames, standortParam, pushParams],
   );
 
   // Handle location selection from calendar
   const handleLocationResolved = useCallback(
     (_locationId: Id<"locations">, locationName: string) => {
-      pushParams(selectedDate, activeTab, locationName);
+      pushParams(selectedDate, activeTab, hiddenColumnNames, locationName);
     },
-    [activeTab, pushParams, selectedDate],
+    [activeTab, hiddenColumnNames, pushParams, selectedDate],
+  );
+
+  const handleHiddenColumnNamesChange = useCallback(
+    (nextHiddenColumnNames: readonly string[]) => {
+      pushParams(selectedDate, activeTab, nextHiddenColumnNames, standortParam);
+    },
+    [activeTab, pushParams, selectedDate, standortParam],
   );
 
   // We sync to URL on interactions (tab/date handlers). No effect needed.
@@ -1073,7 +1114,9 @@ function PraxisPlanerComponent() {
         <SidebarProvider className="flex h-full w-full">
           <PraxisCalendar
             canManageCalendarPlanning={canManageCalendarPlanning}
+            hiddenColumnNames={hiddenColumnNames}
             onDateChange={handleDateChange}
+            onHiddenColumnNamesChange={handleHiddenColumnNamesChange}
             onLocationResolved={handleLocationResolved}
             patient={currentPatient ?? undefined}
             practiceId={currentPractice._id}
@@ -1296,7 +1339,7 @@ function PraxisPlanerComponent() {
       <Tabs
         className="h-full flex flex-col"
         onValueChange={(val) => {
-          pushParams(selectedDate, val, standortParam);
+          pushParams(selectedDate, val, hiddenColumnNames, standortParam);
         }}
         value={activeTab}
       >

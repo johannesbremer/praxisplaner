@@ -1,8 +1,8 @@
 "use client";
 
 import { useQuery } from "convex/react";
-import { AlertCircle } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertCircle, Columns3 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
@@ -12,8 +12,17 @@ import type { PatientInfo, PracticePatientSelection } from "@/src/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { api } from "@/convex/_generated/api";
+import { calendarColumnScopeKey } from "@/lib/calendar-occupancy";
 
 import type {
   CalendarAppointmentView,
@@ -54,6 +63,7 @@ import { useCalendarLogic } from "./calendar/use-calendar-logic";
 
 // Hardcoded timezone for Berlin
 const TIMEZONE = "Europe/Berlin";
+const EMPTY_HIDDEN_COLUMN_NAMES: readonly string[] = [];
 
 type SelectedPatient =
   | { id: Id<"patients">; info?: PatientInfo; type: "patient" }
@@ -107,8 +117,10 @@ function CalendarGridWithSidebarOpening({
 // Helper to convert Temporal.PlainDate to JS Date for date-fns
 export function NewCalendar({
   canManageCalendarPlanning = false,
+  hiddenColumnNames = EMPTY_HIDDEN_COLUMN_NAMES,
   locationName,
   onDateChange,
+  onHiddenColumnNamesChange,
   onLocationResolved,
   onUpdateSimulatedContext,
   patient,
@@ -330,6 +342,40 @@ export function NewCalendar({
     simulatedContext,
     simulationDate,
   });
+
+  const hiddenColumnNameSet = useMemo(
+    () => new Set(hiddenColumnNames),
+    [hiddenColumnNames],
+  );
+  const visibleColumns = useMemo(
+    () => columns.filter((column) => !hiddenColumnNameSet.has(column.title)),
+    [columns, hiddenColumnNameSet],
+  );
+  const hiddenColumnCount = columns.length - visibleColumns.length;
+  const areAllColumnsHidden = columns.length > 0 && visibleColumns.length === 0;
+  const canChangeColumnVisibility = onHiddenColumnNamesChange !== undefined;
+
+  const handleColumnVisibleChange = useCallback(
+    (columnName: string, nextVisible: boolean) => {
+      if (!onHiddenColumnNamesChange) {
+        return;
+      }
+
+      const nextHiddenColumnNames = new Set(hiddenColumnNames);
+      if (nextVisible) {
+        nextHiddenColumnNames.delete(columnName);
+      } else {
+        nextHiddenColumnNames.add(columnName);
+      }
+
+      onHiddenColumnNamesChange([...nextHiddenColumnNames]);
+    },
+    [hiddenColumnNames, onHiddenColumnNamesChange],
+  );
+
+  const showAllColumns = useCallback(() => {
+    onHiddenColumnNamesChange?.([]);
+  }, [onHiddenColumnNamesChange]);
 
   // Query for patient appointments when a patient is selected
   // Also queries for GDT patient when no specific appointment is selected
@@ -607,6 +653,53 @@ export function NewCalendar({
                 >
                   Weiter
                 </Button>
+                {canChangeColumnVisibility ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        disabled={columns.length === 0}
+                        size="sm"
+                        variant="outline"
+                      >
+                        <Columns3 className="h-4 w-4" />
+                        Spalten
+                        {hiddenColumnCount > 0 ? (
+                          <span className="text-muted-foreground">
+                            {visibleColumns.length}/{columns.length}
+                          </span>
+                        ) : null}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-64">
+                      <DropdownMenuLabel>Spalten anzeigen</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {columns.map((column) => {
+                        const columnKey = calendarColumnScopeKey(column.id);
+                        const isVisible = !hiddenColumnNameSet.has(
+                          column.title,
+                        );
+                        const isLastVisibleColumn =
+                          isVisible && visibleColumns.length === 1;
+
+                        return (
+                          <DropdownMenuCheckboxItem
+                            checked={isVisible}
+                            disabled={isLastVisibleColumn}
+                            key={columnKey}
+                            onCheckedChange={(checked) => {
+                              handleColumnVisibleChange(column.title, checked);
+                            }}
+                            onSelect={(event) => {
+                              event.preventDefault();
+                            }}
+                          >
+                            <span className="truncate">{column.title}</span>
+                          </DropdownMenuCheckboxItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
                 <RightSidebarTrigger />
               </div>
             </div>
@@ -622,7 +715,28 @@ export function NewCalendar({
             >
               {practiceId ? (
                 selectedLocationId ? (
-                  holidayName || workingPractitioners.length === 0 ? (
+                  areAllColumnsHidden ? (
+                    <Card className="m-8">
+                      <CardContent className="pt-6">
+                        <Alert>
+                          <AlertCircle className="h-4 w-4" />
+                          <AlertTitle>Alle Spalten ausgeblendet</AlertTitle>
+                          <AlertDescription>
+                            Wählen Sie mindestens eine Spalte aus, um den
+                            Kalender anzuzeigen.
+                          </AlertDescription>
+                        </Alert>
+                        <Button
+                          className="mt-4"
+                          onClick={showAllColumns}
+                          size="sm"
+                          variant="outline"
+                        >
+                          Alle Spalten anzeigen
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ) : holidayName || workingPractitioners.length === 0 ? (
                     <Card className="m-8">
                       <CardContent className="pt-6">
                         <Alert>
@@ -651,7 +765,7 @@ export function NewCalendar({
                       appointments={appointments}
                       blockedSlots={blockedSlots}
                       canDragCalendarItems={canManageCalendarPlanning}
-                      columns={columns}
+                      columns={visibleColumns}
                       currentTimeSlot={currentTimeSlot}
                       draggedAppointment={draggedAppointment}
                       draggedBlockedSlotId={draggedBlockedSlotId}
