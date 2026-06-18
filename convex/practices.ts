@@ -416,6 +416,10 @@ export const upsertPracticeMember = mutation({
       )
       .first();
 
+    if (args.role === "owner" || existing?.role === "owner") {
+      await ensurePracticeAccessForMutation(ctx, args.practiceId, "owner");
+    }
+
     if (existing) {
       await ctx.db.patch("practiceMembers", existing._id, { role: args.role });
       return existing._id;
