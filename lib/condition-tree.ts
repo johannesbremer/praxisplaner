@@ -9,6 +9,7 @@ export interface ConditionNode {
 
 export type ConditionOperator =
   | "EQUALS"
+  | "GREATER_THAN"
   | "GREATER_THAN_OR_EQUAL"
   | "IS"
   | "IS_NOT"
@@ -67,6 +68,7 @@ export type Scope = "location" | "practice" | "practitioner";
 const CONDITION_NODE_TYPE = "CONDITION";
 export const CONDITION_OPERATORS = [
   "EQUALS",
+  "GREATER_THAN",
   "GREATER_THAN_OR_EQUAL",
   "IS",
   "IS_NOT",
@@ -253,6 +255,7 @@ function assertLogicalNodeArity(
 function isConditionOperator(value: unknown): value is ConditionOperator {
   switch (value) {
     case "EQUALS":
+    case "GREATER_THAN":
     case "GREATER_THAN_OR_EQUAL":
     case "IS":
     case "IS_NOT":

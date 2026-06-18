@@ -1162,6 +1162,7 @@ export default defineSchema({
       v.union(
         v.literal("IS"), // Equals (single value)
         v.literal("IS_NOT"), // Not equals (single value)
+        v.literal("GREATER_THAN"), // > (numeric)
         v.literal("GREATER_THAN_OR_EQUAL"), // >= (numeric)
         v.literal("LESS_THAN"), // < (numeric)
         v.literal("LESS_THAN_OR_EQUAL"), // <= (numeric)

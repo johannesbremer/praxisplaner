@@ -1031,6 +1031,41 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     );
   });
 
+  test("should reject minimum advance time conditions without an amount", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await createPractice(t);
+
+    const practice = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", practiceId);
+      if (!practice) {
+        throw new Error("Practice not found");
+      }
+      return practice;
+    });
+
+    if (!practice.currentActiveRuleSetId) {
+      throw new Error("Practice has no active rule set");
+    }
+
+    await expect(
+      createRule(t, {
+        conditionTree: {
+          conditionType: "MINIMUM_ADVANCE_TIME",
+          nodeType: "CONDITION",
+          operator: "LESS_THAN",
+          valueIds: ["hours"],
+        },
+        expectedDraftRevision: null,
+        name: "Minimum advance without amount",
+        practiceId,
+        selectedRuleSetId: practice.currentActiveRuleSetId,
+      }),
+    ).rejects.toThrow(
+      "Ungueltiger Regelbaum: MINIMUM_ADVANCE_TIME condition must use valueNumber",
+    );
+  });
+
   test("should delete base schedules after a discarded draft when expected revision is reset", async () => {
     const t = createAuthedTestContext();
 

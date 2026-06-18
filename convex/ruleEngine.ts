@@ -620,6 +620,9 @@ function evaluateCondition(
       case "EQUALS": {
         return actual === expected;
       }
+      case "GREATER_THAN": {
+        return actual > expected;
+      }
       case "GREATER_THAN_OR_EQUAL": {
         return actual >= expected;
       }
@@ -1260,6 +1263,7 @@ export type {
 const [SCOPE_LOCATION, SCOPE_PRACTICE, SCOPE_PRACTITIONER] = SCOPES;
 const [
   CONDITION_OPERATOR_EQUALS,
+  CONDITION_OPERATOR_GREATER_THAN,
   CONDITION_OPERATOR_GREATER_THAN_OR_EQUAL,
   CONDITION_OPERATOR_IS,
   CONDITION_OPERATOR_IS_NOT,
@@ -1307,6 +1311,7 @@ const conditionTypeValidator = v.union(
 );
 const conditionOperatorValidator = v.union(
   v.literal(CONDITION_OPERATOR_EQUALS),
+  v.literal(CONDITION_OPERATOR_GREATER_THAN),
   v.literal(CONDITION_OPERATOR_GREATER_THAN_OR_EQUAL),
   v.literal(CONDITION_OPERATOR_IS),
   v.literal(CONDITION_OPERATOR_IS_NOT),
@@ -1426,6 +1431,20 @@ export function validateConditionTree(
         "MINIMUM_ADVANCE_TIME condition must use minutes, hours, or days",
       );
     }
+    if (
+      node.conditionType === "MINIMUM_ADVANCE_TIME" &&
+      node.valueNumber === undefined
+    ) {
+      errors.push("MINIMUM_ADVANCE_TIME condition must use valueNumber");
+    }
+    if (
+      node.conditionType === "MINIMUM_ADVANCE_TIME" &&
+      !isMinimumAdvanceTimeOperator(node.operator)
+    ) {
+      errors.push(
+        "MINIMUM_ADVANCE_TIME condition must use LESS_THAN or GREATER_THAN",
+      );
+    }
   } else if (isLogicalNode(node)) {
     // Validate logical operator - children array is guaranteed by type guard
     if (node.nodeType === "NOT" && node.children.length !== 1) {
@@ -1450,6 +1469,20 @@ export function validateConditionTree(
   }
 
   return errors;
+}
+
+function isMinimumAdvanceTimeOperator(
+  operator: ConditionNode["operator"],
+): boolean {
+  switch (operator) {
+    case "GREATER_THAN":
+    case "LESS_THAN": {
+      return true;
+    }
+    default: {
+      return false;
+    }
+  }
 }
 
 /**

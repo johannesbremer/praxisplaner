@@ -613,6 +613,7 @@ async function copyConditionNode(
     nodeType?: "AND" | "CONDITION" | "NOT";
     operator?:
       | "EQUALS"
+      | "GREATER_THAN"
       | "GREATER_THAN_OR_EQUAL"
       | "IS"
       | "IS_NOT"

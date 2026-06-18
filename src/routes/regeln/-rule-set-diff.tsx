@@ -546,7 +546,7 @@ function formatEnumValue(key: string, value: unknown) {
       DAYS_AHEAD: "Tage im Voraus",
       HOURS_AHEAD: "Stunden im Voraus",
       LOCATION: "Standort",
-      MINIMUM_ADVANCE_TIME: "Nicht mindestens in der Zukunft",
+      MINIMUM_ADVANCE_TIME: "Zukunftsabstand",
       PATIENT_AGE: "Patientenalter",
       PRACTITIONER: "Behandler",
     },

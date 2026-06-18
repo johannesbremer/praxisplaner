@@ -11,7 +11,12 @@ export type AdvanceTimeUnit = "days" | "hours" | "minutes";
 interface Condition {
   advanceUnit?: AdvanceTimeUnit | null;
   id: string;
-  operator?: "GREATER_THAN_OR_EQUAL" | "IS" | "IS_NOT" | "LESS_THAN";
+  operator?:
+    | "GREATER_THAN"
+    | "GREATER_THAN_OR_EQUAL"
+    | "IS"
+    | "IS_NOT"
+    | "LESS_THAN";
   type: ConditionType;
   valueIds?: string[];
   valueNumber?: null | number;
@@ -261,9 +266,15 @@ export function generateRuleName(
         const amount = condition.valueNumber || 0;
         const unit = condition.advanceUnit ?? "hours";
         const unitLabel = formatAdvanceTimeUnit(amount, unit);
-        parts.push(
-          `der Termin nicht mindestens ${amount} ${unitLabel} in der Zukunft liegt,`,
-        );
+        if (condition.operator === "GREATER_THAN") {
+          parts.push(
+            `der Termin mehr als ${amount} ${unitLabel} in der Zukunft liegt,`,
+          );
+        } else {
+          parts.push(
+            `der Termin nicht mindestens ${amount} ${unitLabel} in der Zukunft liegt,`,
+          );
+        }
         break;
       }
       case "PATIENT_AGE": {
@@ -466,7 +477,7 @@ function parseConditionNode(
       return {
         advanceUnit: parseAdvanceTimeUnit(valueIds?.[0]),
         id,
-        operator: "LESS_THAN",
+        operator: operator === "GREATER_THAN" ? "GREATER_THAN" : "LESS_THAN",
         type: conditionType,
         valueNumber: valueNumber ?? null,
       };

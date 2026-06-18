@@ -10,7 +10,12 @@ export interface Condition {
   appointmentTypes?: null | string[];
   count?: null | number;
   id: string;
-  operator?: "GREATER_THAN_OR_EQUAL" | "IS" | "IS_NOT" | "LESS_THAN";
+  operator?:
+    | "GREATER_THAN"
+    | "GREATER_THAN_OR_EQUAL"
+    | "IS"
+    | "IS_NOT"
+    | "LESS_THAN";
   scope?: "location" | "practice" | "practitioner" | null;
   type: ConditionType;
   valueIds?: string[];

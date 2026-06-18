@@ -392,6 +392,9 @@ export function validateCondition(condition: Condition): string[] {
       break;
     }
     case "MINIMUM_ADVANCE_TIME": {
+      if (!parseMinimumAdvanceTimeOperator(condition.operator ?? "")) {
+        errors.push("operator");
+      }
       if (!condition.valueNumber || condition.valueNumber < 1) {
         errors.push("valueNumber");
       }
@@ -515,7 +518,7 @@ function ConditionEditor({
     { label: "Datumsbereich", value: "DATE_RANGE" },
     { label: "Wochentag", value: "DAY_OF_WEEK" },
     { label: "Tage im Voraus", value: "DAYS_AHEAD" },
-    { label: "Nicht mindestens in der Zukunft", value: "MINIMUM_ADVANCE_TIME" },
+    { label: "Zukunftsabstand", value: "MINIMUM_ADVANCE_TIME" },
     { label: "Stunden im Voraus", value: "HOURS_AHEAD" },
     { label: "Uhrzeitbereich", value: "TIME_RANGE" },
     { label: "Gleichzeitige Termine", value: "CONCURRENT_COUNT" },
@@ -733,7 +736,10 @@ function conditionsToConditionTree(conditions: Condition[]): ConditionTreeNode {
           nodes.push({
             conditionType: "MINIMUM_ADVANCE_TIME",
             nodeType: "CONDITION",
-            operator: "LESS_THAN",
+            operator:
+              condition.operator === "GREATER_THAN"
+                ? "GREATER_THAN"
+                : "LESS_THAN",
             valueIds: [condition.advanceUnit],
             valueNumber: condition.valueNumber,
           });
@@ -921,6 +927,9 @@ function getErrorMessage(condition: Condition, invalidField: string): string {
         : "";
     }
     case "MINIMUM_ADVANCE_TIME": {
+      if (invalidField === "operator") {
+        return "Bitte wählen Sie eine Zukunftsbedingung aus.";
+      }
       if (invalidField === "valueNumber") {
         return "Bitte geben Sie mindestens 1 ein.";
       }
@@ -1017,6 +1026,29 @@ function MinimumAdvanceTimeCondition({
 }: MinimumAdvanceTimeConditionProps) {
   return (
     <>
+      <Select
+        onValueChange={(value) => {
+          const operator = parseMinimumAdvanceTimeOperator(value);
+          if (operator) {
+            onUpdate({ operator });
+          }
+        }}
+        value={
+          condition.operator === "GREATER_THAN" ? "GREATER_THAN" : "LESS_THAN"
+        }
+      >
+        <SelectTrigger
+          aria-invalid={invalidFields?.has("operator")}
+          className="w-auto min-w-[180px]"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="LESS_THAN">nicht mindestens</SelectItem>
+          <SelectItem value="GREATER_THAN">mehr als</SelectItem>
+        </SelectContent>
+      </Select>
+
       <Input
         aria-invalid={invalidFields?.has("valueNumber")}
         className="w-auto min-w-[120px]"
@@ -1087,6 +1119,20 @@ function parseConditionType(value: string): ConditionType | undefined {
     }
     default: {
       return undefined;
+    }
+  }
+}
+
+function parseMinimumAdvanceTimeOperator(
+  value: string,
+): Extract<Condition["operator"], "GREATER_THAN" | "LESS_THAN"> | null {
+  switch (value) {
+    case "GREATER_THAN":
+    case "LESS_THAN": {
+      return value;
+    }
+    default: {
+      return null;
     }
   }
 }

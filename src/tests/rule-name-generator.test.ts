@@ -64,4 +64,20 @@ describe("rule-name-generator", () => {
       "NOT-Regelbäume können nicht als flache Bedingungen dargestellt werden",
     );
   });
+
+  test("describes maximum advance time conditions", () => {
+    const conditionTree = {
+      conditionType: "MINIMUM_ADVANCE_TIME",
+      nodeType: "CONDITION",
+      operator: "GREATER_THAN",
+      valueIds: ["hours"],
+      valueNumber: 2,
+    } satisfies ConditionTreeNode;
+
+    expect(
+      generateRuleName(conditionTreeToConditions(conditionTree), [], [], []),
+    ).toBe(
+      "Wenn der Termin mehr als 2 Stunden in der Zukunft liegt, darf der Termin nicht vergeben werden.",
+    );
+  });
 });
