@@ -3110,6 +3110,10 @@ async function updateAppointmentByMode(
 
     for (const step of plannedSteps) {
       const matchingAppointment = existingByStepKey.get(step.stepId);
+      const stepSmiley =
+        step.seriesStepIndex === 0
+          ? resolvedRootSmiley
+          : matchingAppointment?.smiley;
       const title =
         step.seriesStepIndex === 0
           ? (filteredUpdateData.title?.trim() ?? existingAppointment.title)
@@ -3137,7 +3141,9 @@ async function updateAppointmentByMode(
           seriesId,
           seriesStepId: step.stepId,
           seriesStepIndex: BigInt(step.seriesStepIndex),
-          ...(step.seriesStepIndex === 0 ? { smiley: resolvedRootSmiley } : {}),
+          ...(step.seriesStepIndex === 0 || stepSmiley !== undefined
+            ? { smiley: stepSmiley }
+            : {}),
           start: step.start,
           title,
           ...(resolvedUserId && { userId: resolvedUserId }),
@@ -3177,9 +3183,7 @@ async function updateAppointmentByMode(
         seriesId,
         seriesStepId: step.stepId,
         seriesStepIndex: BigInt(step.seriesStepIndex),
-        ...(step.seriesStepIndex === 0 && resolvedRootSmiley !== undefined
-          ? { smiley: resolvedRootSmiley }
-          : {}),
+        ...(stepSmiley === undefined ? {} : { smiley: stepSmiley }),
         start: step.start,
         title,
         ...(resolvedUserId && { userId: resolvedUserId }),
