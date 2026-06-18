@@ -1483,6 +1483,114 @@ describe("appointments self-service cancellation", () => {
 });
 
 describe("appointments update safety", () => {
+  test("updateAppointment can set a smiley on a series follow-up without replanning the chain", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_series_follow_up_smiley";
+    const userId = await createUser(
+      t,
+      authId,
+      "series-follow-up-smiley@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "series-follow-up-smiley@example.com",
+      subject: authId,
+    });
+    const rootWindow = makeSlotWindow(4);
+    const followUpStart = Temporal.ZonedDateTime.from(rootWindow.start)
+      .add({ days: 7 })
+      .toString();
+    const followUpEnd = Temporal.ZonedDateTime.from(followUpStart)
+      .add({ minutes: 30 })
+      .toString();
+    const seriesId = "series_test_follow_up_smiley";
+
+    const { followUpAppointmentId, rootAppointmentId } = await t.run(
+      async (ctx) => {
+        await ctx.db.insert("practiceMembers", {
+          createdAt: BigInt(Date.now()),
+          practiceId: baseData.practiceId,
+          role: "owner",
+          userId,
+        });
+        await ctx.db.patch("practices", baseData.practiceId, {
+          appointmentSmileyOptions: [
+            {
+              emoji: "👍",
+              id: "thumbs-up",
+              name: "Patient ist angekommen",
+            },
+          ],
+        });
+
+        const now = BigInt(Date.now());
+        const rootAppointmentId = await ctx.db.insert("appointments", {
+          appointmentTypeLineageKey: baseData.appointmentTypeId,
+          appointmentTypeTitle: "Checkup",
+          createdAt: now,
+          end: rootWindow.end,
+          lastModified: now,
+          locationLineageKey: baseData.locationId,
+          occupancyScope: {
+            kind: "practitioner",
+            practitionerLineageKey: baseData.practitionerId,
+          },
+          practiceId: baseData.practiceId,
+          seriesId,
+          seriesStepIndex: 0n,
+          start: rootWindow.start,
+          title: "Root",
+          userId,
+        });
+        const followUpAppointmentId = await ctx.db.insert("appointments", {
+          appointmentTypeLineageKey: baseData.appointmentTypeId,
+          appointmentTypeTitle: "Checkup",
+          createdAt: now,
+          end: followUpEnd,
+          lastModified: now,
+          locationLineageKey: baseData.locationId,
+          occupancyScope: {
+            kind: "practitioner",
+            practitionerLineageKey: baseData.practitionerId,
+          },
+          practiceId: baseData.practiceId,
+          seriesId,
+          seriesStepIndex: 1n,
+          start: followUpStart,
+          title: "Follow-up",
+          userId,
+        });
+
+        return { followUpAppointmentId, rootAppointmentId };
+      },
+    );
+
+    await authed.mutation(api.appointments.updateAppointment, {
+      id: followUpAppointmentId,
+      smiley: "👍",
+    });
+
+    const stored = await t.run(async (ctx) => {
+      const rootAppointment = await ctx.db.get(
+        "appointments",
+        rootAppointmentId,
+      );
+      const followUpAppointment = await ctx.db.get(
+        "appointments",
+        followUpAppointmentId,
+      );
+      return {
+        followUpSmiley: followUpAppointment?.smiley,
+        rootSmiley: rootAppointment?.smiley,
+      };
+    });
+
+    expect(stored).toEqual({
+      followUpSmiley: "👍",
+      rootSmiley: undefined,
+    });
+  });
+
   test("updateAppointment rejects moving an appointment onto an occupied practitioner slot", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);

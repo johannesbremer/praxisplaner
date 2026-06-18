@@ -2569,6 +2569,27 @@ function getPersistentSimulationFields(
   };
 }
 
+function isSmileyOnlyAppointmentUpdateData(
+  updateData: Partial<AppointmentUpdateData>,
+): boolean {
+  return (
+    updateData.smiley !== undefined &&
+    updateData.appointmentTypeId === undefined &&
+    updateData.calendarResourceColumn === undefined &&
+    updateData.end === undefined &&
+    updateData.isSimulation === undefined &&
+    updateData.locationId === undefined &&
+    updateData.patientId === undefined &&
+    updateData.practitionerId === undefined &&
+    updateData.replacesAppointmentId === undefined &&
+    updateData.simulationKind === undefined &&
+    updateData.simulationRuleSetId === undefined &&
+    updateData.start === undefined &&
+    updateData.title === undefined &&
+    updateData.userId === undefined
+  );
+}
+
 function persistedAppointmentUpdateData(
   updateData: Partial<AppointmentUpdateData>,
 ): Partial<PersistedAppointmentUpdateData> {
@@ -2627,6 +2648,14 @@ async function updateAppointmentByMode(
         : {}),
       smiley: filteredUpdateData.smiley,
     });
+  }
+
+  if (isSmileyOnlyAppointmentUpdateData(filteredUpdateData)) {
+    await ctx.db.patch("appointments", id, {
+      lastModified: BigInt(Date.now()),
+      smiley: filteredUpdateData.smiley ?? undefined,
+    });
+    return null;
   }
 
   if (patientId) {

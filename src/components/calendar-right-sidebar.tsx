@@ -106,6 +106,13 @@ export function resolveAppointmentSmileyOptionsRuleSetId(args: {
   return selectedAppointment?.simulationRuleSetId ?? args.defaultRuleSetId;
 }
 
+export function shouldShowAppointmentSmileyEditor(args: {
+  appointmentId: Id<"appointments">;
+  selectedAppointmentId: Id<"appointments"> | undefined;
+}): boolean {
+  return args.selectedAppointmentId === args.appointmentId;
+}
+
 const RIGHT_SIDEBAR_WIDTH = "18rem";
 const RIGHT_SIDEBAR_WIDTH_MOBILE = "18rem";
 const GENDER_LABELS: Record<
@@ -708,8 +715,13 @@ function RightSidebarContent({
                     </div>
                     <div className="space-y-1">
                       {patientAppointments.toReversed().map((appointment) => {
+                        const isExactSelectedAppointment =
+                          shouldShowAppointmentSmileyEditor({
+                            appointmentId: appointment._id,
+                            selectedAppointmentId,
+                          });
                         const isSelected =
-                          selectedAppointmentId === appointment._id ||
+                          isExactSelectedAppointment ||
                           (selectedSeriesId !== undefined &&
                             appointment.seriesId === selectedSeriesId);
                         return (
@@ -741,26 +753,27 @@ function RightSidebarContent({
                                 {formatAppointmentDateTime(appointment.start)}
                               </p>
                             </button>
-                            {isSelected && appointmentSmileyOptions && (
-                              <AppointmentSmileyEditor
-                                appointment={appointment}
-                                disabled={pendingSmileyAppointmentId}
-                                onChange={(smiley) => {
-                                  startSmileyTransition(() => {
-                                    void (onUpdateAppointmentSmiley
-                                      ? onUpdateAppointmentSmiley({
-                                          id: appointment._id,
-                                          smiley,
-                                        })
-                                      : updateAppointmentSmiley({
-                                          id: appointment._id,
-                                          smiley,
-                                        }));
-                                  });
-                                }}
-                                options={appointmentSmileyOptions}
-                              />
-                            )}
+                            {isExactSelectedAppointment &&
+                              appointmentSmileyOptions && (
+                                <AppointmentSmileyEditor
+                                  appointment={appointment}
+                                  disabled={pendingSmileyAppointmentId}
+                                  onChange={(smiley) => {
+                                    startSmileyTransition(() => {
+                                      void (onUpdateAppointmentSmiley
+                                        ? onUpdateAppointmentSmiley({
+                                            id: appointment._id,
+                                            smiley,
+                                          })
+                                        : updateAppointmentSmiley({
+                                            id: appointment._id,
+                                            smiley,
+                                          }));
+                                    });
+                                  }}
+                                  options={appointmentSmileyOptions}
+                                />
+                              )}
                           </div>
                         );
                       })}

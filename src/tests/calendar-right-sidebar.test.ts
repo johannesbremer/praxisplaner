@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import { toTableId } from "@/convex/identity";
-import { resolveAppointmentSmileyOptionsRuleSetId } from "@/src/components/calendar-right-sidebar";
+import {
+  resolveAppointmentSmileyOptionsRuleSetId,
+  shouldShowAppointmentSmileyEditor,
+} from "@/src/components/calendar-right-sidebar";
 
 describe("resolveAppointmentSmileyOptionsRuleSetId", () => {
   test("uses the selected simulation appointment rule set for smiley options", () => {
@@ -44,5 +47,25 @@ describe("resolveAppointmentSmileyOptionsRuleSetId", () => {
         selectedSeriesId: undefined,
       }),
     ).toBe(activeRuleSetId);
+  });
+});
+
+describe("shouldShowAppointmentSmileyEditor", () => {
+  test("shows the editor only for the exact selected appointment row", () => {
+    const rootAppointmentId = toTableId<"appointments">("series-root");
+    const followUpAppointmentId = toTableId<"appointments">("series-follow-up");
+
+    expect(
+      shouldShowAppointmentSmileyEditor({
+        appointmentId: rootAppointmentId,
+        selectedAppointmentId: rootAppointmentId,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowAppointmentSmileyEditor({
+        appointmentId: followUpAppointmentId,
+        selectedAppointmentId: rootAppointmentId,
+      }),
+    ).toBe(false);
   });
 });
