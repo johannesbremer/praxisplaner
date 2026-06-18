@@ -51,6 +51,36 @@ function toPublicPractice(practice: Doc<"practices">): {
   };
 }
 
+const publicBookingPracticeValidator = v.object({
+  _creationTime: v.number(),
+  _id: v.id("practices"),
+  hasActiveRuleSet: v.boolean(),
+  name: v.string(),
+  slug: v.optional(v.string()),
+});
+
+function toPublicBookingPractice(practice: {
+  _creationTime: number;
+  _id: Id<"practices">;
+  currentActiveRuleSetId?: Id<"ruleSets">;
+  name: string;
+  slug?: string;
+}): {
+  _creationTime: number;
+  _id: Id<"practices">;
+  hasActiveRuleSet: boolean;
+  name: string;
+  slug?: string;
+} {
+  return {
+    _creationTime: practice._creationTime,
+    _id: practice._id,
+    hasActiveRuleSet: practice.currentActiveRuleSetId !== undefined,
+    name: practice.name,
+    ...(practice.slug === undefined ? {} : { slug: practice.slug }),
+  };
+}
+
 /**
  * Create a new practice with the given name.
  * Also creates an initial saved rule set and sets it as active.
@@ -159,18 +189,9 @@ export const getBookingPractices = query({
   handler: async (ctx) => {
     await requireAuthenticatedUserIdForQuery(ctx);
     const practices = await ctx.db.query("practices").collect();
-    return practices.map((practice) => toPublicPractice(practice));
+    return practices.map((practice) => toPublicBookingPractice(practice));
   },
-  returns: v.array(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("practices"),
-      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
-      name: v.string(),
-      slug: v.optional(v.string()),
-      workOSOrganizationId: v.optional(v.string()),
-    }),
-  ),
+  returns: v.array(publicBookingPracticeValidator),
 });
 
 /**
@@ -238,23 +259,12 @@ export const getBookingPracticeBySlug = query({
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .collect();
     if (practicesBySlug.length > 0) {
-      return practicesBySlug.length === 1 && practicesBySlug[0]
-        ? toPublicPractice(practicesBySlug[0])
-        : null;
+      const practice = practicesBySlug.length === 1 ? practicesBySlug[0] : null;
+      return practice ? toPublicBookingPractice(practice) : null;
     }
     return null;
   },
-  returns: v.union(
-    v.object({
-      _creationTime: v.number(),
-      _id: v.id("practices"),
-      currentActiveRuleSetId: v.optional(v.id("ruleSets")),
-      name: v.string(),
-      slug: v.optional(v.string()),
-      workOSOrganizationId: v.optional(v.string()),
-    }),
-    v.null(),
-  ),
+  returns: v.union(publicBookingPracticeValidator, v.null()),
 });
 
 export const listPracticePhoneNumbers = query({

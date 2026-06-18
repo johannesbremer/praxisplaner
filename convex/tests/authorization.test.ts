@@ -37,6 +37,7 @@ async function createPracticeForUser(
     authed,
     practiceId,
     ruleSetId: practice.currentActiveRuleSetId,
+    slug: practice.slug,
     userId: user._id,
   };
 }
@@ -256,6 +257,57 @@ describe("Convex query authorization", () => {
     ).resolves.toEqual([]);
   });
 
+  test("booking practice discovery omits tenant-internal metadata", async () => {
+    const t = createTestContext();
+    const ownerPractice = await createPracticeForUser(
+      t,
+      "workos_public_practice_owner",
+      "public-practice-owner@example.com",
+    );
+    if (!ownerPractice.slug) {
+      throw new Error("Expected created practice to have a slug.");
+    }
+    await t.run(async (ctx) => {
+      await ctx.db.patch("practices", ownerPractice.practiceId, {
+        workOSOrganizationId: "org_internal_public_practice",
+      });
+    });
+
+    const patientAuthId = "workos_public_practice_patient";
+    await createUser(t, patientAuthId, "public-practice-patient@example.com");
+    const patient = t.withIdentity({
+      email: "public-practice-patient@example.com",
+      subject: patientAuthId,
+    });
+
+    const practices = await patient.query(
+      api.practices.getBookingPractices,
+      {},
+    );
+    expect(practices).toHaveLength(1);
+    expect(practices[0]).toMatchObject({
+      _id: ownerPractice.practiceId,
+      hasActiveRuleSet: true,
+      name: "workos_public_practice_owner practice",
+      slug: ownerPractice.slug,
+    });
+    expect(practices[0]).not.toHaveProperty("currentActiveRuleSetId");
+    expect(practices[0]).not.toHaveProperty("workOSOrganizationId");
+
+    const practiceBySlug = await patient.query(
+      api.practices.getBookingPracticeBySlug,
+      { slug: ownerPractice.slug },
+    );
+    expect(practiceBySlug).toMatchObject({
+      _id: ownerPractice.practiceId,
+      hasActiveRuleSet: true,
+      name: "workos_public_practice_owner practice",
+      slug: ownerPractice.slug,
+    });
+    expect(practiceBySlug).not.toHaveProperty("currentActiveRuleSetId");
+    expect(practiceBySlug).not.toHaveProperty("workOSOrganizationId");
+  });
+
   test("query access rejects duplicate app users for one auth identity", async () => {
     const t = createTestContext();
     const authId = "workos_duplicate_query_user";
@@ -414,10 +466,17 @@ describe("Convex query authorization", () => {
         ruleSetId: practice.ruleSetId,
       },
     );
+    const activePracticePractitioners = await patient.query(
+      api.entities.getBookingPractitionersForActivePractice,
+      {
+        practiceId: practice.practiceId,
+      },
+    );
 
     expect(appointmentTypes).toHaveLength(1);
     expect(locations).toHaveLength(1);
     expect(practitioners).toHaveLength(1);
+    expect(activePracticePractitioners).toHaveLength(1);
 
     const [appointmentType] = appointmentTypes;
     const [location] = locations;
@@ -456,6 +515,7 @@ describe("Convex query authorization", () => {
     expect(practitioner).not.toHaveProperty("practiceId");
     expect(practitioner).not.toHaveProperty("ruleSetId");
     expect(practitioner).not.toHaveProperty("parentId");
+    expect(activePracticePractitioners[0]).toEqual(practitioner);
   });
 
   test("authenticated non-members cannot read inactive foreign rule-set entities", async () => {
