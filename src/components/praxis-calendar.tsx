@@ -11,6 +11,7 @@ import type { PatientInfo } from "../types";
 import { NewCalendar } from "./new-calendar";
 
 interface PraxisCalendarProps {
+  canManageCalendarPlanning?: boolean | undefined;
   // Notify parent when the current date changes
   locationName?: string | undefined;
   onDateChange?: ((date: Temporal.PlainDate) => void) | undefined;

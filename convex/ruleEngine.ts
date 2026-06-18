@@ -450,7 +450,7 @@ export const appointmentContextValidator = v.object({
   // Patient birth date as YYYY-MM-DD
   patientDateOfBirth: v.optional(v.string()),
   practiceId: v.id("practices"),
-  practitionerId: v.id("practitioners"),
+  practitionerId: v.optional(v.id("practitioners")),
   // For DAYS_AHEAD / HOURS_AHEAD conditions: when was this appointment requested
   // in the scheduling timezone?
   requestedAt: v.optional(v.string()), // ISO zoned datetime string
@@ -610,9 +610,9 @@ function evaluateCondition(
   const locationLineageKey = context.locationId
     ? preloadedData.locationLineageById.get(context.locationId)
     : undefined;
-  const practitionerLineageKey = preloadedData.practitionerLineageById.get(
-    context.practitionerId,
-  );
+  const practitionerLineageKey = context.practitionerId
+    ? preloadedData.practitionerLineageById.get(context.practitionerId)
+    : undefined;
 
   // Helper for comparing values
   const compareValue = (actual: number, expected: number): boolean => {

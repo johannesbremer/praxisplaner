@@ -71,11 +71,17 @@ import { requireLineageKey } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
+  requirePracticeManagerForMutation,
   requireRuleSetBelongsToPractice,
   requireTrustedPracticeScope,
   requireTrustedRuleSetScope,
   type TrustedPracticeScope,
 } from "./practiceAccess";
+import {
+  type AppointmentContext,
+  buildPreloadedDayData,
+  evaluateLoadedRulesHelper,
+} from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import { type AppointmentSmiley, appointmentSmileyValidator } from "./schema";
 import {
@@ -91,6 +97,7 @@ import {
 } from "./scopedResources";
 import { createTemporaryPatientRecordWithIdentity } from "./temporaryPatients";
 import {
+  asIsoDateString,
   asOptionalIsoDateString,
   asTypedDateTimeRange,
   asZonedDateTimeString,
@@ -128,6 +135,7 @@ type OptionalKeys<T> = {
   [K in keyof T]-?: undefined extends T[K] ? K : never;
 }[keyof T];
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
+const STAFF_PLANNER_CLIENT_TYPE = "MFA";
 
 type AppointmentOwner = LinkedAppointmentOwner | TemporaryAppointmentOwner;
 
@@ -435,6 +443,78 @@ function filterCurrentAppointmentReplacementTails<T extends AppointmentDoc>(
     (appointment) =>
       isVisibleAppointment(appointment) && !hiddenIds.has(appointment._id),
   );
+}
+
+async function findPlannerBlockingRuleIdsForAppointmentWrite(
+  db: DatabaseReader,
+  args: {
+    appointmentTypeId: Id<"appointmentTypes">;
+    locationId: Id<"locations">;
+    patientDateOfBirth?: IsoDateString;
+    practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
+    ruleSetId: Id<"ruleSets">;
+    start: ZonedDateTimeString;
+  },
+): Promise<Id<"ruleConditions">[]> {
+  const rules = await db
+    .query("ruleConditions")
+    .withIndex("by_ruleSetId_isRoot", (q) =>
+      q.eq("ruleSetId", args.ruleSetId).eq("isRoot", true),
+    )
+    .collect();
+  if (rules.length === 0) {
+    return [];
+  }
+
+  const conditions = await db
+    .query("ruleConditions")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+    .collect();
+  const conditionsMap = new Map<Id<"ruleConditions">, Doc<"ruleConditions">>(
+    conditions.map((condition) => [condition._id, condition]),
+  );
+  const practitioners = await db
+    .query("practitioners")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+    .collect();
+  const appointmentDate = Temporal.ZonedDateTime.from(args.start)
+    .toPlainDate()
+    .toString();
+  const preloadedData = await buildPreloadedDayData(
+    db,
+    args.practiceId,
+    appointmentDate,
+    args.ruleSetId,
+    practitioners,
+  );
+  const appointmentContext: AppointmentContext = {
+    appointmentTypeId: args.appointmentTypeId,
+    clientType: STAFF_PLANNER_CLIENT_TYPE,
+    dateTime: args.start,
+    locationId: args.locationId,
+    ...(args.patientDateOfBirth === undefined
+      ? {}
+      : { patientDateOfBirth: args.patientDateOfBirth }),
+    practiceId: args.practiceId,
+    ...(args.practitionerId === undefined
+      ? {}
+      : { practitionerId: args.practitionerId }),
+    requestedAt: asZonedDateTimeString(
+      Temporal.Now.zonedDateTimeISO(APPOINTMENT_TIMEZONE).toString(),
+    ),
+  };
+
+  const result = evaluateLoadedRulesHelper(
+    appointmentContext,
+    {
+      conditions,
+      conditionsMap,
+      rules: rules.map((rule) => ({ _id: rule._id, isDayInvariant: false })),
+    },
+    preloadedData,
+  );
+  return result.blockedByRuleIds;
 }
 
 function findReplacementRoot<T extends AppointmentDoc>(
@@ -751,6 +831,46 @@ async function requireKnownAppointmentSmiley(
   throw new Error(
     "Der gewählte Termin-Smiley ist in dieser Praxis nicht bekannt.",
   );
+}
+
+async function requireManagerForPlannerRuleOverride(
+  ctx: MutationCtx,
+  args: {
+    appointmentTypeId: Id<"appointmentTypes">;
+    locationId: Id<"locations">;
+    patientDateOfBirth?: string;
+    practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
+    start: string;
+  },
+): Promise<void> {
+  const appointmentType = await ctx.db.get(
+    "appointmentTypes",
+    args.appointmentTypeId,
+  );
+  if (!appointmentType) {
+    return;
+  }
+
+  const blockingRuleIds = await findPlannerBlockingRuleIdsForAppointmentWrite(
+    ctx.db,
+    {
+      appointmentTypeId: args.appointmentTypeId,
+      locationId: args.locationId,
+      ...(args.patientDateOfBirth === undefined
+        ? {}
+        : { patientDateOfBirth: asIsoDateString(args.patientDateOfBirth) }),
+      practiceId: args.practiceId,
+      ...(args.practitionerId === undefined
+        ? {}
+        : { practitionerId: args.practitionerId }),
+      ruleSetId: appointmentType.ruleSetId,
+      start: asZonedDateTimeString(args.start),
+    },
+  );
+  if (blockingRuleIds.length > 0) {
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
+  }
 }
 
 async function resolveAppointmentTypeForDisplayRuleSet(
@@ -2292,6 +2412,7 @@ export const createAppointment = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await requireManagerForPlannerRuleOverride(ctx, args);
     return await createAppointmentFromTrustedSource(ctx, args);
   },
   returns: v.id("appointments"),
@@ -2316,6 +2437,18 @@ export const restoreDeletedAppointment = mutation({
       );
     }
     await ensurePracticeAccessForMutation(ctx, snapshot.practiceId);
+    await requireManagerForPlannerRuleOverride(ctx, {
+      appointmentTypeId: snapshot.appointmentTypeId,
+      locationId: snapshot.locationId,
+      ...(snapshot.patientDateOfBirth === undefined
+        ? {}
+        : { patientDateOfBirth: snapshot.patientDateOfBirth }),
+      practiceId: snapshot.practiceId,
+      ...(snapshot.practitionerId === undefined
+        ? {}
+        : { practitionerId: snapshot.practitionerId }),
+      start: snapshot.start,
+    });
     const restoredAppointmentId = await createAppointmentFromTrustedSource(
       ctx,
       {
@@ -2947,7 +3080,49 @@ async function updateAppointmentByMode(
     resolvedStart !== existingAppointment.start ||
     resolvedEnd !== existingAppointment.end;
 
+  const hasPlannerRuleRelevantAppointmentTypeChange =
+    resolvedAppointmentTypeLineageKey !==
+    existingAppointment.appointmentTypeLineageKey;
+
+  if (
+    hasPlannerRuleRelevantAppointmentTypeChange &&
+    filteredUpdateData.appointmentTypeId !== undefined
+  ) {
+    const plannerRuleSetId = appointmentTypeRecord?.ruleSetId;
+    if (plannerRuleSetId === undefined) {
+      throw new Error("Die Terminart konnte nicht validiert werden.");
+    }
+    const plannerLocationId =
+      filteredUpdateData.locationId ??
+      (await resolveLocationIdForRuleSetByLineage(ctx.db, {
+        lineageKey: resolvedLocationLineageKey,
+        ruleSetId: plannerRuleSetId,
+      }));
+    const plannerPractitionerId =
+      resolvedCalendarResourceColumn === undefined &&
+      resolvedPractitionerLineageKey !== undefined
+        ? (filteredUpdateData.practitionerId ??
+          (await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+            lineageKey: resolvedPractitionerLineageKey,
+            ruleSetId: plannerRuleSetId,
+          })))
+        : undefined;
+    await requireManagerForPlannerRuleOverride(ctx, {
+      appointmentTypeId: filteredUpdateData.appointmentTypeId,
+      locationId: plannerLocationId,
+      practiceId: existingAppointment.practiceId,
+      ...(plannerPractitionerId === undefined
+        ? {}
+        : { practitionerId: plannerPractitionerId }),
+      start: resolvedStart,
+    });
+  }
+
   if (hasSchedulingChange) {
+    await requirePracticeManagerForMutation(
+      ctx,
+      existingAppointment.practiceId,
+    );
     const appointmentBookingScope =
       getAppointmentBookingScope(resolvedIsSimulation);
     const conflictingOccupancy = await findConflictingCalendarOccupancy(
@@ -3949,7 +4124,7 @@ export const createBlockedSlot = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
     const practiceScope = await requireTrustedPracticeScope(
       ctx,
       args.practiceId,
@@ -4024,7 +4199,10 @@ export const updateBlockedSlot = mutation({
     if (!existingBlockedSlot) {
       throw new Error("Blocked slot not found");
     }
-    await ensurePracticeAccessForMutation(ctx, existingBlockedSlot.practiceId);
+    await requirePracticeManagerForMutation(
+      ctx,
+      existingBlockedSlot.practiceId,
+    );
     const practiceScope = await requireTrustedPracticeScope(
       ctx,
       existingBlockedSlot.practiceId,
@@ -4084,7 +4262,10 @@ export const deleteBlockedSlot = mutation({
     if (!existingBlockedSlot) {
       throw new Error("Blocked slot not found");
     }
-    await ensurePracticeAccessForMutation(ctx, existingBlockedSlot.practiceId);
+    await requirePracticeManagerForMutation(
+      ctx,
+      existingBlockedSlot.practiceId,
+    );
     await ctx.db.delete("blockedSlots", args.id);
     return null;
   },

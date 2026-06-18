@@ -40,6 +40,7 @@ type BlockedSlot =
 interface CalendarGridProps {
   appointments: CalendarAppointmentView[];
   blockedSlots?: BlockedSlot[];
+  canDragCalendarItems?: boolean;
   columns: CalendarColumn[];
   currentTimeSlot: number;
   draggedAppointment: CalendarAppointmentView | null;
@@ -51,28 +52,38 @@ interface CalendarGridProps {
   };
   isBlockingModeActive?: boolean;
   onAddAppointment: (column: CalendarColumnId, slot: number) => void;
-  onBlockedSlotDragEnd?: () => void;
-  onBlockSlot?: (column: CalendarColumnId, slot: number) => void;
+  onBlockedSlotDragEnd?: (() => void) | undefined;
+  onBlockSlot?: ((column: CalendarColumnId, slot: number) => void) | undefined;
   onDeleteAppointment: (appointmentId: string) => void;
-  onDeleteBlockedSlot?: (id: string) => void;
-  onDragEnd: () => void;
-  onDragOver: (e: React.DragEvent, column: CalendarColumnId) => void;
-  onDragStart: (e: React.DragEvent, appointmentId: string) => void;
-  onDragStartBlockedSlot?: (e: React.DragEvent, id: string) => void;
-  onDrop: (e: React.DragEvent, column: CalendarColumnId) => Promise<void>;
+  onDeleteBlockedSlot?: ((id: string) => void) | undefined;
+  onDragEnd?: (() => void) | undefined;
+  onDragOver?:
+    | ((e: React.DragEvent, column: CalendarColumnId) => void)
+    | undefined;
+  onDragStart?:
+    | ((e: React.DragEvent, appointmentId: string) => void)
+    | undefined;
+  onDragStartBlockedSlot?:
+    | ((e: React.DragEvent, id: string) => void)
+    | undefined;
+  onDrop?:
+    | ((e: React.DragEvent, column: CalendarColumnId) => Promise<void>)
+    | undefined;
   onEditAppointment: (appointmentId: string) => void;
-  onEditBlockedSlot?: (id: string) => void;
-  onResizeStart: (
-    e: React.MouseEvent,
-    appointmentId: string,
-    currentDuration: number,
-  ) => void;
-  onResizeStartBlockedSlot?: (
-    e: React.MouseEvent,
-    id: string,
-    currentDuration: number,
-  ) => void;
-  onSelectAppointment?: (appointment: CalendarAppointmentView) => void;
+  onEditBlockedSlot?: ((id: string) => void) | undefined;
+  onResizeStart?:
+    | ((
+        e: React.MouseEvent,
+        appointmentId: string,
+        currentDuration: number,
+      ) => void)
+    | undefined;
+  onResizeStartBlockedSlot?:
+    | ((e: React.MouseEvent, id: string, currentDuration: number) => void)
+    | undefined;
+  onSelectAppointment?:
+    | ((appointment: CalendarAppointmentView) => void)
+    | undefined;
   selectedAppointmentId?: Id<"appointments"> | null;
   selectedPatientId?: Id<"patients"> | null;
   selectedSeriesId?: null | string;
@@ -93,6 +104,7 @@ type ManualBlockedSlot = Extract<BlockedSlot, { isManual: true }>;
 export function CalendarGrid({
   appointments,
   blockedSlots = [],
+  canDragCalendarItems = true,
   columns,
   currentTimeSlot,
   draggedAppointment,
@@ -131,6 +143,8 @@ export function CalendarGrid({
     column.isUnavailable === true ||
     column.isAppointmentTypeUnavailable === true ||
     (draggedAppointment !== null && column.isDragDisabled === true);
+  const canUseDragAndDrop =
+    canDragCalendarItems && onDragOver !== undefined && onDrop !== undefined;
 
   const renderAppointments = (column: CalendarColumnId) => {
     return appointments
@@ -155,6 +169,7 @@ export function CalendarGrid({
         return (
           <CalendarAppointment
             appointment={appointment}
+            canDrag={canDragCalendarItems && onDragStart !== undefined}
             isDragging={isDragging}
             isRelatedToSelectedPatient={isRelatedToSelectedPatient}
             isSelected={isSelected}
@@ -301,6 +316,9 @@ export function CalendarGrid({
         return (
           <CalendarBlockedSlot
             blockedSlot={firstSlot}
+            canDrag={
+              canDragCalendarItems && onDragStartBlockedSlot !== undefined
+            }
             isDragging={isDragging}
             key={`manual-blocked-${id}`}
             onDelete={(blockId) => {
@@ -593,13 +611,13 @@ export function CalendarGrid({
               }
             }}
             onDragOver={(e) => {
-              if (isInteractionDisabled) {
+              if (isInteractionDisabled || !canUseDragAndDrop) {
                 return;
               }
               onDragOver(e, column.id);
             }}
             onDrop={(e) => {
-              if (isInteractionDisabled) {
+              if (isInteractionDisabled || !canUseDragAndDrop) {
                 return;
               }
               void onDrop(e, column.id);
@@ -651,13 +669,13 @@ export function CalendarGrid({
               }
             }}
             onDragOver={(e) => {
-              if (isInteractionDisabled) {
+              if (isInteractionDisabled || !canUseDragAndDrop) {
                 return;
               }
               onDragOver(e, column.id);
             }}
             onDrop={(e) => {
-              if (isInteractionDisabled) {
+              if (isInteractionDisabled || !canUseDragAndDrop) {
                 return;
               }
               void onDrop(e, column.id);

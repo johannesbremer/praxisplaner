@@ -75,6 +75,7 @@ function setTransparentDragImage(dataTransfer: DataTransfer): void {
  * Deep comparison of appointment arrays.
  */
 export function useCalendarLogic({
+  canManageCalendarPlanning = false,
   locationName,
   onAppointmentCreated,
   onClearAppointmentTypeSelection,
@@ -1073,6 +1074,9 @@ export function useCalendarLogic({
     );
 
     if (blockedSlotData) {
+      if (!canManageCalendarPlanning) {
+        return;
+      }
       // Show blocked slot warning dialog
       const slotTime = slotToTime(slot);
       // Check if this is a manual block (from blockedSlots memo, has isManual flag)

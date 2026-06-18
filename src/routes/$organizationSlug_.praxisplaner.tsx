@@ -6,6 +6,7 @@ import {
   useHydrated,
   useNavigate,
 } from "@tanstack/react-router";
+import { useAuth } from "@workos-inc/authkit-react";
 import { useQuery } from "convex/react";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
 import { Calendar as CalendarIcon, Palmtree, Settings } from "lucide-react";
@@ -41,7 +42,9 @@ import type {
 import { api } from "../../convex/_generated/api";
 import { parseGdtContent } from "../../convex/gdt/processing";
 import { isValidDate } from "../../convex/gdt/validation";
-import { StaffAuthGate } from "../auth/access-control";
+import { hasPraxismanagerAccess, StaffAuthGate } from "../auth/access-control";
+import { isAuthBypassEnabled } from "../auth/auth-bypass";
+import { getDevAuthPersonaAccess } from "../auth/dev-auth-jwt";
 import { PraxisCalendar } from "../components/praxis-calendar";
 import { VacationScheduler } from "../components/vacation-scheduler";
 import {
@@ -163,6 +166,12 @@ const getPermissionBadgeVariant = (permission: PermissionStatus) => {
 };
 
 function PraxisPlanerComponent() {
+  const { permissions, role, roles } = useAuth();
+  const canManageCalendarPlanning = hasPraxismanagerAccess(
+    isAuthBypassEnabled()
+      ? getDevAuthPersonaAccess("staff")
+      : { permissions, role, roles },
+  );
   const organizationSlug = readOrganizationSlugParam(Route.useParams());
   const navigate = useNavigate({ from: Route.fullPath });
   const search: PraxisplanerSearchParams = Route.useSearch();
@@ -1063,6 +1072,7 @@ function PraxisPlanerComponent() {
       activeRuleSet ? (
         <SidebarProvider className="flex h-full w-full">
           <PraxisCalendar
+            canManageCalendarPlanning={canManageCalendarPlanning}
             onDateChange={handleDateChange}
             onLocationResolved={handleLocationResolved}
             patient={currentPatient ?? undefined}

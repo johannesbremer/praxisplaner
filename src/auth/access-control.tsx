@@ -136,6 +136,17 @@ export function AuthenticatedGate({
   return <>{children}</>;
 }
 
+export function hasPraxismanagerAccess(access: {
+  permissions: readonly string[];
+  role: null | string;
+  roles: null | readonly string[];
+}): boolean {
+  return hasRequiredAccess({
+    ...access,
+    requirement: PRAXISMANAGER_ACCESS,
+  });
+}
+
 export function hasRequiredAccess({
   permissions,
   requirement,

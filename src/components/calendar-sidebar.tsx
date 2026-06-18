@@ -79,6 +79,7 @@ export function CalendarSidebar() {
   );
 
   const {
+    canManageCalendarPlanning,
     currentTime,
     isBlockingModeActive,
     locationsData,
@@ -300,6 +301,7 @@ export function CalendarSidebar() {
                       onTypeSelect={handleTypeSelect}
                       ruleSetId={ruleSetId}
                       selectedType={selectedAppointmentTypeId}
+                      showBlockingMode={canManageCalendarPlanning}
                     />
                   </SidebarGroupContent>
                 </SidebarGroup>

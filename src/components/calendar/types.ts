@@ -108,6 +108,7 @@ export interface WorkingPractitioner {
  * Used when patient selection is deferred (e.g., when creating via grid click without a patient selected).
  */
 export interface NewCalendarProps {
+  canManageCalendarPlanning?: boolean | undefined;
   locationName?: string | undefined;
   onAppointmentCreated?:
     | ((appointmentId: Id<"appointments">) => void)
