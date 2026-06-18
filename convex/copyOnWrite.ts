@@ -602,6 +602,7 @@ async function copyConditionNode(
       | "DAYS_AHEAD"
       | "HOURS_AHEAD"
       | "LOCATION"
+      | "MINIMUM_ADVANCE_TIME"
       | "PATIENT_AGE"
       | "PRACTITIONER"
       | "TIME_RANGE";
@@ -612,6 +613,7 @@ async function copyConditionNode(
     nodeType?: "AND" | "CONDITION" | "NOT";
     operator?:
       | "EQUALS"
+      | "GREATER_THAN"
       | "GREATER_THAN_OR_EQUAL"
       | "IS"
       | "IS_NOT"

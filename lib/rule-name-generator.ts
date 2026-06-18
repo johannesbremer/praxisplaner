@@ -5,10 +5,18 @@
 
 import type { ConditionTreeNode, ConditionType } from "./condition-tree";
 
+export type AdvanceTimeUnit = "days" | "hours" | "minutes";
+
 // Condition types matching the UI
 interface Condition {
+  advanceUnit?: AdvanceTimeUnit | null;
   id: string;
-  operator?: "GREATER_THAN_OR_EQUAL" | "IS" | "IS_NOT" | "LESS_THAN";
+  operator?:
+    | "GREATER_THAN"
+    | "GREATER_THAN_OR_EQUAL"
+    | "IS"
+    | "IS_NOT"
+    | "LESS_THAN";
   type: ConditionType;
   valueIds?: string[];
   valueNumber?: null | number;
@@ -254,6 +262,21 @@ export function generateRuleName(
         );
         break;
       }
+      case "MINIMUM_ADVANCE_TIME": {
+        const amount = condition.valueNumber || 0;
+        const unit = condition.advanceUnit ?? "hours";
+        const unitLabel = formatAdvanceTimeUnit(amount, unit);
+        if (condition.operator === "GREATER_THAN") {
+          parts.push(
+            `der Termin mehr als ${amount} ${unitLabel} in der Zukunft liegt,`,
+          );
+        } else {
+          parts.push(
+            `der Termin weniger als ${amount} ${unitLabel} in der Zukunft liegt,`,
+          );
+        }
+        break;
+      }
       case "PATIENT_AGE": {
         const age = condition.valueNumber ?? 0;
         if (condition.operator === "LESS_THAN") {
@@ -337,9 +360,39 @@ function assertNever(value: never): never {
   throw new Error(`Unsupported condition type: ${String(value)}`);
 }
 
+function formatAdvanceTimeUnit(amount: number, unit: AdvanceTimeUnit): string {
+  switch (unit) {
+    case "days": {
+      return amount === 1 ? "Tag" : "Tage";
+    }
+    case "hours": {
+      return amount === 1 ? "Stunde" : "Stunden";
+    }
+    case "minutes": {
+      return amount === 1 ? "Minute" : "Minuten";
+    }
+    default: {
+      return assertNever(unit);
+    }
+  }
+}
+
 function formatIsoDate(value: string): string {
   const [year, month, day] = value.split("-");
   return year && month && day ? `${day}.${month}.${year}` : value;
+}
+
+function parseAdvanceTimeUnit(value: string | undefined): AdvanceTimeUnit {
+  switch (value) {
+    case "days":
+    case "hours":
+    case "minutes": {
+      return value;
+    }
+    default: {
+      return "hours";
+    }
+  }
 }
 
 function parseConditionNode(
@@ -416,6 +469,15 @@ function parseConditionNode(
       return {
         id,
         operator: "LESS_THAN",
+        type: conditionType,
+        valueNumber: valueNumber ?? null,
+      };
+    }
+    case "MINIMUM_ADVANCE_TIME": {
+      return {
+        advanceUnit: parseAdvanceTimeUnit(valueIds?.[0]),
+        id,
+        operator: operator === "GREATER_THAN" ? "GREATER_THAN" : "LESS_THAN",
         type: conditionType,
         valueNumber: valueNumber ?? null,
       };

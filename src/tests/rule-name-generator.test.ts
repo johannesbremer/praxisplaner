@@ -29,6 +29,13 @@ describe("rule-name-generator", () => {
           operator: "IS_NOT",
           valueIds: ["08:00", "09:30"],
         },
+        {
+          conditionType: "MINIMUM_ADVANCE_TIME",
+          nodeType: "CONDITION",
+          operator: "LESS_THAN",
+          valueIds: ["minutes"],
+          valueNumber: 15,
+        },
       ],
       nodeType: "AND",
     } satisfies ConditionTreeNode;
@@ -36,7 +43,7 @@ describe("rule-name-generator", () => {
     expect(
       generateRuleName(conditionTreeToConditions(conditionTree), [], [], []),
     ).toBe(
-      "Wenn der Patiententyp Online ist, und das Datum zwischen 02.01.2026 und 09.01.2026 liegt, und die Uhrzeit nicht zwischen 08:00 und 09:30 liegt, darf der Termin nicht vergeben werden.",
+      "Wenn der Patiententyp Online ist, und das Datum zwischen 02.01.2026 und 09.01.2026 liegt, und die Uhrzeit nicht zwischen 08:00 und 09:30 liegt, und der Termin weniger als 15 Minuten in der Zukunft liegt, darf der Termin nicht vergeben werden.",
     );
   });
 
@@ -55,6 +62,40 @@ describe("rule-name-generator", () => {
 
     expect(() => conditionTreeToConditions(conditionTree)).toThrow(
       "NOT-Regelbäume können nicht als flache Bedingungen dargestellt werden",
+    );
+  });
+
+  test("keeps removed editor condition types distinct in shared rule naming", () => {
+    const conditionTree = {
+      conditionType: "HOURS_AHEAD",
+      nodeType: "CONDITION",
+      operator: "LESS_THAN",
+      valueNumber: 3,
+    } satisfies ConditionTreeNode;
+
+    expect(conditionTreeToConditions(conditionTree)).toEqual([
+      {
+        id: "0",
+        operator: "LESS_THAN",
+        type: "HOURS_AHEAD",
+        valueNumber: 3,
+      },
+    ]);
+  });
+
+  test("describes maximum advance time conditions", () => {
+    const conditionTree = {
+      conditionType: "MINIMUM_ADVANCE_TIME",
+      nodeType: "CONDITION",
+      operator: "GREATER_THAN",
+      valueIds: ["hours"],
+      valueNumber: 2,
+    } satisfies ConditionTreeNode;
+
+    expect(
+      generateRuleName(conditionTreeToConditions(conditionTree), [], [], []),
+    ).toBe(
+      "Wenn der Termin mehr als 2 Stunden in der Zukunft liegt, darf der Termin nicht vergeben werden.",
     );
   });
 });

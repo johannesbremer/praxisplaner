@@ -65,7 +65,7 @@ interface DayOfWeekConditionProps {
   onUpdate: (updates: Partial<Condition>) => void;
 }
 
-interface DaysAheadConditionProps {
+interface MinimumAdvanceTimeConditionProps {
   condition: Condition;
   invalidFields?: Map<string, string> | undefined;
   onUpdate: (updates: Partial<Condition>) => void;
@@ -200,13 +200,6 @@ export function RuleEditDialog({
                 const isInvalid =
                   field.state.meta.isTouched && !field.state.meta.isValid;
 
-                const previewRuleName = generateRuleName(
-                  field.state.value,
-                  appointmentTypes,
-                  practitioners,
-                  locations,
-                );
-
                 const conditionErrors = new Map<number, Map<string, string>>();
                 if (isInvalid) {
                   for (const [
@@ -300,7 +293,18 @@ export function RuleEditDialog({
 
                     <div className="mt-4 border-t pt-4">
                       <FieldDescription className="mt-2 rounded-md bg-muted p-3">
-                        {previewRuleName}
+                        <form.Subscribe
+                          selector={(state) => state.values.conditions}
+                        >
+                          {(conditions) =>
+                            generateRuleName(
+                              conditions,
+                              appointmentTypes,
+                              practitioners,
+                              locations,
+                            )
+                          }
+                        </form.Subscribe>
                       </FieldDescription>
                     </div>
                   </div>
@@ -374,10 +378,19 @@ export function validateCondition(condition: Condition): string[] {
       }
       break;
     }
-    case "DAYS_AHEAD":
-    case "HOURS_AHEAD": {
+    case "MINIMUM_ADVANCE_TIME": {
+      if (!parseMinimumAdvanceTimeOperator(condition.operator ?? "")) {
+        errors.push("operator");
+      }
       if (!condition.valueNumber || condition.valueNumber < 1) {
         errors.push("valueNumber");
+      }
+      if (
+        condition.advanceUnit !== "minutes" &&
+        condition.advanceUnit !== "hours" &&
+        condition.advanceUnit !== "days"
+      ) {
+        errors.push("advanceUnit");
       }
       break;
     }
@@ -491,8 +504,7 @@ function ConditionEditor({
     { label: "Patiententyp", value: "CLIENT_TYPE" },
     { label: "Datumsbereich", value: "DATE_RANGE" },
     { label: "Wochentag", value: "DAY_OF_WEEK" },
-    { label: "Tage im Voraus", value: "DAYS_AHEAD" },
-    { label: "Stunden im Voraus", value: "HOURS_AHEAD" },
+    { label: "Zukunftsabstand", value: "MINIMUM_ADVANCE_TIME" },
     { label: "Uhrzeitbereich", value: "TIME_RANGE" },
     { label: "Gleichzeitige Termine", value: "CONCURRENT_COUNT" },
     { label: "Termine am gleichen Tag", value: "DAILY_CAPACITY" },
@@ -509,12 +521,11 @@ function ConditionEditor({
                 return;
               }
               const nextOperator: Condition["operator"] =
-                nextType === "HOURS_AHEAD"
+                nextType === "MINIMUM_ADVANCE_TIME"
                   ? "LESS_THAN"
                   : [
                         "CONCURRENT_COUNT",
                         "DAILY_CAPACITY",
-                        "DAYS_AHEAD",
                         "PATIENT_AGE",
                       ].includes(nextType)
                     ? "GREATER_THAN_OR_EQUAL"
@@ -524,6 +535,9 @@ function ConditionEditor({
                 type: nextType,
                 valueIds: [],
                 valueNumber: null,
+                ...(nextType === "MINIMUM_ADVANCE_TIME"
+                  ? { advanceUnit: "hours" as const }
+                  : { advanceUnit: null }),
               });
             }}
             value={condition.type}
@@ -573,16 +587,8 @@ function ConditionEditor({
             />
           )}
 
-          {condition.type === "DAYS_AHEAD" && (
-            <DaysAheadCondition
-              condition={condition}
-              invalidFields={invalidFields}
-              onUpdate={onUpdate}
-            />
-          )}
-
-          {condition.type === "HOURS_AHEAD" && (
-            <HoursAheadCondition
+          {condition.type === "MINIMUM_ADVANCE_TIME" && (
+            <MinimumAdvanceTimeCondition
               condition={condition}
               invalidFields={invalidFields}
               onUpdate={onUpdate}
@@ -670,23 +676,16 @@ function conditionsToConditionTree(conditions: Condition[]): ConditionTreeNode {
         }
         break;
       }
-      case "DAYS_AHEAD": {
-        if (condition.valueNumber) {
+      case "MINIMUM_ADVANCE_TIME": {
+        if (condition.valueNumber && condition.advanceUnit) {
           nodes.push({
-            conditionType: "DAYS_AHEAD",
+            conditionType: "MINIMUM_ADVANCE_TIME",
             nodeType: "CONDITION",
-            operator: "GREATER_THAN_OR_EQUAL",
-            valueNumber: condition.valueNumber,
-          });
-        }
-        break;
-      }
-      case "HOURS_AHEAD": {
-        if (condition.valueNumber) {
-          nodes.push({
-            conditionType: "HOURS_AHEAD",
-            nodeType: "CONDITION",
-            operator: "LESS_THAN",
+            operator:
+              condition.operator === "GREATER_THAN"
+                ? "GREATER_THAN"
+                : "LESS_THAN",
+            valueIds: [condition.advanceUnit],
             valueNumber: condition.valueNumber,
           });
         }
@@ -790,27 +789,6 @@ function DayOfWeekCondition({
   );
 }
 
-function DaysAheadCondition({
-  condition,
-  invalidFields,
-  onUpdate,
-}: DaysAheadConditionProps) {
-  return (
-    <Input
-      aria-invalid={invalidFields?.has("valueNumber")}
-      className="w-auto min-w-[120px]"
-      min="1"
-      onChange={(e) => {
-        const parsed = Number.parseInt(e.target.value);
-        onUpdate({ valueNumber: Number.isNaN(parsed) ? null : parsed });
-      }}
-      placeholder="z.B. 7"
-      type="number"
-      value={condition.valueNumber || ""}
-    />
-  );
-}
-
 function getErrorMessage(condition: Condition, invalidField: string): string {
   switch (condition.type) {
     case "APPOINTMENT_TYPE":
@@ -862,15 +840,17 @@ function getErrorMessage(condition: Condition, invalidField: string): string {
       }
       return "";
     }
-    case "DAYS_AHEAD": {
-      return invalidField === "valueNumber"
-        ? "Bitte geben Sie mindestens 1 Tag ein."
-        : "";
-    }
-    case "HOURS_AHEAD": {
-      return invalidField === "valueNumber"
-        ? "Bitte geben Sie mindestens 1 Stunde ein."
-        : "";
+    case "MINIMUM_ADVANCE_TIME": {
+      if (invalidField === "operator") {
+        return "Bitte wählen Sie eine Zukunftsbedingung aus.";
+      }
+      if (invalidField === "valueNumber") {
+        return "Bitte geben Sie mindestens 1 ein.";
+      }
+      if (invalidField === "advanceUnit") {
+        return "Bitte wählen Sie Minuten, Stunden oder Tage aus.";
+      }
+      return "";
     }
     case "PATIENT_AGE": {
       if (invalidField === "operator") {
@@ -905,34 +885,17 @@ function getInitialConditions(
   }
 
   try {
+    const conditions = conditionTreeToConditions(existingRule.conditionTree);
+    if (conditions.some((condition) => isRemovedEditorCondition(condition))) {
+      return { status: "unsupported" };
+    }
     return {
-      conditions: conditionTreeToConditions(existingRule.conditionTree),
+      conditions,
       status: "ok",
     };
   } catch {
     return { status: "unsupported" };
   }
-}
-
-function HoursAheadCondition({
-  condition,
-  invalidFields,
-  onUpdate,
-}: DaysAheadConditionProps) {
-  return (
-    <Input
-      aria-invalid={invalidFields?.has("valueNumber")}
-      className="w-auto min-w-[120px]"
-      min="1"
-      onChange={(e) => {
-        const parsed = Number.parseInt(e.target.value);
-        onUpdate({ valueNumber: Number.isNaN(parsed) ? null : parsed });
-      }}
-      placeholder="z.B. 1"
-      type="number"
-      value={condition.valueNumber || ""}
-    />
-  );
 }
 
 function isRangeOrderValid(condition: Condition): boolean {
@@ -953,6 +916,99 @@ function isRangeOrderValid(condition: Condition): boolean {
   return true;
 }
 
+function isRemovedEditorCondition(condition: Condition): boolean {
+  switch (condition.type) {
+    case "DAYS_AHEAD":
+    case "HOURS_AHEAD": {
+      return true;
+    }
+    default: {
+      return false;
+    }
+  }
+}
+
+function MinimumAdvanceTimeCondition({
+  condition,
+  invalidFields,
+  onUpdate,
+}: MinimumAdvanceTimeConditionProps) {
+  return (
+    <>
+      <Select
+        onValueChange={(value) => {
+          const operator = parseMinimumAdvanceTimeOperator(value);
+          if (operator) {
+            onUpdate({ operator });
+          }
+        }}
+        value={
+          condition.operator === "GREATER_THAN" ? "GREATER_THAN" : "LESS_THAN"
+        }
+      >
+        <SelectTrigger
+          aria-invalid={invalidFields?.has("operator")}
+          className="w-auto min-w-[180px]"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="LESS_THAN">weniger als</SelectItem>
+          <SelectItem value="GREATER_THAN">mehr als</SelectItem>
+        </SelectContent>
+      </Select>
+
+      <Input
+        aria-invalid={invalidFields?.has("valueNumber")}
+        className="w-auto min-w-[120px]"
+        min="1"
+        onChange={(e) => {
+          const parsed = Number.parseInt(e.target.value);
+          onUpdate({ valueNumber: Number.isNaN(parsed) ? null : parsed });
+        }}
+        placeholder="z.B. 15"
+        type="number"
+        value={condition.valueNumber || ""}
+      />
+
+      <Select
+        onValueChange={(value) => {
+          const advanceUnit = parseAdvanceUnit(value);
+          if (advanceUnit) {
+            onUpdate({ advanceUnit });
+          }
+        }}
+        value={condition.advanceUnit ?? "hours"}
+      >
+        <SelectTrigger
+          aria-invalid={invalidFields?.has("advanceUnit")}
+          className="w-auto min-w-[140px]"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="minutes">Minuten</SelectItem>
+          <SelectItem value="hours">Stunden</SelectItem>
+          <SelectItem value="days">Tage</SelectItem>
+        </SelectContent>
+      </Select>
+    </>
+  );
+}
+
+function parseAdvanceUnit(value: string): Condition["advanceUnit"] {
+  switch (value) {
+    case "days":
+    case "hours":
+    case "minutes": {
+      return value;
+    }
+    default: {
+      return null;
+    }
+  }
+}
+
 function parseConditionType(value: string): ConditionType | undefined {
   switch (value) {
     case "APPOINTMENT_TYPE":
@@ -961,9 +1017,8 @@ function parseConditionType(value: string): ConditionType | undefined {
     case "DAILY_CAPACITY":
     case "DATE_RANGE":
     case "DAY_OF_WEEK":
-    case "DAYS_AHEAD":
-    case "HOURS_AHEAD":
     case "LOCATION":
+    case "MINIMUM_ADVANCE_TIME":
     case "PATIENT_AGE":
     case "PRACTITIONER":
     case "TIME_RANGE": {
@@ -971,6 +1026,20 @@ function parseConditionType(value: string): ConditionType | undefined {
     }
     default: {
       return undefined;
+    }
+  }
+}
+
+function parseMinimumAdvanceTimeOperator(
+  value: string,
+): Extract<Condition["operator"], "GREATER_THAN" | "LESS_THAN"> | null {
+  switch (value) {
+    case "GREATER_THAN":
+    case "LESS_THAN": {
+      return value;
+    }
+    default: {
+      return null;
     }
   }
 }

@@ -9,6 +9,7 @@ export interface ConditionNode {
 
 export type ConditionOperator =
   | "EQUALS"
+  | "GREATER_THAN"
   | "GREATER_THAN_OR_EQUAL"
   | "IS"
   | "IS_NOT"
@@ -52,6 +53,7 @@ export type ConditionType =
   | "DAYS_AHEAD"
   | "HOURS_AHEAD"
   | "LOCATION"
+  | "MINIMUM_ADVANCE_TIME"
   | "PATIENT_AGE"
   | "PRACTITIONER"
   | "TIME_RANGE";
@@ -66,6 +68,7 @@ export type Scope = "location" | "practice" | "practitioner";
 const CONDITION_NODE_TYPE = "CONDITION";
 export const CONDITION_OPERATORS = [
   "EQUALS",
+  "GREATER_THAN",
   "GREATER_THAN_OR_EQUAL",
   "IS",
   "IS_NOT",
@@ -82,6 +85,7 @@ export const CONDITION_TYPES = [
   "DAYS_AHEAD",
   "HOURS_AHEAD",
   "LOCATION",
+  "MINIMUM_ADVANCE_TIME",
   "PATIENT_AGE",
   "PRACTITIONER",
   "TIME_RANGE",
@@ -251,6 +255,7 @@ function assertLogicalNodeArity(
 function isConditionOperator(value: unknown): value is ConditionOperator {
   switch (value) {
     case "EQUALS":
+    case "GREATER_THAN":
     case "GREATER_THAN_OR_EQUAL":
     case "IS":
     case "IS_NOT":
@@ -275,6 +280,7 @@ function isConditionType(value: unknown): value is ConditionType {
     case "DAYS_AHEAD":
     case "HOURS_AHEAD":
     case "LOCATION":
+    case "MINIMUM_ADVANCE_TIME":
     case "PATIENT_AGE":
     case "PRACTITIONER":
     case "TIME_RANGE": {
