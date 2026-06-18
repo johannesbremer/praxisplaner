@@ -617,33 +617,58 @@ describe("TelefonKI availability", () => {
     expect(slots).toEqual([]);
   });
 
-  test("hides appointment series types from TelefonKI config and queries", async () => {
+  test("hides appointment plans and plan-only types from TelefonKI config and queries", async () => {
     const t = createTestContext();
     const fixture = await createTelefonkiFixture(t);
-    const followUpAppointmentTypeId = await t.run(async (ctx) => {
-      const now = BigInt(Date.now());
-      return await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
-        allowedPractitionerLineageKeys: [fixture.practitionerId],
-        createdAt: now,
-        duration: 30,
-        followUpPlan: [
+    const { plannedAppointmentTypeId, planOnlyAppointmentTypeId } = await t.run(
+      async (ctx) => {
+        const now = BigInt(Date.now());
+        const plannedAppointmentTypeId = await insertSelfLineageEntity(
+          ctx.db,
+          "appointmentTypes",
           {
-            appointmentTypeLineageKey: fixture.appointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 7,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "follow-up-1",
+            allowedPractitionerLineageKeys: [fixture.practitionerId],
+            appointmentPlan: {
+              steps: [
+                {
+                  appointmentTypeLineageKey: fixture.appointmentTypeId,
+                  occupancy: { kind: "inheritRootPractitioner" },
+                  required: true,
+                  stepId: "follow-up-1",
+                  timing: {
+                    anchorStepId: "root",
+                    kind: "firstAvailableOnOrAfter",
+                    offsetUnit: "days",
+                    offsetValue: 7,
+                  },
+                },
+              ],
+            },
+            createdAt: now,
+            duration: 30,
+            lastModified: now,
+            name: "Serientermin",
+            practiceId: fixture.practiceId,
+            ruleSetId: fixture.ruleSetId,
           },
-        ],
-        lastModified: now,
-        name: "Serientermin",
-        practiceId: fixture.practiceId,
-        ruleSetId: fixture.ruleSetId,
-      });
-    });
+        );
+        const planOnlyAppointmentTypeId = await insertSelfLineageEntity(
+          ctx.db,
+          "appointmentTypes",
+          {
+            allowedPractitionerLineageKeys: [fixture.practitionerId],
+            bookableVia: ["planStep"],
+            createdAt: now,
+            duration: 5,
+            lastModified: now,
+            name: "Plan-only TelefonKI",
+            practiceId: fixture.practiceId,
+            ruleSetId: fixture.ruleSetId,
+          },
+        );
+        return { plannedAppointmentTypeId, planOnlyAppointmentTypeId };
+      },
+    );
 
     const config = await t.query(
       api.telefonki.getActiveConfig,
@@ -654,7 +679,13 @@ describe("TelefonKI availability", () => {
     expect(
       config.appointmentTypes.some(
         (appointmentType) =>
-          appointmentType.lineageKey === followUpAppointmentTypeId,
+          appointmentType.lineageKey === plannedAppointmentTypeId,
+      ),
+    ).toBe(false);
+    expect(
+      config.appointmentTypes.some(
+        (appointmentType) =>
+          appointmentType.lineageKey === planOnlyAppointmentTypeId,
       ),
     ).toBe(false);
 
@@ -664,7 +695,20 @@ describe("TelefonKI availability", () => {
         withTelefonkiSecret({
           practiceId: fixture.practiceId,
           simulatedContext: simulatedContext({
-            appointmentTypeId: followUpAppointmentTypeId,
+            appointmentTypeId: plannedAppointmentTypeId,
+            locationId: fixture.locationId,
+          }),
+        }),
+      ),
+    ).rejects.toThrow("Appointment type is not available.");
+
+    await expect(
+      t.query(
+        api.telefonki.nextAvailableSlot,
+        withTelefonkiSecret({
+          practiceId: fixture.practiceId,
+          simulatedContext: simulatedContext({
+            appointmentTypeId: planOnlyAppointmentTypeId,
             locationId: fixture.locationId,
           }),
         }),

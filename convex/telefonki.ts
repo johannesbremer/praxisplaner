@@ -16,6 +16,7 @@ import {
 } from "./appointmentReferences";
 import { createAppointmentFromTrustedSource } from "./appointments";
 import { normalizeE164PhoneNumber } from "./e164PhoneNumber";
+import { hasAppointmentPlan, normalizeBookableVia } from "./followUpPlans";
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
@@ -270,7 +271,7 @@ function getSearchStartDate(date: string | undefined): IsoDateString {
 }
 
 function hasFollowUpPlan(appointmentType: Doc<"appointmentTypes"> | null) {
-  return (appointmentType?.followUpPlan?.length ?? 0) > 0;
+  return appointmentType !== null && hasAppointmentPlan(appointmentType);
 }
 
 function isAfternoonSlot(slot: Pick<AvailableSlot, "startTime">) {
@@ -318,7 +319,8 @@ function isTelefonkiBookableAppointmentType(
     appointmentType !== null &&
     appointmentType.deleted !== true &&
     appointmentType.lineageKey !== undefined &&
-    !hasFollowUpPlan(appointmentType)
+    !hasFollowUpPlan(appointmentType) &&
+    normalizeBookableVia(appointmentType.bookableVia).includes("telefonki")
   );
 }
 
@@ -650,7 +652,8 @@ export const getActiveConfig = query({
           (entry) =>
             entry.practiceId === args.practiceId &&
             !entry.deleted &&
-            (entry.followUpPlan?.length ?? 0) === 0,
+            !hasAppointmentPlan(entry) &&
+            normalizeBookableVia(entry.bookableVia).includes("telefonki"),
         )
         .map((entry) => ({
           duration: entry.duration,

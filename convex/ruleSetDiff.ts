@@ -405,26 +405,25 @@ async function buildRuleSetCanonicalSnapshot(
             (id) => practitionerNameByReference.get(id) ?? id,
           ),
         ),
+        appointmentPlan:
+          appointmentType.appointmentPlan?.steps.map((step) => ({
+            appointmentTypeName:
+              appointmentTypeNameByReference.get(
+                step.appointmentTypeLineageKey,
+              ) ?? step.appointmentTypeLineageKey,
+            note: step.note ?? null,
+            occupancy: step.occupancy,
+            required: step.required,
+            stepId: step.stepId,
+            timing: step.timing,
+          })) ?? [],
+        bookableVia: toSortedStrings(appointmentType.bookableVia ?? []),
+        defaultOccupancy: appointmentType.defaultOccupancy ?? null,
         duration: appointmentType.duration,
         folderPath: appointmentType.treeFolderId
           ? (appointmentTypeFolderPathById.get(appointmentType.treeFolderId) ??
             "Unbekannter Ordner")
           : null,
-        followUpPlan:
-          appointmentType.followUpPlan?.map((step) => ({
-            appointmentTypeName:
-              appointmentTypeNameByReference.get(
-                step.appointmentTypeLineageKey,
-              ) ?? step.appointmentTypeLineageKey,
-            locationMode: step.locationMode,
-            note: step.note ?? null,
-            offsetUnit: step.offsetUnit,
-            offsetValue: step.offsetValue,
-            practitionerMode: step.practitionerMode,
-            required: step.required,
-            searchMode: step.searchMode,
-            stepId: step.stepId,
-          })) ?? [],
         name: appointmentType.name,
       }),
     )
