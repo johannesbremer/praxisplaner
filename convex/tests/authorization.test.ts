@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 import type { Id } from "../_generated/dataModel";
 
 import { api, internal } from "../_generated/api";
-import { insertSelfLineageEntity } from "../lineage";
+import { insertSelfLineageEntity, requireLineageKey } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
 
@@ -39,6 +39,70 @@ async function createPracticeForUser(
     ruleSetId: practice.currentActiveRuleSetId,
     userId: user._id,
   };
+}
+
+async function createPublicBookingSchedulingFixture(
+  t: ReturnType<typeof createTestContext>,
+  args: {
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  return await t.run(async (ctx) => {
+    const practitionerId = await insertSelfLineageEntity(
+      ctx.db,
+      "practitioners",
+      {
+        name: "Dr. Public",
+        practiceId: args.practiceId,
+        ruleSetId: args.ruleSetId,
+      },
+    );
+    const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
+      name: "Public Office",
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+    });
+    const appointmentTypeId = await insertSelfLineageEntity(
+      ctx.db,
+      "appointmentTypes",
+      {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: BigInt(Date.now()),
+        duration: 30,
+        lastModified: BigInt(Date.now()),
+        name: "Public Booking",
+        practiceId: args.practiceId,
+        ruleSetId: args.ruleSetId,
+      },
+    );
+    const practitioner = await ctx.db.get("practitioners", practitionerId);
+    const location = await ctx.db.get("locations", locationId);
+    if (!practitioner || !location) {
+      throw new Error("Expected scheduling fixture entities to exist.");
+    }
+    await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+      breakTimes: [],
+      dayOfWeek: 1,
+      endTime: "10:00",
+      locationLineageKey: requireLineageKey({
+        entityId: location._id,
+        entityType: "location",
+        lineageKey: location.lineageKey,
+        ruleSetId: args.ruleSetId,
+      }),
+      practiceId: args.practiceId,
+      practitionerLineageKey: requireLineageKey({
+        entityId: practitioner._id,
+        entityType: "practitioner",
+        lineageKey: practitioner.lineageKey,
+        ruleSetId: args.ruleSetId,
+      }),
+      ruleSetId: args.ruleSetId,
+      startTime: "09:00",
+    });
+    return { appointmentTypeId, locationId };
+  });
 }
 
 function createTestContext() {
@@ -803,6 +867,39 @@ describe("Convex query authorization", () => {
       startTime: "2026-06-22T09:00:00+02:00[Europe/Berlin]",
       status: "AVAILABLE",
     });
+  });
+
+  test("patient booking scope does not receive scheduling diagnostics", async () => {
+    const t = createTestContext();
+    const owner = await createPracticeForUser(
+      t,
+      "workos_authz_public_booking_owner",
+      "authz-public-booking-owner@example.com",
+    );
+    const fixture = await createPublicBookingSchedulingFixture(t, owner);
+    const patientAuthId = "workos_authz_public_booking_patient";
+    const patientEmail = "authz-public-booking-patient@example.com";
+    await createUser(t, patientAuthId, patientEmail);
+    const patient = t.withIdentity({
+      email: patientEmail,
+      subject: patientAuthId,
+    });
+
+    const result = await patient.query(api.scheduling.getSlotsForDay, {
+      date: "2026-01-05",
+      enforceFutureOnly: false,
+      practiceId: owner.practiceId,
+      ruleSetId: owner.ruleSetId,
+      simulatedContext: {
+        appointmentTypeLineageKey: fixture.appointmentTypeId,
+        clientType: "MFA",
+        locationLineageKey: fixture.locationId,
+        patient: { isNew: true },
+      },
+    });
+
+    expect(result.slots.length).toBeGreaterThan(0);
+    expect("log" in result).toBe(false);
   });
 
   test("practice-scoped user display query does not expose unrelated users", async () => {

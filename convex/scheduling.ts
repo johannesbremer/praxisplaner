@@ -261,11 +261,9 @@ async function resolveSchedulingRuleSetId(
 }
 
 function toPublicSchedulingResult(args: {
-  log: string[];
   slots: InternalSchedulingResultSlot[];
-}): { log: string[]; slots: SchedulingResultSlot[] } {
+}): { slots: SchedulingResultSlot[] } {
   return {
-    log: args.log,
     slots: args.slots.map((slot) => toPublicSchedulingResultSlot(slot)),
   };
 }
@@ -683,10 +681,7 @@ function resolvePublicSchedulingScope(args: {
 
 export const getSlotsForDay = query({
   args: getSlotsForDayArgs,
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ log: string[]; slots: SchedulingResultSlot[] }> => {
+  handler: async (ctx, args): Promise<{ slots: SchedulingResultSlot[] }> => {
     await ensureAuthenticatedIdentity(ctx);
     let access: SchedulingQueryAccess | undefined;
     if (args.ruleSetId) {
@@ -703,24 +698,22 @@ export const getSlotsForDay = query({
     });
 
     if (!effectiveRuleSetId) {
-      return asAvailableSlotsResult({ log: [], slots: [] });
+      return asAvailableSlotsResult({ slots: [] });
     }
     const scope = resolvePublicSchedulingScope({
       access,
       requestedScope: args.scope,
     });
 
-    return asAvailableSlotsResult(
-      toPublicSchedulingResult({
-        ...(await getSlotsForDayImpl(ctx, {
-          ...args,
-          date: asIsoDateString(args.date),
-          ruleSetId: effectiveRuleSetId,
-          ...(scope === undefined ? {} : { scope }),
-          simulatedContext: asSimulatedContextInput(args.simulatedContext),
-        })),
-      }),
-    );
+    const result = await getSlotsForDayImpl(ctx, {
+      ...args,
+      date: asIsoDateString(args.date),
+      ruleSetId: effectiveRuleSetId,
+      ...(scope === undefined ? {} : { scope }),
+      simulatedContext: asSimulatedContextInput(args.simulatedContext),
+    });
+
+    return asAvailableSlotsResult(toPublicSchedulingResult(result));
   },
   returns: availableSlotsResultValidator,
 });
