@@ -868,14 +868,14 @@ function evaluateCondition(
 
       const appointmentZoned = Temporal.ZonedDateTime.from(context.dateTime);
       const requestZoned = Temporal.ZonedDateTime.from(context.requestedAt);
-      const millisecondsAhead =
-        appointmentZoned.toInstant().epochMilliseconds -
-        requestZoned.toInstant().epochMilliseconds;
+      const advanceDuration = requestZoned
+        .toInstant()
+        .until(appointmentZoned.toInstant());
       const actual =
         unit === "minutes"
-          ? millisecondsAhead / (60 * 1000)
+          ? advanceDuration.total("minutes")
           : unit === "hours"
-            ? millisecondsAhead / (60 * 60 * 1000)
+            ? advanceDuration.total("hours")
             : appointmentZoned.toPlainDate().since(requestZoned.toPlainDate())
                 .days;
 
