@@ -1433,9 +1433,11 @@ export function validateConditionTree(
     }
     if (
       node.conditionType === "MINIMUM_ADVANCE_TIME" &&
-      node.valueNumber === undefined
+      (node.valueNumber === undefined || node.valueNumber < 1)
     ) {
-      errors.push("MINIMUM_ADVANCE_TIME condition must use valueNumber");
+      errors.push(
+        "MINIMUM_ADVANCE_TIME condition must use valueNumber of at least 1",
+      );
     }
     if (
       node.conditionType === "MINIMUM_ADVANCE_TIME" &&

@@ -1062,7 +1062,86 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         selectedRuleSetId: practice.currentActiveRuleSetId,
       }),
     ).rejects.toThrow(
-      "Ungueltiger Regelbaum: MINIMUM_ADVANCE_TIME condition must use valueNumber",
+      "Ungueltiger Regelbaum: MINIMUM_ADVANCE_TIME condition must use valueNumber of at least 1",
+    );
+  });
+
+  test.each([0, -1])(
+    "should reject minimum advance time condition amount %i",
+    async (valueNumber) => {
+      const t = createAuthedTestContext();
+
+      const practiceId = await createPractice(t);
+
+      const practice = await t.run(async (ctx) => {
+        const practice = await ctx.db.get("practices", practiceId);
+        if (!practice) {
+          throw new Error("Practice not found");
+        }
+        return practice;
+      });
+
+      if (!practice.currentActiveRuleSetId) {
+        throw new Error("Practice has no active rule set");
+      }
+
+      await expect(
+        createRule(t, {
+          conditionTree: {
+            conditionType: "MINIMUM_ADVANCE_TIME",
+            nodeType: "CONDITION",
+            operator: "LESS_THAN",
+            valueIds: ["hours"],
+            valueNumber,
+          },
+          expectedDraftRevision: null,
+          name: `Minimum advance ${valueNumber}`,
+          practiceId,
+          selectedRuleSetId: practice.currentActiveRuleSetId,
+        }),
+      ).rejects.toThrow(
+        "Ungueltiger Regelbaum: MINIMUM_ADVANCE_TIME condition must use valueNumber of at least 1",
+      );
+    },
+  );
+
+  test("should accept a positive minimum advance time condition amount", async () => {
+    const t = createAuthedTestContext();
+
+    const practiceId = await createPractice(t);
+
+    const practice = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", practiceId);
+      if (!practice) {
+        throw new Error("Practice not found");
+      }
+      return practice;
+    });
+
+    if (!practice.currentActiveRuleSetId) {
+      throw new Error("Practice has no active rule set");
+    }
+
+    await expect(
+      createRule(t, {
+        conditionTree: {
+          conditionType: "MINIMUM_ADVANCE_TIME",
+          nodeType: "CONDITION",
+          operator: "LESS_THAN",
+          valueIds: ["hours"],
+          valueNumber: 1,
+        },
+        expectedDraftRevision: null,
+        name: "Minimum advance with amount",
+        practiceId,
+        selectedRuleSetId: practice.currentActiveRuleSetId,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        draftRevision: 1,
+        entityId: expect.any(String),
+        ruleSetId: expect.any(String),
+      }),
     );
   });
 
