@@ -492,6 +492,137 @@ describe("Convex query authorization", () => {
     ).rejects.toThrow("Rule set does not belong to this practice");
   });
 
+  test("patient booking scope cannot request simulation scheduling occupancy", async () => {
+    const t = createTestContext();
+    const practice = await createPracticeForUser(
+      t,
+      "workos_authz_simulation_scope_owner",
+      "authz-simulation-scope-owner@example.com",
+    );
+    const patientAuthId = "workos_authz_simulation_scope_patient";
+    const patientEmail = "authz-simulation-scope-patient@example.com";
+    await createUser(t, patientAuthId, patientEmail);
+
+    const schedulingRefs = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const locationId = await insertSelfLineageEntity(ctx.db, "locations", {
+        name: "Simulation Scope Location",
+        practiceId: practice.practiceId,
+        ruleSetId: practice.ruleSetId,
+      });
+      const practitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          name: "Dr. Simulation Scope",
+          practiceId: practice.practiceId,
+          ruleSetId: practice.ruleSetId,
+        },
+      );
+      const appointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [practitionerId],
+          createdAt: now,
+          duration: 5,
+          followUpPlan: [],
+          lastModified: now,
+          name: "Simulation Scope Checkup",
+          practiceId: practice.practiceId,
+          ruleSetId: practice.ruleSetId,
+        },
+      );
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+        dayOfWeek: 1,
+        endTime: "09:05",
+        locationLineageKey: locationId,
+        practiceId: practice.practiceId,
+        practitionerLineageKey: practitionerId,
+        ruleSetId: practice.ruleSetId,
+        startTime: "09:00",
+      });
+      await ctx.db.insert("blockedSlots", {
+        createdAt: now,
+        end: "2026-06-22T09:05:00+02:00[Europe/Berlin]",
+        isSimulation: true,
+        lastModified: now,
+        locationLineageKey: locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: practitionerId,
+        },
+        practiceId: practice.practiceId,
+        start: "2026-06-22T09:00:00+02:00[Europe/Berlin]",
+        title: "Draft-only block",
+      });
+
+      return { appointmentTypeId, locationId, practitionerId };
+    });
+
+    const queryArgs = {
+      date: "2026-06-22",
+      enforceFutureOnly: false,
+      practiceId: practice.practiceId,
+      ruleSetId: practice.ruleSetId,
+      scope: "simulation" as const,
+      simulatedContext: {
+        appointmentTypeLineageKey: schedulingRefs.appointmentTypeId,
+        clientType: "MFA",
+        locationLineageKey: schedulingRefs.locationId,
+        patient: { isNew: true },
+      },
+    };
+    const patient = t.withIdentity({
+      email: patientEmail,
+      subject: patientAuthId,
+    });
+
+    await expect(
+      practice.authed.query(api.scheduling.getSlotsForDay, queryArgs),
+    ).resolves.toMatchObject({
+      slots: [
+        {
+          practitionerLineageKey: schedulingRefs.practitionerId,
+          status: "BLOCKED",
+        },
+      ],
+    });
+    await expect(
+      patient.query(api.scheduling.getSlotsForDay, queryArgs),
+    ).resolves.toMatchObject({
+      slots: [
+        {
+          practitionerLineageKey: schedulingRefs.practitionerId,
+          status: "AVAILABLE",
+        },
+      ],
+    });
+    const nextSlotQueryArgs = {
+      date: queryArgs.date,
+      practiceId: queryArgs.practiceId,
+      ruleSetId: queryArgs.ruleSetId,
+      scope: queryArgs.scope,
+      simulatedContext: queryArgs.simulatedContext,
+    };
+    await expect(
+      practice.authed.query(
+        api.scheduling.getNextAvailableSlot,
+        nextSlotQueryArgs,
+      ),
+    ).resolves.toMatchObject({
+      startTime: "2026-06-29T09:00:00+02:00[Europe/Berlin]",
+      status: "AVAILABLE",
+    });
+    await expect(
+      patient.query(api.scheduling.getNextAvailableSlot, nextSlotQueryArgs),
+    ).resolves.toMatchObject({
+      practitionerLineageKey: schedulingRefs.practitionerId,
+      startTime: "2026-06-22T09:00:00+02:00[Europe/Berlin]",
+      status: "AVAILABLE",
+    });
+  });
+
   test("practice-scoped user display query does not expose unrelated users", async () => {
     const t = createTestContext();
     const { authed, practiceId } = await createPracticeForUser(
