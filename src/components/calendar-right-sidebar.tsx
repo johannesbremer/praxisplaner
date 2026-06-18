@@ -82,6 +82,30 @@ interface CalendarRightSidebarProps {
   showGdtAlert?: boolean | undefined;
 }
 
+export function resolveAppointmentSmileyOptionsRuleSetId(args: {
+  defaultRuleSetId: Id<"ruleSets"> | undefined;
+  patientAppointments:
+    | readonly Pick<
+        SidebarAppointment,
+        "_id" | "seriesId" | "simulationRuleSetId"
+      >[]
+    | undefined;
+  selectedAppointmentId: Id<"appointments"> | undefined;
+  selectedSeriesId: string | undefined;
+}): Id<"ruleSets"> | undefined {
+  const selectedAppointment =
+    args.patientAppointments?.find(
+      (appointment) => appointment._id === args.selectedAppointmentId,
+    ) ??
+    args.patientAppointments?.find(
+      (appointment) =>
+        args.selectedSeriesId !== undefined &&
+        appointment.seriesId === args.selectedSeriesId,
+    );
+
+  return selectedAppointment?.simulationRuleSetId ?? args.defaultRuleSetId;
+}
+
 const RIGHT_SIDEBAR_WIDTH = "18rem";
 const RIGHT_SIDEBAR_WIDTH_MOBILE = "18rem";
 const GENDER_LABELS: Record<
@@ -518,16 +542,25 @@ function RightSidebarContent({
 }) {
   const [pendingSmileyAppointmentId, startSmileyTransition] =
     React.useTransition();
+  const appointmentSmileyOptionsRuleSetId =
+    resolveAppointmentSmileyOptionsRuleSetId({
+      defaultRuleSetId: ruleSetId,
+      patientAppointments,
+      selectedAppointmentId,
+      selectedSeriesId,
+    });
   const ruleSetAppointmentSmileyOptions = useQuery(
     api.ruleSets.getAppointmentSmileyOptionsForRuleSet,
-    practiceId && ruleSetId ? { practiceId, ruleSetId } : "skip",
+    practiceId && appointmentSmileyOptionsRuleSetId
+      ? { practiceId, ruleSetId: appointmentSmileyOptionsRuleSetId }
+      : "skip",
   );
   const practiceAppointmentSmileyOptions = useQuery(
     api.practices.getAppointmentSmileyOptions,
-    practiceId && !ruleSetId ? { practiceId } : "skip",
+    practiceId && !appointmentSmileyOptionsRuleSetId ? { practiceId } : "skip",
   );
   const appointmentSmileyOptions =
-    ruleSetId === undefined
+    appointmentSmileyOptionsRuleSetId === undefined
       ? practiceAppointmentSmileyOptions
       : ruleSetAppointmentSmileyOptions;
   const updateAppointmentSmiley = useMutation(
