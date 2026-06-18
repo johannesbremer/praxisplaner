@@ -266,7 +266,7 @@ describe("AppointmentSmileyOptionsManagement", () => {
     });
   });
 
-  test("updates visible rows immediately after undo and redo replay", async () => {
+  test("does not overwrite visible rows from replay before the query refetches", async () => {
     let replay: RuleSetCommandRuntimeAdapter | undefined;
     const recordCommand: RecordRuleSetCommand = (
       _command: RuleSetCommand,
@@ -274,7 +274,22 @@ describe("AppointmentSmileyOptionsManagement", () => {
     ) => {
       replay = runtime;
     };
-    render(
+    const originalOptions = [
+      {
+        emoji: "👍",
+        id: "arrived",
+        name: "Patient ist angekommen",
+      },
+    ];
+    const savedOptions = [
+      {
+        emoji: "👍",
+        id: "arrived",
+        name: "Patient wartet",
+      },
+    ];
+    useQueryMock.mockReturnValue(originalOptions);
+    const { rerender } = render(
       <AppointmentSmileyOptionsManagement
         onRecordCommand={recordCommand}
         practiceId={practiceId}
@@ -298,16 +313,46 @@ describe("AppointmentSmileyOptionsManagement", () => {
       throw new Error("Expected smiley options replay to be recorded");
     }
     const replayAdapter = replay;
+    useQueryMock.mockReturnValue(savedOptions);
+    rerender(
+      <AppointmentSmileyOptionsManagement
+        onRecordCommand={recordCommand}
+        practiceId={practiceId}
+        ruleSetReplayTarget={{
+          draftRevision: 1,
+          draftRuleSetId,
+          kind: "draft",
+          parentRuleSetId,
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByLabelText("Name")).toHaveValue("Patient wartet");
+    });
 
     await act(async () => {
       await replayAdapter.undo();
     });
-    expect(screen.getByLabelText("Name")).toHaveValue("Patient ist angekommen");
-
-    await act(async () => {
-      await replayAdapter.redo();
-    });
     expect(screen.getByLabelText("Name")).toHaveValue("Patient wartet");
+
+    useQueryMock.mockReturnValue(originalOptions);
+    rerender(
+      <AppointmentSmileyOptionsManagement
+        onRecordCommand={recordCommand}
+        practiceId={practiceId}
+        ruleSetReplayTarget={{
+          draftRevision: 2,
+          draftRuleSetId,
+          kind: "draft",
+          parentRuleSetId,
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByLabelText("Name")).toHaveValue(
+        "Patient ist angekommen",
+      );
+    });
   });
 
   test("shows a plus icon for empty emoji rows", () => {

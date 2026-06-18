@@ -654,11 +654,11 @@ function LogicView() {
     if (isWorkingOnUnsavedRuleSet && unsavedRuleSet.parentVersion) {
       return unsavedRuleSet.parentVersion;
     }
-    if (ruleSetIdFromUrl) {
-      return ruleSetIdFromUrl;
+    if (resolvedRuleSetIdFromUrl) {
+      return resolvedRuleSetIdFromUrl;
     }
     return null;
-  }, [currentWorkingRuleSet?._id, ruleSetIdFromUrl, unsavedRuleSet]);
+  }, [currentWorkingRuleSet?._id, resolvedRuleSetIdFromUrl, unsavedRuleSet]);
   const lastHistoryScopeRef = useRef<null | string>(historyScopeKey);
   const recordRegelnCommand = useCallback(
     (command: RuleSetCommand, runtime: RuleSetCommandRuntimeAdapter) => {

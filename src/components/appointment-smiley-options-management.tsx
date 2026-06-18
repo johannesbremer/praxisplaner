@@ -2,7 +2,7 @@ import type { Emoji } from "frimousse";
 
 import { useMutation, useQuery } from "convex/react";
 import { Loader2, Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -56,7 +56,6 @@ interface DraftSmileyOption extends AppointmentSmileyOption {
 }
 
 interface SmileyOptionsEditorState {
-  committedOptions: AppointmentSmileyOption[];
   draftOptions: DraftSmileyOption[];
   error: null | string;
   sourceKey: string;
@@ -124,7 +123,6 @@ const createEditorState = (
   options: AppointmentSmileyOption[],
   sourceKey = createOptionsSourceKey(options),
 ): SmileyOptionsEditorState => ({
-  committedOptions: options,
   draftOptions: createDraftOptions(options),
   error: null,
   sourceKey,
@@ -224,20 +222,19 @@ function AppointmentSmileyOptionsEditor({
         : createOptionsSourceKey(initialOptions),
     [initialOptions],
   );
-  const initialOptionsKeyRef = useRef(initialOptionsKey);
-  useEffect(() => {
-    initialOptionsKeyRef.current = initialOptionsKey;
-  }, [initialOptionsKey]);
   const [editorState, setEditorState] = useState(() =>
     createInitialEditorState(initialOptions, initialOptionsKey),
   );
-  const activeEditorState = resolveActiveEditorState({
-    currentState: editorState,
-    initialOptions,
-    initialOptionsKey,
-  });
-  const committedOptions =
-    activeEditorState?.committedOptions ?? EMPTY_APPOINTMENT_SMILEY_OPTIONS;
+  let activeEditorState = editorState;
+  if (
+    initialOptions !== undefined &&
+    initialOptionsKey !== null &&
+    editorState?.sourceKey !== initialOptionsKey
+  ) {
+    activeEditorState = createEditorState(initialOptions, initialOptionsKey);
+    setEditorState(activeEditorState);
+  }
+  const committedOptions = initialOptions ?? EMPTY_APPOINTMENT_SMILEY_OPTIONS;
   const draftOptions =
     activeEditorState?.draftOptions ?? EMPTY_DRAFT_SMILEY_OPTIONS;
   const error = activeEditorState?.error ?? null;
@@ -260,11 +257,6 @@ function AppointmentSmileyOptionsEditor({
 
   const setEditorError = (nextError: null | string) => {
     updateActiveEditorState((state) => ({ ...state, error: nextError }));
-  };
-  const applySavedOptionsToEditor = (options: AppointmentSmileyOption[]) => {
-    setEditorState(
-      createEditorState(options, initialOptionsKeyRef.current ?? undefined),
-    );
   };
 
   const completeOptions = toCommittedOptions(draftOptions);
@@ -315,7 +307,6 @@ function AppointmentSmileyOptionsEditor({
         practiceId,
       });
       handleDraftMutationResult(savedOptions);
-      applySavedOptionsToEditor(savedOptions.options);
       recordAppointmentSmileyOptionsCommand({
         afterOptions: savedOptions.options,
         beforeOptions,
@@ -323,7 +314,6 @@ function AppointmentSmileyOptionsEditor({
         getCowMutationArgs,
         handleDraftMutationResult,
         label,
-        onOptionsApplied: applySavedOptionsToEditor,
         onRecordCommand,
         practiceId,
         updateOptions,

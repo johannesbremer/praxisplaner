@@ -28,7 +28,6 @@ interface RecordAppointmentSmileyOptionsCommandParams {
   };
   handleDraftMutationResult: (result: DraftMutationResult) => void;
   label: string;
-  onOptionsApplied: (options: AppointmentSmileyOption[]) => void;
   onRecordCommand: RecordRuleSetCommand | undefined;
   practiceId: Id<"practices">;
   updateOptions: (args: {
@@ -60,7 +59,6 @@ export function recordAppointmentSmileyOptionsCommand(
       practiceId: params.practiceId,
     });
     params.handleDraftMutationResult(result);
-    params.onOptionsApplied(result.options);
     return appliedLedgerResult();
   };
 
