@@ -4,6 +4,7 @@ import { toTableId } from "@/convex/identity";
 import {
   resolveAppointmentSmileyOptionsRuleSetId,
   shouldShowAppointmentSmileyEditor,
+  shouldShowAppointmentSmileyInTitle,
 } from "@/src/components/calendar-right-sidebar";
 
 describe("resolveAppointmentSmileyOptionsRuleSetId", () => {
@@ -65,6 +66,35 @@ describe("shouldShowAppointmentSmileyEditor", () => {
       shouldShowAppointmentSmileyEditor({
         appointmentId: followUpAppointmentId,
         selectedAppointmentId: rootAppointmentId,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldShowAppointmentSmileyInTitle", () => {
+  test("shows the title marker only when the marked appointment is not exactly selected", () => {
+    const selectedAppointmentId = toTableId<"appointments">("selected");
+    const otherAppointmentId = toTableId<"appointments">("other");
+
+    expect(
+      shouldShowAppointmentSmileyInTitle({
+        appointmentId: otherAppointmentId,
+        selectedAppointmentId,
+        smiley: "👍",
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowAppointmentSmileyInTitle({
+        appointmentId: selectedAppointmentId,
+        selectedAppointmentId,
+        smiley: "👍",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowAppointmentSmileyInTitle({
+        appointmentId: otherAppointmentId,
+        selectedAppointmentId,
+        smiley: undefined,
       }),
     ).toBe(false);
   });

@@ -113,6 +113,20 @@ export function shouldShowAppointmentSmileyEditor(args: {
   return args.selectedAppointmentId === args.appointmentId;
 }
 
+export function shouldShowAppointmentSmileyInTitle(args: {
+  appointmentId: Id<"appointments">;
+  selectedAppointmentId: Id<"appointments"> | undefined;
+  smiley: AppointmentSmiley | undefined;
+}): boolean {
+  return (
+    args.smiley !== undefined &&
+    !shouldShowAppointmentSmileyEditor({
+      appointmentId: args.appointmentId,
+      selectedAppointmentId: args.selectedAppointmentId,
+    })
+  );
+}
+
 const RIGHT_SIDEBAR_WIDTH = "18rem";
 const RIGHT_SIDEBAR_WIDTH_MOBILE = "18rem";
 const GENDER_LABELS: Record<
@@ -720,6 +734,12 @@ function RightSidebarContent({
                             appointmentId: appointment._id,
                             selectedAppointmentId,
                           });
+                        const showSmileyInTitle =
+                          shouldShowAppointmentSmileyInTitle({
+                            appointmentId: appointment._id,
+                            selectedAppointmentId,
+                            smiley: appointment.smiley,
+                          });
                         const isSelected =
                           isExactSelectedAppointment ||
                           (selectedSeriesId !== undefined &&
@@ -742,6 +762,14 @@ function RightSidebarContent({
                               type="button"
                             >
                               <div className="flex min-w-0 items-center gap-1.5">
+                                {showSmileyInTitle ? (
+                                  <span
+                                    aria-hidden="true"
+                                    className="shrink-0 text-sm leading-none"
+                                  >
+                                    {appointment.smiley}
+                                  </span>
+                                ) : null}
                                 <p className="truncate font-medium">
                                   {appointment.title}
                                 </p>
