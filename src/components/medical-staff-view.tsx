@@ -15,30 +15,30 @@ import { PraxisCalendar } from "./praxis-calendar";
 
 interface MedicalStaffViewProps {
   canManageCalendarPlanning?: boolean | undefined;
-  hiddenColumnNames?: readonly string[] | undefined;
-  onHiddenColumnNamesChange?:
-    | ((hiddenColumnNames: readonly string[]) => void)
-    | undefined;
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
+  onVisibleColumnNamesChange?:
+    | ((visibleColumnNames?: readonly string[]) => void)
+    | undefined;
   patient?: PatientInfo;
   practiceId: Id<"practices">;
   ruleSetId: SchedulingRuleSetId;
   simulatedContext: SchedulingSimulatedContext;
   simulationDate: Temporal.PlainDate;
+  visibleColumnNames?: readonly string[] | undefined;
 }
 
 export function MedicalStaffView({
   canManageCalendarPlanning,
-  hiddenColumnNames,
-  onHiddenColumnNamesChange,
   onSlotClick,
   onUpdateSimulatedContext,
+  onVisibleColumnNamesChange,
   patient,
   practiceId,
   ruleSetId,
   simulatedContext,
   simulationDate,
+  visibleColumnNames,
 }: MedicalStaffViewProps) {
   // Show the Terminkalender (appointment calendar) for medical staff
   return (
@@ -46,15 +46,15 @@ export function MedicalStaffView({
       <div className="flex h-full w-full">
         <PraxisCalendar
           canManageCalendarPlanning={canManageCalendarPlanning}
-          hiddenColumnNames={hiddenColumnNames}
-          onHiddenColumnNamesChange={onHiddenColumnNamesChange}
           onSlotClick={onSlotClick}
           onUpdateSimulatedContext={onUpdateSimulatedContext}
+          onVisibleColumnNamesChange={onVisibleColumnNamesChange}
           patient={patient}
           practiceId={practiceId}
           ruleSetId={ruleSetId}
           simulatedContext={simulatedContext}
           simulationDate={simulationDate}
+          visibleColumnNames={visibleColumnNames}
         />
       </div>
     </SidebarProvider>

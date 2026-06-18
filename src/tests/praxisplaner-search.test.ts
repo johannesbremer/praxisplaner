@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   normalizePraxisplanerSearch,
-  serializeHiddenColumnNamesForSearch,
+  serializeVisibleColumnNamesForSearch,
   VACATION_TAB_SEARCH_VALUE,
 } from "../utils/praxisplaner-search";
 
@@ -17,37 +17,41 @@ describe("Praxisplaner search", () => {
     });
   });
 
-  it("normalizes hidden column names for URL state", () => {
+  it("normalizes visible column names for URL state", () => {
     const result = normalizePraxisplanerSearch({
-      ohne: "Labor*KB*Labor** EKG ",
+      spalten: "Labor*KB*Labor** EKG ",
     });
 
     expect(result).toEqual({
-      ohne: "EKG*KB*Labor",
+      spalten: "EKG*KB*Labor",
     });
   });
 
-  it("keeps a single hidden column name as a plain search value", () => {
+  it("keeps a single visible column name as a plain search value", () => {
     const result = normalizePraxisplanerSearch({
-      ohne: "EKG",
+      spalten: "EKG",
     });
 
     expect(result).toEqual({
-      ohne: "EKG",
+      spalten: "EKG",
     });
   });
 
-  it("omits empty hidden column URL state", () => {
+  it("omits empty visible column URL state", () => {
     const result = normalizePraxisplanerSearch({
-      ohne: " ",
+      spalten: " ",
     });
 
     expect(result).toEqual({});
   });
 
-  it("serializes hidden column names deterministically", () => {
-    expect(serializeHiddenColumnNamesForSearch(["Labor", "EKG", "Labor"])).toBe(
-      "EKG*Labor",
-    );
+  it("serializes visible column names deterministically", () => {
+    expect(
+      serializeVisibleColumnNamesForSearch(["Labor", "EKG", "Labor"]),
+    ).toBe("EKG*Labor");
+  });
+
+  it("omits visible column URL state when all columns should be shown", () => {
+    expect(serializeVisibleColumnNamesForSearch()).toBeUndefined();
   });
 });

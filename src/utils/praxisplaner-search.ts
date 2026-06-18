@@ -7,7 +7,7 @@ export const VACATION_TAB_SEARCH_VALUE = "urlaub" as const;
 
 export interface PraxisplanerSearchParams {
   datum?: DeDateString;
-  ohne?: string;
+  spalten?: string;
   standort?: string;
   tab?: PraxisplanerTabParam;
 }
@@ -16,29 +16,33 @@ export type PraxisplanerTabParam =
   | typeof NERDS_TAB_SEARCH_VALUE
   | typeof VACATION_TAB_SEARCH_VALUE;
 
-const HIDDEN_COLUMN_SEPARATOR = "*";
+const COLUMN_NAME_SEPARATOR = "*";
 
-export const normalizeHiddenColumnNames = (
-  hiddenColumnNames: readonly string[],
+export const normalizeColumnNames = (
+  columnNames: readonly string[],
 ): string[] =>
-  [...new Set(hiddenColumnNames)]
+  [...new Set(columnNames)]
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0)
     .toSorted();
 
-export const parseHiddenColumnNamesFromSearch = (value: string): string[] =>
-  normalizeHiddenColumnNames(value.split(HIDDEN_COLUMN_SEPARATOR));
+export const parseVisibleColumnNamesFromSearch = (value: string): string[] =>
+  normalizeColumnNames(value.split(COLUMN_NAME_SEPARATOR));
 
-export const serializeHiddenColumnNamesForSearch = (
-  hiddenColumnNames: readonly string[],
+export const serializeVisibleColumnNamesForSearch = (
+  visibleColumnNames?: readonly string[],
 ): string | undefined => {
-  const normalizedNames = normalizeHiddenColumnNames(hiddenColumnNames);
-
-  if (normalizedNames.length === 0) {
-    return;
+  if (visibleColumnNames === undefined) {
+    return undefined;
   }
 
-  return normalizedNames.join(HIDDEN_COLUMN_SEPARATOR);
+  const normalizedNames = normalizeColumnNames(visibleColumnNames);
+
+  if (normalizedNames.length === 0) {
+    return undefined;
+  }
+
+  return normalizedNames.join(COLUMN_NAME_SEPARATOR);
 };
 
 export const normalizePraxisplanerSearch = (
@@ -54,13 +58,13 @@ export const normalizePraxisplanerSearch = (
     params.standort = search["standort"];
   }
 
-  const rawOhne = search["ohne"];
-  if (typeof rawOhne === "string") {
-    const ohne = serializeHiddenColumnNamesForSearch(
-      parseHiddenColumnNamesFromSearch(rawOhne),
+  const rawSpalten = search["spalten"];
+  if (typeof rawSpalten === "string") {
+    const spalten = serializeVisibleColumnNamesForSearch(
+      parseVisibleColumnNamesFromSearch(rawSpalten),
     );
-    if (ohne) {
-      params.ohne = ohne;
+    if (spalten) {
+      params.spalten = spalten;
     }
   }
 

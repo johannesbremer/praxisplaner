@@ -7,17 +7,17 @@ import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
 
 import { formatJSDateDE, isTodayJS, parseJSDateDE } from "./date-utils";
 import {
-  parseHiddenColumnNamesFromSearch,
-  serializeHiddenColumnNamesForSearch,
+  parseVisibleColumnNamesFromSearch,
+  serializeVisibleColumnNamesForSearch,
 } from "./praxisplaner-search";
 export const NEW_PATIENT_SEGMENT = "neu";
 export const EXISTING_PATIENT_SEGMENT = "bestand";
 
 export interface RegelnSearchParams {
   datum?: DeDateString;
-  ohne?: string;
   patientType?: typeof EXISTING_PATIENT_SEGMENT | typeof NEW_PATIENT_SEGMENT;
   regelwerk?: string;
+  spalten?: string;
   standort?: string;
   tab?: RegelnTabParam;
 }
@@ -33,7 +33,6 @@ interface LocationSummary {
 
 interface RegelnNavigationState {
   dateDE?: DeDateString | undefined;
-  hiddenColumnNames?: readonly string[] | undefined;
   locationName?: string | undefined;
   patientTypeSegment?:
     | typeof EXISTING_PATIENT_SEGMENT
@@ -41,6 +40,7 @@ interface RegelnNavigationState {
     | undefined;
   ruleSetDescription?: string | undefined;
   tabParam?: RegelnTabParam | undefined;
+  visibleColumnNames?: readonly string[] | undefined;
 }
 
 interface RuleSetSummary {
@@ -63,11 +63,11 @@ export function buildRegelnSearchFromState(
   if (state.dateDE) {
     search.datum = state.dateDE;
   }
-  const hiddenColumnsSearch = serializeHiddenColumnNamesForSearch(
-    state.hiddenColumnNames ?? [],
+  const visibleColumnsSearch = serializeVisibleColumnNamesForSearch(
+    state.visibleColumnNames,
   );
-  if (hiddenColumnsSearch) {
-    search.ohne = hiddenColumnsSearch;
+  if (visibleColumnsSearch) {
+    search.spalten = visibleColumnsSearch;
   }
   if (state.patientTypeSegment) {
     search.patientType = state.patientTypeSegment;
@@ -189,12 +189,12 @@ export function useRegelnUrl(options: {
 
   function pushUrl(overrides: {
     date?: Date;
-    hiddenColumnNames?: readonly string[] | undefined;
     isNewPatient?: boolean;
     locationId?: Id<"locations"> | undefined;
     ruleSetDescription?: string | undefined;
     ruleSetId?: Id<"ruleSets"> | undefined;
     tab?: RegelnTab;
+    visibleColumnNames?: readonly string[] | undefined;
   }) {
     const nextTabParam = internalTabToParam(overrides.tab ?? activeTab);
 
@@ -233,12 +233,14 @@ export function useRegelnUrl(options: {
 
     navigateWithOptionalParams({
       dateDE,
-      hiddenColumnNames:
-        overrides.hiddenColumnNames ?? currentRouteState.hiddenColumnNames,
       locationName: targetLocationName,
       patientTypeSegment,
       ruleSetDescription: targetRuleSetDescription,
       tabParam: nextTabParam,
+      visibleColumnNames:
+        "visibleColumnNames" in overrides
+          ? overrides.visibleColumnNames
+          : currentRouteState.visibleColumnNames,
     });
   }
 
@@ -253,21 +255,21 @@ export function useRegelnUrl(options: {
     // raw params
     raw: {
       datum: currentRouteState.dateDE,
-      ohne: serializeHiddenColumnNamesForSearch(
-        currentRouteState.hiddenColumnNames ?? [],
-      ),
       patientType: currentRouteState.patientTypeSegment,
       ruleSet: currentRouteState.ruleSetDescription,
+      spalten: serializeVisibleColumnNamesForSearch(
+        currentRouteState.visibleColumnNames,
+      ),
       standort: currentRouteState.locationName,
       tab: currentRouteState.tabParam,
     },
     // derived state
     activeTab,
-    hiddenColumnNames: currentRouteState.hiddenColumnNames ?? [],
     isNewPatient,
     locationIdFromUrl,
     ruleSetIdFromUrl,
     selectedDate,
+    visibleColumnNames: currentRouteState.visibleColumnNames,
     // actions
     navigateTab,
     pushUrl,
@@ -285,23 +287,23 @@ function fromSearchParams(params: RegelnSearchParams): RegelnNavigationState {
 
   return {
     dateDE: params.datum,
-    hiddenColumnNames:
-      typeof params.ohne === "string"
-        ? parseHiddenColumnNamesFromSearch(params.ohne)
-        : [],
     locationName: params.standort,
     patientTypeSegment,
     ruleSetDescription: params.regelwerk,
     tabParam: params.tab,
+    visibleColumnNames:
+      typeof params.spalten === "string"
+        ? parseVisibleColumnNamesFromSearch(params.spalten)
+        : undefined,
   };
 }
 
 function isSameSearch(left: RegelnSearchParams, right: RegelnSearchParams) {
   return (
     left.datum === right.datum &&
-    left.ohne === right.ohne &&
     left.patientType === right.patientType &&
     left.regelwerk === right.regelwerk &&
+    left.spalten === right.spalten &&
     left.standort === right.standort &&
     left.tab === right.tab
   );

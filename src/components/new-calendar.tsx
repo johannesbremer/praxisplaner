@@ -63,8 +63,6 @@ import { useCalendarLogic } from "./calendar/use-calendar-logic";
 
 // Hardcoded timezone for Berlin
 const TIMEZONE = "Europe/Berlin";
-const EMPTY_HIDDEN_COLUMN_NAMES: readonly string[] = [];
-
 type SelectedPatient =
   | { id: Id<"patients">; info?: PatientInfo; type: "patient" }
   | { id: Id<"users">; type: "user" }
@@ -117,12 +115,11 @@ function CalendarGridWithSidebarOpening({
 // Helper to convert Temporal.PlainDate to JS Date for date-fns
 export function NewCalendar({
   canManageCalendarPlanning = false,
-  hiddenColumnNames = EMPTY_HIDDEN_COLUMN_NAMES,
   locationName,
   onDateChange,
-  onHiddenColumnNamesChange,
   onLocationResolved,
   onUpdateSimulatedContext,
+  onVisibleColumnNamesChange,
   patient,
   practiceId: propPracticeId,
   ruleSetId,
@@ -130,6 +127,7 @@ export function NewCalendar({
   showGdtAlert = false,
   simulatedContext,
   simulationDate,
+  visibleColumnNames,
 }: NewCalendarProps) {
   // Ref for scrolling to appointments
   const calendarScrollContainerRef = useRef<HTMLDivElement>(null);
@@ -343,39 +341,52 @@ export function NewCalendar({
     simulationDate,
   });
 
-  const hiddenColumnNameSet = useMemo(
-    () => new Set(hiddenColumnNames),
-    [hiddenColumnNames],
+  const visibleColumnNameSet = useMemo(
+    () =>
+      visibleColumnNames === undefined
+        ? undefined
+        : new Set(visibleColumnNames),
+    [visibleColumnNames],
   );
   const visibleColumns = useMemo(
-    () => columns.filter((column) => !hiddenColumnNameSet.has(column.title)),
-    [columns, hiddenColumnNameSet],
+    () =>
+      visibleColumnNameSet === undefined
+        ? columns
+        : columns.filter((column) => visibleColumnNameSet.has(column.title)),
+    [columns, visibleColumnNameSet],
   );
   const hiddenColumnCount = columns.length - visibleColumns.length;
   const areAllColumnsHidden = columns.length > 0 && visibleColumns.length === 0;
-  const canChangeColumnVisibility = onHiddenColumnNamesChange !== undefined;
+  const canChangeColumnVisibility = onVisibleColumnNamesChange !== undefined;
 
   const handleColumnVisibleChange = useCallback(
     (columnName: string, nextVisible: boolean) => {
-      if (!onHiddenColumnNamesChange) {
+      if (!onVisibleColumnNamesChange) {
         return;
       }
 
-      const nextHiddenColumnNames = new Set(hiddenColumnNames);
+      const nextVisibleColumnNames = new Set(
+        visibleColumnNames ?? columns.map((column) => column.title),
+      );
       if (nextVisible) {
-        nextHiddenColumnNames.delete(columnName);
+        nextVisibleColumnNames.add(columnName);
       } else {
-        nextHiddenColumnNames.add(columnName);
+        nextVisibleColumnNames.delete(columnName);
       }
 
-      onHiddenColumnNamesChange([...nextHiddenColumnNames]);
+      if (nextVisibleColumnNames.size === columns.length) {
+        onVisibleColumnNamesChange();
+        return;
+      }
+
+      onVisibleColumnNamesChange([...nextVisibleColumnNames]);
     },
-    [hiddenColumnNames, onHiddenColumnNamesChange],
+    [columns, onVisibleColumnNamesChange, visibleColumnNames],
   );
 
   const showAllColumns = useCallback(() => {
-    onHiddenColumnNamesChange?.([]);
-  }, [onHiddenColumnNamesChange]);
+    onVisibleColumnNamesChange?.();
+  }, [onVisibleColumnNamesChange]);
 
   // Query for patient appointments when a patient is selected
   // Also queries for GDT patient when no specific appointment is selected
@@ -675,9 +686,9 @@ export function NewCalendar({
                       <DropdownMenuSeparator />
                       {columns.map((column) => {
                         const columnKey = calendarColumnScopeKey(column.id);
-                        const isVisible = !hiddenColumnNameSet.has(
-                          column.title,
-                        );
+                        const isVisible =
+                          visibleColumnNameSet === undefined ||
+                          visibleColumnNameSet.has(column.title);
                         const isLastVisibleColumn =
                           isVisible && visibleColumns.length === 1;
                         return (

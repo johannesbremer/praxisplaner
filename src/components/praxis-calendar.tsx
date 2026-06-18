@@ -13,18 +13,17 @@ import { NewCalendar } from "./new-calendar";
 interface PraxisCalendarProps {
   canManageCalendarPlanning?: boolean | undefined;
   // Notify parent when the current date changes
-  hiddenColumnNames?: readonly string[] | undefined;
   locationName?: string | undefined;
   onDateChange?: ((date: Temporal.PlainDate) => void) | undefined;
-  onHiddenColumnNamesChange?:
-    | ((hiddenColumnNames: readonly string[]) => void)
-    | undefined;
   onLocationResolved?:
     | ((locationId: Id<"locations">, locationName: string) => void)
     | undefined;
   onSlotClick?: ((slot: SchedulingSlot) => void) | undefined;
   onUpdateSimulatedContext?:
     | ((context: SchedulingSimulatedContext) => void)
+    | undefined;
+  onVisibleColumnNamesChange?:
+    | ((visibleColumnNames?: readonly string[]) => void)
     | undefined;
   patient?: PatientInfo | undefined;
   practiceId: Id<"practices">;
@@ -33,6 +32,7 @@ interface PraxisCalendarProps {
   showGdtAlert?: boolean | undefined;
   simulatedContext?: SchedulingSimulatedContext | undefined;
   simulationDate?: Temporal.PlainDate | undefined;
+  visibleColumnNames?: readonly string[] | undefined;
 }
 
 export function PraxisCalendar(props: PraxisCalendarProps) {

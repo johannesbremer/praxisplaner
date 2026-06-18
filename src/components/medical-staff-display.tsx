@@ -14,38 +14,37 @@ import { ProDisplayXDRDevice } from "./xdr-device";
 
 interface MedicalStaffDisplayProps {
   canManageCalendarPlanning?: boolean | undefined;
-  hiddenColumnNames?: readonly string[] | undefined;
-  onHiddenColumnNamesChange?:
-    | ((hiddenColumnNames: readonly string[]) => void)
-    | undefined;
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
+  onVisibleColumnNamesChange?:
+    | ((visibleColumnNames?: readonly string[]) => void)
+    | undefined;
   patient?: PatientInfo;
   practiceId: Id<"practices">;
   ruleSetId: SchedulingRuleSetId;
   simulatedContext: SchedulingSimulatedContext;
   simulationDate: Temporal.PlainDate;
+  visibleColumnNames?: readonly string[] | undefined;
 }
 
 export function MedicalStaffDisplay({
   canManageCalendarPlanning,
-  hiddenColumnNames,
-  onHiddenColumnNamesChange,
   onSlotClick,
   onUpdateSimulatedContext,
+  onVisibleColumnNamesChange,
   patient,
   practiceId,
   ruleSetId,
   simulatedContext,
   simulationDate,
+  visibleColumnNames,
 }: MedicalStaffDisplayProps) {
   return (
     <div className="w-full px-6">
       <ProDisplayXDRDevice>
         <MedicalStaffView
           canManageCalendarPlanning={canManageCalendarPlanning}
-          hiddenColumnNames={hiddenColumnNames}
-          onHiddenColumnNamesChange={onHiddenColumnNamesChange}
+          onVisibleColumnNamesChange={onVisibleColumnNamesChange}
           {...(onSlotClick && { onSlotClick })}
           {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
           {...(patient && { patient })}
@@ -53,6 +52,7 @@ export function MedicalStaffDisplay({
           ruleSetId={ruleSetId}
           simulatedContext={simulatedContext}
           simulationDate={simulationDate}
+          visibleColumnNames={visibleColumnNames}
         />
       </ProDisplayXDRDevice>
     </div>

@@ -109,16 +109,12 @@ export interface WorkingPractitioner {
  */
 export interface NewCalendarProps {
   canManageCalendarPlanning?: boolean | undefined;
-  hiddenColumnNames?: readonly string[] | undefined;
   locationName?: string | undefined;
   onAppointmentCreated?:
     | ((appointmentId: Id<"appointments">) => void)
     | undefined;
   onClearAppointmentTypeSelection?: (() => void) | undefined;
   onDateChange?: ((date: Temporal.PlainDate) => void) | undefined;
-  onHiddenColumnNamesChange?:
-    | ((hiddenColumnNames: readonly string[]) => void)
-    | undefined;
   onLocationResolved?:
     | ((locationId: Id<"locations">, locationName: string) => void)
     | undefined;
@@ -131,6 +127,9 @@ export interface NewCalendarProps {
         start: string;
         title: string;
       }) => void)
+    | undefined;
+  onVisibleColumnNamesChange?:
+    | ((visibleColumnNames?: readonly string[]) => void)
     | undefined;
 
   /**
@@ -156,6 +155,7 @@ export interface NewCalendarProps {
   showGdtAlert?: boolean | undefined;
   simulatedContext?: SchedulingSimulatedContext | undefined;
   simulationDate?: Temporal.PlainDate | undefined;
+  visibleColumnNames?: readonly string[] | undefined;
 }
 
 export const SLOT_DURATION = 5; // minutes

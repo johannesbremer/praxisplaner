@@ -121,8 +121,8 @@ export const Route = createFileRoute("/$organizationSlug_/regeln")({
       result.datum = params["datum"];
     }
 
-    if (typeof params["ohne"] === "string" && params["ohne"].length > 0) {
-      result.ohne = params["ohne"];
+    if (typeof params["spalten"] === "string" && params["spalten"].length > 0) {
+      result.spalten = params["spalten"];
     }
 
     if (params["patientType"] === EXISTING_PATIENT_SEGMENT) {
@@ -489,7 +489,6 @@ function LogicView() {
   // Now call the hook ONCE with all the data we have
   const {
     activeTab,
-    hiddenColumnNames,
     isNewPatient,
     locationIdFromUrl,
     navigateTab,
@@ -497,6 +496,7 @@ function LogicView() {
     raw,
     ruleSetIdFromUrl,
     selectedDate,
+    visibleColumnNames,
   } = useRegelnUrl({
     locationsListQuery: locationsListQuery ?? undefined,
     organizationSlug,
@@ -1531,15 +1531,15 @@ function LogicView() {
                 {resolvedCurrentWorkingRuleSet ? (
                   <MedicalStaffDisplay
                     canManageCalendarPlanning
-                    hiddenColumnNames={hiddenColumnNames}
-                    onHiddenColumnNamesChange={(nextHiddenColumnNames) => {
-                      pushUrl({ hiddenColumnNames: nextHiddenColumnNames });
-                    }}
                     onUpdateSimulatedContext={updateSimulatedContext}
+                    onVisibleColumnNamesChange={(nextVisibleColumnNames) => {
+                      pushUrl({ visibleColumnNames: nextVisibleColumnNames });
+                    }}
                     practiceId={currentPractice._id}
                     ruleSetId={resolvedCurrentWorkingRuleSet._id}
                     simulatedContext={effectiveSimulatedContext}
                     simulationDate={simulationDate}
+                    visibleColumnNames={visibleColumnNames}
                   />
                 ) : (
                   <div className="flex items-center justify-center p-8 text-muted-foreground">
