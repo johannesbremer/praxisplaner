@@ -15,6 +15,10 @@ import { PraxisCalendar } from "./praxis-calendar";
 
 interface MedicalStaffViewProps {
   canManageCalendarPlanning?: boolean | undefined;
+  hiddenColumnNames?: readonly string[] | undefined;
+  onHiddenColumnNamesChange?:
+    | ((hiddenColumnNames: readonly string[]) => void)
+    | undefined;
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   patient?: PatientInfo;
@@ -26,6 +30,8 @@ interface MedicalStaffViewProps {
 
 export function MedicalStaffView({
   canManageCalendarPlanning,
+  hiddenColumnNames,
+  onHiddenColumnNamesChange,
   onSlotClick,
   onUpdateSimulatedContext,
   patient,
@@ -40,6 +46,8 @@ export function MedicalStaffView({
       <div className="flex h-full w-full">
         <PraxisCalendar
           canManageCalendarPlanning={canManageCalendarPlanning}
+          hiddenColumnNames={hiddenColumnNames}
+          onHiddenColumnNamesChange={onHiddenColumnNamesChange}
           onSlotClick={onSlotClick}
           onUpdateSimulatedContext={onUpdateSimulatedContext}
           patient={patient}

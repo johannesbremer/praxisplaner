@@ -14,6 +14,10 @@ import { ProDisplayXDRDevice } from "./xdr-device";
 
 interface MedicalStaffDisplayProps {
   canManageCalendarPlanning?: boolean | undefined;
+  hiddenColumnNames?: readonly string[] | undefined;
+  onHiddenColumnNamesChange?:
+    | ((hiddenColumnNames: readonly string[]) => void)
+    | undefined;
   onSlotClick?: (slot: SchedulingSlot) => void;
   onUpdateSimulatedContext?: (context: SchedulingSimulatedContext) => void;
   patient?: PatientInfo;
@@ -25,6 +29,8 @@ interface MedicalStaffDisplayProps {
 
 export function MedicalStaffDisplay({
   canManageCalendarPlanning,
+  hiddenColumnNames,
+  onHiddenColumnNamesChange,
   onSlotClick,
   onUpdateSimulatedContext,
   patient,
@@ -38,6 +44,8 @@ export function MedicalStaffDisplay({
       <ProDisplayXDRDevice>
         <MedicalStaffView
           canManageCalendarPlanning={canManageCalendarPlanning}
+          hiddenColumnNames={hiddenColumnNames}
+          onHiddenColumnNamesChange={onHiddenColumnNamesChange}
           {...(onSlotClick && { onSlotClick })}
           {...(onUpdateSimulatedContext && { onUpdateSimulatedContext })}
           {...(patient && { patient })}

@@ -121,6 +121,10 @@ export const Route = createFileRoute("/$organizationSlug_/regeln")({
       result.datum = params["datum"];
     }
 
+    if (typeof params["ohne"] === "string" && params["ohne"].length > 0) {
+      result.ohne = params["ohne"];
+    }
+
     if (params["patientType"] === EXISTING_PATIENT_SEGMENT) {
       result.patientType = EXISTING_PATIENT_SEGMENT;
     } else if (params["patientType"] === NEW_PATIENT_SEGMENT) {
@@ -485,6 +489,7 @@ function LogicView() {
   // Now call the hook ONCE with all the data we have
   const {
     activeTab,
+    hiddenColumnNames,
     isNewPatient,
     locationIdFromUrl,
     navigateTab,
@@ -1526,6 +1531,10 @@ function LogicView() {
                 {resolvedCurrentWorkingRuleSet ? (
                   <MedicalStaffDisplay
                     canManageCalendarPlanning
+                    hiddenColumnNames={hiddenColumnNames}
+                    onHiddenColumnNamesChange={(nextHiddenColumnNames) => {
+                      pushUrl({ hiddenColumnNames: nextHiddenColumnNames });
+                    }}
                     onUpdateSimulatedContext={updateSimulatedContext}
                     practiceId={currentPractice._id}
                     ruleSetId={resolvedCurrentWorkingRuleSet._id}

@@ -18,6 +18,7 @@ describe("Regeln search helpers", () => {
   it("builds search params only for defined state", () => {
     const search = buildRegelnSearchFromState({
       dateDE: "30.01.2025",
+      hiddenColumnNames: ["MT", "EKG"],
       locationName: "Praxis am Markt",
       patientTypeSegment: EXISTING_PATIENT_SEGMENT,
       ruleSetDescription: "wintersprechzeiten-2025",
@@ -26,6 +27,7 @@ describe("Regeln search helpers", () => {
 
     expect(search).toEqual({
       datum: "30.01.2025",
+      ohne: "EKG*MT",
       patientType: EXISTING_PATIENT_SEGMENT,
       regelwerk: "wintersprechzeiten-2025",
       standort: "Praxis am Markt",
@@ -43,6 +45,7 @@ describe("Regeln search helpers", () => {
     });
 
     expect(Object.hasOwn(search, "datum")).toBe(false);
+    expect(Object.hasOwn(search, "ohne")).toBe(false);
     expect(Object.hasOwn(search, "standort")).toBe(false);
     expect(Object.hasOwn(search, "regelwerk")).toBe(false);
     expect(Object.hasOwn(search, "tab")).toBe(false);
@@ -71,6 +74,7 @@ describe("Regeln search helpers", () => {
         organizationSlug: "standardpraxis",
         routeSearch: {
           datum: "13.06.2026",
+          ohne: "EKG",
           regelwerk: "ungespeichert",
         },
         ruleSetsQuery: [],
@@ -90,7 +94,45 @@ describe("Regeln search helpers", () => {
       resetScroll: false,
       search: {
         datum: "13.06.2026",
+        ohne: "EKG",
         regelwerk: "Wintersprechzeiten 2026",
+      },
+      to: "/$organizationSlug/regeln",
+    });
+  });
+
+  it("can update hidden calendar columns on the staff view tab", () => {
+    navigateMock.mockClear();
+
+    const { result } = renderHook(() =>
+      useRegelnUrl({
+        locationsListQuery: [],
+        organizationSlug: "standardpraxis",
+        routeSearch: {
+          datum: "15.06.2026",
+          ohne: "EKG",
+          tab: "mitarbeiter",
+        },
+        ruleSetsQuery: [],
+        unsavedRuleSet: null,
+      }),
+    );
+
+    act(() => {
+      result.current.pushUrl({
+        hiddenColumnNames: ["MT", "EKG"],
+      });
+    });
+
+    expect(result.current.hiddenColumnNames).toEqual(["EKG"]);
+    expect(navigateMock).toHaveBeenCalledWith({
+      params: { organizationSlug: "standardpraxis" },
+      replace: false,
+      resetScroll: false,
+      search: {
+        datum: "15.06.2026",
+        ohne: "EKG*MT",
+        tab: "mitarbeiter",
       },
       to: "/$organizationSlug/regeln",
     });

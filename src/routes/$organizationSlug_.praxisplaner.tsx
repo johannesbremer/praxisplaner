@@ -1110,9 +1110,9 @@ function PraxisPlanerComponent() {
         Kalender wird geladen.
       </div>
     ) : currentPractice ? (
-        activeRuleSet ? (
-          <SidebarProvider className="flex h-full w-full">
-            <PraxisCalendar
+      activeRuleSet ? (
+        <SidebarProvider className="flex h-full w-full">
+          <PraxisCalendar
             canManageCalendarPlanning={canManageCalendarPlanning}
             hiddenColumnNames={hiddenColumnNames}
             onDateChange={handleDateChange}

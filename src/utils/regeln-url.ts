@@ -6,11 +6,16 @@ import type { DeDateString } from "@/lib/typed-regex";
 import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
 
 import { formatJSDateDE, isTodayJS, parseJSDateDE } from "./date-utils";
+import {
+  parseHiddenColumnNamesFromSearch,
+  serializeHiddenColumnNamesForSearch,
+} from "./praxisplaner-search";
 export const NEW_PATIENT_SEGMENT = "neu";
 export const EXISTING_PATIENT_SEGMENT = "bestand";
 
 export interface RegelnSearchParams {
   datum?: DeDateString;
+  ohne?: string;
   patientType?: typeof EXISTING_PATIENT_SEGMENT | typeof NEW_PATIENT_SEGMENT;
   regelwerk?: string;
   standort?: string;
@@ -28,6 +33,7 @@ interface LocationSummary {
 
 interface RegelnNavigationState {
   dateDE?: DeDateString | undefined;
+  hiddenColumnNames?: readonly string[] | undefined;
   locationName?: string | undefined;
   patientTypeSegment?:
     | typeof EXISTING_PATIENT_SEGMENT
@@ -56,6 +62,12 @@ export function buildRegelnSearchFromState(
   }
   if (state.dateDE) {
     search.datum = state.dateDE;
+  }
+  const hiddenColumnsSearch = serializeHiddenColumnNamesForSearch(
+    state.hiddenColumnNames ?? [],
+  );
+  if (hiddenColumnsSearch) {
+    search.ohne = hiddenColumnsSearch;
   }
   if (state.patientTypeSegment) {
     search.patientType = state.patientTypeSegment;
@@ -177,6 +189,7 @@ export function useRegelnUrl(options: {
 
   function pushUrl(overrides: {
     date?: Date;
+    hiddenColumnNames?: readonly string[] | undefined;
     isNewPatient?: boolean;
     locationId?: Id<"locations"> | undefined;
     ruleSetDescription?: string | undefined;
@@ -220,6 +233,8 @@ export function useRegelnUrl(options: {
 
     navigateWithOptionalParams({
       dateDE,
+      hiddenColumnNames:
+        overrides.hiddenColumnNames ?? currentRouteState.hiddenColumnNames,
       locationName: targetLocationName,
       patientTypeSegment,
       ruleSetDescription: targetRuleSetDescription,
@@ -238,6 +253,9 @@ export function useRegelnUrl(options: {
     // raw params
     raw: {
       datum: currentRouteState.dateDE,
+      ohne: serializeHiddenColumnNamesForSearch(
+        currentRouteState.hiddenColumnNames ?? [],
+      ),
       patientType: currentRouteState.patientTypeSegment,
       ruleSet: currentRouteState.ruleSetDescription,
       standort: currentRouteState.locationName,
@@ -245,6 +263,7 @@ export function useRegelnUrl(options: {
     },
     // derived state
     activeTab,
+    hiddenColumnNames: currentRouteState.hiddenColumnNames ?? [],
     isNewPatient,
     locationIdFromUrl,
     ruleSetIdFromUrl,
@@ -266,6 +285,10 @@ function fromSearchParams(params: RegelnSearchParams): RegelnNavigationState {
 
   return {
     dateDE: params.datum,
+    hiddenColumnNames:
+      typeof params.ohne === "string"
+        ? parseHiddenColumnNamesFromSearch(params.ohne)
+        : [],
     locationName: params.standort,
     patientTypeSegment,
     ruleSetDescription: params.regelwerk,
@@ -276,6 +299,7 @@ function fromSearchParams(params: RegelnSearchParams): RegelnNavigationState {
 function isSameSearch(left: RegelnSearchParams, right: RegelnSearchParams) {
   return (
     left.datum === right.datum &&
+    left.ohne === right.ohne &&
     left.patientType === right.patientType &&
     left.regelwerk === right.regelwerk &&
     left.standort === right.standort &&
