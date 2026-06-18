@@ -389,6 +389,100 @@ describe("Convex query authorization", () => {
     ).resolves.toHaveLength(1);
   });
 
+  test("admin can add another practice admin", async () => {
+    const t = createTestContext();
+    const adminAuthId = "workos_authz_admin_adds_admin";
+    const adminEmail = "authz-admin-adds-admin@example.com";
+    const { authed, practiceId, userId } = await createPracticeForUser(
+      t,
+      adminAuthId,
+      adminEmail,
+    );
+    await setMembershipRole(t, { practiceId, role: "admin", userId });
+    const targetUserId = await createUser(
+      t,
+      "workos_authz_admin_target_admin",
+      "authz-admin-target-admin@example.com",
+    );
+
+    const membershipId = await authed.mutation(
+      api.practices.upsertPracticeMember,
+      {
+        practiceId,
+        role: "admin",
+        userId: targetUserId,
+      },
+    );
+    const membership = await t.run(
+      async (ctx) => await ctx.db.get("practiceMembers", membershipId),
+    );
+
+    expect(membership).toMatchObject({
+      practiceId,
+      role: "admin",
+      userId: targetUserId,
+    });
+  });
+
+  test("admin cannot promote a practice member to owner", async () => {
+    const t = createTestContext();
+    const adminAuthId = "workos_authz_admin_promotes_owner";
+    const adminEmail = "authz-admin-promotes-owner@example.com";
+    const { authed, practiceId, userId } = await createPracticeForUser(
+      t,
+      adminAuthId,
+      adminEmail,
+    );
+    await setMembershipRole(t, { practiceId, role: "admin", userId });
+    const targetUserId = await createUser(
+      t,
+      "workos_authz_owner_promotion_target",
+      "authz-owner-promotion-target@example.com",
+    );
+
+    await expect(
+      authed.mutation(api.practices.upsertPracticeMember, {
+        practiceId,
+        role: "owner",
+        userId: targetUserId,
+      }),
+    ).rejects.toThrow("Role admin is insufficient");
+  });
+
+  test("owner can promote a practice member to owner", async () => {
+    const t = createTestContext();
+    const ownerAuthId = "workos_authz_owner_promotes_owner";
+    const ownerEmail = "authz-owner-promotes-owner@example.com";
+    const { authed, practiceId } = await createPracticeForUser(
+      t,
+      ownerAuthId,
+      ownerEmail,
+    );
+    const targetUserId = await createUser(
+      t,
+      "workos_authz_owner_target_owner",
+      "authz-owner-target-owner@example.com",
+    );
+
+    const membershipId = await authed.mutation(
+      api.practices.upsertPracticeMember,
+      {
+        practiceId,
+        role: "owner",
+        userId: targetUserId,
+      },
+    );
+    const membership = await t.run(
+      async (ctx) => await ctx.db.get("practiceMembers", membershipId),
+    );
+
+    expect(membership).toMatchObject({
+      practiceId,
+      role: "owner",
+      userId: targetUserId,
+    });
+  });
+
   test("practice-scoped user display returns booking personal data from the authorized practice only", async () => {
     const t = createTestContext();
     const first = await createPracticeForUser(

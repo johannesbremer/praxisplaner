@@ -407,7 +407,11 @@ export const upsertPracticeMember = mutation({
     userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    await ensurePracticeAccessForMutation(
+      ctx,
+      args.practiceId,
+      args.role === "owner" ? "owner" : "admin",
+    );
 
     const existing = await ctx.db
       .query("practiceMembers")
