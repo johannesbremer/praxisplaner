@@ -1,6 +1,6 @@
 import { convexTest } from "convex-test";
 import { Temporal } from "temporal-polyfill";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import type { Id } from "../_generated/dataModel";
 
@@ -12,29 +12,11 @@ import { modules } from "./test.setup";
 
 type TestContext = ReturnType<typeof createTestContext>;
 const TEST_TELEFONKI_SECRET = "telefonki-test-secret";
-
-function withTelefonkiSecret<T extends object>(
-  args: T,
-): T & { integrationSecret: string } {
-  return {
-    ...args,
-    integrationSecret: TEST_TELEFONKI_SECRET,
-  };
-}
-
-const originalTelefonkiSecret = process.env["TELEFONKI_SHARED_SECRET"];
-
-beforeEach(() => {
-  process.env["TELEFONKI_SHARED_SECRET"] = TEST_TELEFONKI_SECRET;
-});
-
-afterEach(() => {
-  if (originalTelefonkiSecret === undefined) {
-    delete process.env["TELEFONKI_SHARED_SECRET"];
-    return;
-  }
-  process.env["TELEFONKI_SHARED_SECRET"] = originalTelefonkiSecret;
-});
+const TEST_TELEFONKI_SECRET_HASH =
+  "f01d8b6548aa0bdef2585e628eed24d8c6a71fe8b02a4cf9498fb38b92fbc841";
+const OTHER_TELEFONKI_SECRET = "other-telefonki-secret";
+const OTHER_TELEFONKI_SECRET_HASH =
+  "a29c385be68e3f58d55141ac96a41b03fd5f5f0caf15fba776d9560789033a50";
 
 async function addBlockingClientTypeRule(
   t: TestContext,
@@ -106,15 +88,24 @@ async function addBlockingHoursAheadRule(
   });
 }
 
-async function createTelefonkiFixture(t: TestContext) {
+async function createTelefonkiFixture(
+  t: TestContext,
+  args: {
+    name?: string;
+    phoneNumber?: string;
+    telefonkiIntegrationSecretHash?: string;
+  } = {},
+) {
   return await t.run(async (ctx) => {
     const practiceId = await ctx.db.insert("practices", {
-      name: "TelefonKI Test Practice",
+      name: args.name ?? "TelefonKI Test Practice",
+      telefonkiIntegrationSecretHash:
+        args.telefonkiIntegrationSecretHash ?? TEST_TELEFONKI_SECRET_HASH,
     });
     const phoneNumberId = await ctx.db.insert("practicePhoneNumbers", {
       createdAt: BigInt(Date.now()),
       lastModified: BigInt(Date.now()),
-      phoneNumber: "+495421000000",
+      phoneNumber: args.phoneNumber ?? "+495421000000",
       practiceId,
     });
     const ruleSetId = await ctx.db.insert("ruleSets", {
@@ -218,12 +209,25 @@ function simulatedContext(args: {
   };
 }
 
+function withTelefonkiSecret<T extends object>(
+  args: T,
+): T & { integrationSecret: string } {
+  return {
+    ...args,
+    integrationSecret: TEST_TELEFONKI_SECRET,
+  };
+}
+
 describe("TelefonKI availability", () => {
-  test("fails closed when the TelefonKI shared secret is not configured", async () => {
+  test("fails closed when the practice TelefonKI secret is not configured", async () => {
     const t = createTestContext();
     const fixture = await createTelefonkiFixture(t);
 
-    delete process.env["TELEFONKI_SHARED_SECRET"];
+    await t.run(async (ctx) => {
+      await ctx.db.patch("practices", fixture.practiceId, {
+        telefonkiIntegrationSecretHash: undefined,
+      });
+    });
 
     await expect(
       t.query(
@@ -232,7 +236,9 @@ describe("TelefonKI availability", () => {
           practiceId: fixture.practiceId,
         }),
       ),
-    ).rejects.toThrow("TelefonKI shared secret is not configured.");
+    ).rejects.toThrow(
+      "TelefonKI integration secret is not configured for this practice.",
+    );
   });
 
   test("resolves the practice by dialed phone number", async () => {
@@ -264,7 +270,7 @@ describe("TelefonKI availability", () => {
     ).rejects.toThrow("Practice phone number must be provided in E.164 format");
   });
 
-  test("rejects unknown dialed phone numbers", async () => {
+  test("returns a generic denial for unknown dialed phone numbers", async () => {
     const t = createTestContext();
     await createTelefonkiFixture(t);
 
@@ -275,23 +281,28 @@ describe("TelefonKI availability", () => {
           dialedPracticePhoneNumber: "+495421999999",
         }),
       ),
-    ).rejects.toThrow("No practice is configured for the dialed phone number");
+    ).rejects.toThrow("TelefonKI integration access denied.");
   });
 
-  test("maps different dialed numbers to different practices", async () => {
+  test("returns the same generic denial for routed numbers with the wrong practice secret", async () => {
+    const t = createTestContext();
+    await createTelefonkiFixture(t);
+
+    await expect(
+      t.query(api.telefonki.resolvePracticeByDialedPhoneNumber, {
+        dialedPracticePhoneNumber: "+495421000000",
+        integrationSecret: OTHER_TELEFONKI_SECRET,
+      }),
+    ).rejects.toThrow("TelefonKI integration access denied.");
+  });
+
+  test("maps different dialed numbers to different practices with matching practice secrets", async () => {
     const t = createTestContext();
     const firstFixture = await createTelefonkiFixture(t);
-    const secondFixture = await t.run(async (ctx) => {
-      const practiceId = await ctx.db.insert("practices", {
-        name: "TelefonKI Zweitpraxis",
-      });
-      await ctx.db.insert("practicePhoneNumbers", {
-        createdAt: BigInt(Date.now()),
-        lastModified: BigInt(Date.now()),
-        phoneNumber: "+495431000000",
-        practiceId,
-      });
-      return { practiceId };
+    const secondFixture = await createTelefonkiFixture(t, {
+      name: "TelefonKI Zweitpraxis",
+      phoneNumber: "+495431000000",
+      telefonkiIntegrationSecretHash: OTHER_TELEFONKI_SECRET_HASH,
     });
 
     const firstResolved = await t.query(
@@ -302,13 +313,26 @@ describe("TelefonKI availability", () => {
     );
     const secondResolved = await t.query(
       api.telefonki.resolvePracticeByDialedPhoneNumber,
-      withTelefonkiSecret({
+      {
         dialedPracticePhoneNumber: "+495431000000",
-      }),
+        integrationSecret: OTHER_TELEFONKI_SECRET,
+      },
     );
 
     expect(firstResolved.practiceId).toBe(firstFixture.practiceId);
     expect(secondResolved.practiceId).toBe(secondFixture.practiceId);
+  });
+
+  test("rejects another practice's TelefonKI secret for practice-scoped operations", async () => {
+    const t = createTestContext();
+    const fixture = await createTelefonkiFixture(t);
+
+    await expect(
+      t.query(api.telefonki.getActiveConfig, {
+        integrationSecret: OTHER_TELEFONKI_SECRET,
+        practiceId: fixture.practiceId,
+      }),
+    ).rejects.toThrow("TelefonKI integration access denied.");
   });
 
   test("returns bounded next slots and afternoon variants", async () => {
@@ -669,6 +693,29 @@ describe("TelefonKI booking ownership", () => {
     );
   });
 
+  test("rejects phone booking identities when the dialed number belongs to another practice", async () => {
+    const t = createTestContext();
+    const firstFixture = await createTelefonkiFixture(t);
+    await createTelefonkiFixture(t, {
+      name: "TelefonKI Zweitpraxis",
+      phoneNumber: "+495431000000",
+      telefonkiIntegrationSecretHash: OTHER_TELEFONKI_SECRET_HASH,
+    });
+
+    await expect(
+      t.mutation(
+        api.telefonki.createOrReusePhoneBookingIdentity,
+        withTelefonkiSecret({
+          callId: "call-wrong-dialed-number",
+          dialedPracticePhoneNumber: "+495431000000",
+          practiceId: firstFixture.practiceId,
+        }),
+      ),
+    ).rejects.toThrow(
+      "Dialed practice phone number is not assigned to this practice.",
+    );
+  });
+
   test("books, views, cancels, and rejects a second appointment for the same call", async () => {
     const t = createTestContext();
     const fixture = await createTelefonkiFixture(t);
@@ -986,5 +1033,38 @@ describe("TelefonKI booking ownership", () => {
 
     expect(viewed).toBeNull();
     expect(cancelled).toBeNull();
+  });
+
+  test("rejects another practice's TelefonKI secret for identity-scoped operations", async () => {
+    const t = createTestContext();
+    const firstFixture = await createTelefonkiFixture(t);
+    await createTelefonkiFixture(t, {
+      name: "TelefonKI Zweitpraxis",
+      phoneNumber: "+495431000000",
+      telefonkiIntegrationSecretHash: OTHER_TELEFONKI_SECRET_HASH,
+    });
+
+    const identityId = await t.mutation(
+      api.telefonki.createOrReusePhoneBookingIdentity,
+      withTelefonkiSecret({
+        callId: "call-cross-practice-token",
+        dialedPracticePhoneNumber: "+495421000000",
+        practiceId: firstFixture.practiceId,
+      }),
+    );
+
+    await expect(
+      t.query(api.telefonki.viewBookedAppointment, {
+        integrationSecret: OTHER_TELEFONKI_SECRET,
+        phoneBookingIdentityId: identityId,
+      }),
+    ).rejects.toThrow("TelefonKI integration access denied.");
+
+    await expect(
+      t.mutation(api.telefonki.cancelBookedAppointment, {
+        integrationSecret: OTHER_TELEFONKI_SECRET,
+        phoneBookingIdentityId: identityId,
+      }),
+    ).rejects.toThrow("TelefonKI integration access denied.");
   });
 });

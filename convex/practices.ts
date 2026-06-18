@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
 import { isConvexAuthBypassEnabled } from "./authBypass";
@@ -28,6 +28,28 @@ const practiceListItemValidator = v.object({
   slug: v.optional(v.string()),
   workOSOrganizationId: v.optional(v.string()),
 });
+
+function toPublicPractice(practice: Doc<"practices">): {
+  _creationTime: number;
+  _id: Id<"practices">;
+  currentActiveRuleSetId?: Id<"ruleSets">;
+  name: string;
+  slug?: string;
+  workOSOrganizationId?: string;
+} {
+  return {
+    _creationTime: practice._creationTime,
+    _id: practice._id,
+    ...(practice.currentActiveRuleSetId !== undefined && {
+      currentActiveRuleSetId: practice.currentActiveRuleSetId,
+    }),
+    name: practice.name,
+    ...(practice.slug !== undefined && { slug: practice.slug }),
+    ...(practice.workOSOrganizationId !== undefined && {
+      workOSOrganizationId: practice.workOSOrganizationId,
+    }),
+  };
+}
 
 /**
  * Create a new practice with the given name.
@@ -83,7 +105,7 @@ export const getAllPractices = query({
       if (!practice) {
         continue;
       }
-      practices.push(practice);
+      practices.push(toPublicPractice(practice));
     }
 
     return practices;
@@ -118,7 +140,9 @@ export const getAllPracticesIfAuthenticated = query({
       ),
     );
 
-    return practiceCandidates.filter((practice) => practice !== null);
+    return practiceCandidates.flatMap((practice) =>
+      practice === null ? [] : [toPublicPractice(practice)],
+    );
   },
   returns: v.array(practiceListItemValidator),
 });
@@ -134,7 +158,8 @@ export const getBookingPractices = query({
   args: {},
   handler: async (ctx) => {
     await requireAuthenticatedUserIdForQuery(ctx);
-    return await ctx.db.query("practices").collect();
+    const practices = await ctx.db.query("practices").collect();
+    return practices.map((practice) => toPublicPractice(practice));
   },
   returns: v.array(
     v.object({
@@ -157,7 +182,8 @@ export const getPractice = query({
   },
   handler: async (ctx, args) => {
     await ensurePracticeAccessForQuery(ctx, args.practiceId);
-    return await ctx.db.get("practices", args.practiceId);
+    const practice = await ctx.db.get("practices", args.practiceId);
+    return practice === null ? null : toPublicPractice(practice);
   },
   returns: v.union(
     v.object({
@@ -184,7 +210,9 @@ export const getAccessiblePracticeBySlug = query({
     const matchingPractices = practices.filter(
       (practice) => practice?.slug === args.slug,
     );
-    return matchingPractices.length === 1 ? matchingPractices[0] : null;
+    return matchingPractices.length === 1 && matchingPractices[0]
+      ? toPublicPractice(matchingPractices[0])
+      : null;
   },
   returns: v.union(
     v.object({
@@ -210,7 +238,9 @@ export const getBookingPracticeBySlug = query({
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .collect();
     if (practicesBySlug.length > 0) {
-      return practicesBySlug.length === 1 ? practicesBySlug[0] : null;
+      return practicesBySlug.length === 1 && practicesBySlug[0]
+        ? toPublicPractice(practicesBySlug[0])
+        : null;
     }
     return null;
   },
