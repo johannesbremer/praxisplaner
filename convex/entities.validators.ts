@@ -8,9 +8,8 @@ import {
 } from "../lib/condition-tree.js";
 import {
   appointmentPlanValidator,
-  appointmentTypeBookableViaValidator,
   appointmentTypeDefaultOccupancyValidator,
-} from "./followUpPlans";
+} from "./appointmentPlans";
 
 export const appointmentTypeResultValidator = v.object({
   draftRevision: v.number(),
@@ -217,7 +216,6 @@ export const conditionTreeTransportValidator = v.object({
 export const appointmentTypeArgsValidator = v.object({
   allowedPractitionerLineageKeys: v.optional(v.array(v.id("practitioners"))),
   appointmentPlan: appointmentPlanValidator,
-  bookableVia: v.optional(appointmentTypeBookableViaValidator),
   defaultOccupancy: v.optional(appointmentTypeDefaultOccupancyValidator),
   duration: v.number(),
   name: v.string(),

@@ -215,7 +215,7 @@ function nextWeekday(weekday: number): Temporal.PlainDate {
 }
 
 describe("appointment series", () => {
-  test("createAppointmentType rejects follow-up plans with missing target lineage keys", async () => {
+  test("createAppointmentType rejects appointment plans with missing target lineage keys", async () => {
     const t = createAuthedTestContext();
     const { practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -239,26 +239,30 @@ describe("appointment series", () => {
 
     await expect(
       t.mutation(api.entities.createAppointmentType, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: missingLineageKey,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 5,
+              },
+            },
+          ],
+        },
         duration: 30,
         expectedDraftRevision: null,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: missingLineageKey,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 5,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         name: "Root",
         practiceId,
         practitionerIds: [practitionerId],
         selectedRuleSetId: ruleSetId,
       }),
-    ).rejects.toThrow("FOLLOW_UP_PLAN:APPOINTMENT_TYPE_NOT_FOUND");
+    ).rejects.toThrow("APPOINTMENT_PLAN:APPOINTMENT_TYPE_NOT_FOUND");
   });
 
   test("createAppointmentType applies offset validation per unit", async () => {
@@ -285,88 +289,102 @@ describe("appointment series", () => {
 
     await expect(
       t.mutation(api.entities.createAppointmentType, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetMinutes: 7,
+              },
+            },
+          ],
+        },
         duration: 30,
         expectedDraftRevision: null,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: targetAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "minutes",
-            offsetValue: 7,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "same_day",
-            stepId: "step-1",
-          },
-        ],
         name: "Ungueltig Minuten",
         practiceId,
         practitionerIds: [practitionerId],
         selectedRuleSetId: ruleSetId,
       }),
-    ).rejects.toThrow("FOLLOW_UP_PLAN:INVALID_OFFSET_STEP");
+    ).rejects.toThrow("APPOINTMENT_PLAN:INVALID_OFFSET_STEP");
 
     await expect(
       t.mutation(api.entities.createAppointmentType, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
         duration: 30,
         expectedDraftRevision: null,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: targetAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 0,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         name: "Ungueltig Tage",
         practiceId,
         practitionerIds: [practitionerId],
         selectedRuleSetId: ruleSetId,
       }),
-    ).rejects.toThrow("FOLLOW_UP_PLAN:INVALID_OFFSET");
+    ).rejects.toThrow("APPOINTMENT_PLAN:INVALID_OFFSET");
 
     await expect(
       t.mutation(api.entities.createAppointmentType, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 1.5,
+              },
+            },
+          ],
+        },
         duration: 30,
         expectedDraftRevision: null,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: targetAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 1.5,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         name: "Ungueltig Kommazahl",
         practiceId,
         practitionerIds: [practitionerId],
         selectedRuleSetId: ruleSetId,
       }),
-    ).rejects.toThrow("FOLLOW_UP_PLAN:INVALID_OFFSET");
+    ).rejects.toThrow("APPOINTMENT_PLAN:INVALID_OFFSET");
 
     const validResult = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: {
+        steps: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            occupancy: { kind: "inheritRootPractitioner" },
+            required: true,
+            stepId: "step-1",
+            timing: {
+              anchorStepId: "root",
+              kind: "firstAvailableOnOrAfter",
+              offsetUnit: "days",
+              offsetValue: 3,
+            },
+          },
+        ],
+      },
       duration: 30,
       expectedDraftRevision: null,
-      followUpPlan: [
-        {
-          appointmentTypeLineageKey: targetAppointmentTypeId,
-          locationMode: "inherit",
-          offsetUnit: "days",
-          offsetValue: 3,
-          practitionerMode: "inherit",
-          required: true,
-          searchMode: "first_available_on_or_after",
-          stepId: "step-1",
-        },
-      ],
       name: "Gueltig Tage",
       practiceId,
       practitionerIds: [practitionerId],
@@ -376,7 +394,7 @@ describe("appointment series", () => {
     expect(validResult.entityId).toBeDefined();
   });
 
-  test("previewAppointmentSeries scans period-based follow-ups top to bottom within the day", async () => {
+  test("previewAppointmentSeries scans period-based appointment-plan steps top to bottom within the day", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -402,20 +420,24 @@ describe("appointment series", () => {
 
         const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: targetAppointmentTypeId,
+                occupancy: { kind: "inheritRootPractitioner" },
+                required: true,
+                stepId: "step-1",
+                timing: {
+                  anchorStepId: "root",
+                  kind: "firstAvailableOnOrAfter",
+                  offsetUnit: "days",
+                  offsetValue: 2,
+                },
+              },
+            ],
+          },
           createdAt: now,
           duration: 30,
-          followUpPlan: [
-            {
-              appointmentTypeLineageKey: targetAppointmentTypeId,
-              locationMode: "inherit",
-              offsetUnit: "days",
-              offsetValue: 2,
-              practitionerMode: "inherit",
-              required: true,
-              searchMode: "first_available_on_or_after",
-              stepId: "step-1",
-            },
-          ],
           lastModified: now,
           name: "Ersttermin",
           practiceId,
@@ -483,16 +505,16 @@ describe("appointment series", () => {
     expect(preview.steps).toHaveLength(2);
     expect(preview.steps[0]?.appointmentTypeId).toBe(rootAppointmentTypeId);
     expect(preview.steps[1]?.appointmentTypeId).toBe(targetAppointmentTypeId);
-    const followUpStart = Temporal.ZonedDateTime.from(
+    const planStepStart = Temporal.ZonedDateTime.from(
       preview.steps[1]?.start ?? rootStart,
     );
-    expect(followUpStart.toPlainDate().toString()).toBe(
+    expect(planStepStart.toPlainDate().toString()).toBe(
       monday.add({ days: 2 }).toString(),
     );
-    expect(followUpStart.toPlainTime().toString()).toBe("08:00:00");
+    expect(planStepStart.toPlainTime().toString()).toBe("08:00:00");
   });
 
-  test("previewAppointmentSeries searches month-based follow-ups from the target date onward", async () => {
+  test("previewAppointmentSeries searches month-based appointment-plan steps from the target date onward", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -514,20 +536,24 @@ describe("appointment series", () => {
 
       const rootId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "months",
+                offsetValue: 1,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: targetAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "months",
-            offsetValue: 1,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -563,16 +589,16 @@ describe("appointment series", () => {
         months: 1,
       })
       .toPlainDate();
-    const followUpDate = Temporal.ZonedDateTime.from(
+    const planStepDate = Temporal.ZonedDateTime.from(
       preview.steps[1]?.start ?? rootStart,
     ).toPlainDate();
 
     expect(
-      Temporal.PlainDate.compare(followUpDate, targetDate),
+      Temporal.PlainDate.compare(planStepDate, targetDate),
     ).toBeGreaterThanOrEqual(0);
   });
 
-  test("previewAppointmentSeries skips weekends for day-based follow-ups and uses the next working day", async () => {
+  test("previewAppointmentSeries skips weekends for day-based appointment-plan steps and uses the next working day", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -594,20 +620,24 @@ describe("appointment series", () => {
 
       const rootId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 1,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: targetAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 1,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -644,7 +674,7 @@ describe("appointment series", () => {
     ).toBe("2026-03-09");
   });
 
-  test("previewAppointmentSeries skips public holidays for day-based follow-ups and uses the next working day", async () => {
+  test("previewAppointmentSeries skips public holidays for day-based appointment-plan steps and uses the next working day", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -666,20 +696,24 @@ describe("appointment series", () => {
 
       const rootId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 1,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: targetAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 1,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -716,7 +750,7 @@ describe("appointment series", () => {
     ).toBe("2026-05-15");
   });
 
-  test("createAppointmentSeries fails atomically when a required follow-up slot cannot be found", async () => {
+  test("createAppointmentSeries fails atomically when a required appointment-plan slot cannot be found", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -743,20 +777,22 @@ describe("appointment series", () => {
 
       const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetMinutes: 0,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: targetAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "minutes",
-            offsetValue: 0,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "exact_after_previous",
-            stepId: "step-1",
-          },
-        ],
         lastModified: now,
         name: "Spättermin",
         practiceId,
@@ -813,7 +849,7 @@ describe("appointment series", () => {
     expect(appointments).toHaveLength(0);
   });
 
-  test("previewAppointmentSeries blocks immediately when an inherited practitioner is not allowed for the follow-up type", async () => {
+  test("previewAppointmentSeries blocks immediately when an inherited practitioner is not allowed for the plan-step type", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -857,20 +893,24 @@ describe("appointment series", () => {
 
       const rootId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 1,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: targetAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 1,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         lastModified: now,
         name: "Root",
         practiceId,
@@ -943,20 +983,24 @@ describe("appointment series", () => {
 
       const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [activePractitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 2,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: targetAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 2,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1016,20 +1060,24 @@ describe("appointment series", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [activePractitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: targetAppointmentTypeId,
+                occupancy: { kind: "inheritRootPractitioner" },
+                required: true,
+                stepId: "step-1",
+                timing: {
+                  anchorStepId: "root",
+                  kind: "firstAvailableOnOrAfter",
+                  offsetUnit: "days",
+                  offsetValue: 2,
+                },
+              },
+            ],
+          },
           createdAt: now,
           duration: 30,
-          followUpPlan: [
-            {
-              appointmentTypeLineageKey: targetAppointmentTypeId,
-              locationMode: "inherit",
-              offsetUnit: "days",
-              offsetValue: 2,
-              practitionerMode: "inherit",
-              required: true,
-              searchMode: "first_available_on_or_after",
-              stepId: "step-1",
-            },
-          ],
           lastModified: now,
           lineageKey: rootAppointmentTypeId,
           name: "Ersttermin Copy",
@@ -1109,7 +1157,7 @@ describe("appointment series", () => {
     ).rejects.toThrow("Der ausgewählte Starttermin ist nicht mehr verfügbar");
   });
 
-  test("createAppointment routes simulation bookings with follow-up plans through the same series path", async () => {
+  test("createAppointment routes simulation bookings with appointment plans through the same series path", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -1131,20 +1179,22 @@ describe("appointment series", () => {
 
       const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetMinutes: 0,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: targetAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "minutes",
-            offsetValue: 0,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "exact_after_previous",
-            stepId: "step-1",
-          },
-        ],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1216,7 +1266,7 @@ describe("appointment series", () => {
     ).toEqual([0n, 1n]);
   });
 
-  test("createAppointment routes real bookings with follow-up plans through the same series path", async () => {
+  test("createAppointment routes real bookings with appointment plans through the same series path", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -1238,20 +1288,24 @@ describe("appointment series", () => {
 
       const rootId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 2,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: targetAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 2,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1344,20 +1398,24 @@ describe("appointment series", () => {
 
       const rootId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 2,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: targetAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 2,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1426,9 +1484,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const rootId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
         duration: 30,
-        followUpPlan: [],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1478,9 +1536,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const rootId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
         duration: 30,
-        followUpPlan: [],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1512,7 +1570,7 @@ describe("appointment series", () => {
     ).rejects.toThrow("User does not belong to this practice.");
   });
 
-  test("replanned optional follow-up appointments inherit the stored booking identity", async () => {
+  test("replanned optional appointment-plan appointments inherit the stored booking identity", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -1567,20 +1625,24 @@ describe("appointment series", () => {
           practitionerId,
           alternatePractitionerId,
         ],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: optionalFollowUpTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: false,
+              stepId: "optional-step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 2,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: optionalFollowUpTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 2,
-            practitionerMode: "inherit",
-            required: false,
-            searchMode: "same_day",
-            stepId: "optional-step-1",
-          },
-        ],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1669,7 +1731,7 @@ describe("appointment series", () => {
     ).toBe(true);
   });
 
-  test("updateAppointmentType clears follow-up plans without patching undefined", async () => {
+  test("updateAppointmentType clears appointment plans without patching undefined", async () => {
     const t = createAuthedTestContext();
     const { practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -1692,20 +1754,24 @@ describe("appointment series", () => {
     });
 
     const created = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: {
+        steps: [
+          {
+            appointmentTypeLineageKey: targetAppointmentTypeId,
+            occupancy: { kind: "inheritRootPractitioner" },
+            required: true,
+            stepId: "step-1",
+            timing: {
+              anchorStepId: "root",
+              kind: "firstAvailableOnOrAfter",
+              offsetUnit: "days",
+              offsetValue: 5,
+            },
+          },
+        ],
+      },
       duration: 30,
       expectedDraftRevision: null,
-      followUpPlan: [
-        {
-          appointmentTypeLineageKey: targetAppointmentTypeId,
-          locationMode: "inherit",
-          offsetUnit: "days",
-          offsetValue: 5,
-          practitionerMode: "inherit",
-          required: true,
-          searchMode: "first_available_on_or_after",
-          stepId: "step-1",
-        },
-      ],
       name: "Root",
       practiceId,
       practitionerIds: [practitionerId],
@@ -1713,9 +1779,9 @@ describe("appointment series", () => {
     });
 
     await t.mutation(api.entities.updateAppointmentType, {
+      appointmentPlan: { steps: [] },
       appointmentTypeId: created.entityId,
       expectedDraftRevision: created.draftRevision,
-      followUpPlan: [],
       practiceId,
       selectedRuleSetId: created.ruleSetId,
     });
@@ -1724,7 +1790,7 @@ describe("appointment series", () => {
       return await ctx.db.get("appointmentTypes", created.entityId);
     });
 
-    expect(updatedAppointmentType?.followUpPlan).toEqual([]);
+    expect(updatedAppointmentType?.appointmentPlan).toEqual({ steps: [] });
   });
 
   test("createAppointmentType allows an empty practitioner allowlist", async () => {
@@ -1803,20 +1869,24 @@ describe("appointment series", () => {
 
       const rootId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 2,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: targetAppointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 2,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -1893,7 +1963,7 @@ describe("appointment series", () => {
     expect(storedSeries?.rootAppointmentId).toBe(
       createdSeries.rootAppointmentId,
     );
-    expect(storedSeries?.followUpPlanSnapshot).toHaveLength(1);
+    expect(storedSeries?.appointmentPlanSnapshot).toHaveLength(1);
 
     const shiftedRootStart = Temporal.ZonedDateTime.from(rootStart)
       .add({ days: 1 })
@@ -2149,7 +2219,7 @@ describe("appointment series", () => {
 
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
-      const followUpTypeId = await ctx.db.insert("appointmentTypes", {
+      const planStepTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
@@ -2158,26 +2228,30 @@ describe("appointment series", () => {
         practiceId,
         ruleSetId,
       });
-      await ctx.db.patch("appointmentTypes", followUpTypeId, {
-        lineageKey: followUpTypeId,
+      await ctx.db.patch("appointmentTypes", planStepTypeId, {
+        lineageKey: planStepTypeId,
       });
 
       const rootId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: planStepTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 2,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: followUpTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 2,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -2211,15 +2285,15 @@ describe("appointment series", () => {
       },
     );
 
-    const followUpAppointmentId = createdSeries.steps[1]?.appointmentId;
-    expect(followUpAppointmentId).toBeDefined();
-    if (!followUpAppointmentId) {
+    const planStepAppointmentId = createdSeries.steps[1]?.appointmentId;
+    expect(planStepAppointmentId).toBeDefined();
+    if (!planStepAppointmentId) {
       throw new Error("Follow-up appointment should exist");
     }
 
     await expect(
       t.mutation(api.appointments.updateAppointment, {
-        id: followUpAppointmentId,
+        id: planStepAppointmentId,
         start: Temporal.ZonedDateTime.from(
           createdSeries.steps[1]?.start ?? rootStart,
         )
@@ -2251,7 +2325,7 @@ describe("appointment series", () => {
 
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
-      const followUpTypeId = await ctx.db.insert("appointmentTypes", {
+      const planStepTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
@@ -2260,26 +2334,30 @@ describe("appointment series", () => {
         practiceId,
         ruleSetId,
       });
-      await ctx.db.patch("appointmentTypes", followUpTypeId, {
-        lineageKey: followUpTypeId,
+      await ctx.db.patch("appointmentTypes", planStepTypeId, {
+        lineageKey: planStepTypeId,
       });
 
       const rootId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: planStepTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 2,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: followUpTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 2,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -2344,7 +2422,7 @@ describe("appointment series", () => {
 
     const rootAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
-      const followUpTypeId = await ctx.db.insert("appointmentTypes", {
+      const planStepTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
         duration: 30,
@@ -2353,26 +2431,30 @@ describe("appointment series", () => {
         practiceId,
         ruleSetId,
       });
-      await ctx.db.patch("appointmentTypes", followUpTypeId, {
-        lineageKey: followUpTypeId,
+      await ctx.db.patch("appointmentTypes", planStepTypeId, {
+        lineageKey: planStepTypeId,
       });
 
       const rootId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: planStepTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                anchorStepId: "root",
+                kind: "firstAvailableOnOrAfter",
+                offsetUnit: "days",
+                offsetValue: 2,
+              },
+            },
+          ],
+        },
         createdAt: now,
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: followUpTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 2,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
         lastModified: now,
         name: "Ersttermin",
         practiceId,
@@ -2406,14 +2488,14 @@ describe("appointment series", () => {
       },
     );
 
-    const followUpAppointmentId = createdSeries.steps[1]?.appointmentId;
-    expect(followUpAppointmentId).toBeDefined();
-    if (!followUpAppointmentId) {
+    const planStepAppointmentId = createdSeries.steps[1]?.appointmentId;
+    expect(planStepAppointmentId).toBeDefined();
+    if (!planStepAppointmentId) {
       throw new Error("Follow-up appointment should exist");
     }
 
     await t.mutation(api.appointments.deleteAppointment, {
-      id: followUpAppointmentId,
+      id: planStepAppointmentId,
     });
 
     const remainingAppointments = await t.run(async (ctx) => {

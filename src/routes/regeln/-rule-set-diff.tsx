@@ -139,8 +139,8 @@ function buildAppointmentTypeTreeDiffText({
       }
       const folderPath = stringValue(parsed["folderPath"]);
       const duration = stringValue(parsed["duration"]);
-      const followUpPlan = Array.isArray(parsed["followUpPlan"])
-        ? parsed["followUpPlan"]
+      const appointmentPlan = Array.isArray(parsed["appointmentPlan"])
+        ? parsed["appointmentPlan"]
         : [];
       const practitioners = Array.isArray(parsed["allowedPractitioners"])
         ? parsed["allowedPractitioners"]
@@ -150,7 +150,7 @@ function buildAppointmentTypeTreeDiffText({
       const metadata = [
         duration ? `${duration} Min.` : "",
         practitioners ? `Behandler: ${practitioners}` : "",
-        formatAppointmentTypeTreeFollowUpPlan(followUpPlan),
+        formatAppointmentTypeTreeAppointmentPlan(appointmentPlan),
       ]
         .filter(Boolean)
         .join(", ");
@@ -443,7 +443,7 @@ function dayOfWeekLabel(value: unknown) {
   return typeof value === "number" ? (labels[value] ?? String(value)) : "";
 }
 
-function formatAppointmentTypeTreeFollowUpPlan(steps: unknown[]) {
+function formatAppointmentTypeTreeAppointmentPlan(steps: unknown[]) {
   if (steps.length === 0) {
     return "";
   }
@@ -454,24 +454,20 @@ function formatAppointmentTypeTreeFollowUpPlan(steps: unknown[]) {
     }
 
     const appointmentTypeName = stringValue(step["appointmentTypeName"]);
-    const offsetValue = stringValue(step["offsetValue"]);
-    const offsetUnit = formatEnumValue("offsetUnit", step["offsetUnit"]);
-    const searchMode = formatEnumValue("searchMode", step["searchMode"]);
-    const locationMode = formatEnumValue("locationMode", step["locationMode"]);
-    const practitionerMode = formatEnumValue(
-      "practitionerMode",
-      step["practitionerMode"],
-    );
+    const timing = isRecord(step["timing"])
+      ? formatFieldValue("timing", step["timing"])
+      : "";
+    const occupancy = isRecord(step["occupancy"])
+      ? formatFieldValue("occupancy", step["occupancy"])
+      : "";
     const required = stringValue(step["required"]);
     const note = stringValue(step["note"]);
 
     return [
       `#${index + 1}`,
       appointmentTypeName,
-      [offsetValue, offsetUnit].filter(Boolean).join(" "),
-      searchMode,
-      locationMode,
-      practitionerMode,
+      timing,
+      occupancy,
       required
         ? `Pflicht: ${formatFieldValue("required", step["required"])}`
         : "",
@@ -481,7 +477,7 @@ function formatAppointmentTypeTreeFollowUpPlan(steps: unknown[]) {
       .join(" | ");
   });
 
-  return `Folgetermine: ${stepSummaries.join("; ")}`;
+  return `Kettentermine: ${stepSummaries.join("; ")}`;
 }
 
 function formatChangedStructuredDiffValues(
@@ -550,11 +546,6 @@ function formatEnumValue(key: string, value: unknown) {
       PATIENT_AGE: "Patientenalter",
       PRACTITIONER: "Behandler",
     },
-    locationMode: {
-      any: "Beliebiger Standort",
-      inherit: "Standort uebernehmen",
-      selected: "Ausgewaehlter Standort",
-    },
     offsetUnit: {
       days: "Tage",
       minutes: "Minuten",
@@ -575,22 +566,12 @@ function formatEnumValue(key: string, value: unknown) {
       full: "Ganztägig",
       morning: "Vormittag",
     },
-    practitionerMode: {
-      any: "Beliebiger Behandler",
-      inherit: "Behandler uebernehmen",
-      selected: "Ausgewaehlter Behandler",
-    },
     scope: {
       location: "Standort",
       practice: "Praxis",
       practitioner: "Behandler",
       real: "Echt",
       simulation: "Simulation",
-    },
-    searchMode: {
-      exact_after_previous: "Direkt nach dem vorherigen Termin",
-      first_available_on_or_after: "Erster verfuegbarer Termin ab dann",
-      same_day: "Am selben Tag",
     },
     staffType: {
       mfa: "MFA",
@@ -718,6 +699,7 @@ function formatStructuredDiffValueForSection(
 function formatStructuredKey(key: string) {
   const labels: Record<string, string> = {
     allowedPractitioners: "Behandler",
+    appointmentPlan: "Kettentermine",
     appointmentTypeName: "Terminart",
     breakTimes: "Pausen",
     children: "Bedingungen",
@@ -726,7 +708,6 @@ function formatStructuredKey(key: string) {
     dayOfWeek: "Tag",
     duration: "Dauer",
     endTime: "Ende",
-    followUpPlan: "Folgetermine",
     locationName: "Standort",
     name: "Name",
     nodeType: "Logik",
@@ -1027,28 +1008,7 @@ function isSameAfterNormalizingReferences(
   );
 }
 
-function normalizeEntityName(
-  sectionKey: string,
-  name: string,
-  entityRenames: EntityRenameMaps,
-) {
-  if (sectionKey === "appointmentTypes") {
-    return normalizeRenamedValue(name, entityRenames.appointmentTypes);
-  }
-  if (sectionKey === "locations") {
-    return normalizeRenamedValue(name, entityRenames.locations);
-  }
-  if (sectionKey === "mfas") {
-    return normalizeRenamedValue(name, entityRenames.mfas);
-  }
-  if (sectionKey === "practitioners") {
-    return normalizeRenamedValue(name, entityRenames.practitioners);
-  }
-
-  return name;
-}
-
-function normalizeFollowUpPlanReferences(
+function normalizeAppointmentPlanReferences(
   value: unknown,
   renames: Map<string, string>,
 ) {
@@ -1072,6 +1032,27 @@ function normalizeFollowUpPlanReferences(
   });
 }
 
+function normalizeEntityName(
+  sectionKey: string,
+  name: string,
+  entityRenames: EntityRenameMaps,
+) {
+  if (sectionKey === "appointmentTypes") {
+    return normalizeRenamedValue(name, entityRenames.appointmentTypes);
+  }
+  if (sectionKey === "locations") {
+    return normalizeRenamedValue(name, entityRenames.locations);
+  }
+  if (sectionKey === "mfas") {
+    return normalizeRenamedValue(name, entityRenames.mfas);
+  }
+  if (sectionKey === "practitioners") {
+    return normalizeRenamedValue(name, entityRenames.practitioners);
+  }
+
+  return name;
+}
+
 function normalizeReferences(
   sectionKey: string,
   value: Record<string, unknown>,
@@ -1084,8 +1065,8 @@ function normalizeReferences(
         value["allowedPractitioners"],
         entityRenames.practitioners,
       ),
-      followUpPlan: normalizeFollowUpPlanReferences(
-        value["followUpPlan"],
+      appointmentPlan: normalizeAppointmentPlanReferences(
+        value["appointmentPlan"],
         entityRenames.appointmentTypes,
       ),
     };

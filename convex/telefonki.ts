@@ -9,6 +9,7 @@ import type { InternalSchedulingResultSlot } from "./scheduling";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
+import { hasAppointmentPlan } from "./appointmentPlans";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
@@ -16,7 +17,6 @@ import {
 } from "./appointmentReferences";
 import { createAppointmentFromTrustedSource } from "./appointments";
 import { normalizeE164PhoneNumber } from "./e164PhoneNumber";
-import { hasAppointmentPlan, normalizeBookableVia } from "./followUpPlans";
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
@@ -270,7 +270,7 @@ function getSearchStartDate(date: string | undefined): IsoDateString {
   return asIsoDateString(Temporal.Now.plainDateISO(SEARCH_TIMEZONE).toString());
 }
 
-function hasFollowUpPlan(appointmentType: Doc<"appointmentTypes"> | null) {
+function hasPlan(appointmentType: Doc<"appointmentTypes"> | null) {
   return appointmentType !== null && hasAppointmentPlan(appointmentType);
 }
 
@@ -319,8 +319,7 @@ function isTelefonkiBookableAppointmentType(
     appointmentType !== null &&
     appointmentType.deleted !== true &&
     appointmentType.lineageKey !== undefined &&
-    !hasFollowUpPlan(appointmentType) &&
-    normalizeBookableVia(appointmentType.bookableVia).includes("telefonki")
+    !hasPlan(appointmentType)
   );
 }
 
@@ -652,8 +651,7 @@ export const getActiveConfig = query({
           (entry) =>
             entry.practiceId === args.practiceId &&
             !entry.deleted &&
-            !hasAppointmentPlan(entry) &&
-            normalizeBookableVia(entry.bookableVia).includes("telefonki"),
+            !hasAppointmentPlan(entry),
         )
         .map((entry) => ({
           duration: entry.duration,

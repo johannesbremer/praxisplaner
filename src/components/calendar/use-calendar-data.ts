@@ -37,7 +37,7 @@ import {
 interface CalendarAppointmentTypeInfo {
   allowedPractitionerLineageKeys: PractitionerLineageKey[];
   duration: number;
-  hasFollowUpPlan: boolean;
+  hasAppointmentPlan: boolean;
   lineageKey: AppointmentTypeLineageKey;
   name: string;
 }
@@ -434,7 +434,8 @@ export function useCalendarData(args: {
       map.set(asAppointmentTypeLineageKey(appointmentType.lineageKey), {
         allowedPractitionerLineageKeys,
         duration: appointmentType.duration,
-        hasFollowUpPlan: (appointmentType.followUpPlan?.length ?? 0) > 0,
+        hasAppointmentPlan:
+          (appointmentType.appointmentPlan?.steps.length ?? 0) > 0,
         lineageKey: asAppointmentTypeLineageKey(appointmentType.lineageKey),
         name: appointmentType.name,
       });

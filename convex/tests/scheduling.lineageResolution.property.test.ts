@@ -45,9 +45,9 @@ describe("scheduling lineage resolution properties", () => {
           });
           await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
             allowedPractitionerLineageKeys: [fixture.practitionerId],
+            appointmentPlan: { steps: [] },
             createdAt: now,
             duration: 5,
-            followUpPlan: [],
             lastModified: now,
             lineageKey: fixture.appointmentTypeId,
             name: "Copied Checkup",

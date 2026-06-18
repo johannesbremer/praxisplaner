@@ -326,7 +326,6 @@ export async function copyAppointmentTypes(
           activePractitionerLineageKeys.has(lineageKey),
         ),
       appointmentPlan: sourceType.appointmentPlan ?? { steps: [] },
-      ...(sourceType.bookableVia && { bookableVia: sourceType.bookableVia }),
       createdAt: sourceType.createdAt,
       ...(sourceType.defaultOccupancy && {
         defaultOccupancy: sourceType.defaultOccupancy,

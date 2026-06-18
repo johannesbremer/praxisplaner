@@ -157,7 +157,7 @@ interface AppointmentCandidate {
 
 interface AppointmentTypeInfo {
   duration: number;
-  hasFollowUpPlan: boolean;
+  hasAppointmentPlan: boolean;
   name: string;
 }
 
@@ -1588,7 +1588,7 @@ export function useCalendarPlanningWorkbench(args: {
         toast.error("Die Terminart konnte nicht geladen werden.");
         return;
       }
-      if (appointmentTypeInfo.hasFollowUpPlan) {
+      if (appointmentTypeInfo.hasAppointmentPlan) {
         return await createAppointmentMutation(mutationArgs);
       }
 

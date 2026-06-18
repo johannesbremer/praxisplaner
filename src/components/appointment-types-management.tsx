@@ -101,6 +101,25 @@ import {
 } from "../utils/frontend-lineage";
 import { createRuleSetSnapshotCommand } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
+interface AppointmentPlanFormStep {
+  anchorStepId: string;
+  appointmentTypeLineageKey: AppointmentPlanTargetSelection;
+  occupancyKind: AppointmentPlanOccupancyKind;
+  offsetUnit: AppointmentPlanOffsetUnit;
+  offsetValue: number;
+  timingKind: AppointmentPlanTimingKind;
+}
+type AppointmentPlanOccupancyKind =
+  | "inheritRootPractitioner"
+  | "resource-ekg"
+  | "resource-labor";
+
+type AppointmentPlanOffsetUnit = "days" | "minutes" | "months" | "weeks";
+type AppointmentPlanStep = NonNullable<
+  AppointmentType["appointmentPlan"]
+>["steps"][number];
+type AppointmentPlanTargetSelection = "" | AppointmentTypeLineageKey;
+type AppointmentPlanTimingKind = AppointmentPlanStep["timing"]["kind"];
 type AppointmentTreeItem =
   | {
       appointmentType: AppointmentType;
@@ -118,32 +137,28 @@ interface AppointmentTreeModel {
   paths: string[];
   rootPath: string;
 }
-
 type AppointmentTreeStyle = CSSProperties & Record<`--trees-${string}`, string>;
 type AppointmentType = FrontendLineageEntity<
   "appointmentTypes",
   AppointmentTypeQueryResult[number]
 >;
-type AppointmentTypeBookableViaOption = NonNullable<
-  AppointmentType["bookableVia"]
->[number];
 type AppointmentTypeDefaultOccupancyKind =
   | "resource-ekg"
   | "resource-labor"
-  | "selectedPractitioner"
-  | `practitioner:${string}`;
+  | "selectedPractitioner";
 type AppointmentTypeFolder = AppointmentTypeFolderQueryResult[number];
+
 type AppointmentTypeFolderHistoryTarget =
   | { kind: "folder"; lineageKey: AppointmentTypeFolderLineageKey }
   | { kind: "root" };
+
 type AppointmentTypeFolderLineageKey = Id<"appointmentTypeFolders">;
 type AppointmentTypeFolderQueryResult =
   (typeof api.entities.getAppointmentTypeFolders)["_returnType"];
 interface AppointmentTypeFormValues {
-  bookableVia: AppointmentTypeBookableViaOption[];
+  appointmentPlan: AppointmentPlanFormStep[];
   defaultOccupancyKind: AppointmentTypeDefaultOccupancyKind;
   duration: number;
-  followUpPlan: FollowUpPlanFormStep[];
   name: string;
   practitionerIds: Id<"practitioners">[];
 }
@@ -156,7 +171,6 @@ interface AppointmentTypesManagementProps {
   practiceId: Id<"practices">;
   ruleSetReplayTarget: RuleSetReplayTarget;
 }
-
 interface DeletedAppointmentTypeFolderSnapshot {
   lineageKey: AppointmentTypeFolderLineageKey;
   name: string;
@@ -164,35 +178,14 @@ interface DeletedAppointmentTypeFolderSnapshot {
 }
 
 interface DeletedAppointmentTypeSnapshot {
-  bookableVia: NonNullable<AppointmentType["bookableVia"]>;
+  appointmentPlan: AppointmentType["appointmentPlan"];
   defaultOccupancy: NonNullable<AppointmentType["defaultOccupancy"]>;
   duration: number;
-  followUpPlan: AppointmentType["appointmentPlan"];
   lineageKey: AppointmentTypeLineageKey;
   name: string;
   practitionerSnapshots: PractitionerHistorySnapshot[];
   treeFolderLineageKey: AppointmentTypeFolderLineageKey;
 }
-interface FollowUpPlanFormStep {
-  anchorStepId: string;
-  appointmentTypeLineageKey: FollowUpPlanTargetSelection;
-  occupancyKind: FollowUpPlanOccupancyKind;
-  offsetUnit: FollowUpPlanOffsetUnit;
-  offsetValue: number;
-  timingKind: FollowUpPlanTimingKind;
-}
-type FollowUpPlanOccupancyKind =
-  | "inheritRootPractitioner"
-  | "resource-ekg"
-  | "resource-labor"
-  | `practitioner:${string}`;
-type FollowUpPlanOffsetUnit = "days" | "minutes" | "months" | "weeks";
-type FollowUpPlanStep = NonNullable<
-  AppointmentType["appointmentPlan"]
->["steps"][number];
-type FollowUpPlanTargetSelection = "" | AppointmentTypeLineageKey;
-
-type FollowUpPlanTimingKind = FollowUpPlanStep["timing"]["kind"];
 
 type OptimisticAppointmentTypeTreeRestore = AppointmentTypeTreeOverlay<
   AppointmentType,
@@ -210,15 +203,14 @@ type PractitionerQueryResult =
   (typeof api.entities.getPractitioners)["_returnType"];
 
 const defaultAppointmentTypeFormValues: AppointmentTypeFormValues = {
-  bookableVia: ["staff", "online", "telefonki", "planStep"],
+  appointmentPlan: [],
   defaultOccupancyKind: "selectedPractitioner",
   duration: 30,
-  followUpPlan: [],
   name: "",
   practitionerIds: [],
 };
 
-const createEmptyFollowUpStep = (): FollowUpPlanFormStep => ({
+const createEmptyAppointmentPlanStep = (): AppointmentPlanFormStep => ({
   anchorStepId: "root",
   appointmentTypeLineageKey: "",
   occupancyKind: "inheritRootPractitioner",
@@ -227,10 +219,9 @@ const createEmptyFollowUpStep = (): FollowUpPlanFormStep => ({
   timingKind: "afterPreviousEnd",
 });
 
-const normalizeFollowUpPlanForSubmit = (
-  steps: FollowUpPlanFormStep[],
-  practitioners: readonly Practitioner[],
-): Result<FollowUpPlanStep[], string> => {
+const normalizeAppointmentPlanForSubmit = (
+  steps: AppointmentPlanFormStep[],
+): Result<AppointmentPlanStep[], string> => {
   if (steps.length === 0) {
     return ok([]);
   }
@@ -239,34 +230,34 @@ const normalizeFollowUpPlanForSubmit = (
     steps.map((step, index) =>
       Result.combine([
         resolveSelectedAppointmentTypeLineageKey(step),
-        normalizeFollowUpOccupancy(step.occupancyKind, practitioners),
+        normalizeAppointmentPlanOccupancy(step.occupancyKind),
       ]).map(([appointmentTypeLineageKey, occupancy]) => ({
         appointmentTypeLineageKey,
         occupancy,
         required: true,
         stepId: `step-${index + 1}`,
-        timing: normalizeFollowUpTiming(step),
+        timing: normalizeAppointmentPlanTiming(step),
       })),
     ),
   );
 };
 
-const createFollowUpPlanCreateArgs = (
-  followUpPlan: FollowUpPlanStep[] | undefined,
+const createAppointmentPlanCreateArgs = (
+  appointmentPlan: AppointmentPlanStep[] | undefined,
 ) =>
-  followUpPlan === undefined
+  appointmentPlan === undefined
     ? {}
-    : { appointmentPlan: { steps: followUpPlan } };
+    : { appointmentPlan: { steps: appointmentPlan } };
 
-const createFollowUpPlanUpdateArgs = (
-  followUpPlan: FollowUpPlanStep[] | undefined,
-) => ({ appointmentPlan: { steps: followUpPlan ?? [] } });
+const createAppointmentPlanUpdateArgs = (
+  appointmentPlan: AppointmentPlanStep[] | undefined,
+) => ({ appointmentPlan: { steps: appointmentPlan ?? [] } });
 
 const parseNumberInput = (valueAsNumber: number, fallback = 0) =>
   Number.isNaN(valueAsNumber) ? fallback : valueAsNumber;
 
-const normalizeFollowUpOffsetValue = (
-  offsetUnit: FollowUpPlanFormStep["offsetUnit"],
+const normalizeAppointmentPlanOffsetValue = (
+  offsetUnit: AppointmentPlanFormStep["offsetUnit"],
   rawValue: number,
 ) => {
   const normalizedInteger = Number.isFinite(rawValue)
@@ -280,9 +271,9 @@ const normalizeFollowUpOffsetValue = (
   return Math.max(1, normalizedInteger);
 };
 
-const normalizeFollowUpTiming = (
-  step: FollowUpPlanFormStep,
-): FollowUpPlanStep["timing"] => {
+const normalizeAppointmentPlanTiming = (
+  step: AppointmentPlanFormStep,
+): AppointmentPlanStep["timing"] => {
   if (step.timingKind === "sameStartAs") {
     return {
       anchorStepId: step.anchorStepId,
@@ -296,66 +287,42 @@ const normalizeFollowUpTiming = (
       anchorStepId: step.anchorStepId,
       kind: "firstAvailableOnOrAfter",
       offsetUnit,
-      offsetValue: normalizeFollowUpOffsetValue(offsetUnit, step.offsetValue),
+      offsetValue: normalizeAppointmentPlanOffsetValue(
+        offsetUnit,
+        step.offsetValue,
+      ),
     };
   }
 
   return {
     kind: step.timingKind,
-    offsetMinutes: normalizeFollowUpOffsetValue("minutes", step.offsetValue),
+    offsetMinutes: normalizeAppointmentPlanOffsetValue(
+      "minutes",
+      step.offsetValue,
+    ),
   };
 };
 
-const normalizeFollowUpOccupancy = (
-  occupancyKind: FollowUpPlanOccupancyKind,
-  practitioners: readonly Practitioner[],
-): Result<FollowUpPlanStep["occupancy"], string> => {
+const normalizeAppointmentPlanOccupancy = (
+  occupancyKind: AppointmentPlanOccupancyKind,
+): Result<AppointmentPlanStep["occupancy"], string> => {
   if (occupancyKind === "resource-ekg") {
     return ok({ calendarResourceColumn: "ekg", kind: "resourceColumn" });
   }
   if (occupancyKind === "resource-labor") {
     return ok({ calendarResourceColumn: "labor", kind: "resourceColumn" });
-  }
-  if (occupancyKind.startsWith("practitioner:")) {
-    const rawLineageKey = occupancyKind.slice("practitioner:".length);
-    const practitioner = practitioners.find(
-      (candidate) => candidate.lineageKey === rawLineageKey,
-    );
-    if (!practitioner) {
-      return err("Bitte wählen Sie einen gültigen Behandler für die Belegung.");
-    }
-    return ok({
-      kind: "specificPractitioner",
-      practitionerLineageKey: practitioner.lineageKey,
-    });
   }
   return ok({ kind: "inheritRootPractitioner" });
 };
 
 const normalizeDefaultOccupancyForSubmit = (
   occupancyKind: AppointmentTypeDefaultOccupancyKind,
-  practitioners: readonly Practitioner[],
 ): Result<NonNullable<AppointmentType["defaultOccupancy"]>, string> => {
   if (occupancyKind === "resource-ekg") {
     return ok({ calendarResourceColumn: "ekg", kind: "resourceColumn" });
   }
   if (occupancyKind === "resource-labor") {
     return ok({ calendarResourceColumn: "labor", kind: "resourceColumn" });
-  }
-  if (occupancyKind.startsWith("practitioner:")) {
-    const rawLineageKey = occupancyKind.slice("practitioner:".length);
-    const practitioner = practitioners.find(
-      (candidate) => candidate.lineageKey === rawLineageKey,
-    );
-    if (!practitioner) {
-      return err(
-        "Bitte wählen Sie einen gültigen Behandler für die Standard-Belegung.",
-      );
-    }
-    return ok({
-      kind: "specificPractitioner",
-      practitionerLineageKey: practitioner.lineageKey,
-    });
   }
   return ok({ kind: "selectedPractitioner" });
 };
@@ -366,17 +333,12 @@ const defaultOccupancyKindForForm = (
   if (!defaultOccupancy || defaultOccupancy.kind === "selectedPractitioner") {
     return "selectedPractitioner";
   }
-  if (defaultOccupancy.kind === "resourceColumn") {
-    return `resource-${defaultOccupancy.calendarResourceColumn}`;
-  }
-  return `practitioner:${asPractitionerLineageKey(
-    defaultOccupancy.practitionerLineageKey,
-  )}`;
+  return `resource-${defaultOccupancy.calendarResourceColumn}`;
 };
 
-const parseFollowUpOffsetUnit = (
+const parseAppointmentPlanOffsetUnit = (
   value: string,
-): FollowUpPlanOffsetUnit | undefined => {
+): AppointmentPlanOffsetUnit | undefined => {
   switch (value) {
     case "days":
     case "minutes":
@@ -390,9 +352,9 @@ const parseFollowUpOffsetUnit = (
   }
 };
 
-const parseFollowUpTimingKind = (
+const parseAppointmentPlanTimingKind = (
   value: string,
-): FollowUpPlanTimingKind | undefined => {
+): AppointmentPlanTimingKind | undefined => {
   switch (value) {
     case "afterPreviousEnd":
     case "beforeRootStart":
@@ -406,21 +368,21 @@ const parseFollowUpTimingKind = (
   }
 };
 
-const normalizeFollowUpPlanForForm = (
+const normalizeAppointmentPlanForForm = (
   appointmentPlan: AppointmentType["appointmentPlan"] | undefined,
-): FollowUpPlanFormStep[] =>
+): AppointmentPlanFormStep[] =>
   (appointmentPlan?.steps ?? []).map((step) => ({
     anchorStepId:
       "anchorStepId" in step.timing ? step.timing.anchorStepId : "root",
     appointmentTypeLineageKey: asAppointmentTypeLineageKey(
       step.appointmentTypeLineageKey,
     ),
-    occupancyKind: followUpOccupancyKindForForm(step.occupancy),
+    occupancyKind: appointmentPlanOccupancyKindForForm(step.occupancy),
     offsetUnit:
       step.timing.kind === "firstAvailableOnOrAfter"
         ? step.timing.offsetUnit
         : "minutes",
-    offsetValue: normalizeFollowUpOffsetValue(
+    offsetValue: normalizeAppointmentPlanOffsetValue(
       step.timing.kind === "firstAvailableOnOrAfter"
         ? step.timing.offsetUnit
         : "minutes",
@@ -433,21 +395,16 @@ const normalizeFollowUpPlanForForm = (
     timingKind: step.timing.kind,
   }));
 
-const followUpOccupancyKindForForm = (
-  occupancy: FollowUpPlanStep["occupancy"],
-): FollowUpPlanOccupancyKind => {
+const appointmentPlanOccupancyKindForForm = (
+  occupancy: AppointmentPlanStep["occupancy"],
+): AppointmentPlanOccupancyKind => {
   if (occupancy.kind === "resourceColumn") {
     return `resource-${occupancy.calendarResourceColumn}`;
-  }
-  if (occupancy.kind === "specificPractitioner") {
-    return `practitioner:${asPractitionerLineageKey(
-      occupancy.practitionerLineageKey,
-    )}`;
   }
   return "inheritRootPractitioner";
 };
 
-const serializeFollowUpPlan = (steps: FollowUpPlanStep[] | undefined) =>
+const serializeAppointmentPlan = (steps: AppointmentPlanStep[] | undefined) =>
   JSON.stringify(
     (steps ?? []).map((step) => ({
       appointmentTypeLineageKey: step.appointmentTypeLineageKey,
@@ -464,62 +421,7 @@ interface PractitionerHistorySnapshot {
   name: string;
 }
 
-function createAppointmentTypeFormSchema(params: {
-  appointmentTypeLineageKeys: readonly AppointmentTypeLineageKey[];
-  practitionerIds: readonly Id<"practitioners">[];
-}) {
-  return z.object({
-    bookableVia: z.array(z.enum(["staff", "online", "telefonki", "planStep"])),
-    defaultOccupancyKind: z
-      .string()
-      .transform((value) => normalizeDefaultOccupancyKindSelection(value)),
-    duration: z
-      .number()
-      .min(5, "Dauer muss mindestens 5 Minuten betragen")
-      .max(480, "Dauer darf maximal 480 Minuten (8 Stunden) betragen")
-      .refine((val) => val % 5 === 0, {
-        message: "Dauer muss in 5-Minuten-Schritten angegeben werden",
-      }),
-    followUpPlan: z.array(
-      createFollowUpStepSchema(params.appointmentTypeLineageKeys),
-    ),
-    name: z
-      .string()
-      .trim()
-      .min(2, "Name muss mindestens 2 Zeichen lang sein")
-      .max(50, "Name darf maximal 50 Zeichen lang sein"),
-    practitionerIds: z.array(
-      createPractitionerIdSchema(params.practitionerIds),
-    ),
-  }) satisfies z.ZodType<AppointmentTypeFormValues>;
-}
-
-function createAppointmentTypeLineageSelectionSchema(
-  availableLineageKeys: readonly AppointmentTypeLineageKey[],
-) {
-  return z
-    .string()
-    .transform((value, ctx): FollowUpPlanTargetSelection | typeof z.NEVER => {
-      if (value === "") {
-        return "";
-      }
-
-      const matchingLineageKey = availableLineageKeys.find(
-        (lineageKey) => lineageKey === value,
-      );
-      if (!matchingLineageKey) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Bitte wählen Sie eine gültige Terminart",
-        });
-        return z.NEVER;
-      }
-
-      return matchingLineageKey;
-    });
-}
-
-function createFollowUpStepSchema(
+function createAppointmentPlanStepSchema(
   availableLineageKeys: readonly AppointmentTypeLineageKey[],
 ) {
   return z
@@ -530,7 +432,9 @@ function createFollowUpStepSchema(
       ).refine((value) => value !== "", "Bitte wählen Sie eine Terminart"),
       occupancyKind: z
         .string()
-        .transform((value) => normalizeFollowUpOccupancyKindSelection(value)),
+        .transform((value) =>
+          normalizeAppointmentPlanOccupancyKindSelection(value),
+        ),
       offsetUnit: z.enum(["minutes", "days", "weeks", "months"]),
       offsetValue: z.number().int("Der Versatz muss eine ganze Zahl sein"),
       timingKind: z.enum([
@@ -581,6 +485,62 @@ function createFollowUpStepSchema(
     });
 }
 
+function createAppointmentTypeFormSchema(params: {
+  appointmentTypeLineageKeys: readonly AppointmentTypeLineageKey[];
+  practitionerIds: readonly Id<"practitioners">[];
+}) {
+  return z.object({
+    appointmentPlan: z.array(
+      createAppointmentPlanStepSchema(params.appointmentTypeLineageKeys),
+    ),
+    defaultOccupancyKind: z
+      .string()
+      .transform((value) => normalizeDefaultOccupancyKindSelection(value)),
+    duration: z
+      .number()
+      .min(5, "Dauer muss mindestens 5 Minuten betragen")
+      .max(480, "Dauer darf maximal 480 Minuten (8 Stunden) betragen")
+      .refine((val) => val % 5 === 0, {
+        message: "Dauer muss in 5-Minuten-Schritten angegeben werden",
+      }),
+    name: z
+      .string()
+      .trim()
+      .min(2, "Name muss mindestens 2 Zeichen lang sein")
+      .max(50, "Name darf maximal 50 Zeichen lang sein"),
+    practitionerIds: z.array(
+      createPractitionerIdSchema(params.practitionerIds),
+    ),
+  }) satisfies z.ZodType<AppointmentTypeFormValues>;
+}
+
+function createAppointmentTypeLineageSelectionSchema(
+  availableLineageKeys: readonly AppointmentTypeLineageKey[],
+) {
+  return z
+    .string()
+    .transform(
+      (value, ctx): AppointmentPlanTargetSelection | typeof z.NEVER => {
+        if (value === "") {
+          return "";
+        }
+
+        const matchingLineageKey = availableLineageKeys.find(
+          (lineageKey) => lineageKey === value,
+        );
+        if (!matchingLineageKey) {
+          ctx.addIssue({
+            code: "custom",
+            message: "Bitte wählen Sie eine gültige Terminart",
+          });
+          return z.NEVER;
+        }
+
+        return matchingLineageKey;
+      },
+    );
+}
+
 function createPractitionerIdSchema(
   availablePractitionerIds: readonly Id<"practitioners">[],
 ) {
@@ -600,6 +560,20 @@ function createPractitionerIdSchema(
     });
 }
 
+function normalizeAppointmentPlanOccupancyKindSelection(
+  value: string,
+): AppointmentPlanOccupancyKind {
+  switch (value) {
+    case "inheritRootPractitioner":
+    case "resource-ekg":
+    case "resource-labor": {
+      return value;
+    }
+  }
+
+  return "inheritRootPractitioner";
+}
+
 function normalizeDefaultOccupancyKindSelection(
   value: string,
 ): AppointmentTypeDefaultOccupancyKind {
@@ -611,29 +585,7 @@ function normalizeDefaultOccupancyKindSelection(
     }
   }
 
-  if (value.startsWith("practitioner:")) {
-    return `practitioner:${value.slice("practitioner:".length)}`;
-  }
-
   return "selectedPractitioner";
-}
-
-function normalizeFollowUpOccupancyKindSelection(
-  value: string,
-): FollowUpPlanOccupancyKind {
-  switch (value) {
-    case "inheritRootPractitioner":
-    case "resource-ekg":
-    case "resource-labor": {
-      return value;
-    }
-  }
-
-  if (value.startsWith("practitioner:")) {
-    return `practitioner:${value.slice("practitioner:".length)}`;
-  }
-
-  return "inheritRootPractitioner";
 }
 
 const toSnapshotLineageIds = (snapshots: PractitionerHistorySnapshot[]) =>
@@ -685,7 +637,7 @@ const isMissingEntityError = (error: unknown) =>
   isMissingRuleSetEntityError(error, APPOINTMENT_TYPE_MISSING_ENTITY_REGEX);
 
 const resolveSelectedAppointmentTypeLineageKey = (
-  step: FollowUpPlanFormStep,
+  step: AppointmentPlanFormStep,
 ): Result<AppointmentTypeLineageKey, string> => {
   if (step.appointmentTypeLineageKey === "") {
     return err("Bitte wählen Sie eine Terminart.");
@@ -1111,7 +1063,6 @@ export function AppointmentTypesManagement({
     (params: {
       allowedPractitionerLineageKeys: AppointmentType["allowedPractitionerLineageKeys"];
       appointmentPlan: NonNullable<AppointmentType["appointmentPlan"]>;
-      bookableVia: NonNullable<AppointmentType["bookableVia"]>;
       defaultOccupancy: NonNullable<AppointmentType["defaultOccupancy"]>;
       duration: number;
       id: AppointmentTypeId;
@@ -1124,7 +1075,6 @@ export function AppointmentTypesManagement({
       _id: params.id,
       allowedPractitionerLineageKeys: params.allowedPractitionerLineageKeys,
       appointmentPlan: params.appointmentPlan,
-      bookableVia: params.bookableVia,
       createdAt: 0n,
       defaultOccupancy: params.defaultOccupancy,
       duration: params.duration,
@@ -1355,9 +1305,8 @@ export function AppointmentTypesManagement({
           return;
         }
 
-        const normalizedFollowUpPlan = normalizeFollowUpPlanForSubmit(
-          parsedValue.followUpPlan,
-          practitionersRef.current,
+        const normalizedAppointmentPlan = normalizeAppointmentPlanForSubmit(
+          parsedValue.appointmentPlan,
         ).match(
           (normalizedPlan) =>
             normalizedPlan.length === 0 ? undefined : normalizedPlan,
@@ -1368,12 +1317,11 @@ export function AppointmentTypesManagement({
             return null;
           },
         );
-        if (normalizedFollowUpPlan === null) {
+        if (normalizedAppointmentPlan === null) {
           return;
         }
         const normalizedDefaultOccupancy = normalizeDefaultOccupancyForSubmit(
           parsedValue.defaultOccupancyKind,
-          practitionersRef.current,
         ).match(
           (defaultOccupancy) => defaultOccupancy,
           (message) => {
@@ -1405,12 +1353,6 @@ export function AppointmentTypesManagement({
           const appointmentTypeLineageKey = editingAppointmentType.lineageKey;
           const beforeState = {
             appointmentPlan: editingAppointmentType.appointmentPlan,
-            bookableVia: editingAppointmentType.bookableVia ?? [
-              "staff",
-              "online",
-              "telefonki",
-              "planStep",
-            ],
             defaultOccupancy: editingAppointmentType.defaultOccupancy,
             duration: editingAppointmentType.duration,
             name: editingAppointmentType.name,
@@ -1421,10 +1363,9 @@ export function AppointmentTypesManagement({
           };
           const afterState = {
             appointmentPlan:
-              normalizedFollowUpPlan === undefined
+              normalizedAppointmentPlan === undefined
                 ? undefined
-                : { steps: normalizedFollowUpPlan },
-            bookableVia: parsedValue.bookableVia,
+                : { steps: normalizedAppointmentPlan },
             defaultOccupancy: normalizedDefaultOccupancy,
             duration: parsedValue.duration,
             name: normalizedName,
@@ -1448,14 +1389,13 @@ export function AppointmentTypesManagement({
           // Update existing appointment type
           const updateResult = await updateAppointmentTypeMutation({
             appointmentTypeId: editingAppointmentType._id,
-            bookableVia: afterState.bookableVia,
             defaultOccupancy: afterState.defaultOccupancy,
             duration: parsedValue.duration,
             name: normalizedName,
             practiceId,
             practitionerIds: resolvedFormPractitionerIds.ids,
             ...getCowMutationArgs(),
-            ...createFollowUpPlanUpdateArgs(normalizedFollowUpPlan),
+            ...createAppointmentPlanUpdateArgs(normalizedAppointmentPlan),
           });
           handleDraftMutationResult(updateResult);
           upsertAppointmentTypeRef(
@@ -1465,7 +1405,6 @@ export function AppointmentTypesManagement({
               allowedPractitionerLineageKeys:
                 afterState.practitionerLineageKeys,
               appointmentPlan: afterState.appointmentPlan ?? { steps: [] },
-              bookableVia: afterState.bookableVia,
               defaultOccupancy: afterState.defaultOccupancy,
               duration: afterState.duration,
               name: afterState.name,
@@ -1493,14 +1432,13 @@ export function AppointmentTypesManagement({
 
               const redoResult = await updateAppointmentTypeMutation({
                 appointmentTypeId: currentAppointmentTypeId,
-                bookableVia: afterState.bookableVia,
                 defaultOccupancy: afterState.defaultOccupancy,
                 duration: afterState.duration,
                 name: afterState.name,
                 practiceId,
                 practitionerIds: resolvedRedoPractitionerIds.ids,
                 ...getCowMutationArgs(),
-                ...createFollowUpPlanUpdateArgs(
+                ...createAppointmentPlanUpdateArgs(
                   afterState.appointmentPlan?.steps,
                 ),
               });
@@ -1518,7 +1456,6 @@ export function AppointmentTypesManagement({
 
               const undoResult = await updateAppointmentTypeMutation({
                 appointmentTypeId: currentAppointmentTypeId,
-                bookableVia: beforeState.bookableVia,
                 defaultOccupancy: beforeState.defaultOccupancy ?? {
                   kind: "selectedPractitioner",
                 },
@@ -1527,7 +1464,7 @@ export function AppointmentTypesManagement({
                 practiceId,
                 practitionerIds: resolvedUndoPractitionerIds.ids,
                 ...getCowMutationArgs(),
-                ...createFollowUpPlanUpdateArgs(
+                ...createAppointmentPlanUpdateArgs(
                   beforeState.appointmentPlan?.steps,
                 ),
               });
@@ -1544,8 +1481,10 @@ export function AppointmentTypesManagement({
               if (
                 current.name !== beforeState.name ||
                 current.duration !== beforeState.duration ||
-                serializeFollowUpPlan(current.appointmentPlan?.steps) !==
-                  serializeFollowUpPlan(beforeState.appointmentPlan?.steps) ||
+                serializeAppointmentPlan(current.appointmentPlan?.steps) !==
+                  serializeAppointmentPlan(
+                    beforeState.appointmentPlan?.steps,
+                  ) ||
                 !samePractitionerLineageIds(
                   current.allowedPractitionerLineageKeys
                     .map((lineageKey) => asPractitionerLineageKey(lineageKey))
@@ -1561,8 +1500,8 @@ export function AppointmentTypesManagement({
               if (
                 current.name !== afterState.name ||
                 current.duration !== afterState.duration ||
-                serializeFollowUpPlan(current.appointmentPlan?.steps) !==
-                  serializeFollowUpPlan(afterState.appointmentPlan?.steps) ||
+                serializeAppointmentPlan(current.appointmentPlan?.steps) !==
+                  serializeAppointmentPlan(afterState.appointmentPlan?.steps) ||
                 !samePractitionerLineageIds(
                   current.allowedPractitionerLineageKeys
                     .map((lineageKey) => asPractitionerLineageKey(lineageKey))
@@ -1586,7 +1525,6 @@ export function AppointmentTypesManagement({
         } else {
           // Create new appointment type
           const createResult = await createAppointmentTypeMutation({
-            bookableVia: parsedValue.bookableVia,
             defaultOccupancy: normalizedDefaultOccupancy,
             duration: parsedValue.duration,
             name: normalizedName,
@@ -1594,7 +1532,7 @@ export function AppointmentTypesManagement({
             practitionerIds: resolvedFormPractitionerIds.ids,
             ...createTreeFolderArg(newAppointmentTypeFolderId),
             ...getCowMutationArgs(),
-            ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
+            ...createAppointmentPlanCreateArgs(normalizedAppointmentPlan),
           });
           handleDraftMutationResult(createResult);
           const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
@@ -1605,10 +1543,9 @@ export function AppointmentTypesManagement({
               formPractitionerSnapshots,
             ),
             appointmentPlan:
-              normalizedFollowUpPlan === undefined
+              normalizedAppointmentPlan === undefined
                 ? { steps: [] }
-                : { steps: normalizedFollowUpPlan },
-            bookableVia: parsedValue.bookableVia,
+                : { steps: normalizedAppointmentPlan },
             defaultOccupancy: normalizedDefaultOccupancy,
             duration: parsedValue.duration,
             id: asAppointmentTypeId(createResult.entityId),
@@ -1621,9 +1558,9 @@ export function AppointmentTypesManagement({
           const { entityId } = createResult;
           const createdSnapshot = encodeRuleSetSnapshot({
             appointmentPlan:
-              normalizedFollowUpPlan === undefined
+              normalizedAppointmentPlan === undefined
                 ? undefined
-                : { steps: normalizedFollowUpPlan },
+                : { steps: normalizedAppointmentPlan },
             duration: parsedValue.duration,
             name: normalizedName,
             practitionerLineageKeys: toSnapshotLineageIds(
@@ -1669,7 +1606,6 @@ export function AppointmentTypesManagement({
                 return { message: createConflict, status: "conflict" };
               }
               const recreateResult = await createAppointmentTypeMutation({
-                bookableVia: parsedValue.bookableVia,
                 defaultOccupancy: normalizedDefaultOccupancy,
                 duration: parsedValue.duration,
                 lineageKey: appointmentTypeLineageKey,
@@ -1678,7 +1614,7 @@ export function AppointmentTypesManagement({
                 practitionerIds: resolvedCreatePractitionerIds.ids,
                 ...createTreeFolderArg(resolvedFolder.folderId),
                 ...getCowMutationArgs(),
-                ...createFollowUpPlanCreateArgs(normalizedFollowUpPlan),
+                ...createAppointmentPlanCreateArgs(normalizedAppointmentPlan),
               });
               handleDraftMutationResult(recreateResult);
               const restoredAppointmentType = createAppointmentTypeRefSnapshot({
@@ -1686,10 +1622,9 @@ export function AppointmentTypesManagement({
                   formPractitionerSnapshots,
                 ),
                 appointmentPlan:
-                  normalizedFollowUpPlan === undefined
+                  normalizedAppointmentPlan === undefined
                     ? { steps: [] }
-                    : { steps: normalizedFollowUpPlan },
-                bookableVia: parsedValue.bookableVia,
+                    : { steps: normalizedAppointmentPlan },
                 defaultOccupancy: normalizedDefaultOccupancy,
                 duration: parsedValue.duration,
                 id: asAppointmentTypeId(recreateResult.entityId),
@@ -1753,8 +1688,8 @@ export function AppointmentTypesManagement({
               if (
                 existing.name !== normalizedName ||
                 existing.duration !== parsedValue.duration ||
-                serializeFollowUpPlan(existing.appointmentPlan?.steps) !==
-                  serializeFollowUpPlan(normalizedFollowUpPlan) ||
+                serializeAppointmentPlan(existing.appointmentPlan?.steps) !==
+                  serializeAppointmentPlan(normalizedAppointmentPlan) ||
                 existing.treeFolderId !== resolvedFolder.folderId ||
                 !samePractitionerLineageIds(
                   existingPractitionerLineageIds,
@@ -1823,23 +1758,14 @@ export function AppointmentTypesManagement({
       setEditingAppointmentType(appointmentType);
       setNewAppointmentTypeFolderId(undefined);
       form.setFieldValue(
-        "bookableVia",
-        appointmentType.bookableVia ?? [
-          "staff",
-          "online",
-          "telefonki",
-          "planStep",
-        ],
-      );
-      form.setFieldValue(
         "defaultOccupancyKind",
         defaultOccupancyKindForForm(appointmentType.defaultOccupancy),
       );
       form.setFieldValue("name", appointmentType.name);
       form.setFieldValue("duration", appointmentType.duration);
       form.setFieldValue(
-        "followUpPlan",
-        normalizeFollowUpPlanForForm(appointmentType.appointmentPlan),
+        "appointmentPlan",
+        normalizeAppointmentPlanForForm(appointmentType.appointmentPlan),
       );
       form.setFieldValue("practitionerIds", validPractitionerIds);
 
@@ -2376,17 +2302,11 @@ export function AppointmentTypesManagement({
               return;
             }
             return {
-              bookableVia: appointmentType.bookableVia ?? [
-                "staff",
-                "online",
-                "telefonki",
-                "planStep",
-              ],
+              appointmentPlan: appointmentType.appointmentPlan,
               defaultOccupancy: appointmentType.defaultOccupancy ?? {
                 kind: "selectedPractitioner",
               },
               duration: appointmentType.duration,
-              followUpPlan: appointmentType.appointmentPlan,
               lineageKey: appointmentType.lineageKey,
               name: appointmentType.name,
               practitionerSnapshots: createPractitionerSnapshots(
@@ -2509,9 +2429,10 @@ export function AppointmentTypesManagement({
                 existingByLineage &&
                 (existingByLineage.name !== snapshot.name ||
                   existingByLineage.duration !== snapshot.duration ||
-                  serializeFollowUpPlan(
+                  serializeAppointmentPlan(
                     existingByLineage.appointmentPlan?.steps,
-                  ) !== serializeFollowUpPlan(snapshot.followUpPlan?.steps))
+                  ) !==
+                    serializeAppointmentPlan(snapshot.appointmentPlan?.steps))
               ) {
                 return {
                   message: `[HISTORY:APPOINTMENT_TYPE_LINEAGE_CONFLICT] Die Terminart mit lineageKey ${snapshot.lineageKey} existiert bereits, hat aber abweichende Einstellungen.`,
@@ -2654,8 +2575,7 @@ export function AppointmentTypesManagement({
                     allowedPractitionerLineageKeys: toSnapshotLineageIds(
                       snapshot.practitionerSnapshots,
                     ),
-                    appointmentPlan: snapshot.followUpPlan ?? { steps: [] },
-                    bookableVia: snapshot.bookableVia,
+                    appointmentPlan: snapshot.appointmentPlan ?? { steps: [] },
                     createdAt: 0n,
                     defaultOccupancy: snapshot.defaultOccupancy,
                     duration: snapshot.duration,
@@ -2750,7 +2670,6 @@ export function AppointmentTypesManagement({
                   };
                 }
                 const recreateResult = await createAppointmentTypeMutation({
-                  bookableVia: snapshot.bookableVia,
                   defaultOccupancy: snapshot.defaultOccupancy,
                   duration: snapshot.duration,
                   lineageKey: snapshot.lineageKey,
@@ -2759,7 +2678,9 @@ export function AppointmentTypesManagement({
                   practitionerIds,
                   treeFolderId,
                   ...getCowMutationArgs(),
-                  ...createFollowUpPlanCreateArgs(snapshot.followUpPlan?.steps),
+                  ...createAppointmentPlanCreateArgs(
+                    snapshot.appointmentPlan?.steps,
+                  ),
                 });
                 handleDraftMutationResult(recreateResult);
                 upsertAppointmentTypeRef({
@@ -2768,8 +2689,7 @@ export function AppointmentTypesManagement({
                   allowedPractitionerLineageKeys: toSnapshotLineageIds(
                     snapshot.practitionerSnapshots,
                   ),
-                  appointmentPlan: snapshot.followUpPlan ?? { steps: [] },
-                  bookableVia: snapshot.bookableVia,
+                  appointmentPlan: snapshot.appointmentPlan ?? { steps: [] },
                   createdAt: 0n,
                   defaultOccupancy: snapshot.defaultOccupancy,
                   duration: snapshot.duration,
@@ -3119,17 +3039,11 @@ export function AppointmentTypesManagement({
   const handleDelete = async (appointmentType: AppointmentType) => {
     try {
       const deletedSnapshot = {
-        bookableVia: appointmentType.bookableVia ?? [
-          "staff",
-          "online",
-          "telefonki",
-          "planStep",
-        ],
+        appointmentPlan: appointmentType.appointmentPlan,
         defaultOccupancy: appointmentType.defaultOccupancy ?? {
           kind: "selectedPractitioner",
         },
         duration: appointmentType.duration,
-        followUpPlan: appointmentType.appointmentPlan,
         lineageKey: appointmentType.lineageKey,
         name: appointmentType.name,
         practitionerLineageKeys:
@@ -3188,7 +3102,6 @@ export function AppointmentTypesManagement({
           treeFolderId: Id<"appointmentTypeFolders"> | null,
         ) => {
           const recreateResult = await createAppointmentTypeMutation({
-            bookableVia: snapshot.bookableVia,
             defaultOccupancy: snapshot.defaultOccupancy,
             duration: snapshot.duration,
             lineageKey: snapshot.lineageKey,
@@ -3197,7 +3110,7 @@ export function AppointmentTypesManagement({
             practitionerIds,
             treeFolderId,
             ...getCowMutationArgs(),
-            ...createFollowUpPlanCreateArgs(snapshot.followUpPlan?.steps),
+            ...createAppointmentPlanCreateArgs(snapshot.appointmentPlan?.steps),
           });
           handleDraftMutationResult(recreateResult);
           return {
@@ -3239,8 +3152,9 @@ export function AppointmentTypesManagement({
             existingByLineage.name === snapshot.name &&
             existingByLineage.treeFolderId === resolvedFolder.folderId &&
             existingByLineage.duration === snapshot.duration &&
-            serializeFollowUpPlan(existingByLineage.appointmentPlan?.steps) ===
-              serializeFollowUpPlan(snapshot.followUpPlan?.steps) &&
+            serializeAppointmentPlan(
+              existingByLineage.appointmentPlan?.steps,
+            ) === serializeAppointmentPlan(snapshot.appointmentPlan?.steps) &&
             samePractitionerLineageIds(
               existingPractitionerLineageIds,
               deletedPractitionerLineageIds,
@@ -3287,8 +3201,7 @@ export function AppointmentTypesManagement({
           allowedPractitionerLineageKeys: toSnapshotLineageIds(
             deletedPractitionerSnapshots,
           ),
-          appointmentPlan: snapshot.followUpPlan ?? { steps: [] },
-          bookableVia: snapshot.bookableVia,
+          appointmentPlan: snapshot.appointmentPlan ?? { steps: [] },
           createdAt: 0n,
           defaultOccupancy: snapshot.defaultOccupancy,
           duration: snapshot.duration,
@@ -3465,67 +3378,13 @@ export function AppointmentTypesManagement({
                                 <SelectItem value="resource-labor">
                                   Labor
                                 </SelectItem>
-                                {practitioners.map((practitioner) => (
-                                  <SelectItem
-                                    key={practitioner.lineageKey}
-                                    value={`practitioner:${practitioner.lineageKey}`}
-                                  >
-                                    {practitioner.name}
-                                  </SelectItem>
-                                ))}
                               </SelectContent>
                             </Select>
                           </Field>
                         )}
                       </form.Field>
 
-                      <form.Field mode="array" name="bookableVia">
-                        {(field) => (
-                          <FieldSet>
-                            <FieldLegend variant="label">
-                              Buchbarkeit
-                            </FieldLegend>
-                            <FieldGroup className="grid gap-3 md:grid-cols-4">
-                              {(
-                                [
-                                  ["staff", "Praxis"],
-                                  ["online", "Online"],
-                                  ["telefonki", "TelefonKI"],
-                                  ["planStep", "Kettentermin"],
-                                ] as const
-                              ).map(([channel, label]) => (
-                                <Field key={channel} orientation="horizontal">
-                                  <Checkbox
-                                    checked={field.state.value.includes(
-                                      channel,
-                                    )}
-                                    id={`bookable-${channel}`}
-                                    onCheckedChange={(checked) => {
-                                      if (checked) {
-                                        field.pushValue(channel);
-                                        return;
-                                      }
-                                      const existingIndex =
-                                        field.state.value.indexOf(channel);
-                                      if (existingIndex !== -1) {
-                                        field.removeValue(existingIndex);
-                                      }
-                                    }}
-                                  />
-                                  <FieldLabel
-                                    className="font-normal"
-                                    htmlFor={`bookable-${channel}`}
-                                  >
-                                    {label}
-                                  </FieldLabel>
-                                </Field>
-                              ))}
-                            </FieldGroup>
-                          </FieldSet>
-                        )}
-                      </form.Field>
-
-                      <form.Field mode="array" name="followUpPlan">
+                      <form.Field mode="array" name="appointmentPlan">
                         {(field) => {
                           const availableTargets = appointmentTypes.filter(
                             (appointmentType) =>
@@ -3555,7 +3414,9 @@ export function AppointmentTypesManagement({
                                     return (
                                       <form.Field
                                         key={`${index}-${step.appointmentTypeLineageKey}`}
-                                        name={`followUpPlan[${index}]` as const}
+                                        name={
+                                          `appointmentPlan[${index}]` as const
+                                        }
                                       >
                                         {(itemField) => (
                                           <div className="rounded-lg border p-4 space-y-4">
@@ -3690,7 +3551,7 @@ export function AppointmentTypesManagement({
                                                 <Select
                                                   onValueChange={(value) => {
                                                     const timingKind =
-                                                      parseFollowUpTimingKind(
+                                                      parseAppointmentPlanTimingKind(
                                                         value,
                                                       );
                                                     if (!timingKind) {
@@ -3798,7 +3659,7 @@ export function AppointmentTypesManagement({
                                                   }
                                                   onBlur={(e) => {
                                                     const normalizedOffsetValue =
-                                                      normalizeFollowUpOffsetValue(
+                                                      normalizeAppointmentPlanOffsetValue(
                                                         itemField.state.value
                                                           .offsetUnit,
                                                         parseNumberInput(
@@ -3858,7 +3719,7 @@ export function AppointmentTypesManagement({
                                                   }
                                                   onValueChange={(value) => {
                                                     const nextOffsetUnit =
-                                                      parseFollowUpOffsetUnit(
+                                                      parseAppointmentPlanOffsetUnit(
                                                         value,
                                                       );
                                                     if (!nextOffsetUnit) {
@@ -3869,7 +3730,7 @@ export function AppointmentTypesManagement({
                                                       offsetUnit:
                                                         nextOffsetUnit,
                                                       offsetValue:
-                                                        normalizeFollowUpOffsetValue(
+                                                        normalizeAppointmentPlanOffsetValue(
                                                           nextOffsetUnit,
                                                           itemField.state.value
                                                             .offsetValue,
@@ -3914,7 +3775,7 @@ export function AppointmentTypesManagement({
                                                     itemField.handleChange({
                                                       ...itemField.state.value,
                                                       occupancyKind:
-                                                        normalizeFollowUpOccupancyKindSelection(
+                                                        normalizeAppointmentPlanOccupancyKindSelection(
                                                           value,
                                                         ),
                                                     });
@@ -3937,18 +3798,6 @@ export function AppointmentTypesManagement({
                                                     <SelectItem value="resource-labor">
                                                       Labor
                                                     </SelectItem>
-                                                    {practitioners.map(
-                                                      (practitioner) => (
-                                                        <SelectItem
-                                                          key={
-                                                            practitioner.lineageKey
-                                                          }
-                                                          value={`practitioner:${practitioner.lineageKey}`}
-                                                        >
-                                                          {practitioner.name}
-                                                        </SelectItem>
-                                                      ),
-                                                    )}
                                                   </SelectContent>
                                                 </Select>
                                               </Field>
@@ -3962,7 +3811,9 @@ export function AppointmentTypesManagement({
 
                                 <Button
                                   onClick={() => {
-                                    field.pushValue(createEmptyFollowUpStep());
+                                    field.pushValue(
+                                      createEmptyAppointmentPlanStep(),
+                                    );
                                   }}
                                   size="sm"
                                   type="button"
