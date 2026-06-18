@@ -12,7 +12,7 @@ import { internal } from "./_generated/api";
 import {
   type AppointmentBookingScope,
   appointmentOverlapsCandidate,
-  findConflictingAppointment,
+  findConflictingCalendarOccupancy,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import {
@@ -269,23 +269,26 @@ export async function createAppointmentSeries(
         }),
       },
     );
-    const conflictingAppointment = await findConflictingAppointment(ctx.db, {
-      candidate: {
-        end: step.end,
-        locationLineageKey: occupancyReferences.locationLineageKey,
-        occupancyScope: step.occupancyScope,
-        start: step.start,
+    const conflictingOccupancy = await findConflictingCalendarOccupancy(
+      ctx.db,
+      {
+        candidate: {
+          end: step.end,
+          locationLineageKey: occupancyReferences.locationLineageKey,
+          occupancyScope: step.occupancyScope,
+          start: step.start,
+        },
+        ...(simulationRuleSetId && { draftRuleSetId: simulationRuleSetId }),
+        occupancyView: getOccupancyViewForBookingScope(scope),
+        practiceId: args.practiceId,
+        ...(index === 0 &&
+          args.rootReplacesAppointmentId && {
+            excludeAppointmentIds: [args.rootReplacesAppointmentId],
+          }),
       },
-      ...(simulationRuleSetId && { draftRuleSetId: simulationRuleSetId }),
-      occupancyView: getOccupancyViewForBookingScope(scope),
-      practiceId: args.practiceId,
-      ...(index === 0 &&
-        args.rootReplacesAppointmentId && {
-          excludeAppointmentIds: [args.rootReplacesAppointmentId],
-        }),
-    });
+    );
 
-    if (conflictingAppointment) {
+    if (conflictingOccupancy) {
       throw appointmentSeriesError(
         "FOLLOW_UP_SLOT_UNAVAILABLE",
         `Der Termin fuer Schritt ${step.seriesStepIndex + 1} ist nicht mehr verfuegbar.`,
@@ -1234,7 +1237,7 @@ async function planAppointmentPlanStep(
     return null;
   }
 
-  const conflictingAppointment = await findConflictingAppointment(ctx.db, {
+  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
     candidate: {
       end: candidate.end,
       locationLineageKey: candidate.locationLineageKey,
@@ -1251,7 +1254,7 @@ async function planAppointmentPlanStep(
     practiceId: args.practiceId,
   });
 
-  return conflictingAppointment ? null : candidate;
+  return conflictingOccupancy ? null : candidate;
 }
 
 async function queryAvailableSlotsForDay(
@@ -1658,7 +1661,7 @@ async function validateRootCandidate(
     }
   }
 
-  const conflictingAppointment = await findConflictingAppointment(ctx.db, {
+  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
     candidate: {
       end: calculateEndTime(args.start, args.rootDurationMinutes),
       locationLineageKey: rootLocationLineageKey,
@@ -1675,7 +1678,7 @@ async function validateRootCandidate(
     practiceId: args.practiceId,
   });
 
-  if (conflictingAppointment) {
+  if (conflictingOccupancy) {
     return {
       blockedStepId: "root",
       failureMessage:
