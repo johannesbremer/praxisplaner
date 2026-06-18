@@ -270,7 +270,7 @@ describe("TelefonKI availability", () => {
     ).rejects.toThrow("Practice phone number must be provided in E.164 format");
   });
 
-  test("rejects unknown dialed phone numbers", async () => {
+  test("returns a generic denial for unknown dialed phone numbers", async () => {
     const t = createTestContext();
     await createTelefonkiFixture(t);
 
@@ -281,7 +281,19 @@ describe("TelefonKI availability", () => {
           dialedPracticePhoneNumber: "+495421999999",
         }),
       ),
-    ).rejects.toThrow("No practice is configured for the dialed phone number");
+    ).rejects.toThrow("TelefonKI integration access denied.");
+  });
+
+  test("returns the same generic denial for routed numbers with the wrong practice secret", async () => {
+    const t = createTestContext();
+    await createTelefonkiFixture(t);
+
+    await expect(
+      t.query(api.telefonki.resolvePracticeByDialedPhoneNumber, {
+        dialedPracticePhoneNumber: "+495421000000",
+        integrationSecret: OTHER_TELEFONKI_SECRET,
+      }),
+    ).rejects.toThrow("TelefonKI integration access denied.");
   });
 
   test("maps different dialed numbers to different practices with matching practice secrets", async () => {

@@ -593,12 +593,12 @@ export const resolvePracticeByDialedPhoneNumber = query({
       )
       .unique();
     if (!mapping) {
-      throw new Error("No practice is configured for the dialed phone number.");
+      throw new Error("TelefonKI integration access denied.");
     }
 
     const practice = await ctx.db.get("practices", mapping.practiceId);
     if (!practice) {
-      throw new Error("Practice for dialed phone number was not found.");
+      throw new Error("TelefonKI integration access denied.");
     }
     await assertTelefonkiPracticeAccess(ctx, {
       integrationSecret: args.integrationSecret,
