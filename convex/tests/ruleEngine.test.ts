@@ -69,9 +69,15 @@ async function createPractice(t: TestContext) {
       email: "ruleengine@example.com",
     });
   });
-  return await t.mutation(api.practices.createPractice, {
-    name: "Test Practice",
-  });
+  return await t.mutation(
+    internal.workosOrganizations.createPracticeForWorkOSOrganization,
+    {
+      name: "Test Practice",
+      organizationId: "org_test_ruleengine",
+      role: "owner",
+      workOSUserId: "workos_ruleengine",
+    },
+  );
 }
 
 /**

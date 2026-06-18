@@ -1,7 +1,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import schema from "../schema";
 import { INVALID_TEMPORARY_PATIENT_MESSAGE } from "../temporaryPatients";
 import { modules } from "./test.setup";
@@ -28,9 +28,15 @@ async function createPractice(t: ReturnType<typeof createAuthedTestContext>) {
       email: "patients@example.com",
     });
   });
-  return await t.mutation(api.practices.createPractice, {
-    name: "Patients Test Practice",
-  });
+  return await t.mutation(
+    internal.workosOrganizations.createPracticeForWorkOSOrganization,
+    {
+      name: "Patients Test Practice",
+      organizationId: "org_test_patients",
+      role: "owner",
+      workOSUserId: "workos_patients",
+    },
+  );
 }
 
 describe("patients", () => {

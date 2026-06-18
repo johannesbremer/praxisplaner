@@ -2,7 +2,7 @@ import { v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 
-import { mutation, query } from "./_generated/server";
+import { action, mutation, query } from "./_generated/server";
 import { isConvexAuthBypassEnabled } from "./authBypass";
 import { createInitialRuleSet } from "./copyOnWrite";
 import {
@@ -19,6 +19,7 @@ import {
   getAuthenticatedUserIdForQueryOrNull,
   requireAuthenticatedUserIdForQuery,
 } from "./userIdentity";
+import { createOrganizationPracticeForCurrentUser } from "./workosOrganizations";
 
 const practiceListItemValidator = v.object({
   _creationTime: v.number(),
@@ -30,31 +31,17 @@ const practiceListItemValidator = v.object({
 });
 
 /**
- * Create a new practice with the given name.
- * Also creates an initial saved rule set and sets it as active.
+ * Provision a new WorkOS organization and its local practice for the current user.
  */
-export const createPractice = mutation({
+export const createPractice = action({
   args: {
     name: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await ensureAuthenticatedUserId(ctx);
-    const slug = await allocateUniquePracticeSlug(ctx.db, args.name);
-    const practiceId = await ctx.db.insert("practices", {
-      name: args.name,
-      slug,
-    });
-
-    await ctx.db.insert("practiceMembers", {
-      createdAt: BigInt(Date.now()),
-      practiceId,
-      role: "owner",
-      userId,
-    });
-
-    // Create initial saved rule set and set it as active
-    await createInitialRuleSet(ctx.db, practiceId);
-
+    const { practiceId } = await createOrganizationPracticeForCurrentUser(
+      ctx,
+      args,
+    );
     return practiceId;
   },
   returns: v.id("practices"),

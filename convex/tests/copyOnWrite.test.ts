@@ -13,7 +13,7 @@ import type { MutationCtx } from "../_generated/server";
 
 import { regex } from "../../lib/arkregex";
 import { serializeConditionTreeTransport } from "../../lib/condition-tree";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
@@ -46,9 +46,15 @@ function createAuthedTestContext() {
 
 async function createPractice(t: ReturnType<typeof createAuthedTestContext>) {
   await ensureSyncedUser(t);
-  return await t.mutation(api.practices.createPractice, {
-    name: "Test Practice",
-  });
+  return await t.mutation(
+    internal.workosOrganizations.createPracticeForWorkOSOrganization,
+    {
+      name: "Test Practice",
+      organizationId: "org_test_copyonwrite",
+      role: "owner",
+      workOSUserId: "workos_copyonwrite",
+    },
+  );
 }
 
 async function createRule(

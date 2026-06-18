@@ -15,9 +15,15 @@ async function createPracticeForUser(
 ) {
   await createUser(t, authId, email);
   const authed = t.withIdentity({ email, subject: authId });
-  const practiceId = await authed.mutation(api.practices.createPractice, {
-    name: `${authId} practice`,
-  });
+  const practiceId = await t.mutation(
+    internal.workosOrganizations.createPracticeForWorkOSOrganization,
+    {
+      name: `${authId} practice`,
+      organizationId: `org_test_${authId}`,
+      role: "owner",
+      workOSUserId: authId,
+    },
+  );
   const practice = await t.run(
     async (ctx) => await ctx.db.get("practices", practiceId),
   );
@@ -207,21 +213,26 @@ describe("Convex query authorization", () => {
     ).rejects.toThrow("Multiple app users exist for authenticated identity");
   });
 
-  test("mutation access rejects duplicate app users for one auth identity", async () => {
+  test("public createPractice provisions a managed organization practice", async () => {
     const t = createTestContext();
-    const authId = "workos_duplicate_mutation_user";
-    await createUser(t, authId, "duplicate-mutation-1@example.com");
-    await createUser(t, authId, "duplicate-mutation-2@example.com");
+    const authId = "dev-owner";
+    await createUser(t, authId, "dev-owner@example.com");
     const authed = t.withIdentity({
-      email: "duplicate-mutation@example.com",
+      email: "dev-owner@example.com",
       subject: authId,
     });
 
-    await expect(
-      authed.mutation(api.practices.createPractice, {
-        name: "Duplicate Mutation Practice",
-      }),
-    ).rejects.toThrow("Multiple app users exist for authenticated identity");
+    const practiceId = await authed.action(api.practices.createPractice, {
+      name: "Provisioned Action Practice",
+    });
+    const practice = await t.run(
+      async (ctx) => await ctx.db.get("practices", practiceId),
+    );
+
+    expect(practice).toMatchObject({
+      name: "Provisioned Action Practice",
+      workOSOrganizationId: "org_dev_provisioned_action_practice",
+    });
   });
 
   test("authenticated users cannot self-enroll through default practice bootstrap", async () => {
