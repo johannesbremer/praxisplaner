@@ -56,8 +56,10 @@ interface DraftSmileyOption extends AppointmentSmileyOption {
 }
 
 interface SmileyOptionsEditorState {
+  committedOptions: AppointmentSmileyOption[];
   draftOptions: DraftSmileyOption[];
   error: null | string;
+  querySourceKey: string;
   sourceKey: string;
 }
 
@@ -121,9 +123,12 @@ const hasDuplicateEmoji = (options: readonly AppointmentSmileyOption[]) => {
 const createEditorState = (
   options: AppointmentSmileyOption[],
   sourceKey = createOptionsSourceKey(options),
+  querySourceKey = sourceKey,
 ): SmileyOptionsEditorState => ({
+  committedOptions: options,
   draftOptions: createDraftOptions(options),
   error: null,
+  querySourceKey,
   sourceKey,
 });
 
@@ -145,7 +150,19 @@ const resolveActiveEditorState = (args: {
   if (args.initialOptions === undefined || args.initialOptionsKey === null) {
     return args.currentState;
   }
-  if (args.currentState?.sourceKey === args.initialOptionsKey) {
+  if (args.currentState === null) {
+    return createEditorState(args.initialOptions, args.initialOptionsKey);
+  }
+  if (args.currentState.sourceKey === args.initialOptionsKey) {
+    if (args.currentState.querySourceKey === args.initialOptionsKey) {
+      return args.currentState;
+    }
+    return {
+      ...args.currentState,
+      querySourceKey: args.initialOptionsKey,
+    };
+  }
+  if (args.currentState.sourceKey !== args.currentState.querySourceKey) {
     return args.currentState;
   }
   return createEditorState(args.initialOptions, args.initialOptionsKey);
@@ -224,16 +241,16 @@ function AppointmentSmileyOptionsEditor({
   const [editorState, setEditorState] = useState(() =>
     createInitialEditorState(initialOptions, initialOptionsKey),
   );
-  let activeEditorState = editorState;
-  if (
-    initialOptions !== undefined &&
-    initialOptionsKey !== null &&
-    editorState?.sourceKey !== initialOptionsKey
-  ) {
-    activeEditorState = createEditorState(initialOptions, initialOptionsKey);
+  const activeEditorState = resolveActiveEditorState({
+    currentState: editorState,
+    initialOptions,
+    initialOptionsKey,
+  });
+  if (activeEditorState !== editorState) {
     setEditorState(activeEditorState);
   }
-  const committedOptions = initialOptions ?? EMPTY_APPOINTMENT_SMILEY_OPTIONS;
+  const committedOptions =
+    activeEditorState?.committedOptions ?? EMPTY_APPOINTMENT_SMILEY_OPTIONS;
   const draftOptions =
     activeEditorState?.draftOptions ?? EMPTY_DRAFT_SMILEY_OPTIONS;
   const error = activeEditorState?.error ?? null;
@@ -306,6 +323,14 @@ function AppointmentSmileyOptionsEditor({
         practiceId,
       });
       handleDraftMutationResult(savedOptions);
+      const savedOptionsKey = createOptionsSourceKey(savedOptions.options);
+      setEditorState((currentState) =>
+        createEditorState(
+          savedOptions.options,
+          savedOptionsKey,
+          currentState?.querySourceKey ?? initialOptionsKey ?? savedOptionsKey,
+        ),
+      );
       recordAppointmentSmileyOptionsCommand({
         afterOptions: savedOptions.options,
         beforeOptions,

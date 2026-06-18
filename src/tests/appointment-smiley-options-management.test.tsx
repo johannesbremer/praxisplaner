@@ -355,6 +355,66 @@ describe("AppointmentSmileyOptionsManagement", () => {
     });
   });
 
+  test("uses the last saved smiley options as the next command baseline while the query is stale", async () => {
+    const recordedCommands: RuleSetCommand[] = [];
+    const recordCommand: RecordRuleSetCommand = (
+      command: RuleSetCommand,
+      runtime: RuleSetCommandRuntimeAdapter,
+    ) => {
+      void runtime;
+      recordedCommands.push(command);
+    };
+    useQueryMock.mockReturnValue([
+      {
+        emoji: "👍",
+        id: "arrived",
+        name: "Patient ist angekommen",
+      },
+    ]);
+
+    render(
+      <AppointmentSmileyOptionsManagement
+        onRecordCommand={recordCommand}
+        practiceId={practiceId}
+        ruleSetReplayTarget={{
+          kind: "saved-parent",
+          parentRuleSetId,
+        }}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Patient wartet" },
+    });
+    fireEvent.blur(screen.getByLabelText("Name"));
+
+    await waitFor(() => {
+      expect(updateOptionsMock).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Name")).toHaveValue("Patient wartet");
+    });
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Patient sitzt" },
+    });
+    fireEvent.blur(screen.getByLabelText("Name"));
+
+    await waitFor(() => {
+      expect(updateOptionsMock).toHaveBeenCalledTimes(2);
+    });
+
+    const secondCommand = recordedCommands[1];
+    expect(secondCommand?.kind).toBe(
+      "practice.appointmentSmileyOptions.update",
+    );
+    if (secondCommand?.kind !== "practice.appointmentSmileyOptions.update") {
+      throw new Error("Expected a smiley options command.");
+    }
+    expect(secondCommand.payload.before).toEqual(["👍 Patient wartet"]);
+    expect(secondCommand.payload.after).toEqual(["👍 Patient sitzt"]);
+  });
+
   test("shows a plus icon for empty emoji rows", () => {
     render(
       <AppointmentSmileyOptionsManagement
