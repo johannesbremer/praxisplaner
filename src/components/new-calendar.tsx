@@ -106,6 +106,7 @@ function CalendarGridWithSidebarOpening({
 
 // Helper to convert Temporal.PlainDate to JS Date for date-fns
 export function NewCalendar({
+  canManageCalendarPlanning = false,
   locationName,
   onDateChange,
   onLocationResolved,
@@ -311,6 +312,7 @@ export function NewCalendar({
     totalSlots,
     workingPractitioners,
   } = useCalendarLogic({
+    canManageCalendarPlanning,
     locationName,
     onAppointmentCreated: handleAppointmentSelection,
     onClearAppointmentTypeSelection: clearAppointmentCreationSelection,
@@ -501,7 +503,7 @@ export function NewCalendar({
 
   const handleBlockSlot = useCallback(
     (column: CalendarColumnId, slot: number) => {
-      if (!isBlockingModeActive) {
+      if (!canManageCalendarPlanning || !isBlockingModeActive) {
         return;
       }
 
@@ -528,6 +530,7 @@ export function NewCalendar({
     },
     [
       getPractitionerIdForColumn,
+      canManageCalendarPlanning,
       isBlockingModeActive,
       selectedDate,
       slotToTime,
@@ -537,12 +540,15 @@ export function NewCalendar({
   return (
     <CalendarProvider
       value={{
+        canManageCalendarPlanning,
         currentTime,
-        isBlockingModeActive,
+        isBlockingModeActive: canManageCalendarPlanning && isBlockingModeActive,
         locationsData,
         onAppointmentCreated: handleAppointmentSelection,
         onAppointmentTypeSelect: handleAppointmentTypeSelect,
-        onBlockingModeChange: setIsBlockingModeActive,
+        onBlockingModeChange: canManageCalendarPlanning
+          ? setIsBlockingModeActive
+          : undefined,
         onDateChange: handleDateChange,
         onLocationResolved,
         onLocationSelect: handleLocationSelect,
@@ -644,26 +650,63 @@ export function NewCalendar({
                     <CalendarGridWithSidebarOpening
                       appointments={appointments}
                       blockedSlots={blockedSlots}
+                      canDragCalendarItems={canManageCalendarPlanning}
                       columns={columns}
                       currentTimeSlot={currentTimeSlot}
                       draggedAppointment={draggedAppointment}
                       draggedBlockedSlotId={draggedBlockedSlotId}
                       dragPreview={dragPreview}
-                      isBlockingModeActive={isBlockingModeActive}
+                      isBlockingModeActive={
+                        canManageCalendarPlanning && isBlockingModeActive
+                      }
                       onAddAppointment={addAppointment}
-                      onBlockedSlotDragEnd={handleBlockedSlotDragEnd}
-                      onBlockSlot={handleBlockSlot}
+                      onBlockedSlotDragEnd={
+                        canManageCalendarPlanning
+                          ? handleBlockedSlotDragEnd
+                          : undefined
+                      }
+                      onBlockSlot={
+                        canManageCalendarPlanning ? handleBlockSlot : undefined
+                      }
                       onDeleteAppointment={handleDeleteAppointment}
-                      onDeleteBlockedSlot={handleEditBlockedSlot}
-                      onDragEnd={handleDragEnd}
-                      onDragOver={handleDragOver}
-                      onDragStart={handleDragStart}
-                      onDragStartBlockedSlot={handleBlockedSlotDragStart}
-                      onDrop={handleDrop}
+                      onDeleteBlockedSlot={
+                        canManageCalendarPlanning
+                          ? handleEditBlockedSlot
+                          : undefined
+                      }
+                      onDragEnd={
+                        canManageCalendarPlanning ? handleDragEnd : undefined
+                      }
+                      onDragOver={
+                        canManageCalendarPlanning ? handleDragOver : undefined
+                      }
+                      onDragStart={
+                        canManageCalendarPlanning ? handleDragStart : undefined
+                      }
+                      onDragStartBlockedSlot={
+                        canManageCalendarPlanning
+                          ? handleBlockedSlotDragStart
+                          : undefined
+                      }
+                      onDrop={
+                        canManageCalendarPlanning ? handleDrop : undefined
+                      }
                       onEditAppointment={handleEditAppointment}
-                      onEditBlockedSlot={handleEditBlockedSlot}
-                      onResizeStart={handleResizeStart}
-                      onResizeStartBlockedSlot={handleBlockedSlotResizeStart}
+                      onEditBlockedSlot={
+                        canManageCalendarPlanning
+                          ? handleEditBlockedSlot
+                          : undefined
+                      }
+                      onResizeStart={
+                        canManageCalendarPlanning
+                          ? handleResizeStart
+                          : undefined
+                      }
+                      onResizeStartBlockedSlot={
+                        canManageCalendarPlanning
+                          ? handleBlockedSlotResizeStart
+                          : undefined
+                      }
                       onSelectAppointment={handleSelectAppointment}
                       selectedAppointmentId={selectedAppointmentId ?? null}
                       selectedPatientId={

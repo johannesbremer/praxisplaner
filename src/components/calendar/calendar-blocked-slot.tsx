@@ -17,22 +17,22 @@ interface BlockedSlot {
 
 interface CalendarBlockedSlotProps {
   blockedSlot: BlockedSlot;
+  canDrag?: boolean | undefined;
   isDragging: boolean;
   onDelete: (id: string) => void;
-  onDragEnd: () => void;
-  onDragStart: (e: React.DragEvent, id: string) => void;
+  onDragEnd?: (() => void) | undefined;
+  onDragStart?: ((e: React.DragEvent, id: string) => void) | undefined;
   onEdit: (id: string) => void;
-  onResizeStart: (
-    e: React.MouseEvent,
-    id: string,
-    currentDuration: number,
-  ) => void;
+  onResizeStart?:
+    | ((e: React.MouseEvent, id: string, currentDuration: number) => void)
+    | undefined;
   slotCount: number;
   slotToTime: (slot: number) => string;
 }
 
 export function CalendarBlockedSlot({
   blockedSlot,
+  canDrag = true,
   isDragging,
   onDelete,
   onDragEnd,
@@ -49,10 +49,10 @@ export function CalendarBlockedSlot({
   return (
     <button
       aria-label={`Gesperrter Zeitraum ${blockedSlotTitle}, ${slotToTime(blockedSlot.slot)}. Bearbeiten`}
-      className={`pointer-events-auto absolute left-1 right-1 bg-muted-foreground text-background border-0 p-0 text-left text-xs rounded shadow-sm hover:shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background transition-[opacity,box-shadow] z-10 cursor-move ${
+      className={`pointer-events-auto absolute left-1 right-1 bg-muted-foreground text-background border-0 p-0 text-left text-xs rounded shadow-sm hover:shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background transition-[opacity,box-shadow] z-10 ${canDrag ? "cursor-move" : "cursor-pointer"} ${
         isDragging ? "opacity-0" : "opacity-100"
       } h-(--blocked-height) min-h-4 before:absolute before:inset-x-0 before:top-1/2 before:min-h-6 before:-translate-y-1/2 before:content-[''] top-(--blocked-top)`}
-      draggable
+      draggable={canDrag}
       onClick={() => {
         onEdit(blockedSlot.id);
       }}
@@ -60,8 +60,11 @@ export function CalendarBlockedSlot({
         e.preventDefault();
         onDelete(blockedSlot.id);
       }}
-      onDragEnd={onDragEnd}
+      onDragEnd={canDrag ? onDragEnd : undefined}
       onDragStart={(e) => {
+        if (!canDrag || onDragStart === undefined) {
+          return;
+        }
         onDragStart(e, blockedSlot.id);
       }}
       onKeyDown={(e) => {
@@ -87,15 +90,17 @@ export function CalendarBlockedSlot({
         title={blockedSlotTitle}
       />
 
-      <div
-        className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-white/20 flex items-center justify-center"
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          onResizeStart(e, blockedSlot.id, blockedSlot.duration);
-        }}
-      >
-        <div className="w-8 h-0.5 bg-white/60 rounded" />
-      </div>
+      {onResizeStart && (
+        <div
+          className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-white/20 flex items-center justify-center"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onResizeStart(e, blockedSlot.id, blockedSlot.duration);
+          }}
+        >
+          <div className="w-8 h-0.5 bg-white/60 rounded" />
+        </div>
+      )}
     </button>
   );
 }

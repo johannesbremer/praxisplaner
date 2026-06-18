@@ -24,6 +24,8 @@ import {
  * that calendar components need access to.
  */
 export interface CalendarContextValue {
+  canManageCalendarPlanning?: boolean | undefined;
+
   // Date and time state
   currentTime: Temporal.ZonedDateTime;
   onDateChange: (date: Temporal.PlainDate) => void;

@@ -15,6 +15,7 @@ interface AppointmentTypeSelectorProps {
   onTypeSelect: (type: Id<"appointmentTypes">) => void;
   ruleSetId: Id<"ruleSets">;
   selectedType: Id<"appointmentTypes"> | undefined;
+  showBlockingMode?: boolean | undefined;
 }
 
 export function AppointmentTypeSelector({
@@ -25,6 +26,7 @@ export function AppointmentTypeSelector({
   onTypeSelect,
   ruleSetId,
   selectedType,
+  showBlockingMode = true,
 }: AppointmentTypeSelectorProps) {
   const appointmentTypesQuery = useQuery(api.entities.getAppointmentTypes, {
     ruleSetId,
@@ -148,7 +150,7 @@ export function AppointmentTypeSelector({
               );
             })}
             {/* Block Slot Button */}
-            {onBlockingModeChange && (
+            {showBlockingMode && onBlockingModeChange && (
               <Button
                 className="justify-start text-left h-auto p-3"
                 onClick={() => {

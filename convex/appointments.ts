@@ -71,11 +71,17 @@ import { requireLineageKey } from "./lineage";
 import {
   ensurePracticeAccessForMutation,
   ensurePracticeAccessForQuery,
+  requirePracticeManagerForMutation,
   requireRuleSetBelongsToPractice,
   requireTrustedPracticeScope,
   requireTrustedRuleSetScope,
   type TrustedPracticeScope,
 } from "./practiceAccess";
+import {
+  type AppointmentContext,
+  buildPreloadedDayData,
+  evaluateLoadedRulesHelper,
+} from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import { type AppointmentSmiley, appointmentSmileyValidator } from "./schema";
 import {
@@ -91,6 +97,7 @@ import {
 } from "./scopedResources";
 import { createTemporaryPatientRecordWithIdentity } from "./temporaryPatients";
 import {
+  asIsoDateString,
   asOptionalIsoDateString,
   asTypedDateTimeRange,
   asZonedDateTimeString,
@@ -128,6 +135,7 @@ type OptionalKeys<T> = {
   [K in keyof T]-?: undefined extends T[K] ? K : never;
 }[keyof T];
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
+const STAFF_PLANNER_CLIENT_TYPE = "MFA";
 
 type AppointmentOwner = LinkedAppointmentOwner | TemporaryAppointmentOwner;
 
@@ -435,6 +443,80 @@ function filterCurrentAppointmentReplacementTails<T extends AppointmentDoc>(
     (appointment) =>
       isVisibleAppointment(appointment) && !hiddenIds.has(appointment._id),
   );
+}
+
+async function findPlannerBlockingRuleIdsForAppointmentWrite(
+  db: DatabaseReader,
+  args: {
+    appointmentTypeId: Id<"appointmentTypes">;
+    locationId: Id<"locations">;
+    patientDateOfBirth?: IsoDateString;
+    practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
+    ruleSetId: Id<"ruleSets">;
+    start: ZonedDateTimeString;
+  },
+): Promise<Id<"ruleConditions">[]> {
+  if (args.practitionerId === undefined) {
+    return [];
+  }
+
+  const rules = await db
+    .query("ruleConditions")
+    .withIndex("by_ruleSetId_isRoot", (q) =>
+      q.eq("ruleSetId", args.ruleSetId).eq("isRoot", true),
+    )
+    .collect();
+  if (rules.length === 0) {
+    return [];
+  }
+
+  const conditions = await db
+    .query("ruleConditions")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+    .collect();
+  const conditionsMap = new Map<Id<"ruleConditions">, Doc<"ruleConditions">>(
+    conditions.map((condition) => [condition._id, condition]),
+  );
+  const practitioners = await db
+    .query("practitioners")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+    .collect();
+  const appointmentDate = Temporal.ZonedDateTime.from(args.start)
+    .toPlainDate()
+    .toString();
+  const preloadedData = await buildPreloadedDayData(
+    db,
+    args.practiceId,
+    appointmentDate,
+    args.ruleSetId,
+    practitioners,
+  );
+  const appointmentContext: AppointmentContext = {
+    appointmentTypeId: args.appointmentTypeId,
+    clientType: STAFF_PLANNER_CLIENT_TYPE,
+    dateTime: args.start,
+    locationId: args.locationId,
+    ...(args.patientDateOfBirth === undefined
+      ? {}
+      : { patientDateOfBirth: args.patientDateOfBirth }),
+    practiceId: args.practiceId,
+    practitionerId: args.practitionerId,
+    requestedAt: asZonedDateTimeString(
+      Temporal.Now.zonedDateTimeISO(APPOINTMENT_TIMEZONE).toString(),
+    ),
+  };
+
+  const result = evaluateLoadedRulesHelper(
+    appointmentContext,
+    {
+      conditions,
+      conditionsMap,
+      rules: rules.map((rule) => ({ _id: rule._id, isDayInvariant: false })),
+    },
+    preloadedData,
+  );
+  return result.blockedByRuleIds;
 }
 
 function findReplacementRoot<T extends AppointmentDoc>(
@@ -2292,6 +2374,31 @@ export const createAppointment = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    const appointmentType = await ctx.db.get(
+      "appointmentTypes",
+      args.appointmentTypeId,
+    );
+    if (appointmentType) {
+      const blockingRuleIds =
+        await findPlannerBlockingRuleIdsForAppointmentWrite(ctx.db, {
+          appointmentTypeId: args.appointmentTypeId,
+          locationId: args.locationId,
+          ...(args.patientDateOfBirth === undefined
+            ? {}
+            : {
+                patientDateOfBirth: asIsoDateString(args.patientDateOfBirth),
+              }),
+          practiceId: args.practiceId,
+          ...(args.practitionerId === undefined
+            ? {}
+            : { practitionerId: args.practitionerId }),
+          ruleSetId: appointmentType.ruleSetId,
+          start: asZonedDateTimeString(args.start),
+        });
+      if (blockingRuleIds.length > 0) {
+        await requirePracticeManagerForMutation(ctx, args.practiceId);
+      }
+    }
     return await createAppointmentFromTrustedSource(ctx, args);
   },
   returns: v.id("appointments"),
@@ -2948,6 +3055,10 @@ async function updateAppointmentByMode(
     resolvedEnd !== existingAppointment.end;
 
   if (hasSchedulingChange) {
+    await requirePracticeManagerForMutation(
+      ctx,
+      existingAppointment.practiceId,
+    );
     const appointmentBookingScope =
       getAppointmentBookingScope(resolvedIsSimulation);
     const conflictingOccupancy = await findConflictingCalendarOccupancy(
@@ -3949,7 +4060,7 @@ export const createBlockedSlot = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
     const practiceScope = await requireTrustedPracticeScope(
       ctx,
       args.practiceId,
@@ -4024,7 +4135,10 @@ export const updateBlockedSlot = mutation({
     if (!existingBlockedSlot) {
       throw new Error("Blocked slot not found");
     }
-    await ensurePracticeAccessForMutation(ctx, existingBlockedSlot.practiceId);
+    await requirePracticeManagerForMutation(
+      ctx,
+      existingBlockedSlot.practiceId,
+    );
     const practiceScope = await requireTrustedPracticeScope(
       ctx,
       existingBlockedSlot.practiceId,
@@ -4084,7 +4198,10 @@ export const deleteBlockedSlot = mutation({
     if (!existingBlockedSlot) {
       throw new Error("Blocked slot not found");
     }
-    await ensurePracticeAccessForMutation(ctx, existingBlockedSlot.practiceId);
+    await requirePracticeManagerForMutation(
+      ctx,
+      existingBlockedSlot.practiceId,
+    );
     await ctx.db.delete("blockedSlots", args.id);
     return null;
   },
