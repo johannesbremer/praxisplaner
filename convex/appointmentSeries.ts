@@ -144,6 +144,8 @@ export interface PlannedSeriesStep {
   stepId: string;
 }
 
+export type SeriesRootOccupancy = ResolvedPlanOccupancy;
+
 interface ResolvedPlanOccupancy {
   calendarResourceColumn?: CalendarResourceColumn;
   occupancyScope: AppointmentOccupancyScope;
@@ -188,6 +190,7 @@ interface SeriesSpecification {
   appointmentPlanSnapshot: AppointmentPlanStep[];
   rootAppointmentType: Doc<"appointmentTypes">;
   rootDurationMinutes: number;
+  rootOccupancy?: SeriesRootOccupancy;
   ruleSetId: Id<"ruleSets">;
 }
 
@@ -407,16 +410,18 @@ export async function planSeriesFromRootCandidate(
     seriesSpecification: SeriesSpecification;
   },
 ): Promise<SeriesPlanningResult> {
-  const rootOccupancy = await resolveRootOccupancy(ctx, {
-    appointmentType: args.seriesSpecification.rootAppointmentType,
-    ...(args.rootCandidate.calendarResourceColumn && {
-      calendarResourceColumn: args.rootCandidate.calendarResourceColumn,
-    }),
-    ...(args.rootCandidate.practitionerId && {
-      practitionerId: args.rootCandidate.practitionerId,
-    }),
-    ruleSetId: args.seriesSpecification.ruleSetId,
-  });
+  const rootOccupancy =
+    args.seriesSpecification.rootOccupancy ??
+    (await resolveRootOccupancy(ctx, {
+      appointmentType: args.seriesSpecification.rootAppointmentType,
+      ...(args.rootCandidate.calendarResourceColumn && {
+        calendarResourceColumn: args.rootCandidate.calendarResourceColumn,
+      }),
+      ...(args.rootCandidate.practitionerId && {
+        practitionerId: args.rootCandidate.practitionerId,
+      }),
+      ruleSetId: args.seriesSpecification.ruleSetId,
+    }));
   const validatedRoot = await validateRootCandidate(ctx, {
     appointmentType: args.seriesSpecification.rootAppointmentType,
     ...(args.rootCandidate.excludedAppointmentIds && {
@@ -610,6 +615,7 @@ export async function replanAppointmentSeries(
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     rootDurationMinutes: number;
+    rootOccupancy: SeriesRootOccupancy;
     scope: AppointmentBookingScope;
     series: Doc<"appointmentSeries">;
     start: ZonedDateTimeString;
@@ -660,6 +666,7 @@ export async function replanAppointmentSeries(
       }),
       rootAppointmentType,
       rootDurationMinutes: args.rootDurationMinutes,
+      rootOccupancy: args.rootOccupancy,
       ruleSetId: args.series.ruleSetIdAtBooking,
     },
   });
