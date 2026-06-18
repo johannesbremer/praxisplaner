@@ -449,6 +449,36 @@ describe("Convex query authorization", () => {
     ).rejects.toThrow("Role admin is insufficient");
   });
 
+  test("admin cannot demote an existing practice owner", async () => {
+    const t = createTestContext();
+    const adminAuthId = "workos_authz_admin_demotes_owner";
+    const adminEmail = "authz-admin-demotes-owner@example.com";
+    const { authed, practiceId, userId } = await createPracticeForUser(
+      t,
+      adminAuthId,
+      adminEmail,
+    );
+    await setMembershipRole(t, { practiceId, role: "admin", userId });
+    const targetUserId = await createUser(
+      t,
+      "workos_authz_owner_demotion_target",
+      "authz-owner-demotion-target@example.com",
+    );
+    await setMembershipRole(t, {
+      practiceId,
+      role: "owner",
+      userId: targetUserId,
+    });
+
+    await expect(
+      authed.mutation(api.practices.upsertPracticeMember, {
+        practiceId,
+        role: "admin",
+        userId: targetUserId,
+      }),
+    ).rejects.toThrow("Role admin is insufficient");
+  });
+
   test("owner can promote a practice member to owner", async () => {
     const t = createTestContext();
     const ownerAuthId = "workos_authz_owner_promotes_owner";

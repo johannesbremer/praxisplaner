@@ -407,11 +407,7 @@ export const upsertPracticeMember = mutation({
     userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(
-      ctx,
-      args.practiceId,
-      args.role === "owner" ? "owner" : "admin",
-    );
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
 
     const existing = await ctx.db
       .query("practiceMembers")
@@ -419,6 +415,10 @@ export const upsertPracticeMember = mutation({
         q.eq("practiceId", args.practiceId).eq("userId", args.userId),
       )
       .first();
+
+    if (args.role === "owner" || existing?.role === "owner") {
+      await ensurePracticeAccessForMutation(ctx, args.practiceId, "owner");
+    }
 
     if (existing) {
       await ctx.db.patch("practiceMembers", existing._id, { role: args.role });
