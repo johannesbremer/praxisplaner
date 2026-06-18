@@ -355,6 +355,10 @@ export function NewCalendar({
         : columns.filter((column) => visibleColumnNameSet.has(column.title)),
     [columns, visibleColumnNameSet],
   );
+  const currentColumnNames = useMemo(
+    () => columns.map((column) => column.title),
+    [columns],
+  );
   const hiddenColumnCount = columns.length - visibleColumns.length;
   const areAllColumnsHidden = columns.length > 0 && visibleColumns.length === 0;
   const canChangeColumnVisibility = onVisibleColumnNamesChange !== undefined;
@@ -366,7 +370,11 @@ export function NewCalendar({
       }
 
       const nextVisibleColumnNames = new Set(
-        visibleColumnNames ?? columns.map((column) => column.title),
+        visibleColumnNames === undefined
+          ? currentColumnNames
+          : currentColumnNames.filter((columnName) =>
+              visibleColumnNames.includes(columnName),
+            ),
       );
       if (nextVisible) {
         nextVisibleColumnNames.add(columnName);
@@ -381,7 +389,12 @@ export function NewCalendar({
 
       onVisibleColumnNamesChange([...nextVisibleColumnNames]);
     },
-    [columns, onVisibleColumnNamesChange, visibleColumnNames],
+    [
+      columns.length,
+      currentColumnNames,
+      onVisibleColumnNamesChange,
+      visibleColumnNames,
+    ],
   );
 
   const showAllColumns = useCallback(() => {
