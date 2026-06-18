@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { getAppointmentPractitionerLineageKey } from "../appointmentOccupancy";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
@@ -239,9 +239,15 @@ async function createSchedulingFixture(
   t: ReturnType<typeof createAuthedTestContext>,
 ) {
   await ensureProvisionedUser(t);
-  const practiceId = await t.mutation(api.practices.createPractice, {
-    name: "Vacation Test Practice",
-  });
+  const practiceId = await t.mutation(
+    internal.workosOrganizations.createPracticeForWorkOSOrganization,
+    {
+      name: "Vacation Test Practice",
+      organizationId: "org_test_vacations",
+      role: "owner",
+      workOSUserId: "workos_vacations",
+    },
+  );
 
   return await t.run(async (ctx) => {
     const practice = await ctx.db.get("practices", practiceId);
@@ -2711,9 +2717,15 @@ describe("vacations", () => {
   test("deleting an MFA cascades that MFA's vacations", async () => {
     const t = createAuthedTestContext();
     await ensureProvisionedUser(t);
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "MFA Vacation Practice",
-    });
+    const practiceId = await t.mutation(
+      internal.workosOrganizations.createPracticeForWorkOSOrganization,
+      {
+        name: "MFA Vacation Practice",
+        organizationId: "org_test_mfa_vacations",
+        role: "owner",
+        workOSUserId: "workos_vacations",
+      },
+    );
     const activeRuleSet = await t.query(api.ruleSets.getActiveRuleSet, {
       practiceId,
     });

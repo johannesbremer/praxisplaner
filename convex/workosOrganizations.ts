@@ -47,72 +47,78 @@ export const createOrganizationPractice = action({
   args: {
     name: v.string(),
   },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{
-    organizationId: string;
-    practiceId: Id<"practices">;
-  }> => {
-    const identity = await requireActionIdentity(ctx);
-    const name = args.name.trim();
-    if (name.length === 0) {
-      throw new ConvexError({
-        code: "BAD_REQUEST",
-        message: "Practice name is required",
-      });
-    }
-    if (shouldUseBypassOrganizations(identity.subject)) {
-      return await ctx.runMutation(
-        internal.workosOrganizations.createBypassOrganizationPractice,
-        {
-          name,
-          workOSUserId: identity.subject,
-        },
-      );
-    }
-    const existingMemberships = await loadActiveWorkOSOrganizationMemberships({
-      userId: identity.subject,
-    });
-    if (existingMemberships.length > 0) {
-      throw new ConvexError({
-        code: "ALREADY_EXISTS",
-        message: "User already belongs to a WorkOS organization",
-      });
-    }
-    const existingPracticeId = await ctx.runQuery(
-      internal.workosOrganizations.getPracticeIdByName,
-      { name },
-    );
-    if (existingPracticeId) {
-      throw new ConvexError({
-        code: "ALREADY_EXISTS",
-        message: "Practice name already exists",
-      });
-    }
-    const organization = await createWorkOSOrganization(name);
-    await createWorkOSOrganizationMembership({
-      organizationId: organization.id,
-      roleSlug: "owner",
-      userId: identity.subject,
-    });
-    const practiceId = await ctx.runMutation(
-      internal.workosOrganizations.createPracticeForWorkOSOrganization,
-      {
-        name,
-        organizationId: organization.id,
-        role: "owner",
-        workOSUserId: identity.subject,
-      },
-    );
-
-    return { organizationId: organization.id, practiceId };
-  },
+  handler: async (ctx, args) =>
+    await createOrganizationPracticeForCurrentUser(ctx, args),
   returns: v.object({
     organizationId: v.string(),
     practiceId: v.id("practices"),
   }),
 });
+
+export async function createOrganizationPracticeForCurrentUser(
+  ctx: ActionCtx,
+  args: { name: string },
+): Promise<{
+  organizationId: string;
+  practiceId: Id<"practices">;
+}> {
+  const identity = await requireActionIdentity(ctx);
+  const name = args.name.trim();
+  if (name.length === 0) {
+    throw new ConvexError({
+      code: "BAD_REQUEST",
+      message: "Practice name is required",
+    });
+  }
+  await ctx.runQuery(internal.workosOrganizations.requireUniqueUserIdByAuthId, {
+    authId: identity.subject,
+  });
+  if (shouldUseBypassOrganizations(identity.subject)) {
+    return await ctx.runMutation(
+      internal.workosOrganizations.createBypassOrganizationPractice,
+      {
+        name,
+        workOSUserId: identity.subject,
+      },
+    );
+  }
+  const existingMemberships = await loadActiveWorkOSOrganizationMemberships({
+    userId: identity.subject,
+  });
+  if (existingMemberships.length > 0) {
+    throw new ConvexError({
+      code: "ALREADY_EXISTS",
+      message: "User already belongs to a WorkOS organization",
+    });
+  }
+  const existingPracticeId = await ctx.runQuery(
+    internal.workosOrganizations.getPracticeIdByName,
+    { name },
+  );
+  if (existingPracticeId) {
+    throw new ConvexError({
+      code: "ALREADY_EXISTS",
+      message: "Practice name already exists",
+    });
+  }
+  const organization = await createWorkOSOrganization(name);
+  await createWorkOSOrganizationMembership({
+    organizationId: organization.id,
+    roleSlug: "owner",
+    userId: identity.subject,
+  });
+  const practiceId = await ctx.runMutation(
+    internal.workosOrganizations.createPracticeForWorkOSOrganization,
+    {
+      name,
+      organizationId: organization.id,
+      role: "owner",
+      workOSUserId: identity.subject,
+    },
+  );
+
+  return { organizationId: organization.id, practiceId };
+}
 
 export const syncCurrentUserOrganizationMembership = action({
   args: {
@@ -377,6 +383,17 @@ export const createPracticeForWorkOSOrganization = internalMutation({
     return practiceId;
   },
   returns: v.id("practices"),
+});
+
+export const requireUniqueUserIdByAuthId = internalQuery({
+  args: {
+    authId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireUserByAuthId(ctx.db, args.authId);
+    return user._id;
+  },
+  returns: v.id("users"),
 });
 
 export const getPracticeIdByWorkOSOrganizationId = internalQuery({
@@ -844,12 +861,25 @@ async function requireUserByAuthId(
   db: DatabaseReader,
   authId: string,
 ): Promise<Doc<"users">> {
-  const user = await findUserByAuthId(db, authId);
-  if (!user) {
+  const users = await db
+    .query("users")
+    .withIndex("by_authId", (q) => q.eq("authId", authId))
+    .collect();
+  if (users.length === 0) {
     throw new ConvexError({
       code: "UNAUTHORIZED",
       message: "Authenticated user is not provisioned in Convex",
     });
+  }
+  if (users.length > 1) {
+    throw new ConvexError({
+      code: "UNAUTHORIZED",
+      message: "Multiple app users exist for authenticated identity",
+    });
+  }
+  const user = users[0];
+  if (!user) {
+    throw new Error("Expected exactly one user.");
   }
   return user;
 }

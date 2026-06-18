@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { insertSelfLineageEntity } from "../lineage";
 import { isPublicHoliday } from "../publicHolidays";
 import schema from "../schema";
@@ -19,6 +19,8 @@ type LineageTable = Extract<
   "appointmentTypes" | "baseSchedules" | "locations" | "practitioners"
 >;
 
+let basePracticeSequence = 0;
+
 function createAuthedTestContext() {
   return convexTest(schema, modules).withIdentity({
     email: "appointment-series@example.com",
@@ -29,10 +31,23 @@ function createAuthedTestContext() {
 async function createBasePractice(
   t: ReturnType<typeof createAuthedTestContext>,
 ) {
-  await ensureProvisionedUser(t);
-  const practiceId = await t.mutation(api.practices.createPractice, {
-    name: "Appointment Series Test Practice",
+  const sequence = basePracticeSequence;
+  basePracticeSequence += 1;
+  const ownerAuthId = `workos_appointment_series_owner_${sequence}`;
+  await ensurePracticeOwnerUser(t, {
+    authId: ownerAuthId,
+    email: `appointment-series-owner-${sequence}@example.com`,
   });
+  const practiceId = await t.mutation(
+    internal.workosOrganizations.createPracticeForWorkOSOrganization,
+    {
+      name: `Appointment Series Test Practice ${sequence}`,
+      organizationId: `org_test_appointment_series_${sequence}`,
+      role: "owner",
+      workOSUserId: ownerAuthId,
+    },
+  );
+  await ensureProvisionedUserMembership(t, practiceId);
 
   return await t.run(async (ctx) => {
     const practice = await ctx.db.get("practices", practiceId);
@@ -121,23 +136,49 @@ async function createUser(
   });
 }
 
-async function ensureProvisionedUser(
+async function ensurePracticeOwnerUser(
   t: ReturnType<typeof createAuthedTestContext>,
-) {
-  await t.run(async (ctx) => {
+  args: { authId: string; email: string },
+): Promise<Id<"users">> {
+  return await t.run(async (ctx) => {
     const users = await ctx.db.query("users").collect();
-    const existingUser = users.some(
-      (user) => user.authId === "workos_appointment_series",
-    );
+    const existingUser = users.find((user) => user.authId === args.authId);
 
     if (existingUser) {
-      return;
+      return existingUser._id;
     }
 
-    await ctx.db.insert("users", {
-      authId: "workos_appointment_series",
+    return await ctx.db.insert("users", {
+      authId: args.authId,
       createdAt: BigInt(Date.now()),
-      email: "appointment-series@example.com",
+      email: args.email,
+    });
+  });
+}
+
+async function ensureProvisionedUserMembership(
+  t: ReturnType<typeof createAuthedTestContext>,
+  practiceId: Id<"practices">,
+) {
+  const userId = await ensurePracticeOwnerUser(t, {
+    authId: "workos_appointment_series",
+    email: "appointment-series@example.com",
+  });
+  await t.run(async (ctx) => {
+    const existing = await ctx.db
+      .query("practiceMembers")
+      .withIndex("by_practiceId_userId", (q) =>
+        q.eq("practiceId", practiceId).eq("userId", userId),
+      )
+      .first();
+    if (existing) {
+      return;
+    }
+    await ctx.db.insert("practiceMembers", {
+      createdAt: BigInt(Date.now()),
+      practiceId,
+      role: "owner",
+      userId,
     });
   });
 }

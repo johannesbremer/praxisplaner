@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 
 import type { Id } from "../_generated/dataModel";
 
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { insertSelfLineageEntity, requireLineageKey } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
@@ -1016,9 +1016,15 @@ describe("appointments self-service cancellation", () => {
       email: "series-owner@example.com",
       subject: "workos_series_owner",
     });
-    const practiceId = await authed.mutation(api.practices.createPractice, {
-      name: "Series Cancellation Practice",
-    });
+    const practiceId = await authed.mutation(
+      internal.workosOrganizations.createPracticeForWorkOSOrganization,
+      {
+        name: "Series Cancellation Practice",
+        organizationId: "org_test_series_owner",
+        role: "owner",
+        workOSUserId: "workos_series_owner",
+      },
+    );
     const baseData = await authed.run(async (ctx) => {
       const users = await ctx.db.query("users").collect();
       const user = users.find(
@@ -1170,9 +1176,15 @@ describe("appointments self-service cancellation", () => {
       email: "staff@example.com",
       subject: "workos_staff_simulation_conflict",
     });
-    const practiceId = await authed.mutation(api.practices.createPractice, {
-      name: "Simulation Conflict Practice",
-    });
+    const practiceId = await authed.mutation(
+      internal.workosOrganizations.createPracticeForWorkOSOrganization,
+      {
+        name: "Simulation Conflict Practice",
+        organizationId: "org_test_staff_simulation_conflict",
+        role: "owner",
+        workOSUserId: "workos_staff_simulation_conflict",
+      },
+    );
     const baseData = await authed.run(async (ctx) => {
       const practice = await ctx.db.get("practices", practiceId);
       if (!practice?.currentActiveRuleSetId) {
@@ -1252,9 +1264,15 @@ describe("appointments self-service cancellation", () => {
       email: "staff@example.com",
       subject: "workos_staff_server_duration",
     });
-    const practiceId = await authed.mutation(api.practices.createPractice, {
-      name: "Server Duration Practice",
-    });
+    const practiceId = await authed.mutation(
+      internal.workosOrganizations.createPracticeForWorkOSOrganization,
+      {
+        name: "Server Duration Practice",
+        organizationId: "org_test_staff_server_duration",
+        role: "owner",
+        workOSUserId: "workos_staff_server_duration",
+      },
+    );
     const baseData = await authed.run(async (ctx) => {
       const practice = await ctx.db.get("practices", practiceId);
       if (!practice?.currentActiveRuleSetId) {
