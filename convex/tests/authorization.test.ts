@@ -213,6 +213,28 @@ describe("Convex query authorization", () => {
     ).rejects.toThrow("Multiple app users exist for authenticated identity");
   });
 
+  test("public createPractice rejects duplicate app users for one auth identity", async () => {
+    const t = createTestContext();
+    const authId = "dev-owner";
+    await createUser(t, authId, "duplicate-create-1@example.com");
+    await createUser(t, authId, "duplicate-create-2@example.com");
+    const authed = t.withIdentity({
+      email: "duplicate-create@example.com",
+      subject: authId,
+    });
+
+    await expect(
+      authed.action(api.practices.createPractice, {
+        name: "Duplicate Create Practice",
+      }),
+    ).rejects.toThrow("Multiple app users exist for authenticated identity");
+
+    const practices = await t.run(async (ctx) => {
+      return await ctx.db.query("practices").collect();
+    });
+    expect(practices).toEqual([]);
+  });
+
   test("public createPractice provisions a managed organization practice", async () => {
     const t = createTestContext();
     const authId = "dev-owner";
