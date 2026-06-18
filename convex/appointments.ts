@@ -835,6 +835,46 @@ async function requireKnownAppointmentSmiley(
   );
 }
 
+async function requireManagerForPlannerRuleOverride(
+  ctx: MutationCtx,
+  args: {
+    appointmentTypeId: Id<"appointmentTypes">;
+    locationId: Id<"locations">;
+    patientDateOfBirth?: string;
+    practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
+    start: string;
+  },
+): Promise<void> {
+  const appointmentType = await ctx.db.get(
+    "appointmentTypes",
+    args.appointmentTypeId,
+  );
+  if (!appointmentType) {
+    return;
+  }
+
+  const blockingRuleIds = await findPlannerBlockingRuleIdsForAppointmentWrite(
+    ctx.db,
+    {
+      appointmentTypeId: args.appointmentTypeId,
+      locationId: args.locationId,
+      ...(args.patientDateOfBirth === undefined
+        ? {}
+        : { patientDateOfBirth: asIsoDateString(args.patientDateOfBirth) }),
+      practiceId: args.practiceId,
+      ...(args.practitionerId === undefined
+        ? {}
+        : { practitionerId: args.practitionerId }),
+      ruleSetId: appointmentType.ruleSetId,
+      start: asZonedDateTimeString(args.start),
+    },
+  );
+  if (blockingRuleIds.length > 0) {
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
+  }
+}
+
 async function resolveAppointmentTypeForDisplayRuleSet(
   db: DatabaseReader,
   appointmentTypeLineageKey: AppointmentTypeLineageKey,
@@ -2374,31 +2414,7 @@ export const createAppointment = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await ensurePracticeAccessForMutation(ctx, args.practiceId);
-    const appointmentType = await ctx.db.get(
-      "appointmentTypes",
-      args.appointmentTypeId,
-    );
-    if (appointmentType) {
-      const blockingRuleIds =
-        await findPlannerBlockingRuleIdsForAppointmentWrite(ctx.db, {
-          appointmentTypeId: args.appointmentTypeId,
-          locationId: args.locationId,
-          ...(args.patientDateOfBirth === undefined
-            ? {}
-            : {
-                patientDateOfBirth: asIsoDateString(args.patientDateOfBirth),
-              }),
-          practiceId: args.practiceId,
-          ...(args.practitionerId === undefined
-            ? {}
-            : { practitionerId: args.practitionerId }),
-          ruleSetId: appointmentType.ruleSetId,
-          start: asZonedDateTimeString(args.start),
-        });
-      if (blockingRuleIds.length > 0) {
-        await requirePracticeManagerForMutation(ctx, args.practiceId);
-      }
-    }
+    await requireManagerForPlannerRuleOverride(ctx, args);
     return await createAppointmentFromTrustedSource(ctx, args);
   },
   returns: v.id("appointments"),
@@ -2423,6 +2439,18 @@ export const restoreDeletedAppointment = mutation({
       );
     }
     await ensurePracticeAccessForMutation(ctx, snapshot.practiceId);
+    await requireManagerForPlannerRuleOverride(ctx, {
+      appointmentTypeId: snapshot.appointmentTypeId,
+      locationId: snapshot.locationId,
+      ...(snapshot.patientDateOfBirth === undefined
+        ? {}
+        : { patientDateOfBirth: snapshot.patientDateOfBirth }),
+      practiceId: snapshot.practiceId,
+      ...(snapshot.practitionerId === undefined
+        ? {}
+        : { practitionerId: snapshot.practitionerId }),
+      start: snapshot.start,
+    });
     const restoredAppointmentId = await createAppointmentFromTrustedSource(
       ctx,
       {
