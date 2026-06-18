@@ -20,12 +20,16 @@ import {
   appointmentOccupancyScopeFromRefs,
   appointmentOccupancyScopeValidator,
   blockedSlotOccupancyScopeValidator,
+  type CalendarResourceColumn,
   calendarResourceColumnValidator,
   getAppointmentCalendarResourceColumn,
   getAppointmentPractitionerLineageKey,
   getBlockedSlotPractitionerLineageKey,
 } from "./appointmentOccupancy";
-import { hasAppointmentPlan } from "./appointmentPlans";
+import {
+  hasAppointmentPlan,
+  normalizeDefaultOccupancy,
+} from "./appointmentPlans";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveAppointmentTypeLineageKey,
@@ -195,6 +199,37 @@ interface TrustedAppointmentInput {
   temporaryPatientPhoneNumber?: string;
   title: string;
   userId?: Id<"users">;
+}
+
+function resolveSingleAppointmentOccupancy(args: {
+  appointmentType: Doc<"appointmentTypes">;
+  calendarResourceColumn?: CalendarResourceColumn;
+  storedReferences: StoredAppointmentReferences;
+}) {
+  const defaultOccupancy = normalizeDefaultOccupancy(
+    args.appointmentType.defaultOccupancy,
+  );
+
+  if (defaultOccupancy.kind === "resourceColumn") {
+    const calendarResourceColumn =
+      args.calendarResourceColumn ?? defaultOccupancy.calendarResourceColumn;
+    if (calendarResourceColumn !== defaultOccupancy.calendarResourceColumn) {
+      throw new Error(
+        "Der Termin muss in der Standard-Ressourcenspalte der Terminart liegen.",
+      );
+    }
+    return appointmentOccupancyScopeFromRefs({ calendarResourceColumn });
+  }
+
+  if (args.calendarResourceColumn !== undefined) {
+    return appointmentOccupancyScopeFromRefs({
+      calendarResourceColumn: args.calendarResourceColumn,
+    });
+  }
+
+  return appointmentOccupancyScopeFromRefs({
+    practitionerLineageKey: args.storedReferences.practitionerLineageKey,
+  });
 }
 
 const appointmentResultValidator = v.object({
@@ -2171,11 +2206,10 @@ export async function createAppointmentFromTrustedSource(
         : {}),
     },
   );
-  const occupancyScope = appointmentOccupancyScopeFromRefs({
+  const occupancyScope = resolveSingleAppointmentOccupancy({
+    appointmentType: activeAppointmentType,
     ...(calendarResourceColumn === undefined ? {} : { calendarResourceColumn }),
-    ...(storedReferences.practitionerLineageKey === undefined
-      ? {}
-      : { practitionerLineageKey: storedReferences.practitionerLineageKey }),
+    storedReferences,
   });
 
   const end =
