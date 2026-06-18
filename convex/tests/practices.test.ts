@@ -1,7 +1,9 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
+
+import { api, internal } from "../_generated/api";
 import schema from "../schema";
 import { modules } from "./test.setup";
 
@@ -13,6 +15,20 @@ function createAuthedTestContext() {
     email: TEST_EMAIL,
     subject: TEST_AUTH_ID,
   });
+}
+
+async function createManagedPractice(
+  t: ReturnType<typeof createAuthedTestContext>,
+): Promise<Id<"practices">> {
+  return await t.mutation(
+    internal.workosOrganizations.createPracticeForWorkOSOrganization,
+    {
+      name: "TelefonKI Secret Practice",
+      organizationId: "org_test_practices",
+      role: "owner",
+      workOSUserId: TEST_AUTH_ID,
+    },
+  );
 }
 
 async function provisionTestUser(
@@ -46,9 +62,7 @@ describe("Practices", () => {
   test("public practice queries omit TelefonKI integration secret hashes", async () => {
     const t = createAuthedTestContext();
     await provisionTestUser(t);
-    const practiceId = await t.mutation(api.practices.createPractice, {
-      name: "TelefonKI Secret Practice",
-    });
+    const practiceId = await createManagedPractice(t);
     const practiceSlug = await t.run(async (ctx) => {
       await ctx.db.patch("practices", practiceId, {
         telefonkiIntegrationSecretHash:
