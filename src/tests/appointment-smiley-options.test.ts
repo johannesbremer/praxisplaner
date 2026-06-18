@@ -6,8 +6,8 @@ describe("appointment smiley options", () => {
   test("rejects duplicate emojis instead of silently dropping later rows", () => {
     expect(() =>
       normalizeAppointmentSmileyOptions([
-        { emoji: "👍", name: "Patient ist angekommen" },
-        { emoji: "👍", name: "Patient wartet" },
+        { emoji: "👍", id: "arrived", name: "Patient ist angekommen" },
+        { emoji: "👍", id: "waiting", name: "Patient wartet" },
       ]),
     ).toThrow("Jedes Termin-Smiley darf nur einmal vorkommen.");
   });

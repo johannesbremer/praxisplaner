@@ -23,7 +23,7 @@ import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
 export const appointmentSmileyValidator = v.string();
 export const appointmentSmileyOptionValidator = v.object({
   emoji: appointmentSmileyValidator,
-  id: v.optional(v.string()),
+  id: v.string(),
   name: v.string(),
 });
 export type AppointmentSmiley = Infer<typeof appointmentSmileyValidator>;

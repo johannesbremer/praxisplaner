@@ -14,7 +14,7 @@ import {
 
 interface AppointmentSmileyOption {
   emoji: string;
-  id?: string;
+  id: string;
   name: string;
 }
 

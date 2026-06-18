@@ -46,10 +46,13 @@ export function normalizeAppointmentSmileyOptions(
 
   for (const option of options) {
     const emoji = option.emoji.trim();
-    const id = option.id?.trim() || emoji;
+    const id = option.id.trim();
     const name = option.name.trim();
     if (emoji.length === 0 || name.length === 0) {
       throw new Error("Termin-Smileys benötigen Emoji und Name.");
+    }
+    if (id.length === 0) {
+      throw new Error("Termin-Smiley IDs dürfen nicht leer sein.");
     }
     if (seen.has(emoji)) {
       throw new Error("Jedes Termin-Smiley darf nur einmal vorkommen.");

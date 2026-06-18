@@ -512,7 +512,7 @@ async function buildRuleSetCanonicalSnapshot(
   )
     .map((option) =>
       JSON.stringify({
-        __diffKey: option.id ?? option.emoji,
+        __diffKey: option.id,
         line: `${option.emoji} ${option.name}`,
       }),
     )
