@@ -163,7 +163,10 @@ async function insertAppointmentRecord(
     practiceId: Id<"practices">;
     practitionerId: Id<"practitioners">;
     replacesAppointmentId?: Id<"appointments">;
+    simulationKind?: "activation-reassignment" | "draft";
     simulationRuleSetId?: Id<"ruleSets">;
+    simulationValidatedAt?: bigint;
+    smiley?: string;
     userId: Id<"users">;
     window: SlotWindow;
   },
@@ -231,9 +234,16 @@ async function insertAppointmentRecord(
       ...(args.replacesAppointmentId === undefined
         ? {}
         : { replacesAppointmentId: args.replacesAppointmentId }),
+      ...(args.simulationKind === undefined
+        ? {}
+        : { simulationKind: args.simulationKind }),
       ...(args.simulationRuleSetId === undefined
         ? {}
         : { simulationRuleSetId: args.simulationRuleSetId }),
+      ...(args.simulationValidatedAt === undefined
+        ? {}
+        : { simulationValidatedAt: args.simulationValidatedAt }),
+      ...(args.smiley === undefined ? {} : { smiley: args.smiley }),
       start: args.window.start,
       title: "Online-Termin: Checkup",
       userId: args.userId,
@@ -1491,6 +1501,114 @@ describe("appointments self-service cancellation", () => {
 });
 
 describe("appointments update safety", () => {
+  test("updateAppointment can set a smiley on a series follow-up without replanning the chain", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_series_follow_up_smiley";
+    const userId = await createUser(
+      t,
+      authId,
+      "series-follow-up-smiley@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "series-follow-up-smiley@example.com",
+      subject: authId,
+    });
+    const rootWindow = makeSlotWindow(4);
+    const followUpStart = Temporal.ZonedDateTime.from(rootWindow.start)
+      .add({ days: 7 })
+      .toString();
+    const followUpEnd = Temporal.ZonedDateTime.from(followUpStart)
+      .add({ minutes: 30 })
+      .toString();
+    const seriesId = "series_test_follow_up_smiley";
+
+    const { followUpAppointmentId, rootAppointmentId } = await t.run(
+      async (ctx) => {
+        await ctx.db.insert("practiceMembers", {
+          createdAt: BigInt(Date.now()),
+          practiceId: baseData.practiceId,
+          role: "owner",
+          userId,
+        });
+        await ctx.db.patch("practices", baseData.practiceId, {
+          appointmentSmileyOptions: [
+            {
+              emoji: "👍",
+              id: "thumbs-up",
+              name: "Patient ist angekommen",
+            },
+          ],
+        });
+
+        const now = BigInt(Date.now());
+        const rootAppointmentId = await ctx.db.insert("appointments", {
+          appointmentTypeLineageKey: baseData.appointmentTypeId,
+          appointmentTypeTitle: "Checkup",
+          createdAt: now,
+          end: rootWindow.end,
+          lastModified: now,
+          locationLineageKey: baseData.locationId,
+          occupancyScope: {
+            kind: "practitioner",
+            practitionerLineageKey: baseData.practitionerId,
+          },
+          practiceId: baseData.practiceId,
+          seriesId,
+          seriesStepIndex: 0n,
+          start: rootWindow.start,
+          title: "Root",
+          userId,
+        });
+        const followUpAppointmentId = await ctx.db.insert("appointments", {
+          appointmentTypeLineageKey: baseData.appointmentTypeId,
+          appointmentTypeTitle: "Checkup",
+          createdAt: now,
+          end: followUpEnd,
+          lastModified: now,
+          locationLineageKey: baseData.locationId,
+          occupancyScope: {
+            kind: "practitioner",
+            practitionerLineageKey: baseData.practitionerId,
+          },
+          practiceId: baseData.practiceId,
+          seriesId,
+          seriesStepIndex: 1n,
+          start: followUpStart,
+          title: "Follow-up",
+          userId,
+        });
+
+        return { followUpAppointmentId, rootAppointmentId };
+      },
+    );
+
+    await authed.mutation(api.appointments.updateAppointment, {
+      id: followUpAppointmentId,
+      smiley: "👍",
+    });
+
+    const stored = await t.run(async (ctx) => {
+      const rootAppointment = await ctx.db.get(
+        "appointments",
+        rootAppointmentId,
+      );
+      const followUpAppointment = await ctx.db.get(
+        "appointments",
+        followUpAppointmentId,
+      );
+      return {
+        followUpSmiley: followUpAppointment?.smiley,
+        rootSmiley: rootAppointment?.smiley,
+      };
+    });
+
+    expect(stored).toEqual({
+      followUpSmiley: "👍",
+      rootSmiley: undefined,
+    });
+  });
+
   test("updateAppointment rejects moving an appointment onto an occupied practitioner slot", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
@@ -2319,6 +2437,106 @@ describe("appointments update safety", () => {
           appointment.simulationKind !== "activation-reassignment",
       ),
     ).toHaveLength(0);
+  });
+
+  test("activating a saved ruleset applies activation-bound smiley changes", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_sim_activation_smileys";
+    const userId = await createUser(
+      t,
+      authId,
+      "sim-activation-smileys@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "sim-activation-smileys@example.com",
+      subject: authId,
+    });
+
+    const unsavedRuleSetId = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", baseData.practiceId);
+      const parentVersion = practice?.currentActiveRuleSetId;
+      if (!parentVersion) {
+        throw new Error("Expected active rule set for practice");
+      }
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      return await ctx.db.insert("ruleSets", {
+        appointmentSmileyOptions: [
+          { emoji: "😀", id: "happy", name: "Happy" },
+          { emoji: "😥", id: "sad", name: "Sad" },
+        ],
+        createdAt: Date.now(),
+        description: "Unsaved Draft",
+        draftRevision: 0,
+        parentVersion,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+    });
+    const firstAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      smiley: "😥",
+      userId,
+      window: makeSlotWindow(40),
+    });
+    const secondAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(41),
+    });
+    const now = BigInt(Date.now());
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      isSimulation: true,
+      replacesAppointmentId: firstAppointmentId,
+      simulationKind: "activation-reassignment",
+      simulationRuleSetId: unsavedRuleSetId,
+      simulationValidatedAt: now,
+      userId,
+      window: makeSlotWindow(40),
+    });
+    await insertAppointmentRecord(t, {
+      ...baseData,
+      isSimulation: true,
+      replacesAppointmentId: secondAppointmentId,
+      simulationKind: "activation-reassignment",
+      simulationRuleSetId: unsavedRuleSetId,
+      simulationValidatedAt: now,
+      smiley: "😀",
+      userId,
+      window: makeSlotWindow(41),
+    });
+
+    await authed.mutation(api.ruleSets.saveUnsavedRuleSet, {
+      description: "Simulation smileys",
+      practiceId: baseData.practiceId,
+      setAsActive: true,
+    });
+
+    const [firstAppointment, secondAppointment, remainingSimulations] =
+      await t.run(async (ctx) => {
+        const remainingSimulations = await ctx.db
+          .query("appointments")
+          .withIndex("by_simulationRuleSetId", (q) =>
+            q.eq("simulationRuleSetId", unsavedRuleSetId),
+          )
+          .collect();
+        return [
+          await ctx.db.get("appointments", firstAppointmentId),
+          await ctx.db.get("appointments", secondAppointmentId),
+          remainingSimulations,
+        ];
+      });
+
+    expect(firstAppointment?.smiley).toBeUndefined();
+    expect(secondAppointment?.smiley).toBe("😀");
+    expect(remainingSimulations).toHaveLength(0);
   });
 
   test("simulated replacements tolerate missing patient links on the replaced appointment", async () => {
@@ -4815,5 +5033,563 @@ describe("calendar day appointment queries", () => {
         .toString(),
       status: "AVAILABLE",
     });
+  });
+
+  test("simulation smiley edits validate against the selected rule set options", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_simulation_smiley_options";
+    const userId = await createUser(t, authId, "sim-smiley@example.com");
+    const authed = t.withIdentity({
+      email: "sim-smiley@example.com",
+      subject: authId,
+    });
+    const draftRuleSetId = await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      return await ctx.db.insert("ruleSets", {
+        appointmentSmileyOptions: [
+          { emoji: "🧪", id: "draft-marker", name: "Draft marker" },
+        ],
+        createdAt: Date.now(),
+        description: "Draft smileys",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        simulationRuleSetId: draftRuleSetId,
+        start: makeSlotWindow(35).start,
+        title: "Simulation",
+        userId,
+      },
+    );
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: appointmentId,
+        simulationRuleSetId: draftRuleSetId,
+        smiley: "🧪",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  test("full simulation appointment updates validate smileys against the simulation rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_simulation_update_smiley_options";
+    const userId = await createUser(t, authId, "sim-update-smiley@example.com");
+    const authed = t.withIdentity({
+      email: "sim-update-smiley@example.com",
+      subject: authId,
+    });
+    const draftRuleSetId = await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("practices", baseData.practiceId, {
+        appointmentSmileyOptions: [],
+      });
+      return await ctx.db.insert("ruleSets", {
+        appointmentSmileyOptions: [
+          { emoji: "🧪", id: "draft-marker", name: "Draft marker" },
+        ],
+        createdAt: Date.now(),
+        description: "Draft smileys",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        isSimulation: true,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        simulationRuleSetId: draftRuleSetId,
+        start: makeSlotWindow(36).start,
+        title: "Simulation",
+        userId,
+      },
+    );
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointment, {
+        id: appointmentId,
+        smiley: "🧪",
+        title: "Simulation updated",
+      }),
+    ).resolves.toBeNull();
+
+    const appointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", appointmentId);
+    });
+    expect(appointment?.smiley).toBe("🧪");
+    expect(appointment?.title).toBe("Simulation updated");
+  });
+
+  test("simulation smiley removals validate the selected rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const foreignData = await createAppointmentBaseData(t);
+    const authId = "workos_simulation_smiley_removal_rule_set";
+    const userId = await createUser(
+      t,
+      authId,
+      "sim-smiley-removal@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "sim-smiley-removal@example.com",
+      subject: authId,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+    const appointmentId = await insertAppointmentRecord(t, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      userId,
+      window: makeSlotWindow(36),
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: appointmentId,
+        simulationRuleSetId: foreignData.ruleSetId,
+        smiley: null,
+      }),
+    ).rejects.toThrow("Rule set does not belong to this practice");
+
+    const replacements = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_simulationRuleSetId", (q) =>
+          q.eq("simulationRuleSetId", foreignData.ruleSetId),
+        )
+        .collect();
+    });
+    expect(replacements).toHaveLength(0);
+  });
+
+  test("simulation smiley edits validate the row rule set before patching", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_simulation_smiley_row_rule_set";
+    const userId = await createUser(
+      t,
+      authId,
+      "sim-smiley-row-rule-set@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "sim-smiley-row-rule-set@example.com",
+      subject: authId,
+    });
+    const { draftRuleSetA, draftRuleSetB } = await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      const draftRuleSetA = await ctx.db.insert("ruleSets", {
+        appointmentSmileyOptions: [
+          { emoji: "🅰️", id: "draft-a-marker", name: "Draft A marker" },
+        ],
+        createdAt: Date.now(),
+        description: "Draft A",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+      const draftRuleSetB = await ctx.db.insert("ruleSets", {
+        appointmentSmileyOptions: [
+          { emoji: "🅱️", id: "draft-b-marker", name: "Draft B marker" },
+        ],
+        createdAt: Date.now(),
+        description: "Draft B",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 3,
+      });
+      return { draftRuleSetA, draftRuleSetB };
+    });
+    const appointmentId = await insertAppointmentRecord(t, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      isSimulation: true,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      simulationRuleSetId: draftRuleSetA,
+      userId,
+      window: makeSlotWindow(37),
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: appointmentId,
+        simulationRuleSetId: draftRuleSetB,
+        smiley: "🅱️",
+      }),
+    ).rejects.toThrow("Simulation appointment belongs to another rule set");
+
+    const appointment = await t.run(
+      async (ctx) => await ctx.db.get("appointments", appointmentId),
+    );
+    expect(appointment?.simulationRuleSetId).toBe(draftRuleSetA);
+    expect(appointment?.smiley).toBeUndefined();
+  });
+
+  test("clearing the only simulation smiley override deletes the replacement", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_simulation_smiley_clear_noop";
+    const userId = await createUser(
+      t,
+      authId,
+      "sim-smiley-clear-noop@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "sim-smiley-clear-noop@example.com",
+      subject: authId,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("ruleSets", baseData.ruleSetId, {
+        appointmentSmileyOptions: [
+          { emoji: "🧪", id: "simulation-marker", name: "Simulation marker" },
+        ],
+      });
+    });
+    const appointmentId = await insertAppointmentRecord(t, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      userId,
+      window: makeSlotWindow(38),
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: appointmentId,
+        simulationRuleSetId: baseData.ruleSetId,
+        smiley: "🧪",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: appointmentId,
+        simulationRuleSetId: baseData.ruleSetId,
+        smiley: null,
+      }),
+    ).resolves.toBeNull();
+
+    const replacements = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_simulationRuleSetId", (q) =>
+          q.eq("simulationRuleSetId", baseData.ruleSetId),
+        )
+        .collect();
+    });
+    expect(replacements).toEqual([]);
+  });
+
+  test("selecting an unchanged real appointment smiley does not create a simulation replacement", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_simulation_smiley_unchanged";
+    const userId = await createUser(
+      t,
+      authId,
+      "sim-smiley-unchanged@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "sim-smiley-unchanged@example.com",
+      subject: authId,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("ruleSets", baseData.ruleSetId, {
+        appointmentSmileyOptions: [
+          { emoji: "🧪", id: "simulation-marker", name: "Simulation marker" },
+        ],
+      });
+    });
+    const appointmentId = await insertAppointmentRecord(t, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      userId,
+      window: makeSlotWindow(39),
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch("appointments", appointmentId, { smiley: "🧪" });
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: appointmentId,
+        simulationRuleSetId: baseData.ruleSetId,
+        smiley: "🧪",
+      }),
+    ).resolves.toBeNull();
+
+    const replacements = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_simulationRuleSetId", (q) =>
+          q.eq("simulationRuleSetId", baseData.ruleSetId),
+        )
+        .collect();
+    });
+    expect(replacements).toEqual([]);
+  });
+
+  test("restore creation allows known historical smileys without exposing the create bypass", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_historical_smiley_restore";
+    const userId = await createUser(t, authId, "historical-smiley@example.com");
+    const authed = t.withIdentity({
+      email: "historical-smiley@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("ruleSets", baseData.ruleSetId, {
+        appointmentSmileyOptions: [
+          { emoji: "😴", id: "old-marker", name: "Historical marker" },
+        ],
+      });
+      await ctx.db.patch("practices", baseData.practiceId, {
+        appointmentSmileyOptions: [
+          { emoji: "😴", id: "old-marker", name: "Historical marker" },
+        ],
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        smiley: "😴",
+        start: makeSlotWindow(36).start,
+        title: "Restored",
+        userId,
+      },
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.patch("practices", baseData.practiceId, {
+        appointmentSmileyOptions: [],
+      });
+    });
+
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        smiley: "😴",
+        start: makeSlotWindow(37).start,
+        title: "New stale",
+        userId,
+      }),
+    ).rejects.toThrow("nicht konfiguriert");
+
+    await expect(
+      authed.mutation(api.appointments.restoreDeletedAppointment, {
+        originalAppointmentId: appointmentId,
+      }),
+    ).rejects.toThrow("not found");
+
+    await expect(
+      authed.mutation(api.appointments.deleteAppointment, {
+        id: appointmentId,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      authed.mutation(api.appointments.restoreDeletedAppointment, {
+        originalAppointmentId: appointmentId,
+      }),
+    ).resolves.toEqual(expect.any(String));
+  });
+
+  test("deleteAppointment does not require restore snapshot references in the active rule set", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_delete_without_snapshot_refs";
+    const userId = await createUser(
+      t,
+      authId,
+      "delete-without-snapshot-refs@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "delete-without-snapshot-refs@example.com",
+      subject: authId,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+    const appointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(42),
+    });
+    await t.run(async (ctx) => {
+      const unrelatedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Unrelated active rule set",
+        draftRevision: 0,
+        practiceId: baseData.practiceId,
+        saved: true,
+        version: 2,
+      });
+      await ctx.db.patch("practices", baseData.practiceId, {
+        currentActiveRuleSetId: unrelatedRuleSetId,
+      });
+    });
+
+    await expect(
+      authed.mutation(api.appointments.deleteAppointment, {
+        id: appointmentId,
+      }),
+    ).resolves.toBeNull();
+
+    const [appointment, snapshot] = await t.run(async (ctx) => {
+      const snapshot = await ctx.db
+        .query("appointmentRestoreSnapshots")
+        .withIndex("by_originalAppointmentId", (q) =>
+          q.eq("originalAppointmentId", appointmentId),
+        )
+        .first();
+      return [await ctx.db.get("appointments", appointmentId), snapshot];
+    });
+    expect(appointment).toBeNull();
+    expect(snapshot).toBeNull();
+  });
+
+  test("restoreDeletedAppointment preserves the deleted appointment end", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_restore_end";
+    const userId = await createUser(t, authId, "restore-end@example.com");
+    const authed = t.withIdentity({
+      email: "restore-end@example.com",
+      subject: authId,
+    });
+    const window = makeSlotWindow(38);
+    const resizedEnd = Temporal.ZonedDateTime.from(window.start)
+      .add({ minutes: 75 })
+      .toString();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: window.start,
+        title: "Resized restore",
+        userId,
+      },
+    );
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        end: resizedEnd,
+        id: appointmentId,
+      }),
+    ).resolves.toBeNull();
+
+    await expect(
+      authed.mutation(api.appointments.deleteAppointment, {
+        id: appointmentId,
+      }),
+    ).resolves.toBeNull();
+
+    const restoredAppointmentId = await authed.mutation(
+      api.appointments.restoreDeletedAppointment,
+      {
+        originalAppointmentId: appointmentId,
+      },
+    );
+    const restoredAppointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", restoredAppointmentId);
+    });
+
+    expect(restoredAppointment).not.toBeNull();
+    expect(restoredAppointment?.start).toBe(window.start);
+    expect(restoredAppointment?.end).toBe(resizedEnd);
   });
 });

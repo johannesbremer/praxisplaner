@@ -14,7 +14,7 @@ import { api } from "../../../convex/_generated/api";
 
 export type AppointmentState = Pick<
   CalendarAppointmentRecord,
-  "end" | "placement" | "start"
+  "end" | "placement" | "smiley" | "start"
 >;
 
 export type BlockedSlotState = Pick<
@@ -109,6 +109,10 @@ export type DeleteAppointmentMutationArgs = FunctionArgs<
 
 export type DeleteBlockedSlotMutationArgs = FunctionArgs<
   typeof api.appointments.deleteBlockedSlot
+>;
+
+export type RestoreDeletedAppointmentMutationArgs = FunctionArgs<
+  typeof api.appointments.restoreDeletedAppointment
 >;
 
 export type UpdateAppointmentMutationArgs = FunctionArgs<

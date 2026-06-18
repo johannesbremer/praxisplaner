@@ -1,13 +1,14 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
-import { findUnsavedRuleSet } from "./copyOnWrite";
+import { bumpDraftRevision, findUnsavedRuleSet } from "./copyOnWrite";
 import {
   ensurePracticeAccessForMutation,
   requirePracticeManager,
   requirePracticeMember,
   requireRuleSetMember,
 } from "./practiceAccess";
+import { normalizeAppointmentSmileyOptions } from "./practices";
 import { summarizeDraftRuleSetDiff } from "./ruleSetDiff";
 import {
   activateSavedRuleSet,
@@ -15,7 +16,9 @@ import {
   discardCurrentDraftRuleSet,
   discardDraftRuleSetIfEquivalentToParent,
   saveDraftRuleSet,
+  selectDraftRuleSetForEdit,
 } from "./ruleSetLifecycle";
+import { appointmentSmileyOptionValidator } from "./schema";
 
 // ================================
 // RULE SET MANAGEMENT - SIMPLIFIED COW WORKFLOW
@@ -83,6 +86,9 @@ export const getUnsavedRuleSet = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("ruleSets"),
+      appointmentSmileyOptions: v.optional(
+        v.array(appointmentSmileyOptionValidator),
+      ),
       createdAt: v.number(),
       description: v.string(),
       draftRevision: v.number(),
@@ -174,6 +180,46 @@ export const getActiveRuleSet = query({
     }
     return await ctx.db.get("ruleSets", practice.currentActiveRuleSetId);
   },
+});
+
+export const getAppointmentSmileyOptionsForRuleSet = query({
+  args: {
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    await requireRuleSetMember(ctx, args.ruleSetId);
+    const ruleSet = await ctx.db.get("ruleSets", args.ruleSetId);
+    if (ruleSet?.practiceId !== args.practiceId) {
+      throw new Error("Rule set does not belong to this practice");
+    }
+    return ruleSet.appointmentSmileyOptions ?? [];
+  },
+  returns: v.array(appointmentSmileyOptionValidator),
+});
+
+export const updateAppointmentSmileyOptionsForRuleSet = mutation({
+  args: {
+    expectedDraftRevision: v.union(v.number(), v.null()),
+    options: v.array(appointmentSmileyOptionValidator),
+    practiceId: v.id("practices"),
+    selectedRuleSetId: v.id("ruleSets"),
+  },
+  handler: async (ctx, args) => {
+    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    const { ruleSetId } = await selectDraftRuleSetForEdit(ctx.db, args);
+    const options = normalizeAppointmentSmileyOptions(args.options);
+    await ctx.db.patch("ruleSets", ruleSetId, {
+      appointmentSmileyOptions: options,
+    });
+    const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
+    return { draftRevision, options, ruleSetId };
+  },
+  returns: v.object({
+    draftRevision: v.number(),
+    options: v.array(appointmentSmileyOptionValidator),
+    ruleSetId: v.id("ruleSets"),
+  }),
 });
 
 // ================================

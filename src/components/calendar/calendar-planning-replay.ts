@@ -18,6 +18,7 @@ import type {
   CreateBlockedSlotMutationArgs,
   DeleteAppointmentMutationArgs,
   DeleteBlockedSlotMutationArgs,
+  RestoreDeletedAppointmentMutationArgs,
   UpdateAppointmentMutationArgs,
   UpdateBlockedSlotMutationArgs,
 } from "./calendar-planning-command";
@@ -99,6 +100,9 @@ export interface CalendarPlanningCommandExecutorContext {
   runDeleteBlockedSlotInternal: (
     args: DeleteBlockedSlotMutationArgs,
   ) => Promise<unknown>;
+  runRestoreDeletedAppointmentInternal: (
+    args: RestoreDeletedAppointmentMutationArgs,
+  ) => Promise<Id<"appointments"> | null>;
   runUpdateAppointmentInternal: (
     args: UpdateAppointmentMutationArgs,
   ) => Promise<unknown>;
@@ -160,12 +164,32 @@ const appointmentMatchesState = (
 ) =>
   appointment.start === expected.start &&
   appointment.end === expected.end &&
+  appointment.smiley === expected.smiley &&
   appointment.placement.locationLineageKey ===
     expected.placement.locationLineageKey &&
   sameCalendarOccupancyScope(
     appointment.placement.occupancyScope,
     expected.placement.occupancyScope,
   );
+
+const hasAppointmentSchedulingStateChange = (
+  left: AppointmentState,
+  right: AppointmentState,
+) =>
+  left.start !== right.start ||
+  left.end !== right.end ||
+  left.placement.locationLineageKey !== right.placement.locationLineageKey ||
+  !sameCalendarOccupancyScope(
+    left.placement.occupancyScope,
+    right.placement.occupancyScope,
+  );
+
+const hasAppointmentStateChange = (
+  left: AppointmentState,
+  right: AppointmentState,
+) =>
+  left.smiley !== right.smiley ||
+  hasAppointmentSchedulingStateChange(left, right);
 
 const blockedSlotMatchesState = (
   slot: CalendarBlockedSlotRecord,
@@ -360,7 +384,7 @@ async function executeAppointmentDeleteCommand(
   await context.ensureLatestConflictData();
   if (
     context.hasAppointmentConflict({
-      end: payload.createEnd,
+      end: payload.deleted.end,
       isSimulation: payload.createArgs.isSimulation ?? false,
       placement: payload.deleted.placement,
       ...(payload.createArgs.replacesAppointmentId && {
@@ -376,9 +400,9 @@ async function executeAppointmentDeleteCommand(
     };
   }
 
-  const recreatedId = await context.runCreateAppointmentInternal(
-    payload.createArgs,
-  );
+  const recreatedId = await context.runRestoreDeletedAppointmentInternal({
+    originalAppointmentId: payload.currentAppointmentId,
+  });
   if (!recreatedId) {
     return { status: "conflict" };
   }
@@ -411,8 +435,30 @@ async function executeAppointmentUpdateCommand(
     placement: state.placement,
     start: state.start,
   });
+  const updateToState = async (
+    state: AppointmentState,
+    previousState: AppointmentState,
+  ) => {
+    const hasSchedulingChange = hasAppointmentSchedulingStateChange(
+      state,
+      previousState,
+    );
+    if (!hasSchedulingChange && state.smiley === previousState.smiley) {
+      return true;
+    }
 
-  const updateToState = async (state: AppointmentState) => {
+    const smileyUpdate =
+      state.smiley === previousState.smiley
+        ? {}
+        : { smiley: state.smiley ?? null };
+    if (!hasSchedulingChange) {
+      await context.runUpdateAppointmentInternal({
+        id: currentAppointmentId,
+        ...smileyUpdate,
+      });
+      return true;
+    }
+
     const displayRefs = context.resolveAppointmentReferenceDisplayIds({
       appointmentTypeLineageKey: payload.before.appointmentTypeLineageKey,
       placement: state.placement,
@@ -433,6 +479,7 @@ async function executeAppointmentUpdateCommand(
         : {
             practitionerId: displayRefs.occupancyScope.practitionerId,
           }),
+      ...smileyUpdate,
       start: state.start,
     });
     return true;
@@ -447,6 +494,10 @@ async function executeAppointmentUpdateCommand(
           "Der Termin wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
         status: "conflict",
       };
+    }
+    if (!hasAppointmentStateChange(payload.beforeState, payload.afterState)) {
+      rememberFreshAppointment(context, payload.before, currentAppointmentId);
+      return { status: "noop" };
     }
     if (appointmentMatchesState(current, payload.afterState)) {
       rememberFreshAppointment(
@@ -465,6 +516,10 @@ async function executeAppointmentUpdateCommand(
     }
 
     if (
+      hasAppointmentSchedulingStateChange(
+        payload.beforeState,
+        payload.afterState,
+      ) &&
       context.hasAppointmentConflict(
         candidatePayload(payload.afterState),
         currentAppointmentId,
@@ -477,7 +532,10 @@ async function executeAppointmentUpdateCommand(
       };
     }
 
-    const applied = await updateToState(payload.afterState);
+    const applied = await updateToState(
+      payload.afterState,
+      payload.beforeState,
+    );
     if (!applied) {
       return {
         message:
@@ -502,6 +560,10 @@ async function executeAppointmentUpdateCommand(
       status: "conflict",
     };
   }
+  if (!hasAppointmentStateChange(payload.afterState, payload.beforeState)) {
+    rememberFreshAppointment(context, payload.before, currentAppointmentId);
+    return { status: "noop" };
+  }
   if (appointmentMatchesState(current, payload.beforeState)) {
     rememberFreshAppointment(context, payload.before, currentAppointmentId);
     return { status: "applied" };
@@ -515,6 +577,10 @@ async function executeAppointmentUpdateCommand(
   }
 
   if (
+    hasAppointmentSchedulingStateChange(
+      payload.afterState,
+      payload.beforeState,
+    ) &&
     context.hasAppointmentConflict(
       candidatePayload(payload.beforeState),
       currentAppointmentId,
@@ -527,7 +593,7 @@ async function executeAppointmentUpdateCommand(
     };
   }
 
-  const applied = await updateToState(payload.beforeState);
+  const applied = await updateToState(payload.beforeState, payload.afterState);
   if (!applied) {
     return {
       message:

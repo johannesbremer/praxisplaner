@@ -3,6 +3,22 @@ import { describe, expect, test, vi } from "vitest";
 
 import type { RuleSetDiff } from "../routes/regeln/-rule-set-diff";
 
+vi.mock("../routes/regeln/-rule-set-diff-viewer", async () => {
+  const React = await import("react");
+  return {
+    StructuredValueDiffView: ({
+      row,
+    }: {
+      row: { after: string; before: string; path: string };
+    }) =>
+      React.createElement("diffs-container", {
+        "data-after": row.after,
+        "data-before": row.before,
+        "data-path": row.path,
+      }),
+  };
+});
+
 import {
   __getProjectedRuleSetDiffSectionsForTests,
   RuleSetDiffView,
@@ -238,6 +254,97 @@ describe("RuleSetDiffView", () => {
       }),
     ]);
     expect(JSON.stringify(ruleRows)).not.toContain("APPOINTMENT_TYPE");
+  });
+
+  test("renders smiley option line diffs without requiring structured JSON", async () => {
+    const diff = {
+      draftRuleSet: {
+        _id: "draft-rule-set",
+        description: "Draft",
+        version: 2,
+      },
+      parentRuleSet: {
+        _id: "parent-rule-set",
+        description: "Parent",
+        version: 1,
+      },
+      sections: [
+        {
+          added: [
+            JSON.stringify({
+              __diffKey: "arrival-marker",
+              line: "👍 Patient ist angekommen",
+            }),
+          ],
+          key: "appointmentSmileyOptions",
+          removed: [],
+          title: "Termin-Smileys",
+        },
+      ],
+      totals: {
+        added: 1,
+        changed: 1,
+        removed: 0,
+      },
+    } satisfies RuleSetDiff;
+
+    const { container } = render(<RuleSetDiffView diff={diff} />);
+
+    await waitFor(() => {
+      expect(container.querySelector("diffs-container")).toBeInTheDocument();
+    });
+  });
+
+  test("pairs smiley option line edits as one modified diff", async () => {
+    const diff = {
+      draftRuleSet: {
+        _id: "draft-rule-set",
+        description: "Draft",
+        version: 2,
+      },
+      parentRuleSet: {
+        _id: "parent-rule-set",
+        description: "Parent",
+        version: 1,
+      },
+      sections: [
+        {
+          added: [
+            JSON.stringify({
+              __diffKey: "arrival-marker",
+              line: "👍 Patient ist angekommen",
+            }),
+          ],
+          key: "appointmentSmileyOptions",
+          removed: [
+            JSON.stringify({
+              __diffKey: "arrival-marker",
+              line: "😀 Patient ist angekommen",
+            }),
+          ],
+          title: "Termin-Smileys",
+        },
+      ],
+      totals: {
+        added: 1,
+        changed: 2,
+        removed: 1,
+      },
+    } satisfies RuleSetDiff;
+
+    const { container } = render(<RuleSetDiffView diff={diff} />);
+
+    await waitFor(() => {
+      expect(container.querySelectorAll("diffs-container")).toHaveLength(1);
+    });
+    expect(container.querySelector("diffs-container")).toHaveAttribute(
+      "data-before",
+      "😀 Patient ist angekommen",
+    );
+    expect(container.querySelector("diffs-container")).toHaveAttribute(
+      "data-after",
+      "👍 Patient ist angekommen",
+    );
   });
 });
 

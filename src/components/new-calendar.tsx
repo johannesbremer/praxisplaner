@@ -301,6 +301,7 @@ export function NewCalendar({
     runCreateAppointment,
     runCreateBlockedSlot,
     runDeleteBlockedSlot,
+    runUpdateAppointment,
     runUpdateBlockedSlot,
     selectedDate,
     selectedLocationId,
@@ -771,9 +772,13 @@ export function NewCalendar({
                   });
                 }, 50);
               }}
+              onUpdateAppointmentSmiley={async ({ id, smiley }) => {
+                await runUpdateAppointment({ id, smiley });
+              }}
               patient={activePatient}
               patientAppointments={patientAppointments}
               practiceId={practiceId}
+              ruleSetId={ruleSetId}
               selectedAppointmentId={selectedAppointmentId}
               selectedPatientId={activeSelectedPatientId}
               selectedSeriesId={selectedSeriesId}

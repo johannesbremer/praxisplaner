@@ -131,6 +131,12 @@ export function resolveReplayEntity<
   };
 }
 
+export function ruleSetHistoryScopeFromReplayTarget(
+  target: null | RuleSetReplayTarget,
+): Id<"ruleSets"> | null {
+  return target?.parentRuleSetId ?? null;
+}
+
 export function ruleSetIdFromReplayTarget(
   target: RuleSetReplayTarget,
 ): Id<"ruleSets"> {

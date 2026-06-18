@@ -20,6 +20,17 @@ import {
 } from "./bookingValidators";
 import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
 
+export const appointmentSmileyValidator = v.string();
+export const appointmentSmileyOptionValidator = v.object({
+  emoji: appointmentSmileyValidator,
+  id: v.string(),
+  name: v.string(),
+});
+export type AppointmentSmiley = Infer<typeof appointmentSmileyValidator>;
+export type AppointmentSmileyOption = Infer<
+  typeof appointmentSmileyOptionValidator
+>;
+
 export {
   beihilfeStatusValidator,
   dataSharingContactInputValidator,
@@ -318,6 +329,34 @@ export const bookingSessionStorageStateValidator = v.object({
 });
 
 export default defineSchema({
+  appointmentRestoreSnapshots: defineTable({
+    appointmentTypeId: v.id("appointmentTypes"),
+    bookingIdentityId: v.optional(v.id("bookingIdentities")),
+    calendarResourceColumn: v.optional(
+      v.union(v.literal("ekg"), v.literal("labor")),
+    ),
+    deletedAt: v.int64(),
+    end: v.optional(v.string()),
+    isNewPatient: v.optional(v.boolean()),
+    isSimulation: v.optional(v.boolean()),
+    locationId: v.id("locations"),
+    originalAppointmentId: v.id("appointments"),
+    patientDateOfBirth: v.optional(v.string()),
+    patientId: v.optional(v.id("patients")),
+    phoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
+    practiceId: v.id("practices"),
+    practitionerId: v.optional(v.id("practitioners")),
+    replacesAppointmentId: v.optional(v.id("appointments")),
+    simulationKind: v.optional(
+      v.union(v.literal("draft"), v.literal("activation-reassignment")),
+    ),
+    simulationRuleSetId: v.optional(v.id("ruleSets")),
+    smiley: v.optional(appointmentSmileyValidator),
+    start: v.string(),
+    title: v.string(),
+    userId: v.optional(v.id("users")),
+  }).index("by_originalAppointmentId", ["originalAppointmentId"]),
+
   appointments: defineTable({
     // Core appointment fields
     end: v.string(), // ISO datetime string
@@ -349,6 +388,7 @@ export default defineSchema({
     ),
     simulationRuleSetId: v.optional(v.id("ruleSets")),
     simulationValidatedAt: v.optional(v.int64()),
+    smiley: v.optional(appointmentSmileyValidator),
     userId: v.optional(v.id("users")),
 
     // Metadata
@@ -884,6 +924,9 @@ export default defineSchema({
     .index("by_practiceId_phoneNumber", ["practiceId", "phoneNumber"]),
 
   practices: defineTable({
+    appointmentSmileyOptions: v.optional(
+      v.array(appointmentSmileyOptionValidator),
+    ),
     currentActiveRuleSetId: v.optional(v.id("ruleSets")),
     name: v.string(),
     slug: v.optional(v.string()),
@@ -991,6 +1034,9 @@ export default defineSchema({
     .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"]),
 
   ruleSets: defineTable({
+    appointmentSmileyOptions: v.optional(
+      v.array(appointmentSmileyOptionValidator),
+    ),
     createdAt: v.number(),
     description: v.string(),
     draftRevision: v.number(), // 0 for saved rule sets; monotonic for unsaved drafts

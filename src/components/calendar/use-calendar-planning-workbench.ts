@@ -187,6 +187,7 @@ const appointmentHistoryMatchesQuery = (
 ) =>
   historyDoc.start === queryDoc.start &&
   historyDoc.end === queryDoc.end &&
+  historyDoc.smiley === queryDoc.smiley &&
   historyDoc.title === queryDoc.title &&
   historyDoc.appointmentTypeLineageKey === queryDoc.appointmentTypeLineageKey &&
   historyDoc.placement.locationLineageKey ===
@@ -194,6 +195,30 @@ const appointmentHistoryMatchesQuery = (
   sameCalendarOccupancyScope(
     historyDoc.placement.occupancyScope,
     queryDoc.placement.occupancyScope,
+  );
+
+const appointmentStateChanged = (args: {
+  after: {
+    end: CalendarAppointmentRecord["end"];
+    placement: CalendarAppointmentPlacement;
+    smiley?: CalendarAppointmentRecord["smiley"];
+    start: CalendarAppointmentRecord["start"];
+  };
+  before: {
+    end: CalendarAppointmentRecord["end"];
+    placement: CalendarAppointmentPlacement;
+    smiley?: CalendarAppointmentRecord["smiley"];
+    start: CalendarAppointmentRecord["start"];
+  };
+}) =>
+  args.before.start !== args.after.start ||
+  args.before.end !== args.after.end ||
+  args.before.smiley !== args.after.smiley ||
+  args.before.placement.locationLineageKey !==
+    args.after.placement.locationLineageKey ||
+  !sameCalendarOccupancyScope(
+    args.before.placement.occupancyScope,
+    args.after.placement.occupancyScope,
   );
 
 const blockedSlotHistoryMatchesQuery = (
@@ -247,9 +272,43 @@ interface CreatedBlockedSlotHistoryArgs {
   title: string;
 }
 
+interface OptimisticAppointmentUpdateArgs {
+  appointmentTypeId?: Id<"appointmentTypes">;
+  calendarResourceColumn?: "ekg" | "labor" | null;
+  end?: string;
+  id: Id<"appointments">;
+  isSimulation?: boolean;
+  locationId?: Id<"locations">;
+  patientId?: Id<"patients">;
+  practitionerId?: Id<"practitioners">;
+  replacesAppointmentId?: Id<"appointments">;
+  simulationKind?: "activation-reassignment" | "draft";
+  simulationRuleSetId?: Id<"ruleSets">;
+  smiley?: null | string;
+  start?: string;
+  title?: string;
+  userId?: Id<"users">;
+}
+
 type UpdateAppointmentMutationArgs = FunctionArgs<
   typeof api.appointments.updateAppointment
 >;
+
+const isSmileyOnlyAppointmentUpdate = (args: OptimisticAppointmentUpdateArgs) =>
+  args.smiley !== undefined &&
+  args.appointmentTypeId === undefined &&
+  args.calendarResourceColumn === undefined &&
+  args.end === undefined &&
+  args.isSimulation === undefined &&
+  args.locationId === undefined &&
+  args.patientId === undefined &&
+  args.practitionerId === undefined &&
+  args.replacesAppointmentId === undefined &&
+  args.simulationKind === undefined &&
+  args.simulationRuleSetId === undefined &&
+  args.start === undefined &&
+  args.title === undefined &&
+  args.userId === undefined;
 
 export function useCalendarPlanningWorkbench(args: {
   activeDayAppointmentMapRef: CalendarRecordRef<
@@ -805,11 +864,17 @@ export function useCalendarPlanningWorkbench(args: {
   const createAppointmentMutation = useMutation(
     api.appointments.createAppointment,
   );
+  const restoreDeletedAppointmentMutation = useMutation(
+    api.appointments.restoreDeletedAppointment,
+  );
   const updateAppointmentMutation = useMutation(
     api.appointments.updateAppointment,
   );
   const updateSimulationAppointmentMutation = useMutation(
     api.appointments.updateSimulationAppointment,
+  );
+  const updateSimulationAppointmentSmileyMutation = useMutation(
+    api.appointments.updateSimulationAppointmentSmiley,
   );
   const updateVacationReassignmentAppointmentMutation = useMutation(
     api.appointments.updateVacationReassignmentAppointment,
@@ -982,6 +1047,9 @@ export function useCalendarPlanningWorkbench(args: {
             practiceId: optimisticArgs.practiceId,
             start: typedStart,
             title: optimisticArgs.title,
+            ...(optimisticArgs.smiley === undefined
+              ? {}
+              : { smiley: optimisticArgs.smiley }),
           };
 
           if (optimisticArgs.replacesAppointmentId !== undefined) {
@@ -1034,12 +1102,19 @@ export function useCalendarPlanningWorkbench(args: {
     ],
   );
 
+  const runRestoreDeletedAppointmentInternal = useCallback(
+    async (args: Parameters<typeof restoreDeletedAppointmentMutation>[0]) => {
+      return await restoreDeletedAppointmentMutation(args);
+    },
+    [restoreDeletedAppointmentMutation],
+  );
+
   const applyOptimisticAppointmentUpdate = useCallback(
     (
       localStore: Parameters<
         Parameters<typeof updateAppointmentMutation.withOptimisticUpdate>[0]
       >[0],
-      optimisticArgs: Parameters<typeof updateAppointmentMutation>[0],
+      optimisticArgs: OptimisticAppointmentUpdateArgs,
     ) => {
       if (!calendarDayQueryArgs) {
         return;
@@ -1154,7 +1229,7 @@ export function useCalendarPlanningWorkbench(args: {
                 occupancyScope: nextDisplayOccupancyScope,
               });
 
-        const nextRecord: CalendarAppointmentRecord = {
+        const nextRecordBase: CalendarAppointmentRecord = {
           ...currentRecord,
           ...timeUpdates,
           ...(lineageRefs === null ? {} : { placement: lineageRefs.placement }),
@@ -1163,6 +1238,17 @@ export function useCalendarPlanningWorkbench(args: {
           }),
           lastModified: BigInt(now),
         };
+        const nextRecord: CalendarAppointmentRecord =
+          optimisticArgs.smiley === undefined
+            ? nextRecordBase
+            : (() => {
+                const { smiley: _removedSmiley, ...recordWithoutSmiley } =
+                  nextRecordBase;
+                void _removedSmiley;
+                return optimisticArgs.smiley === null
+                  ? recordWithoutSmiley
+                  : { ...recordWithoutSmiley, smiley: optimisticArgs.smiley };
+              })();
 
         return toCalendarAppointmentResult({
           appointmentTypeId: appointment.appointmentTypeId,
@@ -1220,6 +1306,22 @@ export function useCalendarPlanningWorkbench(args: {
 
   const runUpdateAppointmentInternal = useCallback(
     async (args: Parameters<typeof updateAppointmentMutation>[0]) => {
+      const requestedSmiley = args.smiley;
+      if (
+        calendarDayQueryArgs?.scope === "simulation" &&
+        calendarDayQueryArgs.selectedRuleSetId !== undefined &&
+        requestedSmiley !== undefined &&
+        isSmileyOnlyAppointmentUpdate(args)
+      ) {
+        return await updateSimulationAppointmentSmileyMutation.withOptimisticUpdate(
+          applyOptimisticAppointmentUpdate,
+        )({
+          id: args.id,
+          simulationRuleSetId: calendarDayQueryArgs.selectedRuleSetId,
+          smiley: requestedSmiley,
+        });
+      }
+
       const mutation = getAppointmentUpdateMutation(
         getAppointmentHistoryDoc(args.id),
       );
@@ -1230,8 +1332,10 @@ export function useCalendarPlanningWorkbench(args: {
     },
     [
       applyOptimisticAppointmentUpdate,
+      calendarDayQueryArgs,
       getAppointmentHistoryDoc,
       getAppointmentUpdateMutation,
+      updateSimulationAppointmentSmileyMutation,
     ],
   );
 
@@ -1570,12 +1674,58 @@ export function useCalendarPlanningWorkbench(args: {
           return;
         }
         const before = getAppointmentHistoryDoc(args.id);
-        if (before?.seriesId) {
+        if (before) {
+          const typedEnd =
+            args.end === undefined
+              ? undefined
+              : parseZonedDateTime(
+                  args.end,
+                  "useCalendarPlanningWorkbench.afterState.end",
+                );
+          const typedStart =
+            args.start === undefined
+              ? undefined
+              : parseZonedDateTime(
+                  args.start,
+                  "useCalendarPlanningWorkbench.afterState.start",
+                );
+          if (
+            (args.end !== undefined && typedEnd === null) ||
+            (args.start !== undefined && typedStart === null)
+          ) {
+            return;
+          }
+
+          const beforeState = {
+            end: before.end,
+            placement: before.placement,
+            start: before.start,
+            ...(before.smiley === undefined ? {} : { smiley: before.smiley }),
+          };
+          const afterSmiley =
+            args.smiley === undefined
+              ? before.smiley
+              : (args.smiley ?? undefined);
+          const afterState = {
+            end: typedEnd ?? before.end,
+            placement: args.placement ?? before.placement,
+            start: typedStart ?? before.start,
+            ...(afterSmiley === undefined ? {} : { smiley: afterSmiley }),
+          };
+          if (
+            !appointmentStateChanged({ after: afterState, before: beforeState })
+          ) {
+            return;
+          }
+        }
+        if (isSmileyOnlyAppointmentUpdate(mutationArgs)) {
+          await runUpdateAppointmentInternal(mutationArgs);
+        } else if (before?.seriesId) {
           await getAppointmentUpdateMutation(before)(mutationArgs);
           return;
+        } else {
+          await runUpdateAppointmentInternal(mutationArgs);
         }
-
-        await runUpdateAppointmentInternal(mutationArgs);
 
         if (!before) {
           return;
@@ -1585,6 +1735,7 @@ export function useCalendarPlanningWorkbench(args: {
           end: before.end,
           placement: before.placement,
           start: before.start,
+          ...(before.smiley === undefined ? {} : { smiley: before.smiley }),
         };
         const typedEnd =
           args.end === undefined
@@ -1606,17 +1757,27 @@ export function useCalendarPlanningWorkbench(args: {
         ) {
           return;
         }
+        const afterSmiley =
+          args.smiley === undefined
+            ? before.smiley
+            : (args.smiley ?? undefined);
         const afterState = {
           end: typedEnd ?? before.end,
           placement: args.placement ?? before.placement,
           start: typedStart ?? before.start,
+          ...(afterSmiley === undefined ? {} : { smiley: afterSmiley }),
         };
+        const { smiley: _removedSmiley, ...beforeWithoutSmiley } = before;
+        void _removedSmiley;
         const afterSnapshot: CalendarAppointmentRecord = {
-          ...before,
+          ...beforeWithoutSmiley,
           end: afterState.end,
           lastModified: BigInt(Date.now()),
           placement: afterState.placement,
           start: afterState.start,
+          ...(afterState.smiley === undefined
+            ? {}
+            : { smiley: afterState.smiley }),
         };
         rememberAppointmentHistoryDoc(afterSnapshot);
 
@@ -1687,6 +1848,7 @@ export function useCalendarPlanningWorkbench(args: {
         ...(deleted.replacesAppointmentId && {
           replacesAppointmentId: deleted.replacesAppointmentId,
         }),
+        ...(deleted.smiley === undefined ? {} : { smiley: deleted.smiley }),
         start: deleted.start,
         title: deleted.title,
       };
@@ -1965,6 +2127,7 @@ export function useCalendarPlanningWorkbench(args: {
       runCreateBlockedSlotInternal,
       runDeleteAppointmentInternal,
       runDeleteBlockedSlotInternal,
+      runRestoreDeletedAppointmentInternal,
       runUpdateAppointmentInternal,
       runUpdateBlockedSlotInternal,
     };
@@ -1987,6 +2150,7 @@ export function useCalendarPlanningWorkbench(args: {
     resolveCurrentAppointmentId,
     resolveCurrentBlockedSlotId,
     runCreateAppointmentInternal,
+    runRestoreDeletedAppointmentInternal,
     runCreateBlockedSlotInternal,
     runDeleteAppointmentInternal,
     runDeleteBlockedSlotInternal,

@@ -144,6 +144,7 @@ export async function createInitialRuleSet(
 ): Promise<Id<"ruleSets">> {
   // Create the initial saved rule set
   const ruleSetId = await db.insert("ruleSets", {
+    appointmentSmileyOptions: [],
     createdAt: Date.now(),
     description: "Initiale Konfiguration",
     draftRevision: 0,
@@ -193,6 +194,7 @@ export async function createDraftRuleSetFromSource(
   // Create new unsaved rule set
   const newVersion = sourceRuleSet.version + 1;
   const newRuleSetId = await db.insert("ruleSets", {
+    appointmentSmileyOptions: sourceRuleSet.appointmentSmileyOptions ?? [],
     createdAt: Date.now(),
     description: "Ungespeicherte Änderungen",
     draftRevision: 0,

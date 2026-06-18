@@ -1,11 +1,14 @@
 "use client";
 
+import { useMutation, useQuery } from "convex/react";
 import {
   AlertCircle,
   Calendar,
   ExternalLink,
   Link2,
   PanelRightIcon,
+  Plus,
+  X,
 } from "lucide-react";
 import { err, ok, type Result } from "neverthrow";
 import * as React from "react";
@@ -13,6 +16,11 @@ import * as React from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -26,10 +34,14 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 import type { Id } from "../../convex/_generated/dataModel";
-import type { AppointmentResult } from "../../convex/appointments";
+import type {
+  AppointmentResult,
+  AppointmentSmiley,
+} from "../../convex/appointments";
 import type { BookingPersonalData } from "../../convex/bookingSessions.shared";
 import type { PatientInfo, PracticePatientSelection } from "../types";
 
+import { api } from "../../convex/_generated/api";
 import { dispatchCustomEvent } from "../utils/browser-api";
 import { formatZonedDateTimeDE } from "../utils/date-utils";
 import {
@@ -43,6 +55,9 @@ import {
   PatientSelectionPanel,
 } from "./patient-selection-panel";
 
+type AppointmentSmileyOption =
+  (typeof api.ruleSets.getAppointmentSmileyOptionsForRuleSet)["_returnType"][number];
+
 // Appointment type for the sidebar list
 export type SidebarAppointment = AppointmentResult;
 
@@ -51,13 +66,65 @@ interface CalendarRightSidebarProps {
     | ((patient?: PracticePatientSelection) => void)
     | undefined;
   onSelectAppointment?: ((appointment: SidebarAppointment) => void) | undefined;
+  onUpdateAppointmentSmiley?:
+    | ((args: {
+        id: Id<"appointments">;
+        smiley: AppointmentSmiley | null;
+      }) => Promise<void>)
+    | undefined;
   patient?: PatientInfo | undefined;
   patientAppointments?: SidebarAppointment[] | undefined;
   practiceId?: Id<"practices"> | undefined;
+  ruleSetId?: Id<"ruleSets"> | undefined;
   selectedAppointmentId?: Id<"appointments"> | undefined;
   selectedPatientId?: Id<"patients"> | undefined;
   selectedSeriesId?: string | undefined;
   showGdtAlert?: boolean | undefined;
+}
+
+export function resolveAppointmentSmileyOptionsRuleSetId(args: {
+  defaultRuleSetId: Id<"ruleSets"> | undefined;
+  patientAppointments:
+    | readonly Pick<
+        SidebarAppointment,
+        "_id" | "seriesId" | "simulationRuleSetId"
+      >[]
+    | undefined;
+  selectedAppointmentId: Id<"appointments"> | undefined;
+  selectedSeriesId: string | undefined;
+}): Id<"ruleSets"> | undefined {
+  const selectedAppointment =
+    args.patientAppointments?.find(
+      (appointment) => appointment._id === args.selectedAppointmentId,
+    ) ??
+    args.patientAppointments?.find(
+      (appointment) =>
+        args.selectedSeriesId !== undefined &&
+        appointment.seriesId === args.selectedSeriesId,
+    );
+
+  return selectedAppointment?.simulationRuleSetId ?? args.defaultRuleSetId;
+}
+
+export function shouldShowAppointmentSmileyEditor(args: {
+  appointmentId: Id<"appointments">;
+  selectedAppointmentId: Id<"appointments"> | undefined;
+}): boolean {
+  return args.selectedAppointmentId === args.appointmentId;
+}
+
+export function shouldShowAppointmentSmileyInTitle(args: {
+  appointmentId: Id<"appointments">;
+  selectedAppointmentId: Id<"appointments"> | undefined;
+  smiley: AppointmentSmiley | undefined;
+}): boolean {
+  return (
+    args.smiley !== undefined &&
+    !shouldShowAppointmentSmileyEditor({
+      appointmentId: args.appointmentId,
+      selectedAppointmentId: args.selectedAppointmentId,
+    })
+  );
 }
 
 const RIGHT_SIDEBAR_WIDTH = "18rem";
@@ -94,7 +161,6 @@ const BOOKING_FIELD_ORDER = [
   "postalCode",
   "city",
 ] as const satisfies readonly (keyof BookingPersonalData)[];
-
 function isBookingGender(
   value: string,
 ): value is NonNullable<BookingPersonalData["gender"]> {
@@ -118,9 +184,11 @@ const RightSidebarContext =
 export function CalendarRightSidebar({
   onPatientSelected,
   onSelectAppointment,
+  onUpdateAppointmentSmiley,
   patient,
   patientAppointments,
   practiceId,
+  ruleSetId,
   selectedAppointmentId,
   selectedPatientId,
   selectedSeriesId,
@@ -191,10 +259,12 @@ export function CalendarRightSidebar({
                   handleOpenInPvs={handleOpenInPvs}
                   onPatientSelected={onPatientSelected}
                   onSelectAppointment={onSelectAppointment}
+                  onUpdateAppointmentSmiley={onUpdateAppointmentSmiley}
                   patient={patient}
                   patientAppointments={patientAppointments}
                   patientDisplayName={patientDisplayName}
                   practiceId={practiceId}
+                  ruleSetId={ruleSetId}
                   selectedAppointmentId={selectedAppointmentId}
                   selectedPatientId={selectedPatientId}
                   selectedSeriesId={selectedSeriesId}
@@ -236,10 +306,12 @@ export function CalendarRightSidebar({
                 handleOpenInPvs={handleOpenInPvs}
                 onPatientSelected={onPatientSelected}
                 onSelectAppointment={onSelectAppointment}
+                onUpdateAppointmentSmiley={onUpdateAppointmentSmiley}
                 patient={patient}
                 patientAppointments={patientAppointments}
                 patientDisplayName={patientDisplayName}
                 practiceId={practiceId}
+                ruleSetId={ruleSetId}
                 selectedAppointmentId={selectedAppointmentId}
                 selectedPatientId={selectedPatientId}
                 selectedSeriesId={selectedSeriesId}
@@ -329,15 +401,141 @@ export function useRightSidebar(): Result<
   return ok(context);
 }
 
+function AppointmentSmileyEditor({
+  appointment,
+  disabled,
+  onChange,
+  options,
+}: {
+  appointment: SidebarAppointment;
+  disabled: boolean;
+  onChange: (smiley: AppointmentSmiley | null) => void;
+  options: readonly AppointmentSmileyOption[];
+}) {
+  const selectedOption =
+    appointment.smiley === undefined
+      ? undefined
+      : options.find((option) => option.emoji === appointment.smiley);
+  const hasSmiley = appointment.smiley !== undefined;
+
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="flex items-start gap-2">
+        <Popover>
+          <PopoverTrigger asChild>
+            {hasSmiley ? (
+              <Button
+                aria-label="Termin-Smiley ändern"
+                className="h-auto min-w-0 flex-1 justify-start rounded-md border bg-background px-2 py-1.5 text-left font-normal hover:bg-muted/50"
+                disabled={disabled}
+                onClick={(event) => {
+                  event.stopPropagation();
+                }}
+                type="button"
+                variant="ghost"
+              >
+                <span className="flex min-w-0 items-start gap-2">
+                  <span aria-hidden="true" className="text-base leading-none">
+                    {appointment.smiley}
+                  </span>
+                  <span className="min-w-0 text-xs">
+                    <span className="block truncate font-medium">
+                      {selectedOption?.name ?? "Unbekannter Termin-Smiley"}
+                    </span>
+                    {selectedOption === undefined ? (
+                      <span className="block text-muted-foreground">
+                        Nicht mehr konfiguriert
+                      </span>
+                    ) : null}
+                  </span>
+                </span>
+              </Button>
+            ) : (
+              <Button
+                aria-label="Termin-Smiley auswählen"
+                className="h-8 w-8 shrink-0"
+                disabled={disabled}
+                onClick={(event) => {
+                  event.stopPropagation();
+                }}
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-64 p-2"
+            onClick={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            <div className="space-y-1">
+              {options.length === 0 ? (
+                <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                  Keine Smileys konfiguriert.
+                </p>
+              ) : (
+                options.map((option) => (
+                  <Button
+                    className="h-auto w-full justify-start gap-2 px-2 py-1.5 text-left"
+                    disabled={disabled}
+                    key={option.emoji}
+                    onClick={() => {
+                      onChange(option.emoji);
+                    }}
+                    type="button"
+                    variant={
+                      appointment.smiley === option.emoji
+                        ? "secondary"
+                        : "ghost"
+                    }
+                  >
+                    <span aria-hidden="true" className="text-base">
+                      {option.emoji}
+                    </span>
+                    <span className="min-w-0 truncate text-sm">
+                      {option.name}
+                    </span>
+                  </Button>
+                ))
+              )}
+              {appointment.smiley === undefined ? null : (
+                <Button
+                  className="h-8 w-full justify-start gap-2 px-2 text-sm"
+                  disabled={disabled}
+                  onClick={() => {
+                    onChange(null);
+                  }}
+                  type="button"
+                  variant="ghost"
+                >
+                  <X className="h-4 w-4" />
+                  Entfernen
+                </Button>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+    </div>
+  );
+}
+
 function RightSidebarContent({
   handleLinkWithPvs,
   handleOpenInPvs,
   onPatientSelected,
   onSelectAppointment,
+  onUpdateAppointmentSmiley,
   patient,
   patientAppointments,
   patientDisplayName,
   practiceId,
+  ruleSetId,
   selectedAppointmentId,
   selectedPatientId,
   selectedSeriesId,
@@ -347,15 +545,48 @@ function RightSidebarContent({
   handleOpenInPvs: () => void;
   onPatientSelected: ((patient?: PracticePatientSelection) => void) | undefined;
   onSelectAppointment: ((appointment: SidebarAppointment) => void) | undefined;
+  onUpdateAppointmentSmiley:
+    | ((args: {
+        id: Id<"appointments">;
+        smiley: AppointmentSmiley | null;
+      }) => Promise<void>)
+    | undefined;
   patient: PatientInfo | undefined;
   patientAppointments: SidebarAppointment[] | undefined;
   patientDisplayName: string;
   practiceId: Id<"practices"> | undefined;
+  ruleSetId: Id<"ruleSets"> | undefined;
   selectedAppointmentId: Id<"appointments"> | undefined;
   selectedPatientId: Id<"patients"> | undefined;
   selectedSeriesId: string | undefined;
   showGdtAlert: boolean | undefined;
 }) {
+  const [pendingSmileyAppointmentId, startSmileyTransition] =
+    React.useTransition();
+  const appointmentSmileyOptionsRuleSetId =
+    resolveAppointmentSmileyOptionsRuleSetId({
+      defaultRuleSetId: ruleSetId,
+      patientAppointments,
+      selectedAppointmentId,
+      selectedSeriesId,
+    });
+  const ruleSetAppointmentSmileyOptions = useQuery(
+    api.ruleSets.getAppointmentSmileyOptionsForRuleSet,
+    practiceId && appointmentSmileyOptionsRuleSetId
+      ? { practiceId, ruleSetId: appointmentSmileyOptionsRuleSetId }
+      : "skip",
+  );
+  const practiceAppointmentSmileyOptions = useQuery(
+    api.practices.getAppointmentSmileyOptions,
+    practiceId && !appointmentSmileyOptionsRuleSetId ? { practiceId } : "skip",
+  );
+  const appointmentSmileyOptions =
+    appointmentSmileyOptionsRuleSetId === undefined
+      ? practiceAppointmentSmileyOptions
+      : ruleSetAppointmentSmileyOptions;
+  const updateAppointmentSmiley = useMutation(
+    api.appointments.updateAppointmentSmiley,
+  );
   const bookingFieldEntries =
     patient?.userId === undefined ? [] : getBookingFieldEntries(patient);
 
@@ -498,31 +729,80 @@ function RightSidebarContent({
                     </div>
                     <div className="space-y-1">
                       {patientAppointments.toReversed().map((appointment) => {
+                        const isExactSelectedAppointment =
+                          shouldShowAppointmentSmileyEditor({
+                            appointmentId: appointment._id,
+                            selectedAppointmentId,
+                          });
+                        const showSmileyInTitle =
+                          shouldShowAppointmentSmileyInTitle({
+                            appointmentId: appointment._id,
+                            selectedAppointmentId,
+                            smiley: appointment.smiley,
+                          });
                         const isSelected =
-                          selectedAppointmentId === appointment._id ||
+                          isExactSelectedAppointment ||
                           (selectedSeriesId !== undefined &&
                             appointment.seriesId === selectedSeriesId);
                         return (
-                          <button
+                          <div
                             className={cn(
-                              "w-full text-left p-2 rounded-md text-sm transition-colors",
-                              "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                              "rounded-md p-2 text-sm transition-colors",
                               isSelected &&
                                 "bg-info-muted text-info-foreground ring-2 ring-selection-ring",
                             )}
                             key={appointment._id}
-                            onClick={() => onSelectAppointment?.(appointment)}
                           >
-                            <p className="font-medium truncate">
-                              {appointment.title}
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {appointment.appointmentTypeTitle}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {formatAppointmentDateTime(appointment.start)}
-                            </p>
-                          </button>
+                            <button
+                              className={cn(
+                                "w-full rounded-sm text-left transition-colors",
+                                "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                              )}
+                              onClick={() => onSelectAppointment?.(appointment)}
+                              type="button"
+                            >
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                {showSmileyInTitle ? (
+                                  <span
+                                    aria-hidden="true"
+                                    className="shrink-0 text-sm leading-none"
+                                  >
+                                    {appointment.smiley}
+                                  </span>
+                                ) : null}
+                                <p className="truncate font-medium">
+                                  {appointment.title}
+                                </p>
+                              </div>
+                              <p className="text-xs text-muted-foreground truncate">
+                                {appointment.appointmentTypeTitle}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatAppointmentDateTime(appointment.start)}
+                              </p>
+                            </button>
+                            {isExactSelectedAppointment &&
+                              appointmentSmileyOptions && (
+                                <AppointmentSmileyEditor
+                                  appointment={appointment}
+                                  disabled={pendingSmileyAppointmentId}
+                                  onChange={(smiley) => {
+                                    startSmileyTransition(() => {
+                                      void (onUpdateAppointmentSmiley
+                                        ? onUpdateAppointmentSmiley({
+                                            id: appointment._id,
+                                            smiley,
+                                          })
+                                        : updateAppointmentSmiley({
+                                            id: appointment._id,
+                                            smiley,
+                                          }));
+                                    });
+                                  }}
+                                  options={appointmentSmileyOptions}
+                                />
+                              )}
+                          </div>
                         );
                       })}
                     </div>

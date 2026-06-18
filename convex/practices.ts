@@ -15,6 +15,10 @@ import {
 import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
 import { allocateUniquePracticeSlug } from "./practiceSlugs";
 import {
+  type AppointmentSmileyOption,
+  appointmentSmileyOptionValidator,
+} from "./schema";
+import {
   ensureAuthenticatedUserId,
   getAuthenticatedUserIdForQueryOrNull,
   requireAuthenticatedUserIdForQuery,
@@ -24,32 +28,51 @@ import { createOrganizationPracticeForCurrentUser } from "./workosOrganizations"
 const practiceListItemValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("practices"),
+  appointmentSmileyOptions: v.optional(
+    v.array(appointmentSmileyOptionValidator),
+  ),
   currentActiveRuleSetId: v.optional(v.id("ruleSets")),
   name: v.string(),
   slug: v.optional(v.string()),
   workOSOrganizationId: v.optional(v.string()),
 });
+export const MAX_APPOINTMENT_SMILEY_OPTIONS = 24;
 
-function toPublicPractice(practice: Doc<"practices">): {
-  _creationTime: number;
-  _id: Id<"practices">;
-  currentActiveRuleSetId?: Id<"ruleSets">;
-  name: string;
-  slug?: string;
-  workOSOrganizationId?: string;
-} {
-  return {
-    _creationTime: practice._creationTime,
-    _id: practice._id,
-    ...(practice.currentActiveRuleSetId !== undefined && {
-      currentActiveRuleSetId: practice.currentActiveRuleSetId,
-    }),
-    name: practice.name,
-    ...(practice.slug !== undefined && { slug: practice.slug }),
-    ...(practice.workOSOrganizationId !== undefined && {
-      workOSOrganizationId: practice.workOSOrganizationId,
-    }),
-  };
+export function normalizeAppointmentSmileyOptions(
+  options: AppointmentSmileyOption[],
+): AppointmentSmileyOption[] {
+  const normalized: AppointmentSmileyOption[] = [];
+  const seen = new Set<string>();
+  const seenIds = new Set<string>();
+
+  for (const option of options) {
+    const emoji = option.emoji.trim();
+    const id = option.id.trim();
+    const name = option.name.trim();
+    if (emoji.length === 0 || name.length === 0) {
+      throw new Error("Termin-Smileys benötigen Emoji und Name.");
+    }
+    if (id.length === 0) {
+      throw new Error("Termin-Smiley IDs dürfen nicht leer sein.");
+    }
+    if (seen.has(emoji)) {
+      throw new Error("Jedes Termin-Smiley darf nur einmal vorkommen.");
+    }
+    if (seenIds.has(id)) {
+      throw new Error("Termin-Smiley IDs müssen eindeutig sein.");
+    }
+    seenIds.add(id);
+    seen.add(emoji);
+    normalized.push({ emoji, id, name });
+  }
+
+  if (normalized.length > MAX_APPOINTMENT_SMILEY_OPTIONS) {
+    throw new Error(
+      `Es können maximal ${MAX_APPOINTMENT_SMILEY_OPTIONS} Termin-Smileys konfiguriert werden.`,
+    );
+  }
+
+  return normalized;
 }
 
 const publicBookingPracticeValidator = v.object({
@@ -79,6 +102,32 @@ function toPublicBookingPractice(practice: {
     hasActiveRuleSet: practice.currentActiveRuleSetId !== undefined,
     name: practice.name,
     ...(practice.slug === undefined ? {} : { slug: practice.slug }),
+  };
+}
+
+function toPublicPractice(practice: Doc<"practices">): {
+  _creationTime: number;
+  _id: Id<"practices">;
+  appointmentSmileyOptions?: AppointmentSmileyOption[];
+  currentActiveRuleSetId?: Id<"ruleSets">;
+  name: string;
+  slug?: string;
+  workOSOrganizationId?: string;
+} {
+  return {
+    _creationTime: practice._creationTime,
+    _id: practice._id,
+    ...(practice.appointmentSmileyOptions !== undefined && {
+      appointmentSmileyOptions: practice.appointmentSmileyOptions,
+    }),
+    ...(practice.currentActiveRuleSetId !== undefined && {
+      currentActiveRuleSetId: practice.currentActiveRuleSetId,
+    }),
+    name: practice.name,
+    ...(practice.slug !== undefined && { slug: practice.slug }),
+    ...(practice.workOSOrganizationId !== undefined && {
+      workOSOrganizationId: practice.workOSOrganizationId,
+    }),
   };
 }
 
@@ -112,6 +161,7 @@ export const getAllPractices = query({
     const practices: {
       _creationTime: number;
       _id: Id<"practices">;
+      appointmentSmileyOptions?: AppointmentSmileyOption[];
       currentActiveRuleSetId?: Id<"ruleSets">;
       name: string;
       slug?: string;
@@ -131,6 +181,9 @@ export const getAllPractices = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("practices"),
+      appointmentSmileyOptions: v.optional(
+        v.array(appointmentSmileyOptionValidator),
+      ),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
       slug: v.optional(v.string()),
@@ -197,6 +250,9 @@ export const getPractice = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("practices"),
+      appointmentSmileyOptions: v.optional(
+        v.array(appointmentSmileyOptionValidator),
+      ),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
       slug: v.optional(v.string()),
@@ -226,6 +282,9 @@ export const getAccessiblePracticeBySlug = query({
     v.object({
       _creationTime: v.number(),
       _id: v.id("practices"),
+      appointmentSmileyOptions: v.optional(
+        v.array(appointmentSmileyOptionValidator),
+      ),
       currentActiveRuleSetId: v.optional(v.id("ruleSets")),
       name: v.string(),
       slug: v.optional(v.string()),
@@ -252,6 +311,18 @@ export const getBookingPracticeBySlug = query({
     return null;
   },
   returns: v.union(publicBookingPracticeValidator, v.null()),
+});
+
+export const getAppointmentSmileyOptions = query({
+  args: {
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    const practice = await ctx.db.get("practices", args.practiceId);
+    return practice?.appointmentSmileyOptions ?? [];
+  },
+  returns: v.array(appointmentSmileyOptionValidator),
 });
 
 export const listPracticePhoneNumbers = query({

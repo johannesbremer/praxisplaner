@@ -26,6 +26,7 @@ type CowLineageRuleSetCommandKind = Exclude<
   | "location.update"
   | "mfa.create"
   | "mfa.delete"
+  | "practice.appointmentSmileyOptions.update"
   | "practitioner.create"
   | "practitioner.update"
   | "schedulingRule.create"

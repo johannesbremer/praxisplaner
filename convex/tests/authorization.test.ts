@@ -399,6 +399,22 @@ describe("Convex query authorization", () => {
       email,
     );
     await setMembershipRole(t, { practiceId, role: "staff", userId });
+    const activeRuleSetId = await t.run(async (ctx) => {
+      const practice = await ctx.db.get("practices", practiceId);
+      if (!practice?.currentActiveRuleSetId) {
+        throw new Error("Expected active rule set");
+      }
+      await ctx.db.patch("ruleSets", practice.currentActiveRuleSetId, {
+        appointmentSmileyOptions: [
+          {
+            emoji: "👍",
+            id: "arrived",
+            name: "Patient ist angekommen",
+          },
+        ],
+      });
+      return practice.currentActiveRuleSetId;
+    });
 
     await expect(
       authed.query(api.practices.getPractice, { practiceId }),
@@ -409,6 +425,18 @@ describe("Convex query authorization", () => {
     await expect(
       authed.query(api.ruleSets.getActiveRuleSet, { practiceId }),
     ).resolves.toMatchObject({ _id: expect.any(String) });
+    await expect(
+      authed.query(api.ruleSets.getAppointmentSmileyOptionsForRuleSet, {
+        practiceId,
+        ruleSetId: activeRuleSetId,
+      }),
+    ).resolves.toEqual([
+      {
+        emoji: "👍",
+        id: "arrived",
+        name: "Patient ist angekommen",
+      },
+    ]);
   });
 
   test("staff cannot perform manager-only rule-set lifecycle mutations", async () => {
@@ -424,6 +452,26 @@ describe("Convex query authorization", () => {
 
     await expect(
       authed.mutation(api.ruleSets.discardUnsavedRuleSet, { practiceId }),
+    ).rejects.toThrow("Role staff is insufficient");
+    const practice = await t.run(
+      async (ctx) => await ctx.db.get("practices", practiceId),
+    );
+    if (!practice?.currentActiveRuleSetId) {
+      throw new Error("Expected active rule set");
+    }
+    await expect(
+      authed.mutation(api.ruleSets.updateAppointmentSmileyOptionsForRuleSet, {
+        expectedDraftRevision: null,
+        options: [
+          {
+            emoji: "👍",
+            id: "arrived",
+            name: "Patient ist angekommen",
+          },
+        ],
+        practiceId,
+        selectedRuleSetId: practice.currentActiveRuleSetId,
+      }),
     ).rejects.toThrow("Role staff is insufficient");
   });
 

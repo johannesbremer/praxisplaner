@@ -28,7 +28,11 @@ import {
   resolvePractitionerLineageKey,
   resolveStoredAppointmentReferencesForWrite,
 } from "./appointmentReferences";
-import { isActivationBoundSimulation } from "./appointmentSimulation";
+import {
+  appointmentReplacementInsertFields,
+  appointmentReplacementState,
+  isActivationBoundSimulation,
+} from "./appointmentSimulation";
 import { bumpDraftRevision } from "./copyOnWrite";
 import {
   asAppointmentTypeLineageKey,
@@ -939,23 +943,18 @@ export const createVacationWithCoverageAdjustments = mutation({
       );
 
       const nextAppointmentData = {
-        appointmentTypeLineageKey: storedReferences.appointmentTypeLineageKey,
-        appointmentTypeTitle: appointment.appointmentTypeTitle,
-        end: appointment.end,
-        lastModified: now,
-        locationLineageKey: storedReferences.locationLineageKey,
-        occupancyScope: appointmentOccupancyScopeFromRefs({
-          practitionerLineageKey: storedReferences.practitionerLineageKey,
+        ...appointmentReplacementState(appointment, {
+          appointmentTypeLineageKey: storedReferences.appointmentTypeLineageKey,
+          locationLineageKey: storedReferences.locationLineageKey,
+          occupancyScope: appointmentOccupancyScopeFromRefs({
+            practitionerLineageKey: storedReferences.practitionerLineageKey,
+          }),
         }),
-        ...(appointment.patientId ? { patientId: appointment.patientId } : {}),
-        practiceId: args.practiceId,
+        lastModified: now,
         reassignmentSourceVacationLineageKey: vacationLineageKey,
         replacesAppointmentId: appointment._id,
         simulationKind: "activation-reassignment" as const,
         simulationRuleSetId: ruleSetId,
-        start: appointment.start,
-        title: appointment.title,
-        ...(appointment.userId ? { userId: appointment.userId } : {}),
       };
 
       if (existingSimulationAppointment) {
@@ -966,9 +965,21 @@ export const createVacationWithCoverageAdjustments = mutation({
         });
       } else {
         await ctx.db.insert("appointments", {
-          ...nextAppointmentData,
+          ...appointmentReplacementInsertFields(appointment, {
+            appointmentTypeLineageKey:
+              storedReferences.appointmentTypeLineageKey,
+            locationLineageKey: storedReferences.locationLineageKey,
+            occupancyScope: appointmentOccupancyScopeFromRefs({
+              practitionerLineageKey: storedReferences.practitionerLineageKey,
+            }),
+          }),
           createdAt: now,
           isSimulation: true,
+          lastModified: now,
+          reassignmentSourceVacationLineageKey: vacationLineageKey,
+          replacesAppointmentId: appointment._id,
+          simulationKind: "activation-reassignment" as const,
+          simulationRuleSetId: ruleSetId,
           simulationValidatedAt: now,
         });
       }

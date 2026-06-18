@@ -93,6 +93,7 @@ describe("calendar planning replay", () => {
             Promise.reject(new Error("not found")),
           ),
           runDeleteBlockedSlotInternal: vi.fn(),
+          runRestoreDeletedAppointmentInternal: vi.fn(),
           runUpdateAppointmentInternal: vi.fn(),
           runUpdateBlockedSlotInternal: vi.fn(),
         },
@@ -169,6 +170,7 @@ describe("calendar planning replay", () => {
           runDeleteBlockedSlotInternal: vi.fn(() =>
             Promise.reject(new Error("not found")),
           ),
+          runRestoreDeletedAppointmentInternal: vi.fn(),
           runUpdateAppointmentInternal: vi.fn(),
           runUpdateBlockedSlotInternal: vi.fn(),
         },
@@ -247,6 +249,7 @@ describe("calendar planning replay", () => {
             Promise.reject(new Error("permission denied")),
           ),
           runDeleteBlockedSlotInternal: vi.fn(),
+          runRestoreDeletedAppointmentInternal: vi.fn(),
           runUpdateAppointmentInternal: vi.fn(),
           runUpdateBlockedSlotInternal: vi.fn(),
         },
@@ -281,6 +284,7 @@ describe("calendar planning replay", () => {
     const beforeEnd = "2026-04-25T09:30:00+02:00[Europe/Berlin]" as const;
     const afterStart = "2026-04-25T09:30:00+02:00[Europe/Berlin]" as const;
     const afterEnd = "2026-04-25T10:00:00+02:00[Europe/Berlin]" as const;
+    const smiley = "😴";
     const before = buildCalendarAppointmentRecord({
       _id: appointmentId,
       appointmentTypeLineageKey,
@@ -288,12 +292,14 @@ describe("calendar planning replay", () => {
       end: beforeEnd,
       placement: beforePlacement,
       practiceId,
+      smiley,
       start: beforeStart,
       title: "Check-up",
     });
     const afterState = {
       end: afterEnd,
       placement: beforePlacement,
+      smiley,
       start: afterStart,
     };
     const afterSnapshot = {
@@ -304,6 +310,7 @@ describe("calendar planning replay", () => {
       vi.fn<
         CalendarPlanningCommandExecutorContext["rememberAppointmentHistoryDoc"]
       >();
+    const runUpdateAppointmentInternal = vi.fn(() => Promise.resolve(null));
 
     const result = await executeCalendarPlanningCommand(
       {
@@ -317,6 +324,7 @@ describe("calendar planning replay", () => {
           beforeState: {
             end: before.end,
             placement: before.placement,
+            smiley,
             start: before.start,
           },
         },
@@ -362,18 +370,211 @@ describe("calendar planning replay", () => {
         runCreateBlockedSlotInternal: vi.fn(),
         runDeleteAppointmentInternal: vi.fn(),
         runDeleteBlockedSlotInternal: vi.fn(),
-        runUpdateAppointmentInternal: vi.fn(() => Promise.resolve(null)),
+        runRestoreDeletedAppointmentInternal: vi.fn(),
+        runUpdateAppointmentInternal,
         runUpdateBlockedSlotInternal: vi.fn(),
       },
     );
 
     expect(result).toEqual({ status: "applied" });
+    expect(runUpdateAppointmentInternal).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        smiley: expect.anything(),
+      }),
+    );
     expect(rememberAppointmentHistoryDoc).toHaveBeenCalledWith(
       expect.objectContaining({
         lastModified: 1_234n,
         start: afterState.start,
       }),
     );
+  });
+
+  it("replays smiley-only appointment updates without scheduling fields", async () => {
+    const appointmentId = toTableId<"appointments">("appointment_1");
+    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("type_lineage_1"),
+    );
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const placement = createCalendarPlacement({
+      locationLineageKey,
+      occupancyScope: {
+        calendarResourceColumn: "ekg",
+        kind: "resource",
+      },
+    });
+    const before = buildCalendarAppointmentRecord({
+      _id: appointmentId,
+      appointmentTypeLineageKey,
+      appointmentTypeTitle: "Check-up",
+      end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      placement,
+      practiceId,
+      start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+      title: "Check-up",
+    });
+    const afterSnapshot = {
+      ...before,
+      smiley: "👍",
+    };
+    const runUpdateAppointmentInternal = vi.fn(() => Promise.resolve(null));
+
+    const result = await executeCalendarPlanningCommand(
+      {
+        kind: "appointment.update",
+        label: "Termin-Smiley geändert",
+        payload: {
+          afterSnapshot,
+          afterState: {
+            end: before.end,
+            placement,
+            smiley: "👍",
+            start: before.start,
+          },
+          appointmentId,
+          before,
+          beforeState: {
+            end: before.end,
+            placement,
+            start: before.start,
+          },
+        },
+      },
+      "redo",
+      {
+        ensureLatestConflictData: vi.fn(() => Promise.resolve()),
+        forgetAppointmentHistoryDoc: vi.fn(),
+        forgetBlockedSlotHistoryDoc: vi.fn(),
+        getCurrentAppointmentDoc: () => before,
+        getCurrentBlockedSlotDoc: vi.fn(),
+        hasAppointmentConflict: () => false,
+        hasBlockedSlotConflict: () => false,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map(),
+          appointmentTypeLineageKeyById: new Map(),
+          locationIdByLineageKey: new Map(),
+          locationLineageKeyById: new Map(),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        rememberAppointmentHistoryDoc: vi.fn(),
+        rememberBlockedSlotHistoryDoc: vi.fn(),
+        rememberCreatedAppointmentFromStrings: vi.fn(),
+        rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
+        rememberRecreatedAppointmentId: vi.fn(),
+        rememberRecreatedBlockedSlotId: vi.fn(),
+        resolveAppointmentReferenceDisplayIds: vi.fn(),
+        resolveCurrentAppointmentId: (id) => id,
+        resolveCurrentBlockedSlotId: (id) => id,
+        runCreateAppointmentInternal: vi.fn(),
+        runCreateBlockedSlotInternal: vi.fn(),
+        runDeleteAppointmentInternal: vi.fn(),
+        runDeleteBlockedSlotInternal: vi.fn(),
+        runRestoreDeletedAppointmentInternal: vi.fn(),
+        runUpdateAppointmentInternal,
+        runUpdateBlockedSlotInternal: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({ status: "applied" });
+    expect(runUpdateAppointmentInternal).toHaveBeenCalledWith({
+      id: appointmentId,
+      smiley: "👍",
+    });
+  });
+
+  it("skips no-op appointment update replay without calling the backend", async () => {
+    const appointmentId = toTableId<"appointments">("appointment_1");
+    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("type_lineage_1"),
+    );
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const placement = createCalendarPlacement({
+      locationLineageKey,
+      occupancyScope: {
+        calendarResourceColumn: "ekg",
+        kind: "resource",
+      },
+    });
+    const before = buildCalendarAppointmentRecord({
+      _id: appointmentId,
+      appointmentTypeLineageKey,
+      appointmentTypeTitle: "Check-up",
+      end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      placement,
+      practiceId,
+      smiley: "👍",
+      start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+      title: "Check-up",
+    });
+    const runUpdateAppointmentInternal = vi.fn(() => Promise.resolve(null));
+
+    const result = await executeCalendarPlanningCommand(
+      {
+        kind: "appointment.update",
+        label: "Termin-Smiley geändert",
+        payload: {
+          afterSnapshot: before,
+          afterState: {
+            end: before.end,
+            placement,
+            smiley: "👍",
+            start: before.start,
+          },
+          appointmentId,
+          before,
+          beforeState: {
+            end: before.end,
+            placement,
+            smiley: "👍",
+            start: before.start,
+          },
+        },
+      },
+      "redo",
+      {
+        ensureLatestConflictData: vi.fn(() => Promise.resolve()),
+        forgetAppointmentHistoryDoc: vi.fn(),
+        forgetBlockedSlotHistoryDoc: vi.fn(),
+        getCurrentAppointmentDoc: () => before,
+        getCurrentBlockedSlotDoc: vi.fn(),
+        hasAppointmentConflict: () => false,
+        hasBlockedSlotConflict: () => false,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map(),
+          appointmentTypeLineageKeyById: new Map(),
+          locationIdByLineageKey: new Map(),
+          locationLineageKeyById: new Map(),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        rememberAppointmentHistoryDoc: vi.fn(),
+        rememberBlockedSlotHistoryDoc: vi.fn(),
+        rememberCreatedAppointmentFromStrings: vi.fn(),
+        rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
+        rememberRecreatedAppointmentId: vi.fn(),
+        rememberRecreatedBlockedSlotId: vi.fn(),
+        resolveAppointmentReferenceDisplayIds: vi.fn(),
+        resolveCurrentAppointmentId: (id) => id,
+        resolveCurrentBlockedSlotId: (id) => id,
+        runCreateAppointmentInternal: vi.fn(),
+        runCreateBlockedSlotInternal: vi.fn(),
+        runDeleteAppointmentInternal: vi.fn(),
+        runDeleteBlockedSlotInternal: vi.fn(),
+        runRestoreDeletedAppointmentInternal: vi.fn(),
+        runUpdateAppointmentInternal,
+        runUpdateBlockedSlotInternal: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({ status: "noop" });
+    expect(runUpdateAppointmentInternal).not.toHaveBeenCalled();
   });
 
   it("treats already-applied appointment update redo as applied", async () => {
@@ -465,6 +666,7 @@ describe("calendar planning replay", () => {
         runCreateBlockedSlotInternal: vi.fn(),
         runDeleteAppointmentInternal: vi.fn(),
         runDeleteBlockedSlotInternal: vi.fn(),
+        runRestoreDeletedAppointmentInternal: vi.fn(),
         runUpdateAppointmentInternal,
         runUpdateBlockedSlotInternal: vi.fn(),
       },
@@ -605,6 +807,7 @@ describe("calendar planning replay", () => {
       runCreateBlockedSlotInternal: vi.fn(),
       runDeleteAppointmentInternal: vi.fn(),
       runDeleteBlockedSlotInternal: vi.fn(),
+      runRestoreDeletedAppointmentInternal: vi.fn(),
       runUpdateAppointmentInternal,
       runUpdateBlockedSlotInternal: vi.fn(),
     } satisfies CalendarPlanningCommandExecutorContext;
@@ -754,6 +957,7 @@ describe("calendar planning replay", () => {
       ),
       runDeleteAppointmentInternal: vi.fn(),
       runDeleteBlockedSlotInternal: vi.fn(),
+      runRestoreDeletedAppointmentInternal: vi.fn(),
       runUpdateAppointmentInternal: vi.fn(),
       runUpdateBlockedSlotInternal,
     } satisfies CalendarPlanningCommandExecutorContext;
@@ -822,6 +1026,9 @@ describe("calendar planning replay", () => {
       vi.fn<
         CalendarPlanningCommandExecutorContext["rememberRecreatedAppointmentId"]
       >();
+    const hasAppointmentConflict = vi.fn<
+      CalendarPlanningCommandExecutorContext["hasAppointmentConflict"]
+    >(() => false);
 
     const result = await executeCalendarPlanningCommand(
       {
@@ -836,7 +1043,7 @@ describe("calendar planning replay", () => {
             start: deleted.start,
             title: deleted.title,
           },
-          createEnd: deleted.end,
+          createEnd: "2026-04-25T10:00:00+02:00[Europe/Berlin]",
           currentAppointmentId: originalAppointmentId,
           deleted,
         },
@@ -848,7 +1055,7 @@ describe("calendar planning replay", () => {
         forgetBlockedSlotHistoryDoc: vi.fn(),
         getCurrentAppointmentDoc: vi.fn(),
         getCurrentBlockedSlotDoc: vi.fn(),
-        hasAppointmentConflict: () => false,
+        hasAppointmentConflict,
         hasBlockedSlotConflict: () => false,
         referenceMaps: {
           appointmentTypeIdByLineageKey: new Map(),
@@ -867,18 +1074,22 @@ describe("calendar planning replay", () => {
         resolveAppointmentReferenceDisplayIds: vi.fn(),
         resolveCurrentAppointmentId: (id) => id,
         resolveCurrentBlockedSlotId: (id) => id,
-        runCreateAppointmentInternal: vi.fn(() =>
-          Promise.resolve(recreatedAppointmentId),
-        ),
+        runCreateAppointmentInternal: vi.fn(),
         runCreateBlockedSlotInternal: vi.fn(),
         runDeleteAppointmentInternal: vi.fn(),
         runDeleteBlockedSlotInternal: vi.fn(),
+        runRestoreDeletedAppointmentInternal: vi.fn(() =>
+          Promise.resolve(recreatedAppointmentId),
+        ),
         runUpdateAppointmentInternal: vi.fn(),
         runUpdateBlockedSlotInternal: vi.fn(),
       },
     );
 
     expect(result).toEqual({ status: "applied" });
+    expect(hasAppointmentConflict).toHaveBeenCalledWith(
+      expect.objectContaining({ end: deleted.end }),
+    );
     expect(rememberRecreatedAppointmentId).toHaveBeenCalledWith({
       currentId: recreatedAppointmentId,
       originalId: originalAppointmentId,
@@ -962,6 +1173,7 @@ describe("calendar planning replay", () => {
         ),
         runDeleteAppointmentInternal: vi.fn(),
         runDeleteBlockedSlotInternal: vi.fn(),
+        runRestoreDeletedAppointmentInternal: vi.fn(),
         runUpdateAppointmentInternal: vi.fn(),
         runUpdateBlockedSlotInternal: vi.fn(),
       },

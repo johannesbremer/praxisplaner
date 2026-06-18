@@ -43,6 +43,7 @@ import type {
 
 import { createSimulatedContext } from "../../lib/utils";
 import { PraxismanagerAuthGate } from "../auth/access-control";
+import { AppointmentSmileyOptionsManagement } from "../components/appointment-smiley-options-management";
 import { AppointmentTypesManagement } from "../components/appointment-types-management";
 import BaseScheduleManagement from "../components/base-schedule-management";
 import { LocationsManagement } from "../components/locations-management";
@@ -55,6 +56,7 @@ import { VersionGraph } from "../components/version-graph/index";
 import { useRegisterGlobalUndoRedoControls } from "../hooks/use-global-undo-redo-controls";
 import { useCommandLedger } from "../utils/command-ledger";
 import { findIdInList } from "../utils/convex-ids";
+import { ruleSetHistoryScopeFromReplayTarget } from "../utils/cow-history";
 import { isValidDateDE } from "../utils/date-utils";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
@@ -648,16 +650,8 @@ function LogicView() {
   ]);
 
   const historyScopeKey = useMemo(() => {
-    const isWorkingOnUnsavedRuleSet =
-      unsavedRuleSet && currentWorkingRuleSet?._id === unsavedRuleSet._id;
-    if (isWorkingOnUnsavedRuleSet && unsavedRuleSet.parentVersion) {
-      return unsavedRuleSet.parentVersion;
-    }
-    if (ruleSetIdFromUrl) {
-      return ruleSetIdFromUrl;
-    }
-    return null;
-  }, [currentWorkingRuleSet?._id, ruleSetIdFromUrl, unsavedRuleSet]);
+    return ruleSetHistoryScopeFromReplayTarget(ruleSetReplayTarget);
+  }, [ruleSetReplayTarget]);
   const lastHistoryScopeRef = useRef<null | string>(historyScopeKey);
   const recordRegelnCommand = useCallback(
     (command: RuleSetCommand, runtime: RuleSetCommandRuntimeAdapter) => {
@@ -680,6 +674,10 @@ function LogicView() {
 
   React.useEffect(() => {
     if (!historyScopeKey) {
+      if (lastHistoryScopeRef.current) {
+        clearRegelnLedger(lastHistoryScopeRef.current);
+        lastHistoryScopeRef.current = null;
+      }
       return;
     }
     if (!lastHistoryScopeRef.current) {
@@ -1040,6 +1038,8 @@ function LogicView() {
           practiceId: currentPractice._id,
           setAsActive: true,
         });
+        clearRegelnLedger();
+        ruleSetCommandRuntimesRef.current.clear();
       } else {
         // Just activate an already-saved rule set
         await activateRuleSetMutation({
@@ -1107,6 +1107,8 @@ function LogicView() {
             practiceId: currentPractice._id,
             setAsActive: false, // Key difference: don't activate
           });
+          clearRegelnLedger();
+          ruleSetCommandRuntimesRef.current.clear();
         }
         // If it's already saved, there's nothing to do
 
@@ -1380,6 +1382,15 @@ function LogicView() {
                   {/* Locations Management */}
                   {ruleSetReplayTarget && (
                     <LocationsManagement
+                      onDraftMutation={handleDraftMutation}
+                      onRecordCommand={recordRegelnCommand}
+                      practiceId={currentPractice._id}
+                      ruleSetReplayTarget={ruleSetReplayTarget}
+                    />
+                  )}
+
+                  {ruleSetReplayTarget && (
+                    <AppointmentSmileyOptionsManagement
                       onDraftMutation={handleDraftMutation}
                       onRecordCommand={recordRegelnCommand}
                       practiceId={currentPractice._id}

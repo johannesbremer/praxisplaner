@@ -244,18 +244,20 @@ function AccountPage() {
               </div>
             </aside>
 
-            <div className="min-w-0 rounded-md border bg-card p-4">
-              {organization && authBypassEnabled ? (
-                <BypassPracticeMembers practiceId={organization.practiceId} />
-              ) : organization && !hasMultipleOrganizations ? (
-                <UsersManagementForOrganization
-                  organizationId={organization.id}
-                />
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  Legen Sie eine Praxis an, um Teammitglieder zu verwalten.
-                </div>
-              )}
+            <div className="min-w-0 space-y-4">
+              <div className="rounded-md border bg-card p-4">
+                {organization && authBypassEnabled ? (
+                  <BypassPracticeMembers practiceId={organization.practiceId} />
+                ) : organization && !hasMultipleOrganizations ? (
+                  <UsersManagementForOrganization
+                    organizationId={organization.id}
+                  />
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    Legen Sie eine Praxis an, um Teammitglieder zu verwalten.
+                  </div>
+                )}
+              </div>
             </div>
           </section>
         </div>

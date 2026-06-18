@@ -1851,6 +1851,36 @@ describe("appointment series", () => {
       },
     );
 
+    await t.run(async (ctx) => {
+      await ctx.db.patch("practices", practiceId, {
+        appointmentSmileyOptions: [
+          {
+            emoji: "👍",
+            id: "thumbs-up",
+            name: "Patient ist angekommen",
+          },
+        ],
+      });
+    });
+
+    const initialAppointments = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) =>
+          q.eq("seriesId", createdSeries.seriesId),
+        )
+        .collect();
+    });
+    const initialFollowUpAppointment = initialAppointments.find(
+      (appointment) => appointment.seriesStepIndex === 1n,
+    );
+    assertDefined(initialFollowUpAppointment);
+
+    await t.mutation(api.appointments.updateAppointment, {
+      id: initialFollowUpAppointment._id,
+      smiley: "👍",
+    });
+
     const storedSeries = await t.run(async (ctx) => {
       return await ctx.db
         .query("appointmentSeries")
@@ -1906,6 +1936,7 @@ describe("appointment series", () => {
         sortedUpdatedAppointments[1]?.start ?? shiftedRootStart,
       ),
     ).toBe(30);
+    expect(sortedUpdatedAppointments[1]?.smiley).toBe("👍");
     expect(
       Temporal.ZonedDateTime.from(
         sortedUpdatedAppointments[1]?.start ?? shiftedRootStart,
