@@ -2129,6 +2129,117 @@ describe("appointment series", () => {
     });
   });
 
+  test("appointment plans reject date-offset resource steps inside blocked ranges", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_series_resource_block_user",
+      "series-resource-block@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const ekgTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "EKG",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", ekgTypeId, {
+        lineageKey: ekgTypeId,
+      });
+      const rootTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: ekgTypeId,
+              occupancy: {
+                calendarResourceColumn: "ekg",
+                kind: "resourceColumn",
+              },
+              required: true,
+              stepId: "ekg-next-day",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "days",
+                offsetValue: 1,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Checkup + EKG",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootTypeId, {
+        lineageKey: rootTypeId,
+      });
+      return rootTypeId;
+    });
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const blockedStart = Temporal.ZonedDateTime.from(rootStart)
+      .add({ days: 1, minutes: 25 })
+      .toString();
+    const blockedEnd = Temporal.ZonedDateTime.from(rootStart)
+      .add({ days: 1, minutes: 45 })
+      .toString();
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("blockedSlots", {
+        createdAt: now,
+        end: blockedEnd,
+        lastModified: now,
+        locationLineageKey: locationId,
+        occupancyScope: { kind: "location-wide" },
+        practiceId,
+        start: blockedStart,
+        title: "Standort gesperrt",
+      });
+    });
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      ruleSetId,
+      start: rootStart,
+    });
+
+    expect(preview.status).toBe("blocked");
+    expect(preview.blockedStepId).toBe("ekg-next-day");
+
+    await expect(
+      t.mutation(api.appointments.createAppointmentSeries, {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Checkup + EKG",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      }),
+    ).rejects.toThrow("Kein verfügbarer Kettentermin");
+  });
+
   test("appointment plans block same-time steps on the inherited root practitioner", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
