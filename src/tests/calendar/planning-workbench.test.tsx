@@ -313,7 +313,7 @@ describe("calendar planning workbench", () => {
         calendarDayQueryArgs: null,
         getRequiredAppointmentTypeInfo: () => ({
           duration: 30,
-          hasFollowUpPlan: false,
+          hasAppointmentPlan: false,
           name: "Check-up",
         }),
         parseZonedDateTime,
@@ -416,7 +416,7 @@ describe("calendar planning workbench", () => {
         },
         getRequiredAppointmentTypeInfo: () => ({
           duration: 30,
-          hasFollowUpPlan: false,
+          hasAppointmentPlan: false,
           name: "Check-up",
         }),
         parseZonedDateTime,
@@ -518,7 +518,7 @@ describe("calendar planning workbench", () => {
         },
         getRequiredAppointmentTypeInfo: () => ({
           duration: 30,
-          hasFollowUpPlan: false,
+          hasAppointmentPlan: false,
           name: "Check-up",
         }),
         parseZonedDateTime,
