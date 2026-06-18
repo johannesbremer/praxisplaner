@@ -1959,6 +1959,29 @@ describe("appointment series", () => {
       .add({ days: 1, minutes: 45 })
       .toString();
 
+    const ekgBlockingAppointmentId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.patch("appointmentTypes", rootAppointmentTypeId, {
+        defaultOccupancy: {
+          calendarResourceColumn: "ekg",
+          kind: "resourceColumn",
+        },
+      });
+      return await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: rootAppointmentTypeId,
+        appointmentTypeTitle: "EKG blockiert",
+        createdAt: now,
+        end: shiftedRootEnd,
+        lastModified: now,
+        locationLineageKey: locationId,
+        occupancyScope: { calendarResourceColumn: "ekg", kind: "resource" },
+        practiceId,
+        start: shiftedRootStart,
+        title: "EKG gesperrt",
+        userId,
+      });
+    });
+
     await t.mutation(api.appointments.updateAppointment, {
       end: shiftedRootEnd,
       id: createdSeries.rootAppointmentId,
@@ -1981,6 +2004,13 @@ describe("appointment series", () => {
 
     expect(sortedUpdatedAppointments).toHaveLength(2);
     expect(sortedUpdatedAppointments[0]?.start).toBe(shiftedRootStart);
+    expect(sortedUpdatedAppointments[0]?.occupancyScope).toEqual({
+      kind: "practitioner",
+      practitionerLineageKey: practitionerId,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.delete("appointments", ekgBlockingAppointmentId);
+    });
     expect(
       calculateDurationMinutes(
         sortedUpdatedAppointments[0]?.end ?? shiftedRootEnd,

@@ -142,6 +142,9 @@ function buildAppointmentTypeTreeDiffText({
       const appointmentPlan = Array.isArray(parsed["appointmentPlan"])
         ? parsed["appointmentPlan"]
         : [];
+      const defaultOccupancy = formatAppointmentTypeTreeDefaultOccupancy(
+        parsed["defaultOccupancy"],
+      );
       const practitioners = Array.isArray(parsed["allowedPractitioners"])
         ? parsed["allowedPractitioners"]
             .filter((entry) => typeof entry === "string")
@@ -149,6 +152,7 @@ function buildAppointmentTypeTreeDiffText({
         : "";
       const metadata = [
         duration ? `${duration} Min.` : "",
+        defaultOccupancy ? `Standard-Belegung: ${defaultOccupancy}` : "",
         practitioners ? `Behandler: ${practitioners}` : "",
         formatAppointmentTypeTreeAppointmentPlan(appointmentPlan),
       ]
@@ -478,6 +482,30 @@ function formatAppointmentTypeTreeAppointmentPlan(steps: unknown[]) {
   });
 
   return `Kettentermine: ${stepSummaries.join("; ")}`;
+}
+
+function formatAppointmentTypeTreeDefaultOccupancy(value: unknown) {
+  if (!isRecord(value)) {
+    return "";
+  }
+
+  const kind = stringValue(value["kind"]);
+  if (kind === "selectedPractitioner") {
+    return "Behandler";
+  }
+  if (kind !== "resourceColumn") {
+    return "";
+  }
+
+  const resourceColumn = stringValue(value["calendarResourceColumn"]);
+  if (resourceColumn === "ekg") {
+    return "Raum EKG";
+  }
+  if (resourceColumn === "labor") {
+    return "Raum Labor";
+  }
+
+  return resourceColumn;
 }
 
 function formatChangedStructuredDiffValues(

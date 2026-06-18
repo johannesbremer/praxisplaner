@@ -46,6 +46,7 @@ import {
   createAppointmentSeries as createAppointmentSeriesHelper,
   previewAppointmentSeries as previewAppointmentSeriesHelper,
   replanAppointmentSeries,
+  type SeriesRootOccupancy,
 } from "./appointmentSeries";
 import {
   appointmentReplacementInsertFields,
@@ -3182,6 +3183,13 @@ async function updateAppointmentByMode(
       );
     }
 
+    if (filteredUpdateData.calendarResourceColumn !== undefined) {
+      throw appointmentChainError(
+        "CHAIN_REPLAN_FAILED",
+        "Kettentermine können nicht in EKG- oder Labor-Spalten verschoben werden.",
+      );
+    }
+
     if (filteredUpdateData.appointmentTypeId !== undefined) {
       const nextAppointmentTypeLineageKey =
         await resolveAppointmentTypeLineageKey(
@@ -3249,6 +3257,13 @@ async function updateAppointmentByMode(
             ruleSetId: seriesRecord.ruleSetIdAtBooking,
           })
         : undefined);
+    const rootOccupancy: SeriesRootOccupancy = {
+      ...(resolvedCalendarResourceColumn !== undefined && {
+        calendarResourceColumn: resolvedCalendarResourceColumn,
+      }),
+      occupancyScope: resolvedOccupancyScope,
+      ...(practitionerId !== undefined && { practitionerId }),
+    };
 
     const plannedSteps = await replanAppointmentSeries(ctx, {
       ...(resolvedCalendarResourceColumn !== undefined && {
@@ -3270,6 +3285,7 @@ async function updateAppointmentByMode(
       practiceId: existingAppointment.practiceId,
       ...(practitionerId !== undefined && { practitionerId }),
       rootDurationMinutes: calculateDurationMinutes(updatedEnd, updatedStart),
+      rootOccupancy,
       scope: getAppointmentBookingScope(existingAppointment.isSimulation),
       series: seriesRecord,
       start: updatedStart,

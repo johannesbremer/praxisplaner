@@ -73,6 +73,65 @@ describe("RuleSetDiffView", () => {
     expect(screen.queryByText("Geändert")).not.toBeInTheDocument();
   });
 
+  test("shows appointment type default occupancy changes in the projected tree diff", () => {
+    const diff = {
+      draftRuleSet: {
+        _id: "draft-rule-set",
+        description: "Draft",
+        version: 2,
+      },
+      parentRuleSet: {
+        _id: "parent-rule-set",
+        description: "Parent",
+        version: 1,
+      },
+      sections: [
+        {
+          added: [
+            JSON.stringify({
+              __diffKey: "appointment-type",
+              allowedPractitioners: ["Dr. Chain"],
+              appointmentPlan: [],
+              defaultOccupancy: {
+                calendarResourceColumn: "ekg",
+                kind: "resourceColumn",
+              },
+              duration: 30,
+              name: "Kontrolle",
+            }),
+          ],
+          key: "appointmentTypes",
+          removed: [
+            JSON.stringify({
+              __diffKey: "appointment-type",
+              allowedPractitioners: ["Dr. Chain"],
+              appointmentPlan: [],
+              defaultOccupancy: {
+                kind: "selectedPractitioner",
+              },
+              duration: 30,
+              name: "Kontrolle",
+            }),
+          ],
+          title: "Terminarten",
+        },
+      ],
+      totals: {
+        added: 0,
+        changed: 1,
+        removed: 0,
+      },
+    } satisfies RuleSetDiff;
+
+    const projectedSections = __getProjectedRuleSetDiffSectionsForTests(diff);
+    const treeRow = projectedSections
+      .flatMap((section) => section.rows)
+      .find((row) => row.path === "Terminarten");
+
+    expect(treeRow?.before).toContain("Standard-Belegung: Behandler");
+    expect(treeRow?.after).toContain("Standard-Belegung: Raum EKG");
+  });
+
   test("uses the package diff viewer for added and removed rows", async () => {
     const diff = {
       draftRuleSet: {
