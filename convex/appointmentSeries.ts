@@ -685,11 +685,14 @@ export function toStoredSeriesStepIndex(seriesStepIndex: number): bigint {
 
 function addDateOffset(
   start: Temporal.ZonedDateTime,
-  timing: Extract<AppointmentPlanTiming, { kind: "firstAvailableOnOrAfter" }>,
+  timing: Extract<AppointmentPlanTiming, { kind: "afterPreviousEnd" }>,
 ) {
   switch (timing.offsetUnit) {
     case "days": {
       return start.add({ days: timing.offsetValue });
+    }
+    case "minutes": {
+      return start.add({ minutes: timing.offsetValue });
     }
     case "months": {
       return start.add({ months: timing.offsetValue });
@@ -767,9 +770,12 @@ function calculateExactStepStart(
 ): null | ZonedDateTimeString {
   switch (timing.kind) {
     case "afterPreviousEnd": {
+      if (timing.offsetUnit !== "minutes") {
+        return null;
+      }
       return asZonedDateTimeString(
         Temporal.ZonedDateTime.from(args.previousStep.end)
-          .add({ minutes: timing.offsetMinutes })
+          .add({ minutes: timing.offsetValue })
           .toString(),
       );
     }
@@ -781,9 +787,6 @@ function calculateExactStepStart(
           })
           .toString(),
       );
-    }
-    case "firstAvailableOnOrAfter": {
-      return null;
     }
     case "sameStartAs": {
       return findAnchorStep(args.plannedSteps, timing.anchorStepId).start;
@@ -830,6 +833,7 @@ async function findFirstAvailableStepStart(
     plannedSteps: PlannedSeriesStep[];
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
+    previousStep: PlannedSeriesStep;
     requestedAt: InstantString;
     rootStep: PlannedSeriesStep;
     ruleSetId: Id<"ruleSets">;
@@ -839,16 +843,15 @@ async function findFirstAvailableStepStart(
     timing: AppointmentPlanTiming;
   },
 ): Promise<null | ZonedDateTimeString> {
-  if (args.timing.kind !== "firstAvailableOnOrAfter") {
+  if (
+    args.timing.kind !== "afterPreviousEnd" ||
+    args.timing.offsetUnit === "minutes"
+  ) {
     return null;
   }
 
-  const anchorStep = findAnchorStep(
-    args.plannedSteps,
-    args.timing.anchorStepId,
-  );
   const earliestStart = addDateOffset(
-    Temporal.ZonedDateTime.from(anchorStep.end),
+    Temporal.ZonedDateTime.from(args.previousStep.end),
     args.timing,
   );
 

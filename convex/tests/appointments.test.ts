@@ -1101,8 +1101,7 @@ describe("appointments self-service cancellation", () => {
                 required: true,
                 stepId: "step-1",
                 timing: {
-                  anchorStepId: "root",
-                  kind: "firstAvailableOnOrAfter",
+                  kind: "afterPreviousEnd",
                   offsetUnit: "days",
                   offsetValue: 2,
                 },
