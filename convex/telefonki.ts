@@ -36,6 +36,7 @@ const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 10;
 const MAX_SEARCH_DAYS = 90;
 const AFTERNOON_START_HOUR = 12;
+const SHA_256_HEX_LENGTH = 64;
 
 const telefonkiSlotValidator = v.object({
   duration: v.number(),
@@ -103,12 +104,32 @@ interface AvailableSlot {
   status: "AVAILABLE" | "BLOCKED";
 }
 
-function assertTelefonkiAccess(args: { integrationSecret?: string }): void {
-  const expectedSecret = process.env["TELEFONKI_SHARED_SECRET"]?.trim();
-  if (!expectedSecret) {
-    throw new Error("TelefonKI shared secret is not configured.");
+async function assertTelefonkiPracticeAccess(
+  ctx: MutationCtx | QueryCtx,
+  args: {
+    integrationSecret?: string | undefined;
+    practiceId: Id<"practices">;
+  },
+): Promise<void> {
+  const practice = await ctx.db.get("practices", args.practiceId);
+  if (!practice) {
+    throw new Error("Practice not found.");
   }
-  if (args.integrationSecret !== expectedSecret) {
+  const expectedHash = practice.telefonkiIntegrationSecretHash?.trim();
+  if (!expectedHash) {
+    throw new Error(
+      "TelefonKI integration secret is not configured for this practice.",
+    );
+  }
+  if (expectedHash.length !== SHA_256_HEX_LENGTH) {
+    throw new Error("TelefonKI integration secret hash is invalid.");
+  }
+  const presentedSecret = args.integrationSecret?.trim();
+  if (!presentedSecret) {
+    throw new Error("TelefonKI integration access denied.");
+  }
+  const presentedHash = await sha256Hex(presentedSecret);
+  if (presentedHash !== expectedHash) {
     throw new Error("TelefonKI integration access denied.");
   }
 }
@@ -141,7 +162,7 @@ async function getAvailableSlots(args: {
   search: AvailabilityArgs;
   searchDateOnly: boolean;
 }): Promise<ReturnType<typeof toTelefonkiSlot>[]> {
-  assertTelefonkiAccess(args.search);
+  await assertTelefonkiPracticeAccess(args.ctx, args.search);
   const limit = clampLimit(args.search.limit);
   const { practiceId, ruleSetId } = await requireActivePracticeContext(
     args.ctx,
@@ -422,6 +443,14 @@ function requireTelefonkiAvailabilityArgs(
   };
 }
 
+async function sha256Hex(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function toTelefonkiAppointment(appointment: Doc<"appointments">): null | {
   appointmentId: Id<"appointments">;
   appointmentTypeTitle: string;
@@ -475,17 +504,31 @@ export const createOrReusePhoneBookingIdentity = mutation({
   args: {
     callerPhoneNumber: v.optional(v.string()),
     callId: v.string(),
-    dialedPracticePhoneNumber: v.optional(v.string()),
+    dialedPracticePhoneNumber: v.string(),
     integrationActor: v.optional(v.string()),
     integrationSecret: v.optional(v.string()),
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    assertTelefonkiAccess(args);
+    await assertTelefonkiPracticeAccess(ctx, args);
     const { ruleSetId } = await requireActivePracticeContext(
       ctx,
       args.practiceId,
     );
+    const dialedPracticePhoneNumber = normalizePracticePhoneNumber(
+      args.dialedPracticePhoneNumber,
+    );
+    const phoneNumberMapping = await ctx.db
+      .query("practicePhoneNumbers")
+      .withIndex("by_phoneNumber", (q) =>
+        q.eq("phoneNumber", dialedPracticePhoneNumber),
+      )
+      .unique();
+    if (phoneNumberMapping?.practiceId !== args.practiceId) {
+      throw new Error(
+        "Dialed practice phone number is not assigned to this practice.",
+      );
+    }
     const callId = args.callId.trim();
     if (callId.length === 0) {
       throw new Error("callId is required.");
@@ -505,11 +548,7 @@ export const createOrReusePhoneBookingIdentity = mutation({
             args.callerPhoneNumber,
           ),
         }),
-        ...(args.dialedPracticePhoneNumber !== undefined && {
-          dialedPracticePhoneNumber: normalizePracticePhoneNumber(
-            args.dialedPracticePhoneNumber,
-          ),
-        }),
+        dialedPracticePhoneNumber,
         ...(args.integrationActor !== undefined && {
           integrationActor: args.integrationActor,
         }),
@@ -526,11 +565,7 @@ export const createOrReusePhoneBookingIdentity = mutation({
         ),
       }),
       createdAt: now,
-      ...(args.dialedPracticePhoneNumber !== undefined && {
-        dialedPracticePhoneNumber: normalizePracticePhoneNumber(
-          args.dialedPracticePhoneNumber,
-        ),
-      }),
+      dialedPracticePhoneNumber,
       ...(args.integrationActor !== undefined && {
         integrationActor: args.integrationActor,
       }),
@@ -548,7 +583,6 @@ export const resolvePracticeByDialedPhoneNumber = query({
     integrationSecret: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    assertTelefonkiAccess(args);
     const normalizedPhoneNumber = normalizePracticePhoneNumber(
       args.dialedPracticePhoneNumber,
     );
@@ -566,6 +600,10 @@ export const resolvePracticeByDialedPhoneNumber = query({
     if (!practice) {
       throw new Error("Practice for dialed phone number was not found.");
     }
+    await assertTelefonkiPracticeAccess(ctx, {
+      integrationSecret: args.integrationSecret,
+      practiceId: practice._id,
+    });
 
     return {
       dialedPracticePhoneNumber: normalizedPhoneNumber,
@@ -586,7 +624,7 @@ export const getActiveConfig = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    assertTelefonkiAccess(args);
+    await assertTelefonkiPracticeAccess(ctx, args);
     const { ruleSetId } = await requireActivePracticeContext(
       ctx,
       args.practiceId,
@@ -749,11 +787,14 @@ export const book = mutation({
     startTime: v.string(),
   },
   handler: async (ctx, args) => {
-    assertTelefonkiAccess(args);
     const identity = await requirePhoneBookingIdentity(
       ctx,
       args.phoneBookingIdentityId,
     );
+    await assertTelefonkiPracticeAccess(ctx, {
+      integrationSecret: args.integrationSecret,
+      practiceId: identity.practiceId,
+    });
     if (identity.appointmentId !== undefined) {
       throw new Error("TelefonKI call already has a booked appointment.");
     }
@@ -866,11 +907,14 @@ export const viewBookedAppointment = query({
     phoneBookingIdentityId: v.id("phoneBookingIdentities"),
   },
   handler: async (ctx, args) => {
-    assertTelefonkiAccess(args);
     const identity = await requirePhoneBookingIdentity(
       ctx,
       args.phoneBookingIdentityId,
     );
+    await assertTelefonkiPracticeAccess(ctx, {
+      integrationSecret: args.integrationSecret,
+      practiceId: identity.practiceId,
+    });
     if (identity.appointmentId === undefined) {
       return null;
     }
@@ -895,11 +939,14 @@ export const cancelBookedAppointment = mutation({
     phoneBookingIdentityId: v.id("phoneBookingIdentities"),
   },
   handler: async (ctx, args) => {
-    assertTelefonkiAccess(args);
     const identity = await requirePhoneBookingIdentity(
       ctx,
       args.phoneBookingIdentityId,
     );
+    await assertTelefonkiPracticeAccess(ctx, {
+      integrationSecret: args.integrationSecret,
+      practiceId: identity.practiceId,
+    });
     if (identity.appointmentId === undefined) {
       return null;
     }
