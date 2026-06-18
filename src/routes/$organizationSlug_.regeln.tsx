@@ -56,6 +56,7 @@ import { VersionGraph } from "../components/version-graph/index";
 import { useRegisterGlobalUndoRedoControls } from "../hooks/use-global-undo-redo-controls";
 import { useCommandLedger } from "../utils/command-ledger";
 import { findIdInList } from "../utils/convex-ids";
+import { ruleSetHistoryScopeFromReplayTarget } from "../utils/cow-history";
 import { isValidDateDE } from "../utils/date-utils";
 import { useErrorTracking } from "../utils/error-tracking";
 import {
@@ -649,16 +650,8 @@ function LogicView() {
   ]);
 
   const historyScopeKey = useMemo(() => {
-    const isWorkingOnUnsavedRuleSet =
-      unsavedRuleSet && currentWorkingRuleSet?._id === unsavedRuleSet._id;
-    if (isWorkingOnUnsavedRuleSet && unsavedRuleSet.parentVersion) {
-      return unsavedRuleSet.parentVersion;
-    }
-    if (resolvedRuleSetIdFromUrl) {
-      return resolvedRuleSetIdFromUrl;
-    }
-    return null;
-  }, [currentWorkingRuleSet?._id, resolvedRuleSetIdFromUrl, unsavedRuleSet]);
+    return ruleSetHistoryScopeFromReplayTarget(ruleSetReplayTarget);
+  }, [ruleSetReplayTarget]);
   const lastHistoryScopeRef = useRef<null | string>(historyScopeKey);
   const recordRegelnCommand = useCallback(
     (command: RuleSetCommand, runtime: RuleSetCommandRuntimeAdapter) => {
@@ -681,6 +674,10 @@ function LogicView() {
 
   React.useEffect(() => {
     if (!historyScopeKey) {
+      if (lastHistoryScopeRef.current) {
+        clearRegelnLedger(lastHistoryScopeRef.current);
+        lastHistoryScopeRef.current = null;
+      }
       return;
     }
     if (!lastHistoryScopeRef.current) {
@@ -1041,7 +1038,8 @@ function LogicView() {
           practiceId: currentPractice._id,
           setAsActive: true,
         });
-        clearRegelnLedger(historyScopeKey ?? undefined);
+        clearRegelnLedger();
+        ruleSetCommandRuntimesRef.current.clear();
       } else {
         // Just activate an already-saved rule set
         await activateRuleSetMutation({
@@ -1109,7 +1107,8 @@ function LogicView() {
             practiceId: currentPractice._id,
             setAsActive: false, // Key difference: don't activate
           });
-          clearRegelnLedger(historyScopeKey ?? undefined);
+          clearRegelnLedger();
+          ruleSetCommandRuntimesRef.current.clear();
         }
         // If it's already saved, there's nothing to do
 

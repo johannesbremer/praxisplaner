@@ -3,7 +3,33 @@ import { describe, expect, it, vi } from "vitest";
 
 import { toTableId } from "@/convex/identity";
 
-import { useRuleSetReplayTargetController } from "../utils/cow-history";
+import {
+  ruleSetHistoryScopeFromReplayTarget,
+  useRuleSetReplayTargetController,
+} from "../utils/cow-history";
+
+describe("ruleSetHistoryScopeFromReplayTarget", () => {
+  it("uses the CoW parent rule set for saved parents and drafts", () => {
+    const parentRuleSetId = toTableId<"ruleSets">("parent-rule-set");
+    const draftRuleSetId = toTableId<"ruleSets">("draft-rule-set");
+
+    expect(
+      ruleSetHistoryScopeFromReplayTarget({
+        kind: "saved-parent",
+        parentRuleSetId,
+      }),
+    ).toBe(parentRuleSetId);
+    expect(
+      ruleSetHistoryScopeFromReplayTarget({
+        draftRevision: 1,
+        draftRuleSetId,
+        kind: "draft",
+        parentRuleSetId,
+      }),
+    ).toBe(parentRuleSetId);
+    expect(ruleSetHistoryScopeFromReplayTarget(null)).toBeNull();
+  });
+});
 
 describe("useRuleSetReplayTargetController", () => {
   it("advances from saved parent args to draft revision args after mutation results", () => {

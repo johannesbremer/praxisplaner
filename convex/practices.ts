@@ -74,32 +74,6 @@ export function normalizeAppointmentSmileyOptions(
   return normalized;
 }
 
-function toPublicPractice(practice: Doc<"practices">): {
-  _creationTime: number;
-  _id: Id<"practices">;
-  appointmentSmileyOptions?: string[];
-  currentActiveRuleSetId?: Id<"ruleSets">;
-  name: string;
-  slug?: string;
-  workOSOrganizationId?: string;
-} {
-  return {
-    _creationTime: practice._creationTime,
-    _id: practice._id,
-    ...(practice.appointmentSmileyOptions !== undefined && {
-      appointmentSmileyOptions: practice.appointmentSmileyOptions,
-    }),
-    ...(practice.currentActiveRuleSetId !== undefined && {
-      currentActiveRuleSetId: practice.currentActiveRuleSetId,
-    }),
-    name: practice.name,
-    ...(practice.slug !== undefined && { slug: practice.slug }),
-    ...(practice.workOSOrganizationId !== undefined && {
-      workOSOrganizationId: practice.workOSOrganizationId,
-    }),
-  };
-}
-
 const publicBookingPracticeValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("practices"),
@@ -127,6 +101,32 @@ function toPublicBookingPractice(practice: {
     hasActiveRuleSet: practice.currentActiveRuleSetId !== undefined,
     name: practice.name,
     ...(practice.slug === undefined ? {} : { slug: practice.slug }),
+  };
+}
+
+function toPublicPractice(practice: Doc<"practices">): {
+  _creationTime: number;
+  _id: Id<"practices">;
+  appointmentSmileyOptions?: AppointmentSmileyOption[];
+  currentActiveRuleSetId?: Id<"ruleSets">;
+  name: string;
+  slug?: string;
+  workOSOrganizationId?: string;
+} {
+  return {
+    _creationTime: practice._creationTime,
+    _id: practice._id,
+    ...(practice.appointmentSmileyOptions !== undefined && {
+      appointmentSmileyOptions: practice.appointmentSmileyOptions,
+    }),
+    ...(practice.currentActiveRuleSetId !== undefined && {
+      currentActiveRuleSetId: practice.currentActiveRuleSetId,
+    }),
+    name: practice.name,
+    ...(practice.slug !== undefined && { slug: practice.slug }),
+    ...(practice.workOSOrganizationId !== undefined && {
+      workOSOrganizationId: practice.workOSOrganizationId,
+    }),
   };
 }
 
