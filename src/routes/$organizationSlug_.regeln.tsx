@@ -1041,6 +1041,7 @@ function LogicView() {
           practiceId: currentPractice._id,
           setAsActive: true,
         });
+        clearRegelnLedger(historyScopeKey ?? undefined);
       } else {
         // Just activate an already-saved rule set
         await activateRuleSetMutation({
@@ -1108,6 +1109,7 @@ function LogicView() {
             practiceId: currentPractice._id,
             setAsActive: false, // Key difference: don't activate
           });
+          clearRegelnLedger(historyScopeKey ?? undefined);
         }
         // If it's already saved, there's nothing to do
 

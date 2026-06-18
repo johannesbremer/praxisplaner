@@ -197,6 +197,30 @@ const appointmentHistoryMatchesQuery = (
     queryDoc.placement.occupancyScope,
   );
 
+const appointmentStateChanged = (args: {
+  after: {
+    end: CalendarAppointmentRecord["end"];
+    placement: CalendarAppointmentPlacement;
+    smiley?: CalendarAppointmentRecord["smiley"];
+    start: CalendarAppointmentRecord["start"];
+  };
+  before: {
+    end: CalendarAppointmentRecord["end"];
+    placement: CalendarAppointmentPlacement;
+    smiley?: CalendarAppointmentRecord["smiley"];
+    start: CalendarAppointmentRecord["start"];
+  };
+}) =>
+  args.before.start !== args.after.start ||
+  args.before.end !== args.after.end ||
+  args.before.smiley !== args.after.smiley ||
+  args.before.placement.locationLineageKey !==
+    args.after.placement.locationLineageKey ||
+  !sameCalendarOccupancyScope(
+    args.before.placement.occupancyScope,
+    args.after.placement.occupancyScope,
+  );
+
 const blockedSlotHistoryMatchesQuery = (
   historyDoc: CalendarBlockedSlotRecord,
   queryDoc: CalendarBlockedSlotRecord,
@@ -1650,6 +1674,50 @@ export function useCalendarPlanningWorkbench(args: {
           return;
         }
         const before = getAppointmentHistoryDoc(args.id);
+        if (before) {
+          const typedEnd =
+            args.end === undefined
+              ? undefined
+              : parseZonedDateTime(
+                  args.end,
+                  "useCalendarPlanningWorkbench.afterState.end",
+                );
+          const typedStart =
+            args.start === undefined
+              ? undefined
+              : parseZonedDateTime(
+                  args.start,
+                  "useCalendarPlanningWorkbench.afterState.start",
+                );
+          if (
+            (args.end !== undefined && typedEnd === null) ||
+            (args.start !== undefined && typedStart === null)
+          ) {
+            return;
+          }
+
+          const beforeState = {
+            end: before.end,
+            placement: before.placement,
+            start: before.start,
+            ...(before.smiley === undefined ? {} : { smiley: before.smiley }),
+          };
+          const afterSmiley =
+            args.smiley === undefined
+              ? before.smiley
+              : (args.smiley ?? undefined);
+          const afterState = {
+            end: typedEnd ?? before.end,
+            placement: args.placement ?? before.placement,
+            start: typedStart ?? before.start,
+            ...(afterSmiley === undefined ? {} : { smiley: afterSmiley }),
+          };
+          if (
+            !appointmentStateChanged({ after: afterState, before: beforeState })
+          ) {
+            return;
+          }
+        }
         if (isSmileyOnlyAppointmentUpdate(mutationArgs)) {
           await runUpdateAppointmentInternal(mutationArgs);
         } else if (before?.seriesId) {

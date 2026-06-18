@@ -184,6 +184,13 @@ const hasAppointmentSchedulingStateChange = (
     right.placement.occupancyScope,
   );
 
+const hasAppointmentStateChange = (
+  left: AppointmentState,
+  right: AppointmentState,
+) =>
+  left.smiley !== right.smiley ||
+  hasAppointmentSchedulingStateChange(left, right);
+
 const blockedSlotMatchesState = (
   slot: CalendarBlockedSlotRecord,
   expected: BlockedSlotState,
@@ -432,11 +439,19 @@ async function executeAppointmentUpdateCommand(
     state: AppointmentState,
     previousState: AppointmentState,
   ) => {
+    const hasSchedulingChange = hasAppointmentSchedulingStateChange(
+      state,
+      previousState,
+    );
+    if (!hasSchedulingChange && state.smiley === previousState.smiley) {
+      return true;
+    }
+
     const smileyUpdate =
       state.smiley === previousState.smiley
         ? {}
         : { smiley: state.smiley ?? null };
-    if (!hasAppointmentSchedulingStateChange(state, previousState)) {
+    if (!hasSchedulingChange) {
       await context.runUpdateAppointmentInternal({
         id: currentAppointmentId,
         ...smileyUpdate,
@@ -479,6 +494,10 @@ async function executeAppointmentUpdateCommand(
           "Der Termin wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.",
         status: "conflict",
       };
+    }
+    if (!hasAppointmentStateChange(payload.beforeState, payload.afterState)) {
+      rememberFreshAppointment(context, payload.before, currentAppointmentId);
+      return { status: "noop" };
     }
     if (appointmentMatchesState(current, payload.afterState)) {
       rememberFreshAppointment(
@@ -540,6 +559,10 @@ async function executeAppointmentUpdateCommand(
         "Der Termin wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.",
       status: "conflict",
     };
+  }
+  if (!hasAppointmentStateChange(payload.afterState, payload.beforeState)) {
+    rememberFreshAppointment(context, payload.before, currentAppointmentId);
+    return { status: "noop" };
   }
   if (appointmentMatchesState(current, payload.beforeState)) {
     rememberFreshAppointment(context, payload.before, currentAppointmentId);
