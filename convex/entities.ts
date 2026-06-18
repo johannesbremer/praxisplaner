@@ -2375,6 +2375,29 @@ export const getBookingPractitioners = query({
   },
 });
 
+export const getBookingPractitionersForActivePractice = query({
+  args: {
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    const practice = await ctx.db.get("practices", args.practiceId);
+    if (!practice?.currentActiveRuleSetId) {
+      return [];
+    }
+
+    const ruleSetId = practice.currentActiveRuleSetId;
+    await requireRuleSetMemberOrCurrentUserBookingScope(ctx, ruleSetId);
+    const practitioners = await ctx.db
+      .query("practitioners")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect();
+
+    return practitioners
+      .filter((practitioner) => !isDeletedRuleSetEntity(practitioner))
+      .map((practitioner) => patientFacingPractitioner(practitioner));
+  },
+});
+
 // ================================
 // LOCATIONS
 // ================================

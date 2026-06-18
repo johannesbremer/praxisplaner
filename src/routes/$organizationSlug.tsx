@@ -473,41 +473,41 @@ function AuthenticatedBookingFlow() {
     slug: organizationSlug,
   });
 
-  // The booking route always follows the currently active rule set of the practice.
-  const practiceActiveRuleSetId = currentPractice?.currentActiveRuleSetId;
+  const hasActiveRuleSet = currentPractice?.hasActiveRuleSet === true;
 
   const activeRuleSetSession = useQuery(
-    api.bookingSessions.getActiveForUser,
-    currentPractice && practiceActiveRuleSetId
+    api.bookingSessions.getActiveForUserInActivePractice,
+    currentPractice && hasActiveRuleSet
       ? {
           practiceId: currentPractice._id,
-          ruleSetId: practiceActiveRuleSetId,
         }
       : "skip",
   );
   const bookedAppointments = useQuery(
-    api.appointments.getBookedAppointmentsForCurrentUser,
-    practiceActiveRuleSetId
+    api.appointments.getBookedAppointmentsForCurrentUserInActivePractice,
+    currentPractice && hasActiveRuleSet
       ? {
-          activeRuleSetId: practiceActiveRuleSetId,
+          practiceId: currentPractice._id,
           refreshNonce: bookedAppointmentRefreshNonce,
         }
       : "skip",
   );
   const practitioners = useQuery(
-    api.entities.getBookingPractitioners,
-    practiceActiveRuleSetId ? { ruleSetId: practiceActiveRuleSetId } : "skip",
+    api.entities.getBookingPractitionersForActivePractice,
+    currentPractice && hasActiveRuleSet
+      ? { practiceId: currentPractice._id }
+      : "skip",
   );
 
   // Mutations
-  const createSession = useMutation(api.bookingSessions.create);
+  const createSession = useMutation(api.bookingSessions.createInActivePractice);
   const goBackToStep = useMutation(api.bookingSessions.goBackToStep);
-  const removeSession = useMutation(api.bookingSessions.remove);
+  const removeSession = useMutation(api.bookingSessions.removeInActivePractice);
 
   useEffect(() => {
     if (
       currentPractice &&
-      practiceActiveRuleSetId &&
+      hasActiveRuleSet &&
       bookedAppointments?.length === 0 &&
       !isCreatingSessionRef.current &&
       !sessionError &&
@@ -519,7 +519,6 @@ function AuthenticatedBookingFlow() {
         () =>
           createSession({
             practiceId: currentPractice._id,
-            ruleSetId: practiceActiveRuleSetId,
           }),
         (error) =>
           frontendErrorFromUnknown(error, {
@@ -534,7 +533,6 @@ function AuthenticatedBookingFlow() {
             captureFrontendError(error, {
               context: "BookingPage.createSession",
               practiceId: currentPractice._id,
-              ruleSetId: practiceActiveRuleSetId,
             });
             setSessionError(error.message);
             toast.error("Buchung konnte nicht gestartet werden", {
@@ -549,7 +547,7 @@ function AuthenticatedBookingFlow() {
     }
   }, [
     currentPractice,
-    practiceActiveRuleSetId,
+    hasActiveRuleSet,
     bookedAppointments,
     createSession,
     sessionError,
@@ -564,13 +562,12 @@ function AuthenticatedBookingFlow() {
   // Handle starting over
   const handleStartOver = useCallback(() => {
     setDisplayStepOverride(null);
-    if (currentPractice && practiceActiveRuleSetId) {
+    if (currentPractice && hasActiveRuleSet) {
       void removeSession({
         practiceId: currentPractice._id,
-        ruleSetId: practiceActiveRuleSetId,
       });
     }
-  }, [currentPractice, practiceActiveRuleSetId, removeSession]);
+  }, [currentPractice, hasActiveRuleSet, removeSession]);
 
   const handleBookedAppointmentCancelled = useCallback(() => {
     setSessionError(null);
@@ -756,6 +753,13 @@ function AuthenticatedBookingFlow() {
 
   const isShowingBookedAppointment =
     bookedAppointments !== undefined && bookedAppointments.length > 0;
+  const isLoadingBookedAppointmentPractitioners =
+    isShowingBookedAppointment &&
+    practitioners === undefined &&
+    bookedAppointments.some(
+      (appointment) =>
+        appointment.kind === "appointment" && appointment.practitionerId,
+    );
 
   // Loading state
   if (currentPractice === undefined) {
@@ -791,7 +795,7 @@ function AuthenticatedBookingFlow() {
   }
 
   // No active rule set
-  if (!practiceActiveRuleSetId) {
+  if (!hasActiveRuleSet) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
@@ -830,7 +834,10 @@ function AuthenticatedBookingFlow() {
     );
   }
 
-  if (!isShowingBookedAppointment && activeRuleSetSession === undefined) {
+  if (
+    (!isShowingBookedAppointment && activeRuleSetSession === undefined) ||
+    isLoadingBookedAppointmentPractitioners
+  ) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="w-96">
@@ -915,7 +922,7 @@ function AuthenticatedBookingFlow() {
           step={displayedState.step}
           stepProps={{
             practiceId: currentPractice._id,
-            ruleSetId: practiceActiveRuleSetId,
+            ruleSetId: activeRuleSetSession.ruleSetId,
             state: displayedState,
           }}
         />

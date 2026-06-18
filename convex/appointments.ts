@@ -1130,6 +1130,26 @@ async function remapAppointmentIds(
   );
 }
 
+async function requireActiveRuleSetIdForPractice(
+  db: DatabaseReader,
+  practiceId: Id<"practices">,
+): Promise<Id<"ruleSets">> {
+  const practice = await db.get("practices", practiceId);
+  if (!practice) {
+    throw new ConvexError({
+      code: "NOT_FOUND",
+      message: "Practice not found.",
+    });
+  }
+  if (!practice.currentActiveRuleSetId) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "Practice has no active rule set.",
+    });
+  }
+  return practice.currentActiveRuleSetId;
+}
+
 async function requireAppointmentDisplayScope(
   db: DatabaseReader,
   args: RequiredDisplayRuleSetArgs,
@@ -2901,6 +2921,26 @@ export const getBookedAppointmentsForCurrentUser = query({
   },
   handler: async (ctx, args) => {
     return await getBookedAppointmentsForUser(ctx, args);
+  },
+  returns: v.array(bookedAppointmentSummaryItemValidator),
+});
+
+export const getBookedAppointmentsForCurrentUserInActivePractice = query({
+  args: {
+    practiceId: v.id("practices"),
+    refreshNonce: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const activeRuleSetId = await requireActiveRuleSetIdForPractice(
+      ctx.db,
+      args.practiceId,
+    );
+    return await getBookedAppointmentsForUser(ctx, {
+      activeRuleSetId,
+      ...(args.refreshNonce === undefined
+        ? {}
+        : { refreshNonce: args.refreshNonce }),
+    });
   },
   returns: v.array(bookedAppointmentSummaryItemValidator),
 });
