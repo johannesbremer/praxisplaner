@@ -325,9 +325,13 @@ export async function copyAppointmentTypes(
         sourceType.allowedPractitionerLineageKeys.filter((lineageKey) =>
           activePractitionerLineageKeys.has(lineageKey),
         ),
+      appointmentPlan: sourceType.appointmentPlan ?? { steps: [] },
+      ...(sourceType.bookableVia && { bookableVia: sourceType.bookableVia }),
       createdAt: sourceType.createdAt,
+      ...(sourceType.defaultOccupancy && {
+        defaultOccupancy: sourceType.defaultOccupancy,
+      }),
       duration: sourceType.duration,
-      ...(sourceType.followUpPlan && { followUpPlan: sourceType.followUpPlan }),
       lastModified: BigInt(Date.now()),
       lineageKey: requireLineageKey({
         entityId: sourceType._id,

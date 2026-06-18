@@ -50,6 +50,7 @@ import {
   appointmentSimulationKindValidator,
   isActivationBoundSimulation,
 } from "./appointmentSimulation";
+import { hasAppointmentPlan } from "./followUpPlans";
 import {
   type AppointmentTypeLineageKey,
   asAppointmentTypeId,
@@ -2124,40 +2125,16 @@ export async function createAppointmentFromTrustedSource(
     }
   }
 
-  const storedReferences = await resolveStoredAppointmentReferencesForWrite(
-    ctx.db,
-    {
-      appointmentTypeId: asAppointmentTypeId(appointmentTypeId),
-      locationId: asLocationId(locationId),
-      ...(practitionerId
-        ? { practitionerId: asPractitionerId(practitionerId) }
-        : {}),
-    },
-  );
-  const occupancyScope = appointmentOccupancyScopeFromRefs({
-    ...(calendarResourceColumn === undefined ? {} : { calendarResourceColumn }),
-    ...(storedReferences.practitionerLineageKey === undefined
-      ? {}
-      : { practitionerLineageKey: storedReferences.practitionerLineageKey }),
-  });
-
-  if (
-    activeAppointmentType.followUpPlan &&
-    activeAppointmentType.followUpPlan.length > 0
-  ) {
+  if (hasAppointmentPlan(activeAppointmentType)) {
     if (ownerRefs.phoneBookingIdentityId !== undefined) {
       throw new Error("TelefonKI can only book a single appointment.");
-    }
-    if (!practitionerId) {
-      throw new Error(
-        "Kettentermine benötigen einen ausgewählten Behandler für den Starttermin.",
-      );
     }
 
     const result = await createAppointmentSeriesHelper(ctx, {
       ...(ownerRefs.bookingIdentityId !== undefined && {
         bookingIdentityId: ownerRefs.bookingIdentityId,
       }),
+      ...(calendarResourceColumn !== undefined && { calendarResourceColumn }),
       locationId,
       ...(isNewPatient !== undefined && { isNewPatient }),
       ...(patientDateOfBirth !== undefined && { patientDateOfBirth }),
@@ -2165,7 +2142,7 @@ export async function createAppointmentFromTrustedSource(
         patientId: ownerRefs.patientId,
       }),
       practiceId,
-      practitionerId,
+      ...(practitionerId !== undefined && { practitionerId }),
       rootAppointmentTypeId: appointmentTypeId,
       ...(replacesAppointmentId && {
         rootReplacesAppointmentId: replacesAppointmentId,
@@ -2183,6 +2160,23 @@ export async function createAppointmentFromTrustedSource(
 
     return result.rootAppointmentId;
   }
+
+  const storedReferences = await resolveStoredAppointmentReferencesForWrite(
+    ctx.db,
+    {
+      appointmentTypeId: asAppointmentTypeId(appointmentTypeId),
+      locationId: asLocationId(locationId),
+      ...(practitionerId
+        ? { practitionerId: asPractitionerId(practitionerId) }
+        : {}),
+    },
+  );
+  const occupancyScope = appointmentOccupancyScopeFromRefs({
+    ...(calendarResourceColumn === undefined ? {} : { calendarResourceColumn }),
+    ...(storedReferences.practitionerLineageKey === undefined
+      ? {}
+      : { practitionerLineageKey: storedReferences.practitionerLineageKey }),
+  });
 
   const end =
     requestedEnd ??
@@ -2991,16 +2985,6 @@ async function updateAppointmentByMode(
   const resolvedSimulationRuleSetId = existingAppointment.simulationRuleSetId;
 
   if (
-    existingAppointment.seriesId !== undefined &&
-    explicitlyUsingResourceColumn
-  ) {
-    throw appointmentChainError(
-      "CHAIN_REPLAN_FAILED",
-      "Kettentermine können nicht in EKG- oder Labor-Spalten verschoben werden.",
-    );
-  }
-
-  if (
     filteredUpdateData.appointmentTypeId !== undefined ||
     (filteredUpdateData.practitionerId !== undefined &&
       !explicitlyUsingResourceColumn)
@@ -3232,14 +3216,10 @@ async function updateAppointmentByMode(
           })
         : undefined);
 
-    if (!practitionerId) {
-      throw appointmentChainError(
-        "CHAIN_REPLAN_FAILED",
-        "Kettentermine benötigen einen Behandler auf dem Starttermin.",
-      );
-    }
-
     const plannedSteps = await replanAppointmentSeries(ctx, {
+      ...(resolvedCalendarResourceColumn !== undefined && {
+        calendarResourceColumn: resolvedCalendarResourceColumn,
+      }),
       excludedAppointmentIds: seriesAppointmentIds,
       locationId:
         filteredUpdateData.locationId ??
@@ -3254,7 +3234,7 @@ async function updateAppointmentByMode(
       }),
       ...(resolvedPatientId && { patientId: resolvedPatientId }),
       practiceId: existingAppointment.practiceId,
-      practitionerId,
+      ...(practitionerId !== undefined && { practitionerId }),
       rootDurationMinutes: calculateDurationMinutes(updatedEnd, updatedStart),
       scope: getAppointmentBookingScope(existingAppointment.isSimulation),
       series: seriesRecord,
@@ -3299,7 +3279,9 @@ async function updateAppointmentByMode(
           await resolveStoredAppointmentReferencesForWrite(ctx.db, {
             appointmentTypeId: asAppointmentTypeId(step.appointmentTypeId),
             locationId: asLocationId(step.locationId),
-            practitionerId: asPractitionerId(step.practitionerId),
+            ...(step.practitionerId
+              ? { practitionerId: asPractitionerId(step.practitionerId) }
+              : {}),
           });
         await ctx.db.patch("appointments", matchingAppointment._id, {
           appointmentTypeLineageKey:
@@ -3309,9 +3291,7 @@ async function updateAppointmentByMode(
           end: step.end,
           lastModified: now,
           locationLineageKey: stepStoredReferences.locationLineageKey,
-          occupancyScope: appointmentOccupancyScopeFromRefs({
-            practitionerLineageKey: stepStoredReferences.practitionerLineageKey,
-          }),
+          occupancyScope: step.occupancyScope,
           ...(resolvedPatientId && { patientId: resolvedPatientId }),
           seriesId,
           seriesStepId: step.stepId,
@@ -3331,7 +3311,9 @@ async function updateAppointmentByMode(
         await resolveStoredAppointmentReferencesForWrite(ctx.db, {
           appointmentTypeId: asAppointmentTypeId(step.appointmentTypeId),
           locationId: asLocationId(step.locationId),
-          practitionerId: asPractitionerId(step.practitionerId),
+          ...(step.practitionerId
+            ? { practitionerId: asPractitionerId(step.practitionerId) }
+            : {}),
         });
       const insertedAppointmentId = await ctx.db.insert("appointments", {
         appointmentTypeLineageKey:
@@ -3350,9 +3332,7 @@ async function updateAppointmentByMode(
         end: step.end,
         lastModified: now,
         locationLineageKey: stepStoredReferences.locationLineageKey,
-        occupancyScope: appointmentOccupancyScopeFromRefs({
-          practitionerLineageKey: stepStoredReferences.practitionerLineageKey,
-        }),
+        occupancyScope: step.occupancyScope,
         ...(resolvedPatientId && { patientId: resolvedPatientId }),
         practiceId: existingAppointment.practiceId,
         seriesId,
@@ -3381,8 +3361,11 @@ async function updateAppointmentByMode(
               existingAppointment.bookingIdentityId,
           }
         : {}),
+      appointmentPlanSnapshot: seriesRecord.appointmentPlanSnapshot,
       createdAt: seriesRecord.createdAt,
-      followUpPlanSnapshot: seriesRecord.followUpPlanSnapshot,
+      ...(seriesRecord.followUpPlanSnapshot && {
+        followUpPlanSnapshot: seriesRecord.followUpPlanSnapshot,
+      }),
       lastModified: now,
       ...(resolvedPatientDateOfBirth && {
         patientDateOfBirth: resolvedPatientDateOfBirth,

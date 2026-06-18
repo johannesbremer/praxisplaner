@@ -6,7 +6,11 @@ import {
   LOGICAL_NODE_TYPES,
   SCOPES,
 } from "../lib/condition-tree.js";
-import { followUpStepValidator } from "./followUpPlans";
+import {
+  appointmentPlanValidator,
+  appointmentTypeBookableViaValidator,
+  appointmentTypeDefaultOccupancyValidator,
+} from "./followUpPlans";
 
 export const appointmentTypeResultValidator = v.object({
   draftRevision: v.number(),
@@ -212,8 +216,10 @@ export const conditionTreeTransportValidator = v.object({
 
 export const appointmentTypeArgsValidator = v.object({
   allowedPractitionerLineageKeys: v.optional(v.array(v.id("practitioners"))),
+  appointmentPlan: appointmentPlanValidator,
+  bookableVia: v.optional(appointmentTypeBookableViaValidator),
+  defaultOccupancy: v.optional(appointmentTypeDefaultOccupancyValidator),
   duration: v.number(),
-  followUpPlan: v.optional(v.array(followUpStepValidator)),
   name: v.string(),
   practiceId: v.id("practices"),
   ruleSetId: v.optional(v.id("ruleSets")),

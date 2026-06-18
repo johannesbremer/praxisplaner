@@ -69,9 +69,16 @@ import {
   ruleResultValidator,
 } from "./entities.validators";
 import {
-  type FollowUpPlan,
-  followUpStepValidator,
-  validateFollowUpPlan,
+  type AppointmentPlan,
+  appointmentPlanValidator,
+  appointmentTypeBookableViaValidator,
+  type AppointmentTypeDefaultOccupancy,
+  appointmentTypeDefaultOccupancyValidator,
+  followUpPlanToAppointmentPlan,
+  followUpPlanValidator,
+  normalizeBookableVia,
+  validateAppointmentPlan,
+  validateDefaultOccupancy,
 } from "./followUpPlans";
 import {
   type AppointmentTypeLineageKey,
@@ -109,6 +116,13 @@ type DatabaseWriter = GenericDatabaseWriter<DataModel>;
 // ================================
 // SHARED TYPES
 // ================================
+
+function appointmentTypeIsBookableVia(
+  appointmentType: Doc<"appointmentTypes">,
+  channel: "online" | "planStep" | "staff" | "telefonki",
+): boolean {
+  return normalizeBookableVia(appointmentType.bookableVia).includes(channel);
+}
 
 async function finalizeDraftMutation(
   db: DatabaseWriter,
@@ -913,9 +927,12 @@ async function resolvePractitionerLineageKeys(
  */
 export const createAppointmentType = mutation({
   args: {
+    appointmentPlan: appointmentPlanValidator,
+    bookableVia: v.optional(appointmentTypeBookableViaValidator),
+    defaultOccupancy: v.optional(appointmentTypeDefaultOccupancyValidator),
     duration: v.number(), // duration in minutes
     expectedDraftRevision: expectedDraftRevisionValidator,
-    followUpPlan: v.optional(v.array(followUpStepValidator)),
+    followUpPlan: followUpPlanValidator,
     lineageKey: v.optional(v.id("appointmentTypes")),
     name: v.string(),
     practiceId: v.id("practices"),
@@ -949,14 +966,22 @@ export const createAppointmentType = mutation({
             practiceId: args.practiceId,
             ruleSetId,
           });
-    const followUpPlan = await validateFollowUpPlan(
+    const rawAppointmentPlan =
+      args.appointmentPlan ?? followUpPlanToAppointmentPlan(args.followUpPlan);
+    const appointmentPlan = await validateAppointmentPlan(
       ctx.db,
       ruleSetId,
-      args.followUpPlan,
+      rawAppointmentPlan,
       args.lineageKey
         ? asAppointmentTypeLineageKey(args.lineageKey)
         : undefined,
     );
+    const defaultOccupancy = await validateDefaultOccupancy(
+      ctx.db,
+      ruleSetId,
+      args.defaultOccupancy,
+    );
+    const bookableVia = normalizeBookableVia(args.bookableVia);
 
     await assertAppointmentTypeNameIsUniqueInRuleSet(ctx.db, {
       name,
@@ -990,9 +1015,14 @@ export const createAppointmentType = mutation({
         await ctx.db.patch("appointmentTypes", existingByLineage._id, {
           allowedPractitionerLineageKeys:
             normalizedAllowedPractitionerLineageKeys,
+          appointmentPlan: appointmentPlan ?? { steps: [] },
+          bookableVia,
+          defaultOccupancy,
           deleted: false,
           duration: args.duration,
-          followUpPlan: followUpPlan ?? [],
+          ...(args.followUpPlan !== undefined && {
+            followUpPlan: args.followUpPlan ?? [],
+          }),
           lastModified: BigInt(Date.now()),
           name,
           ...(args.treeFolderId !== undefined && {
@@ -1012,9 +1042,14 @@ export const createAppointmentType = mutation({
     // Create the appointment type
     const entityId = await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
       allowedPractitionerLineageKeys: normalizedAllowedPractitionerLineageKeys,
+      appointmentPlan: appointmentPlan ?? { steps: [] },
+      bookableVia,
       createdAt: BigInt(Date.now()),
+      defaultOccupancy,
       duration: args.duration,
-      ...(followUpPlan && { followUpPlan }),
+      ...(args.followUpPlan !== undefined && {
+        followUpPlan: args.followUpPlan ?? [],
+      }),
       lastModified: BigInt(Date.now()),
       ...(args.lineageKey && { lineageKey: args.lineageKey }),
       name,
@@ -1034,10 +1069,13 @@ export const createAppointmentType = mutation({
  */
 export const updateAppointmentType = mutation({
   args: {
+    appointmentPlan: appointmentPlanValidator,
     appointmentTypeId: v.id("appointmentTypes"),
+    bookableVia: v.optional(appointmentTypeBookableViaValidator),
+    defaultOccupancy: v.optional(appointmentTypeDefaultOccupancyValidator),
     duration: v.optional(v.number()),
     expectedDraftRevision: expectedDraftRevisionValidator,
-    followUpPlan: v.optional(v.array(followUpStepValidator)),
+    followUpPlan: followUpPlanValidator,
     name: v.optional(v.string()),
     practiceId: v.id("practices"),
     practitionerIds: v.optional(v.array(v.id("practitioners"))),
@@ -1078,8 +1116,13 @@ export const updateAppointmentType = mutation({
     // Build updates object
     const updates: Partial<{
       allowedPractitionerLineageKeys: PractitionerLineageKey[];
+      appointmentPlan: AppointmentPlan;
+      bookableVia: ReturnType<typeof normalizeBookableVia>;
+      defaultOccupancy: AppointmentTypeDefaultOccupancy;
       duration: number;
-      followUpPlan: FollowUpPlan;
+      followUpPlan: NonNullable<
+        Parameters<typeof followUpPlanToAppointmentPlan>[0]
+      >;
       lastModified: bigint;
       name: string;
     }> = {
@@ -1100,14 +1143,30 @@ export const updateAppointmentType = mutation({
       );
       updates.allowedPractitionerLineageKeys = resolved ?? [];
     }
-    if (args.followUpPlan !== undefined) {
-      const validatedFollowUpPlan = await validateFollowUpPlan(
+    if (args.appointmentPlan !== undefined || args.followUpPlan !== undefined) {
+      const rawAppointmentPlan =
+        args.appointmentPlan ??
+        followUpPlanToAppointmentPlan(args.followUpPlan);
+      const validatedAppointmentPlan = await validateAppointmentPlan(
         ctx.db,
         ruleSetId,
-        args.followUpPlan,
+        rawAppointmentPlan,
         requireAppointmentTypeLineageKey(appointmentType),
       );
-      updates.followUpPlan = validatedFollowUpPlan ?? [];
+      updates.appointmentPlan = validatedAppointmentPlan ?? { steps: [] };
+      if (args.followUpPlan !== undefined) {
+        updates.followUpPlan = args.followUpPlan ?? [];
+      }
+    }
+    if (args.defaultOccupancy !== undefined) {
+      updates.defaultOccupancy = await validateDefaultOccupancy(
+        ctx.db,
+        ruleSetId,
+        args.defaultOccupancy,
+      );
+    }
+    if (args.bookableVia !== undefined) {
+      updates.bookableVia = normalizeBookableVia(args.bookableVia);
     }
 
     // SAFETY: Verify entity belongs to unsaved rule set before patching
@@ -1252,7 +1311,11 @@ export const getBookingAppointmentTypes = query({
       .collect();
 
     return appointmentTypes
-      .filter((appointmentType) => !isDeletedRuleSetEntity(appointmentType))
+      .filter(
+        (appointmentType) =>
+          !isDeletedRuleSetEntity(appointmentType) &&
+          appointmentTypeIsBookableVia(appointmentType, "online"),
+      )
       .map((appointmentType) => patientFacingAppointmentType(appointmentType));
   },
 });
@@ -2242,7 +2305,10 @@ export const restorePractitionerWithDependencies = mutation({
         await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
           allowedPractitionerLineageKeys:
             restoredAllowedPractitionerLineageKeys,
+          appointmentPlan: { steps: [] },
+          bookableVia: normalizeBookableVia(),
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: patchDuration,
           lastModified: now,
           lineageKey: patch.lineageKey,
