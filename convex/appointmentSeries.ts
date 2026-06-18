@@ -12,20 +12,32 @@ import { internal } from "./_generated/api";
 import { resolveAppointmentColorForType } from "./appointmentColors";
 import {
   type AppointmentBookingScope,
+  appointmentOverlapsCandidate,
   findConflictingAppointment,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
-import { appointmentOccupancyScopeFromRefs } from "./appointmentOccupancy";
 import {
-  resolveLocationIdForRuleSetByLineage,
+  type AppointmentOccupancyScope,
+  appointmentOccupancyScopeFromRefs,
+  appointmentOccupancyScopeValidator,
+  type CalendarResourceColumn,
+  calendarResourceColumnValidator,
+  getAppointmentPractitionerLineageKey,
+} from "./appointmentOccupancy";
+import {
   resolveLocationLineageKey,
   resolveOccupancyReferenceLineageKeys,
   resolvePractitionerIdForRuleSetByLineage,
   resolvePractitionerLineageKey,
 } from "./appointmentReferences";
 import {
-  type FollowUpStep,
-  normalizeFollowUpPlan,
+  type AppointmentPlanOccupancy,
+  type AppointmentPlanStep,
+  type AppointmentPlanTiming,
+  type AppointmentTypeDefaultOccupancy,
+  followUpPlanToAppointmentPlan,
+  normalizeAppointmentPlan,
+  normalizeDefaultOccupancy,
   requireAppointmentTypeByLineageKey,
 } from "./followUpPlans";
 import {
@@ -35,6 +47,7 @@ import {
   asLocationLineageKey,
   asPractitionerId,
   asPractitionerLineageKey,
+  type LocationLineageKey,
 } from "./identity";
 import { requireLineageKey } from "./lineage";
 import { isPublicHoliday } from "./publicHolidays";
@@ -51,12 +64,15 @@ export const appointmentSeriesPreviewStepValidator = v.object({
   appointmentTypeId: v.id("appointmentTypes"),
   appointmentTypeLineageKey: v.id("appointmentTypes"),
   appointmentTypeTitle: v.string(),
+  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
   durationMinutes: v.number(),
   end: v.string(),
   locationId: v.id("locations"),
+  locationLineageKey: v.id("locations"),
   note: v.optional(v.string()),
-  practitionerId: v.id("practitioners"),
-  practitionerName: v.string(),
+  occupancyScope: appointmentOccupancyScopeValidator,
+  practitionerId: v.optional(v.id("practitioners")),
+  practitionerName: v.optional(v.string()),
   seriesStepIndex: v.number(),
   start: v.string(),
   stepId: v.string(),
@@ -74,12 +90,15 @@ export const appointmentSeriesCreatedStepValidator = v.object({
   appointmentTypeId: v.id("appointmentTypes"),
   appointmentTypeLineageKey: v.id("appointmentTypes"),
   appointmentTypeTitle: v.string(),
+  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
   durationMinutes: v.number(),
   end: v.string(),
   locationId: v.id("locations"),
+  locationLineageKey: v.id("locations"),
   note: v.optional(v.string()),
-  practitionerId: v.id("practitioners"),
-  practitionerName: v.string(),
+  occupancyScope: appointmentOccupancyScopeValidator,
+  practitionerId: v.optional(v.id("practitioners")),
+  practitionerName: v.optional(v.string()),
   seriesStepIndex: v.number(),
   start: v.string(),
   stepId: v.string(),
@@ -94,12 +113,13 @@ export const appointmentSeriesCreateResultValidator = v.object({
 
 export const appointmentSeriesArgsValidator = {
   bookingIdentityId: v.optional(v.id("bookingIdentities")),
+  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
   isNewPatient: v.optional(v.boolean()),
   locationId: v.id("locations"),
   patientDateOfBirth: v.optional(v.string()),
   patientId: v.optional(v.id("patients")),
   practiceId: v.id("practices"),
-  practitionerId: v.id("practitioners"),
+  practitionerId: v.optional(v.id("practitioners")),
   rootAppointmentTypeId: v.id("appointmentTypes"),
   ruleSetId: v.id("ruleSets"),
   scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
@@ -112,31 +132,42 @@ export interface PlannedSeriesStep {
   appointmentTypeId: Id<"appointmentTypes">;
   appointmentTypeLineageKey: AppointmentTypeLineageKey;
   appointmentTypeTitle: string;
+  calendarResourceColumn?: CalendarResourceColumn;
   durationMinutes: number;
   end: ZonedDateTimeString;
   locationId: Id<"locations">;
+  locationLineageKey: LocationLineageKey;
   note?: string;
-  practitionerId: Id<"practitioners">;
-  practitionerName: string;
+  occupancyScope: AppointmentOccupancyScope;
+  practitionerId?: Id<"practitioners">;
+  practitionerName?: string;
   seriesStepIndex: number;
   start: ZonedDateTimeString;
   stepId: string;
 }
 
-type FollowUpSearchPolicy =
+type AppointmentPlanSearchPolicy =
   | "exact_after_previous"
   | "same_day_after_offset"
   | "target_date_or_later"
   | "target_day_only";
 
+interface ResolvedPlanOccupancy {
+  calendarResourceColumn?: CalendarResourceColumn;
+  occupancyScope: AppointmentOccupancyScope;
+  practitionerId?: Id<"practitioners">;
+  practitionerName?: string;
+}
+
 interface RootSeriesCandidate {
+  calendarResourceColumn?: CalendarResourceColumn;
   excludedAppointmentIds?: Id<"appointments">[];
   isNewPatient?: boolean;
   locationId: Id<"locations">;
   patientDateOfBirth?: IsoDateString;
   patientId?: Id<"patients">;
   practiceId: Id<"practices">;
-  practitionerId: Id<"practitioners">;
+  practitionerId?: Id<"practitioners">;
   scope?: AppointmentBookingScope;
   simulationRuleSetId?: Id<"ruleSets">;
   start: ZonedDateTimeString;
@@ -162,7 +193,7 @@ interface SeriesPlanningState {
 }
 
 interface SeriesSpecification {
-  followUpPlanSnapshot: FollowUpStep[];
+  appointmentPlanSnapshot: AppointmentPlanStep[];
   rootAppointmentType: Doc<"appointmentTypes">;
   rootDurationMinutes: number;
   ruleSetId: Id<"ruleSets">;
@@ -172,12 +203,13 @@ export async function createAppointmentSeries(
   ctx: MutationCtx,
   args: {
     bookingIdentityId?: Id<"bookingIdentities">;
+    calendarResourceColumn?: CalendarResourceColumn;
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
     practiceId: Id<"practices">;
-    practitionerId: Id<"practitioners">;
+    practitionerId?: Id<"practitioners">;
     rootAppointmentTypeId: Id<"appointmentTypes">;
     rootColor?: AppointmentColor;
     rootReplacesAppointmentId?: Id<"appointments">;
@@ -242,16 +274,16 @@ export async function createAppointmentSeries(
       ctx.db,
       {
         locationId: asLocationId(step.locationId),
-        practitionerId: asPractitionerId(step.practitionerId),
+        ...(step.practitionerId && {
+          practitionerId: asPractitionerId(step.practitionerId),
+        }),
       },
     );
     const conflictingAppointment = await findConflictingAppointment(ctx.db, {
       candidate: {
         end: step.end,
         locationLineageKey: occupancyReferences.locationLineageKey,
-        occupancyScope: appointmentOccupancyScopeFromRefs({
-          practitionerLineageKey: occupancyReferences.practitionerLineageKey,
-        }),
+        occupancyScope: step.occupancyScope,
         start: step.start,
       },
       ...(simulationRuleSetId && { draftRuleSetId: simulationRuleSetId }),
@@ -301,9 +333,7 @@ export async function createAppointmentSeries(
       }),
       lastModified: now,
       locationLineageKey: occupancyReferences.locationLineageKey,
-      occupancyScope: appointmentOccupancyScopeFromRefs({
-        practitionerLineageKey: occupancyReferences.practitionerLineageKey,
-      }),
+      occupancyScope: step.occupancyScope,
       ...(args.patientId && { patientId: args.patientId }),
       practiceId: args.practiceId,
       ...(index === 0 &&
@@ -343,10 +373,12 @@ export async function createAppointmentSeries(
     ...(args.bookingIdentityId && {
       bookingIdentityId: args.bookingIdentityId,
     }),
+    appointmentPlanSnapshot:
+      normalizeAppointmentPlanSnapshotFromType(rootAppointmentType),
     createdAt: now,
-    followUpPlanSnapshot: normalizeFollowUpPlanSnapshot(
-      rootAppointmentType.followUpPlan ?? [],
-    ),
+    ...(rootAppointmentType.followUpPlan && {
+      followUpPlanSnapshot: rootAppointmentType.followUpPlan,
+    }),
     lastModified: now,
     ...(patientDateOfBirth && { patientDateOfBirth }),
     ...(args.patientId && { patientId: args.patientId }),
@@ -383,6 +415,16 @@ export async function planSeriesFromRootCandidate(
     seriesSpecification: SeriesSpecification;
   },
 ): Promise<SeriesPlanningResult> {
+  const rootOccupancy = await resolveRootOccupancy(ctx, {
+    appointmentType: args.seriesSpecification.rootAppointmentType,
+    ...(args.rootCandidate.calendarResourceColumn && {
+      calendarResourceColumn: args.rootCandidate.calendarResourceColumn,
+    }),
+    ...(args.rootCandidate.practitionerId && {
+      practitionerId: args.rootCandidate.practitionerId,
+    }),
+    ruleSetId: args.seriesSpecification.ruleSetId,
+  });
   const validatedRoot = await validateRootCandidate(ctx, {
     appointmentType: args.seriesSpecification.rootAppointmentType,
     ...(args.rootCandidate.excludedAppointmentIds && {
@@ -394,9 +436,9 @@ export async function planSeriesFromRootCandidate(
     }),
     planningState: args.planningState,
     practiceId: args.rootCandidate.practiceId,
-    practitionerId: args.rootCandidate.practitionerId,
     requestedAt: args.requestedAt,
     rootDurationMinutes: args.seriesSpecification.rootDurationMinutes,
+    rootOccupancy,
     ruleSetId: args.seriesSpecification.ruleSetId,
     ...(args.rootCandidate.scope && { scope: args.rootCandidate.scope }),
     ...(args.rootCandidate.simulationRuleSetId && {
@@ -426,8 +468,17 @@ export async function planSeriesFromRootCandidate(
       args.seriesSpecification.rootDurationMinutes,
     ),
     locationId: args.rootCandidate.locationId,
-    practitionerId: args.rootCandidate.practitionerId,
-    practitionerName: validatedRoot.practitionerName,
+    locationLineageKey: validatedRoot.locationLineageKey,
+    occupancyScope: rootOccupancy.occupancyScope,
+    ...(rootOccupancy.calendarResourceColumn && {
+      calendarResourceColumn: rootOccupancy.calendarResourceColumn,
+    }),
+    ...(rootOccupancy.practitionerId && {
+      practitionerId: rootOccupancy.practitionerId,
+    }),
+    ...(rootOccupancy.practitionerName && {
+      practitionerName: rootOccupancy.practitionerName,
+    }),
     seriesStepIndex: 0,
     start: args.rootCandidate.start,
     stepId: "root",
@@ -436,34 +487,26 @@ export async function planSeriesFromRootCandidate(
   const plannedSteps: PlannedSeriesStep[] = [rootStep];
   let previousStep = rootStep;
 
-  for (const step of args.seriesSpecification.followUpPlanSnapshot) {
+  for (const step of args.seriesSpecification.appointmentPlanSnapshot) {
     const targetAppointmentType = await requireAppointmentTypeByLineageKey(
       ctx.db,
       args.seriesSpecification.ruleSetId,
       step.appointmentTypeLineageKey,
     );
-    const inheritedPractitionerId =
-      step.practitionerMode === "inherit"
-        ? previousStep.practitionerId
-        : undefined;
-    const inheritedLocationId =
-      step.locationMode === "inherit" ? previousStep.locationId : undefined;
-
-    const matchingSlot = await findSlotForFollowUpStep(ctx, {
-      ...(inheritedLocationId && { locationId: inheritedLocationId }),
+    const plannedStep = await planAppointmentPlanStep(ctx, {
       ...(args.rootCandidate.isNewPatient !== undefined && {
         isNewPatient: args.rootCandidate.isNewPatient,
       }),
       ...(args.rootCandidate.patientDateOfBirth && {
         patientDateOfBirth: args.rootCandidate.patientDateOfBirth,
       }),
+      locationId: args.rootCandidate.locationId,
+      plannedSteps,
       planningState: args.planningState,
       practiceId: args.rootCandidate.practiceId,
       previousStep,
-      ...(inheritedPractitionerId && {
-        practitionerId: inheritedPractitionerId,
-      }),
       requestedAt: args.requestedAt,
+      rootStep,
       ruleSetId: args.seriesSpecification.ruleSetId,
       ...(args.rootCandidate.scope && { scope: args.rootCandidate.scope }),
       ...(args.rootCandidate.simulationRuleSetId && {
@@ -476,7 +519,7 @@ export async function planSeriesFromRootCandidate(
       }),
     });
 
-    if (!matchingSlot) {
+    if (!plannedStep) {
       if (step.required) {
         return {
           blockedStepId: step.stepId,
@@ -487,42 +530,6 @@ export async function planSeriesFromRootCandidate(
       }
       continue;
     }
-
-    const [resolvedLocationId, resolvedPractitionerId] = await Promise.all([
-      resolveLocationIdForRuleSetByLineage(ctx.db, {
-        lineageKey: matchingSlot.locationLineageKey,
-        ruleSetId: args.seriesSpecification.ruleSetId,
-      }).then((resolvedId) => asLocationId(resolvedId)),
-      resolvePractitionerIdForRuleSetByLineage(ctx.db, {
-        lineageKey: matchingSlot.practitionerLineageKey,
-        ruleSetId: args.seriesSpecification.ruleSetId,
-      }).then((resolvedId) => asPractitionerId(resolvedId)),
-    ]);
-
-    const plannedStep: PlannedSeriesStep = {
-      appointmentTypeId: targetAppointmentType._id,
-      appointmentTypeLineageKey: asAppointmentTypeLineageKey(
-        requireLineageKey({
-          entityId: targetAppointmentType._id,
-          entityType: "appointment type",
-          lineageKey: targetAppointmentType.lineageKey,
-          ruleSetId: targetAppointmentType.ruleSetId,
-        }),
-      ),
-      appointmentTypeTitle: targetAppointmentType.name,
-      durationMinutes: targetAppointmentType.duration,
-      end: calculateEndTime(
-        asZonedDateTimeString(matchingSlot.startTime),
-        targetAppointmentType.duration,
-      ),
-      locationId: resolvedLocationId,
-      practitionerId: resolvedPractitionerId,
-      practitionerName: matchingSlot.practitionerName,
-      seriesStepIndex: plannedSteps.length,
-      start: asZonedDateTimeString(matchingSlot.startTime),
-      stepId: step.stepId,
-      ...(step.note ? { note: step.note } : {}),
-    };
 
     plannedSteps.push(plannedStep);
     previousStep = plannedStep;
@@ -537,13 +544,14 @@ export async function planSeriesFromRootCandidate(
 export async function previewAppointmentSeries(
   ctx: SeriesPlannerCtx,
   args: {
+    calendarResourceColumn?: CalendarResourceColumn;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
     practiceId: Id<"practices">;
-    practitionerId: Id<"practitioners">;
+    practitionerId?: Id<"practitioners">;
     rootAppointmentTypeId: Id<"appointmentTypes">;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
@@ -577,7 +585,10 @@ export async function previewAppointmentSeries(
       ...(patientDateOfBirth && { patientDateOfBirth }),
       ...(args.patientId && { patientId: args.patientId }),
       practiceId: args.practiceId,
-      practitionerId: args.practitionerId,
+      ...(args.calendarResourceColumn && {
+        calendarResourceColumn: args.calendarResourceColumn,
+      }),
+      ...(args.practitionerId && { practitionerId: args.practitionerId }),
       ...(args.scope && { scope: args.scope }),
       ...(simulationRuleSetId && {
         simulationRuleSetId,
@@ -586,9 +597,8 @@ export async function previewAppointmentSeries(
       ...(args.userId && { userId: args.userId }),
     },
     seriesSpecification: {
-      followUpPlanSnapshot: normalizeFollowUpPlanSnapshot(
-        rootAppointmentType.followUpPlan ?? [],
-      ),
+      appointmentPlanSnapshot:
+        normalizeAppointmentPlanSnapshotFromType(rootAppointmentType),
       rootAppointmentType,
       rootDurationMinutes: rootAppointmentType.duration,
       ruleSetId: args.ruleSetId,
@@ -599,13 +609,14 @@ export async function previewAppointmentSeries(
 export async function replanAppointmentSeries(
   ctx: MutationCtx,
   args: {
+    calendarResourceColumn?: CalendarResourceColumn;
     excludedAppointmentIds: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
     practiceId: Id<"practices">;
-    practitionerId: Id<"practitioners">;
+    practitionerId?: Id<"practitioners">;
     rootDurationMinutes: number;
     scope: AppointmentBookingScope;
     series: Doc<"appointmentSeries">;
@@ -642,16 +653,19 @@ export async function replanAppointmentSeries(
       ...(patientDateOfBirth && { patientDateOfBirth }),
       ...(args.patientId && { patientId: args.patientId }),
       practiceId: args.practiceId,
-      practitionerId: args.practitionerId,
+      ...(args.calendarResourceColumn && {
+        calendarResourceColumn: args.calendarResourceColumn,
+      }),
+      ...(args.practitionerId && { practitionerId: args.practitionerId }),
       scope: args.scope,
       ...(simulationRuleSetId && { simulationRuleSetId }),
       start: args.start,
       ...(args.userId && { userId: args.userId }),
     },
     seriesSpecification: {
-      followUpPlanSnapshot: normalizeFollowUpPlanSnapshot(
-        args.series.followUpPlanSnapshot,
-      ),
+      appointmentPlanSnapshot: normalizeAppointmentPlanSnapshot({
+        steps: args.series.appointmentPlanSnapshot,
+      }),
       rootAppointmentType,
       rootDurationMinutes: args.rootDurationMinutes,
       ruleSetId: args.series.ruleSetIdAtBooking,
@@ -669,26 +683,6 @@ export async function replanAppointmentSeries(
   return result.steps;
 }
 
-export function resolveFollowUpSearchPolicy(
-  step: FollowUpStep,
-): FollowUpSearchPolicy {
-  if (step.searchMode === "exact_after_previous") {
-    return "exact_after_previous";
-  }
-
-  if (step.searchMode === "same_day") {
-    return "same_day_after_offset";
-  }
-
-  if (step.offsetUnit === "minutes") {
-    return step.offsetValue === 0
-      ? "exact_after_previous"
-      : "same_day_after_offset";
-  }
-
-  return "target_date_or_later";
-}
-
 export function toStoredSeriesStepIndex(seriesStepIndex: number): bigint {
   if (!Number.isInteger(seriesStepIndex) || seriesStepIndex < 0) {
     throw appointmentSeriesError(
@@ -700,25 +694,66 @@ export function toStoredSeriesStepIndex(seriesStepIndex: number): bigint {
   return BigInt(seriesStepIndex);
 }
 
-function addOffset(start: Temporal.ZonedDateTime, step: FollowUpStep) {
-  switch (step.offsetUnit) {
+function addDateOffset(
+  start: Temporal.ZonedDateTime,
+  timing: Extract<AppointmentPlanTiming, { kind: "firstAvailableOnOrAfter" }>,
+) {
+  switch (timing.offsetUnit) {
     case "days": {
-      return start.add({ days: step.offsetValue });
-    }
-    case "minutes": {
-      return start.add({ minutes: step.offsetValue });
+      return start.add({ days: timing.offsetValue });
     }
     case "months": {
-      return start.add({ months: step.offsetValue });
+      return start.add({ months: timing.offsetValue });
     }
     case "weeks": {
-      return start.add({ weeks: step.offsetValue });
+      return start.add({ weeks: timing.offsetValue });
     }
   }
 }
 
 function appointmentSeriesError(code: string, message: string) {
   return new ConvexError({ code, message });
+}
+
+function buildPlannedStepCandidate(args: {
+  locationId: Id<"locations">;
+  locationLineageKey: LocationLineageKey;
+  occupancy: ResolvedPlanOccupancy;
+  plannedStepsCount: number;
+  start: ZonedDateTimeString;
+  step: AppointmentPlanStep;
+  targetAppointmentType: Doc<"appointmentTypes">;
+}): PlannedSeriesStep {
+  return {
+    appointmentTypeId: args.targetAppointmentType._id,
+    appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+      requireLineageKey({
+        entityId: args.targetAppointmentType._id,
+        entityType: "appointment type",
+        lineageKey: args.targetAppointmentType.lineageKey,
+        ruleSetId: args.targetAppointmentType.ruleSetId,
+      }),
+    ),
+    appointmentTypeTitle: args.targetAppointmentType.name,
+    ...(args.occupancy.calendarResourceColumn && {
+      calendarResourceColumn: args.occupancy.calendarResourceColumn,
+    }),
+    durationMinutes: args.targetAppointmentType.duration,
+    end: calculateEndTime(args.start, args.targetAppointmentType.duration),
+    locationId: args.locationId,
+    locationLineageKey: args.locationLineageKey,
+    ...(args.step.note ? { note: args.step.note } : {}),
+    occupancyScope: args.occupancy.occupancyScope,
+    ...(args.occupancy.practitionerId && {
+      practitionerId: args.occupancy.practitionerId,
+    }),
+    ...(args.occupancy.practitionerName && {
+      practitionerName: args.occupancy.practitionerName,
+    }),
+    seriesStepIndex: args.plannedStepsCount,
+    start: args.start,
+    stepId: args.step.stepId,
+  };
 }
 
 function calculateEndTime(
@@ -730,6 +765,41 @@ function calculateEndTime(
       .add({ minutes: durationMinutes })
       .toString(),
   );
+}
+
+function calculateExactStepStart(
+  timing: AppointmentPlanTiming,
+  args: {
+    durationMinutes: number;
+    plannedSteps: PlannedSeriesStep[];
+    previousStep: PlannedSeriesStep;
+    rootStep: PlannedSeriesStep;
+  },
+): null | ZonedDateTimeString {
+  switch (timing.kind) {
+    case "afterPreviousEnd": {
+      return asZonedDateTimeString(
+        Temporal.ZonedDateTime.from(args.previousStep.end)
+          .add({ minutes: timing.offsetMinutes })
+          .toString(),
+      );
+    }
+    case "beforeRootStart": {
+      return asZonedDateTimeString(
+        Temporal.ZonedDateTime.from(args.rootStep.start)
+          .subtract({
+            minutes: args.durationMinutes + timing.offsetMinutes,
+          })
+          .toString(),
+      );
+    }
+    case "firstAvailableOnOrAfter": {
+      return null;
+    }
+    case "sameStartAs": {
+      return findAnchorStep(args.plannedSteps, timing.anchorStepId).start;
+    }
+  }
 }
 
 function createSeriesId(): string {
@@ -744,117 +814,67 @@ function createSeriesPlanningState(): SeriesPlanningState {
   };
 }
 
-async function findSlotForFollowUpStep(
+function findAnchorStep(
+  plannedSteps: PlannedSeriesStep[],
+  anchorStepId: string,
+): PlannedSeriesStep {
+  const step = plannedSteps.find(
+    (candidate) => candidate.stepId === anchorStepId,
+  );
+  if (!step) {
+    throw appointmentSeriesError(
+      "CHAIN_REPLAN_FAILED",
+      `Kettentermin-Anker ${anchorStepId} wurde nicht gefunden.`,
+    );
+  }
+  return step;
+}
+
+async function findFirstAvailableStepStart(
   ctx: SeriesPlannerCtx,
   args: {
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
-    locationId?: Id<"locations">;
+    locationId: Id<"locations">;
+    occupancy: ResolvedPlanOccupancy;
     patientDateOfBirth?: IsoDateString;
+    plannedSteps: PlannedSeriesStep[];
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
-    practitionerId?: Id<"practitioners">;
-    previousStep: PlannedSeriesStep;
     requestedAt: InstantString;
+    rootStep: PlannedSeriesStep;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
     simulationRuleSetId?: Id<"ruleSets">;
-    step: FollowUpStep;
     targetAppointmentType: Doc<"appointmentTypes">;
+    timing: AppointmentPlanTiming;
   },
-) {
-  if (
-    args.practitionerId &&
-    !(await resolvePractitionerLineageKey(
-      ctx.db,
-      asPractitionerId(args.practitionerId),
-    ).then((lineageKey) =>
-      args.targetAppointmentType.allowedPractitionerLineageKeys.includes(
-        asPractitionerLineageKey(lineageKey),
-      ),
-    ))
-  ) {
+): Promise<null | ZonedDateTimeString> {
+  if (args.timing.kind !== "firstAvailableOnOrAfter") {
     return null;
   }
 
-  const earliestStart = addOffset(
-    Temporal.ZonedDateTime.from(args.previousStep.end),
-    args.step,
+  const anchorStep = findAnchorStep(
+    args.plannedSteps,
+    args.timing.anchorStepId,
   );
-  const searchPolicy = resolveFollowUpSearchPolicy(args.step);
+  const earliestStart = addDateOffset(
+    Temporal.ZonedDateTime.from(anchorStep.end),
+    args.timing,
+  );
 
-  if (searchPolicy === "exact_after_previous") {
-    const slots = await queryAvailableSlotsForDay(ctx, {
-      appointmentType: args.targetAppointmentType,
-      date: asIsoDateString(earliestStart.toPlainDate().toString()),
-      ...(args.excludedAppointmentIds && {
-        excludedAppointmentIds: args.excludedAppointmentIds,
-      }),
-      ...(args.isNewPatient !== undefined && {
-        isNewPatient: args.isNewPatient,
-      }),
-      ...(args.locationId && { locationId: args.locationId }),
-      planningState: args.planningState,
-      ...(args.patientDateOfBirth && {
-        patientDateOfBirth: args.patientDateOfBirth,
-      }),
-      practiceId: args.practiceId,
-      ...(args.practitionerId && { practitionerId: args.practitionerId }),
-      requestedAt: args.requestedAt,
-      ruleSetId: args.ruleSetId,
-      ...(args.scope && { scope: args.scope }),
-      ...(args.simulationRuleSetId && {
-        simulationRuleSetId: args.simulationRuleSetId,
-      }),
-    });
-
-    return (
-      slots.find((slot) => slot.startTime === earliestStart.toString()) ?? null
-    );
-  }
-
-  if (searchPolicy === "same_day_after_offset") {
-    const slots = await queryAvailableSlotsForDay(ctx, {
-      appointmentType: args.targetAppointmentType,
-      date: asIsoDateString(earliestStart.toPlainDate().toString()),
-      ...(args.excludedAppointmentIds && {
-        excludedAppointmentIds: args.excludedAppointmentIds,
-      }),
-      ...(args.isNewPatient !== undefined && {
-        isNewPatient: args.isNewPatient,
-      }),
-      ...(args.locationId && { locationId: args.locationId }),
-      planningState: args.planningState,
-      ...(args.patientDateOfBirth && {
-        patientDateOfBirth: args.patientDateOfBirth,
-      }),
-      practiceId: args.practiceId,
-      ...(args.practitionerId && { practitionerId: args.practitionerId }),
-      requestedAt: args.requestedAt,
-      ruleSetId: args.ruleSetId,
-      ...(args.scope && { scope: args.scope }),
-      ...(args.simulationRuleSetId && {
-        simulationRuleSetId: args.simulationRuleSetId,
-      }),
-    });
-
-    return (
-      slots.find(
-        (slot) =>
-          Temporal.ZonedDateTime.from(slot.startTime).epochMilliseconds >=
-          earliestStart.epochMilliseconds,
-      ) ?? null
-    );
+  if (!args.occupancy.practitionerId) {
+    return asZonedDateTimeString(earliestStart.toString());
   }
 
   const searchDates = await getSearchDatesOnOrAfter(ctx, {
     earliestStart,
-    ...(args.locationId && { locationId: args.locationId }),
+    locationId: args.locationId,
     planningState: args.planningState,
     practiceId: args.practiceId,
-    ...(args.practitionerId && { practitionerId: args.practitionerId }),
+    practitionerId: args.occupancy.practitionerId,
     ruleSetId: args.ruleSetId,
-    searchPolicy,
+    searchPolicy: "target_date_or_later",
   });
 
   for (const searchDate of searchDates) {
@@ -867,13 +887,13 @@ async function findSlotForFollowUpStep(
       ...(args.isNewPatient !== undefined && {
         isNewPatient: args.isNewPatient,
       }),
-      ...(args.locationId && { locationId: args.locationId }),
+      locationId: args.locationId,
       planningState: args.planningState,
       ...(args.patientDateOfBirth && {
         patientDateOfBirth: args.patientDateOfBirth,
       }),
       practiceId: args.practiceId,
-      ...(args.practitionerId && { practitionerId: args.practitionerId }),
+      practitionerId: args.occupancy.practitionerId,
       requestedAt: args.requestedAt,
       ruleSetId: args.ruleSetId,
       ...(args.scope && { scope: args.scope }),
@@ -881,14 +901,35 @@ async function findSlotForFollowUpStep(
         simulationRuleSetId: args.simulationRuleSetId,
       }),
     });
-    const matchingSlot = slots[0] ?? null;
-
+    const matchingSlot = slots[0];
     if (matchingSlot) {
-      return matchingSlot;
+      return asZonedDateTimeString(matchingSlot.startTime);
     }
   }
 
   return null;
+}
+
+function getAppointmentPlanSearchWindow(
+  earliestStart: Temporal.ZonedDateTime,
+  searchPolicy: AppointmentPlanSearchPolicy,
+): {
+  endDate: Temporal.PlainDate;
+  startDate: Temporal.PlainDate;
+} {
+  const targetDate = earliestStart.toPlainDate();
+
+  if (searchPolicy === "target_date_or_later") {
+    return {
+      endDate: targetDate.add({ days: MAX_SERIES_SEARCH_DAYS }),
+      startDate: targetDate,
+    };
+  }
+
+  return {
+    endDate: targetDate,
+    startDate: targetDate,
+  };
 }
 
 async function getEligibleWeekdays(
@@ -985,28 +1026,6 @@ async function getEligibleWeekdays(
   return weekdays;
 }
 
-function getFollowUpSearchWindow(
-  earliestStart: Temporal.ZonedDateTime,
-  searchPolicy: FollowUpSearchPolicy,
-): {
-  endDate: Temporal.PlainDate;
-  startDate: Temporal.PlainDate;
-} {
-  const targetDate = earliestStart.toPlainDate();
-
-  if (searchPolicy === "target_date_or_later") {
-    return {
-      endDate: targetDate.add({ days: MAX_SERIES_SEARCH_DAYS }),
-      startDate: targetDate,
-    };
-  }
-
-  return {
-    endDate: targetDate,
-    startDate: targetDate,
-  };
-}
-
 async function getSearchDatesOnOrAfter(
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
   args: {
@@ -1016,7 +1035,7 @@ async function getSearchDatesOnOrAfter(
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     ruleSetId: Id<"ruleSets">;
-    searchPolicy: FollowUpSearchPolicy;
+    searchPolicy: AppointmentPlanSearchPolicy;
   },
 ) {
   const eligibleWeekdays = await getEligibleWeekdays(ctx, args);
@@ -1025,7 +1044,7 @@ async function getSearchDatesOnOrAfter(
     return [];
   }
 
-  const { endDate, startDate } = getFollowUpSearchWindow(
+  const { endDate, startDate } = getAppointmentPlanSearchWindow(
     args.earliestStart,
     args.searchPolicy,
   );
@@ -1054,6 +1073,75 @@ async function getSearchDatesOnOrAfter(
   }
 
   return searchDates;
+}
+
+async function hasExactPractitionerSlot(
+  ctx: SeriesPlannerCtx,
+  args: {
+    excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
+    locationId: Id<"locations">;
+    patientDateOfBirth?: IsoDateString;
+    planningState: SeriesPlanningState;
+    practiceId: Id<"practices">;
+    practitionerId: Id<"practitioners">;
+    requestedAt: InstantString;
+    ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
+    start: ZonedDateTimeString;
+    targetAppointmentType: Doc<"appointmentTypes">;
+  },
+): Promise<boolean> {
+  const slots = await queryAvailableSlotsForDay(ctx, {
+    appointmentType: args.targetAppointmentType,
+    date: asIsoDateString(
+      Temporal.ZonedDateTime.from(args.start).toPlainDate().toString(),
+    ),
+    ...(args.excludedAppointmentIds && {
+      excludedAppointmentIds: args.excludedAppointmentIds,
+    }),
+    ...(args.isNewPatient !== undefined && {
+      isNewPatient: args.isNewPatient,
+    }),
+    locationId: args.locationId,
+    planningState: args.planningState,
+    ...(args.patientDateOfBirth && {
+      patientDateOfBirth: args.patientDateOfBirth,
+    }),
+    practiceId: args.practiceId,
+    practitionerId: args.practitionerId,
+    requestedAt: args.requestedAt,
+    ruleSetId: args.ruleSetId,
+    ...(args.scope && { scope: args.scope }),
+    ...(args.simulationRuleSetId && {
+      simulationRuleSetId: args.simulationRuleSetId,
+    }),
+  });
+
+  return slots.some((slot) => slot.startTime === args.start);
+}
+
+function hasPlannedStepConflict(
+  plannedSteps: PlannedSeriesStep[],
+  candidate: PlannedSeriesStep,
+): boolean {
+  return plannedSteps.some((plannedStep) =>
+    appointmentOverlapsCandidate(
+      {
+        end: plannedStep.end,
+        locationLineageKey: plannedStep.locationLineageKey,
+        occupancyScope: plannedStep.occupancyScope,
+        start: plannedStep.start,
+      },
+      {
+        end: candidate.end,
+        locationLineageKey: candidate.locationLineageKey,
+        occupancyScope: candidate.occupancyScope,
+        start: candidate.start,
+      },
+    ),
+  );
 }
 
 async function loadRootAppointmentType(
@@ -1093,10 +1181,120 @@ async function loadRootAppointmentType(
   return appointmentType;
 }
 
-function normalizeFollowUpPlanSnapshot(
-  followUpPlan: Doc<"appointmentTypes">["followUpPlan"] | FollowUpStep[],
-): FollowUpStep[] {
-  return normalizeFollowUpPlan(followUpPlan) ?? [];
+function normalizeAppointmentPlanSnapshot(
+  appointmentPlan:
+    | Doc<"appointmentTypes">["appointmentPlan"]
+    | undefined
+    | { steps: AppointmentPlanStep[] },
+): AppointmentPlanStep[] {
+  return normalizeAppointmentPlan(appointmentPlan)?.steps ?? [];
+}
+
+function normalizeAppointmentPlanSnapshotFromType(
+  appointmentType: Pick<
+    Doc<"appointmentTypes">,
+    "appointmentPlan" | "followUpPlan"
+  >,
+): AppointmentPlanStep[] {
+  return normalizeAppointmentPlanSnapshot(
+    appointmentType.appointmentPlan ??
+      followUpPlanToAppointmentPlan(appointmentType.followUpPlan),
+  );
+}
+
+async function planAppointmentPlanStep(
+  ctx: SeriesPlannerCtx,
+  args: {
+    excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
+    locationId: Id<"locations">;
+    patientDateOfBirth?: IsoDateString;
+    plannedSteps: PlannedSeriesStep[];
+    planningState: SeriesPlanningState;
+    practiceId: Id<"practices">;
+    previousStep: PlannedSeriesStep;
+    requestedAt: InstantString;
+    rootStep: PlannedSeriesStep;
+    ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
+    step: AppointmentPlanStep;
+    targetAppointmentType: Doc<"appointmentTypes">;
+  },
+): Promise<null | PlannedSeriesStep> {
+  const occupancy = await resolveStepOccupancy(ctx, {
+    occupancy: args.step.occupancy,
+    rootStep: args.rootStep,
+    ruleSetId: args.ruleSetId,
+    targetAppointmentType: args.targetAppointmentType,
+  });
+  if (!occupancy) {
+    return null;
+  }
+
+  const exactStart = calculateExactStepStart(args.step.timing, {
+    durationMinutes: args.targetAppointmentType.duration,
+    plannedSteps: args.plannedSteps,
+    previousStep: args.previousStep,
+    rootStep: args.rootStep,
+  });
+
+  const start =
+    exactStart ??
+    (await findFirstAvailableStepStart(ctx, {
+      ...args,
+      occupancy,
+      timing: args.step.timing,
+    }));
+
+  if (!start) {
+    return null;
+  }
+
+  if (
+    exactStart &&
+    occupancy.practitionerId &&
+    !(await hasExactPractitionerSlot(ctx, {
+      ...args,
+      practitionerId: occupancy.practitionerId,
+      start: exactStart,
+    }))
+  ) {
+    return null;
+  }
+
+  const candidate = buildPlannedStepCandidate({
+    locationId: args.locationId,
+    locationLineageKey: args.rootStep.locationLineageKey,
+    occupancy,
+    plannedStepsCount: args.plannedSteps.length,
+    start,
+    step: args.step,
+    targetAppointmentType: args.targetAppointmentType,
+  });
+
+  if (hasPlannedStepConflict(args.plannedSteps, candidate)) {
+    return null;
+  }
+
+  const conflictingAppointment = await findConflictingAppointment(ctx.db, {
+    candidate: {
+      end: candidate.end,
+      locationLineageKey: candidate.locationLineageKey,
+      occupancyScope: candidate.occupancyScope,
+      start: candidate.start,
+    },
+    ...(args.simulationRuleSetId && {
+      draftRuleSetId: args.simulationRuleSetId,
+    }),
+    ...(args.excludedAppointmentIds && {
+      excludeAppointmentIds: args.excludedAppointmentIds,
+    }),
+    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
+    practiceId: args.practiceId,
+  });
+
+  return conflictingAppointment ? null : candidate;
 }
 
 async function queryAvailableSlotsForDay(
@@ -1214,6 +1412,88 @@ async function queryAvailableSlotsForDay(
   return slots;
 }
 
+function requireResolvedPractitionerOccupancy(
+  occupancy: null | ResolvedPlanOccupancy,
+): ResolvedPlanOccupancy {
+  if (!occupancy) {
+    throw appointmentSeriesError(
+      "CHAIN_REPLAN_FAILED",
+      "Der Behandler ist für diese Terminart nicht freigeschaltet.",
+    );
+  }
+
+  return occupancy;
+}
+
+async function resolveDefaultOccupancy(
+  ctx: SeriesPlannerCtx,
+  args: {
+    appointmentType: Doc<"appointmentTypes">;
+    calendarResourceColumn?: CalendarResourceColumn;
+    defaultOccupancy: AppointmentTypeDefaultOccupancy;
+    practitionerId?: Id<"practitioners">;
+    ruleSetId: Id<"ruleSets">;
+  },
+): Promise<ResolvedPlanOccupancy> {
+  switch (args.defaultOccupancy.kind) {
+    case "resourceColumn": {
+      const calendarResourceColumn =
+        args.calendarResourceColumn ??
+        args.defaultOccupancy.calendarResourceColumn;
+      if (
+        calendarResourceColumn !== args.defaultOccupancy.calendarResourceColumn
+      ) {
+        throw appointmentSeriesError(
+          "CHAIN_REPLAN_FAILED",
+          "Der Starttermin muss in der Standard-Ressourcenspalte der Terminart liegen.",
+        );
+      }
+      return {
+        calendarResourceColumn,
+        occupancyScope: appointmentOccupancyScopeFromRefs({
+          calendarResourceColumn,
+        }),
+      };
+    }
+    case "selectedPractitioner": {
+      if (!args.practitionerId) {
+        throw appointmentSeriesError(
+          "CHAIN_REPLAN_FAILED",
+          "Kettentermine benötigen einen ausgewählten Behandler für den Starttermin.",
+        );
+      }
+      if (args.calendarResourceColumn) {
+        throw appointmentSeriesError(
+          "CHAIN_REPLAN_FAILED",
+          "Kettentermine können nicht in EKG- oder Labor-Spalten verschoben werden.",
+        );
+      }
+      return requireResolvedPractitionerOccupancy(
+        await resolvePractitionerOccupancy(ctx, {
+          appointmentType: args.appointmentType,
+          practitionerId: args.practitionerId,
+        }),
+      );
+    }
+    case "specificPractitioner": {
+      return requireResolvedPractitionerOccupancy(
+        await resolvePractitionerOccupancy(ctx, {
+          appointmentType: args.appointmentType,
+          practitionerId: await resolvePractitionerIdForRuleSetByLineage(
+            ctx.db,
+            {
+              lineageKey: asPractitionerLineageKey(
+                args.defaultOccupancy.practitionerLineageKey,
+              ),
+              ruleSetId: args.ruleSetId,
+            },
+          ),
+        }),
+      );
+    }
+  }
+}
+
 async function resolvePatientDateOfBirth(
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
   args: {
@@ -1233,6 +1513,65 @@ async function resolvePatientDateOfBirth(
   return asOptionalIsoDateString(patient?.dateOfBirth);
 }
 
+async function resolvePractitionerOccupancy(
+  ctx: SeriesPlannerCtx,
+  args: {
+    appointmentType: Doc<"appointmentTypes">;
+    practitionerId: Id<"practitioners">;
+  },
+): Promise<null | ResolvedPlanOccupancy> {
+  const practitioner = await ctx.db.get("practitioners", args.practitionerId);
+  if (!practitioner) {
+    return null;
+  }
+  const practitionerLineageKey = asPractitionerLineageKey(
+    requireLineageKey({
+      entityId: practitioner._id,
+      entityType: "practitioner",
+      lineageKey: practitioner.lineageKey,
+      ruleSetId: practitioner.ruleSetId,
+    }),
+  );
+  if (
+    !args.appointmentType.allowedPractitionerLineageKeys.includes(
+      practitionerLineageKey,
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    occupancyScope: appointmentOccupancyScopeFromRefs({
+      practitionerLineageKey,
+    }),
+    practitionerId: asPractitionerId(practitioner._id),
+    practitionerName: practitioner.name,
+  };
+}
+
+async function resolveRootOccupancy(
+  ctx: SeriesPlannerCtx,
+  args: {
+    appointmentType: Doc<"appointmentTypes">;
+    calendarResourceColumn?: CalendarResourceColumn;
+    practitionerId?: Id<"practitioners">;
+    ruleSetId: Id<"ruleSets">;
+  },
+): Promise<ResolvedPlanOccupancy> {
+  const defaultOccupancy = normalizeDefaultOccupancy(
+    args.appointmentType.defaultOccupancy,
+  );
+  return await resolveDefaultOccupancy(ctx, {
+    appointmentType: args.appointmentType,
+    ...(args.calendarResourceColumn && {
+      calendarResourceColumn: args.calendarResourceColumn,
+    }),
+    defaultOccupancy,
+    ...(args.practitionerId && { practitionerId: args.practitionerId }),
+    ruleSetId: args.ruleSetId,
+  });
+}
+
 function resolveSeriesSimulationRuleSetId(args: {
   ruleSetId: Id<"ruleSets">;
   scope?: AppointmentBookingScope;
@@ -1243,6 +1582,47 @@ function resolveSeriesSimulationRuleSetId(args: {
   }
 
   return args.simulationRuleSetId ?? args.ruleSetId;
+}
+
+async function resolveStepOccupancy(
+  ctx: SeriesPlannerCtx,
+  args: {
+    occupancy: AppointmentPlanOccupancy;
+    rootStep: PlannedSeriesStep;
+    ruleSetId: Id<"ruleSets">;
+    targetAppointmentType: Doc<"appointmentTypes">;
+  },
+): Promise<null | ResolvedPlanOccupancy> {
+  switch (args.occupancy.kind) {
+    case "inheritRootPractitioner": {
+      if (!args.rootStep.practitionerId) {
+        return null;
+      }
+      return await resolvePractitionerOccupancy(ctx, {
+        appointmentType: args.targetAppointmentType,
+        practitionerId: args.rootStep.practitionerId,
+      });
+    }
+    case "resourceColumn": {
+      return {
+        calendarResourceColumn: args.occupancy.calendarResourceColumn,
+        occupancyScope: appointmentOccupancyScopeFromRefs({
+          calendarResourceColumn: args.occupancy.calendarResourceColumn,
+        }),
+      };
+    }
+    case "specificPractitioner": {
+      return await resolvePractitionerOccupancy(ctx, {
+        appointmentType: args.targetAppointmentType,
+        practitionerId: await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+          lineageKey: asPractitionerLineageKey(
+            args.occupancy.practitionerLineageKey,
+          ),
+          ruleSetId: args.ruleSetId,
+        }),
+      });
+    }
+  }
 }
 
 function validateDurationMinutes(durationMinutes: number): number {
@@ -1266,9 +1646,9 @@ async function validateRootCandidate(
     patientDateOfBirth?: IsoDateString;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
-    practitionerId: Id<"practitioners">;
     requestedAt: InstantString;
     rootDurationMinutes: number;
+    rootOccupancy: ResolvedPlanOccupancy;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
     simulationRuleSetId?: Id<"ruleSets">;
@@ -1281,92 +1661,79 @@ async function validateRootCandidate(
       status: "blocked";
       steps: PlannedSeriesStep[];
     }
-  | { practitionerName: string; status: "ready" }
+  | {
+      locationLineageKey: LocationLineageKey;
+      practitionerName?: string;
+      status: "ready";
+    }
 > {
   validateDurationMinutes(args.rootDurationMinutes);
 
-  if (
-    !args.appointmentType.allowedPractitionerLineageKeys.includes(
-      await resolvePractitionerLineageKey(
-        ctx.db,
-        asPractitionerId(args.practitionerId),
-      ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
-    )
-  ) {
-    return {
-      blockedStepId: "root",
-      failureMessage:
-        "Der ausgewählte Behandler ist für diese Terminart nicht freigeschaltet.",
-      status: "blocked",
-      steps: [],
-    };
-  }
-
-  const rootSlots = await queryAvailableSlotsForDay(ctx, {
-    appointmentType: args.appointmentType,
-    date: asIsoDateString(
-      Temporal.ZonedDateTime.from(args.start).toPlainDate().toString(),
-    ),
-    ...(args.excludedAppointmentIds && {
-      excludedAppointmentIds: args.excludedAppointmentIds,
-    }),
-    ...(args.isNewPatient !== undefined && { isNewPatient: args.isNewPatient }),
-    locationId: args.locationId,
-    planningState: args.planningState,
-    ...(args.patientDateOfBirth && {
-      patientDateOfBirth: args.patientDateOfBirth,
-    }),
-    practiceId: args.practiceId,
-    practitionerId: args.practitionerId,
-    requestedAt: args.requestedAt,
-    ruleSetId: args.ruleSetId,
-    ...(args.scope && { scope: args.scope }),
-    ...(args.simulationRuleSetId && {
-      simulationRuleSetId: args.simulationRuleSetId,
-    }),
-  });
-  const [rootLocationLineageKey, rootPractitionerLineageKey] =
-    await Promise.all([
-      resolveLocationLineageKey(ctx.db, asLocationId(args.locationId)).then(
-        (lineageKey) => asLocationLineageKey(lineageKey),
-      ),
-      resolvePractitionerLineageKey(
-        ctx.db,
-        asPractitionerId(args.practitionerId),
-      ).then((lineageKey) => asPractitionerLineageKey(lineageKey)),
-    ]);
-
-  const selectedRootSlot = rootSlots.find(
-    (slot) =>
-      slot.startTime === args.start &&
-      slot.locationLineageKey === rootLocationLineageKey &&
-      slot.practitionerLineageKey === rootPractitionerLineageKey,
-  );
-
-  if (!selectedRootSlot) {
-    return {
-      blockedStepId: "root",
-      failureMessage:
-        "Der ausgewählte Starttermin ist nicht mehr verfügbar oder wird durch Regeln blockiert.",
-      status: "blocked",
-      steps: [],
-    };
-  }
-
-  const rootOccupancyReferences = await resolveOccupancyReferenceLineageKeys(
+  const rootLocationLineageKey = await resolveLocationLineageKey(
     ctx.db,
-    {
-      locationId: asLocationId(args.locationId),
-      practitionerId: asPractitionerId(args.practitionerId),
-    },
-  );
+    asLocationId(args.locationId),
+  ).then((lineageKey) => asLocationLineageKey(lineageKey));
+
+  if (args.rootOccupancy.practitionerId) {
+    const rootPractitionerLineageKey = getAppointmentPractitionerLineageKey(
+      args.rootOccupancy.occupancyScope,
+    );
+    if (!rootPractitionerLineageKey) {
+      throw appointmentSeriesError(
+        "CHAIN_REPLAN_FAILED",
+        "Der Starttermin hat keine Behandler-Belegung.",
+      );
+    }
+
+    const rootSlots = await queryAvailableSlotsForDay(ctx, {
+      appointmentType: args.appointmentType,
+      date: asIsoDateString(
+        Temporal.ZonedDateTime.from(args.start).toPlainDate().toString(),
+      ),
+      ...(args.excludedAppointmentIds && {
+        excludedAppointmentIds: args.excludedAppointmentIds,
+      }),
+      ...(args.isNewPatient !== undefined && {
+        isNewPatient: args.isNewPatient,
+      }),
+      locationId: args.locationId,
+      planningState: args.planningState,
+      ...(args.patientDateOfBirth && {
+        patientDateOfBirth: args.patientDateOfBirth,
+      }),
+      practiceId: args.practiceId,
+      practitionerId: args.rootOccupancy.practitionerId,
+      requestedAt: args.requestedAt,
+      ruleSetId: args.ruleSetId,
+      ...(args.scope && { scope: args.scope }),
+      ...(args.simulationRuleSetId && {
+        simulationRuleSetId: args.simulationRuleSetId,
+      }),
+    });
+
+    const hasSelectedRootSlot = rootSlots.some(
+      (slot) =>
+        slot.startTime === args.start &&
+        slot.locationLineageKey === rootLocationLineageKey &&
+        slot.practitionerLineageKey === rootPractitionerLineageKey,
+    );
+
+    if (!hasSelectedRootSlot) {
+      return {
+        blockedStepId: "root",
+        failureMessage:
+          "Der ausgewählte Starttermin ist nicht mehr verfügbar oder wird durch Regeln blockiert.",
+        status: "blocked",
+        steps: [],
+      };
+    }
+  }
+
   const conflictingAppointment = await findConflictingAppointment(ctx.db, {
     candidate: {
       end: calculateEndTime(args.start, args.rootDurationMinutes),
-      locationLineageKey: rootOccupancyReferences.locationLineageKey,
-      occupancyScope: appointmentOccupancyScopeFromRefs({
-        practitionerLineageKey: rootOccupancyReferences.practitionerLineageKey,
-      }),
+      locationLineageKey: rootLocationLineageKey,
+      occupancyScope: args.rootOccupancy.occupancyScope,
       start: args.start,
     },
     ...(args.simulationRuleSetId && {
@@ -1390,7 +1757,10 @@ async function validateRootCandidate(
   }
 
   return {
-    practitionerName: selectedRootSlot.practitionerName,
+    locationLineageKey: rootLocationLineageKey,
+    ...(args.rootOccupancy.practitionerName && {
+      practitionerName: args.rootOccupancy.practitionerName,
+    }),
     status: "ready",
   };
 }
