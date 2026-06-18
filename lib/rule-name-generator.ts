@@ -459,19 +459,17 @@ function parseConditionNode(
     }
     case "DAYS_AHEAD": {
       return {
-        advanceUnit: "days",
         id,
-        operator: "GREATER_THAN",
-        type: "MINIMUM_ADVANCE_TIME",
+        operator: "GREATER_THAN_OR_EQUAL",
+        type: conditionType,
         valueNumber: valueNumber ?? null,
       };
     }
     case "HOURS_AHEAD": {
       return {
-        advanceUnit: "hours",
         id,
         operator: "LESS_THAN",
-        type: "MINIMUM_ADVANCE_TIME",
+        type: conditionType,
         valueNumber: valueNumber ?? null,
       };
     }

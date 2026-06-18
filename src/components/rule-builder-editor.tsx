@@ -378,13 +378,6 @@ export function validateCondition(condition: Condition): string[] {
       }
       break;
     }
-    case "DAYS_AHEAD":
-    case "HOURS_AHEAD": {
-      if (!condition.valueNumber || condition.valueNumber < 1) {
-        errors.push("valueNumber");
-      }
-      break;
-    }
     case "MINIMUM_ADVANCE_TIME": {
       if (!parseMinimumAdvanceTimeOperator(condition.operator ?? "")) {
         errors.push("operator");
@@ -683,28 +676,6 @@ function conditionsToConditionTree(conditions: Condition[]): ConditionTreeNode {
         }
         break;
       }
-      case "DAYS_AHEAD": {
-        if (condition.valueNumber) {
-          nodes.push({
-            conditionType: "DAYS_AHEAD",
-            nodeType: "CONDITION",
-            operator: "GREATER_THAN_OR_EQUAL",
-            valueNumber: condition.valueNumber,
-          });
-        }
-        break;
-      }
-      case "HOURS_AHEAD": {
-        if (condition.valueNumber) {
-          nodes.push({
-            conditionType: "HOURS_AHEAD",
-            nodeType: "CONDITION",
-            operator: "LESS_THAN",
-            valueNumber: condition.valueNumber,
-          });
-        }
-        break;
-      }
       case "MINIMUM_ADVANCE_TIME": {
         if (condition.valueNumber && condition.advanceUnit) {
           nodes.push({
@@ -869,16 +840,6 @@ function getErrorMessage(condition: Condition, invalidField: string): string {
       }
       return "";
     }
-    case "DAYS_AHEAD": {
-      return invalidField === "valueNumber"
-        ? "Bitte geben Sie mindestens 1 Tag ein."
-        : "";
-    }
-    case "HOURS_AHEAD": {
-      return invalidField === "valueNumber"
-        ? "Bitte geben Sie mindestens 1 Stunde ein."
-        : "";
-    }
     case "MINIMUM_ADVANCE_TIME": {
       if (invalidField === "operator") {
         return "Bitte wählen Sie eine Zukunftsbedingung aus.";
@@ -924,8 +885,12 @@ function getInitialConditions(
   }
 
   try {
+    const conditions = conditionTreeToConditions(existingRule.conditionTree);
+    if (conditions.some((condition) => isRemovedEditorCondition(condition))) {
+      return { status: "unsupported" };
+    }
     return {
-      conditions: conditionTreeToConditions(existingRule.conditionTree),
+      conditions,
       status: "ok",
     };
   } catch {
@@ -949,6 +914,18 @@ function isRangeOrderValid(condition: Condition): boolean {
   }
 
   return true;
+}
+
+function isRemovedEditorCondition(condition: Condition): boolean {
+  switch (condition.type) {
+    case "DAYS_AHEAD":
+    case "HOURS_AHEAD": {
+      return true;
+    }
+    default: {
+      return false;
+    }
+  }
 }
 
 function MinimumAdvanceTimeCondition({
@@ -1040,8 +1017,6 @@ function parseConditionType(value: string): ConditionType | undefined {
     case "DAILY_CAPACITY":
     case "DATE_RANGE":
     case "DAY_OF_WEEK":
-    case "DAYS_AHEAD":
-    case "HOURS_AHEAD":
     case "LOCATION":
     case "MINIMUM_ADVANCE_TIME":
     case "PATIENT_AGE":
