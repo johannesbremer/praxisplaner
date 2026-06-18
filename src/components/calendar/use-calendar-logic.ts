@@ -30,6 +30,7 @@ import {
   temporalDayToLegacy,
   zonedDateTimeStringResult,
 } from "../../utils/time-calculations";
+import { findFirstBlockedSlotInRange } from "./calendar-slot-blocking";
 import {
   buildCalendarAppointmentLayouts,
   buildCalendarAppointmentViews,
@@ -135,6 +136,8 @@ export function useCalendarLogic({
   );
   const selectedLocationId =
     externalSelectedLocationId ?? internalSelectedLocationId;
+  const draggedAppointmentTypeLineageKey =
+    draggedAppointment?.record.appointmentTypeLineageKey;
 
   const {
     allPracticeAppointmentDocMap,
@@ -170,6 +173,7 @@ export function useCalendarLogic({
     patient,
     practiceId,
     ruleSetId,
+    schedulingAppointmentTypeLineageKey: draggedAppointmentTypeLineageKey,
     selectedAppointmentTypeId,
     selectedDate,
     selectedLocationId,
@@ -253,9 +257,6 @@ export function useCalendarLogic({
     (selectedAppointmentTypeId === undefined
       ? undefined
       : appointmentTypeLineageKeyById.get(selectedAppointmentTypeId));
-  const draggedAppointmentTypeLineageKey =
-    draggedAppointment?.record.appointmentTypeLineageKey;
-
   const getUnsupportedPractitionerIdsForAppointmentType = useCallback(
     (
       appointmentTypeLineageKey: AppointmentTypeLineageKey | undefined,
@@ -971,6 +972,22 @@ export function useCalendarLogic({
         return;
       }
 
+      const blockedSlotData = findFirstBlockedSlotInRange({
+        blockedSlots: allBlockedSlots,
+        column,
+        durationMinutes: draggedAppointment.duration,
+        slotDurationMinutes: SLOT_DURATION,
+        startSlot: finalSlot,
+      });
+      if (blockedSlotData) {
+        toast.error(
+          blockedSlotData.reason
+            ? `Termin kann nicht auf einen gesperrten Zeitraum verschoben werden: ${blockedSlotData.reason}`
+            : "Termin kann nicht auf einen gesperrten Zeitraum verschoben werden.",
+        );
+        return;
+      }
+
       const plainTime = Temporal.PlainTime.from(newTime);
       const startZoned = selectedDate.toZonedDateTime({
         plainTime,
@@ -1066,12 +1083,20 @@ export function useCalendarLogic({
   };
 
   const addAppointment = (column: CalendarColumnId, slot: number) => {
-    // Check if this slot is blocked (including breaks and rules)
-    const blockedSlotData = allBlockedSlots.find(
-      (blocked) =>
-        sameCalendarColumnScope(blocked.column, column) &&
-        blocked.slot === slot,
-    );
+    const appointmentTypeInfo =
+      placementAppointmentTypeLineageKey === undefined
+        ? null
+        : (appointmentTypeInfoByLineageKey.get(
+            placementAppointmentTypeLineageKey,
+          ) ?? null);
+    const placementDuration = appointmentTypeInfo?.duration ?? SLOT_DURATION;
+    const blockedSlotData = findFirstBlockedSlotInRange({
+      blockedSlots: allBlockedSlots,
+      column,
+      durationMinutes: placementDuration,
+      slotDurationMinutes: SLOT_DURATION,
+      startSlot: slot,
+    });
 
     if (blockedSlotData) {
       if (!canManageCalendarPlanning) {
@@ -1081,7 +1106,7 @@ export function useCalendarLogic({
       const slotTime = slotToTime(slot);
       // Check if this is a manual block (from blockedSlots memo, has isManual flag)
       const isManualBlock =
-        "isManual" in blockedSlotData && blockedSlotData.isManual;
+        "isManual" in blockedSlotData && blockedSlotData.isManual === true;
       // Only allow booking if an appointment type is selected
       const canBook = placementAppointmentTypeLineageKey !== undefined;
       setBlockedSlotWarning({
