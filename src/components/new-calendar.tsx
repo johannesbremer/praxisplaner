@@ -680,7 +680,6 @@ export function NewCalendar({
                         );
                         const isLastVisibleColumn =
                           isVisible && visibleColumns.length === 1;
-
                         return (
                           <DropdownMenuCheckboxItem
                             checked={isVisible}
