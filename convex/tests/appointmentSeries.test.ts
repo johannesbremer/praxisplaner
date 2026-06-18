@@ -247,8 +247,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 5,
               },
@@ -298,7 +297,8 @@ describe("appointment series", () => {
               stepId: "step-1",
               timing: {
                 kind: "afterPreviousEnd",
-                offsetMinutes: 7,
+                offsetUnit: "minutes",
+                offsetValue: 7,
               },
             },
           ],
@@ -322,8 +322,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 0,
               },
@@ -349,8 +348,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 1.5,
               },
@@ -375,8 +373,7 @@ describe("appointment series", () => {
             required: true,
             stepId: "step-1",
             timing: {
-              anchorStepId: "root",
-              kind: "firstAvailableOnOrAfter",
+              kind: "afterPreviousEnd",
               offsetUnit: "days",
               offsetValue: 3,
             },
@@ -428,8 +425,7 @@ describe("appointment series", () => {
                 required: true,
                 stepId: "step-1",
                 timing: {
-                  anchorStepId: "root",
-                  kind: "firstAvailableOnOrAfter",
+                  kind: "afterPreviousEnd",
                   offsetUnit: "days",
                   offsetValue: 2,
                 },
@@ -544,8 +540,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "months",
                 offsetValue: 1,
               },
@@ -628,8 +623,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 1,
               },
@@ -704,8 +698,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 1,
               },
@@ -786,7 +779,8 @@ describe("appointment series", () => {
               stepId: "step-1",
               timing: {
                 kind: "afterPreviousEnd",
-                offsetMinutes: 0,
+                offsetUnit: "minutes",
+                offsetValue: 0,
               },
             },
           ],
@@ -901,8 +895,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 1,
               },
@@ -991,8 +984,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 2,
               },
@@ -1068,8 +1060,7 @@ describe("appointment series", () => {
                 required: true,
                 stepId: "step-1",
                 timing: {
-                  anchorStepId: "root",
-                  kind: "firstAvailableOnOrAfter",
+                  kind: "afterPreviousEnd",
                   offsetUnit: "days",
                   offsetValue: 2,
                 },
@@ -1188,7 +1179,8 @@ describe("appointment series", () => {
               stepId: "step-1",
               timing: {
                 kind: "afterPreviousEnd",
-                offsetMinutes: 0,
+                offsetUnit: "minutes",
+                offsetValue: 0,
               },
             },
           ],
@@ -1296,8 +1288,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 2,
               },
@@ -1406,8 +1397,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 2,
               },
@@ -1633,8 +1623,7 @@ describe("appointment series", () => {
               required: false,
               stepId: "optional-step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 2,
               },
@@ -1762,8 +1751,7 @@ describe("appointment series", () => {
             required: true,
             stepId: "step-1",
             timing: {
-              anchorStepId: "root",
-              kind: "firstAvailableOnOrAfter",
+              kind: "afterPreviousEnd",
               offsetUnit: "days",
               offsetValue: 5,
             },
@@ -1877,8 +1865,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 2,
               },
@@ -2242,8 +2229,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 2,
               },
@@ -2348,8 +2334,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 2,
               },
@@ -2445,8 +2430,7 @@ describe("appointment series", () => {
               required: true,
               stepId: "step-1",
               timing: {
-                anchorStepId: "root",
-                kind: "firstAvailableOnOrAfter",
+                kind: "afterPreviousEnd",
                 offsetUnit: "days",
                 offsetValue: 2,
               },

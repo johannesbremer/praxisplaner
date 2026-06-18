@@ -101,6 +101,10 @@ import {
 } from "../utils/frontend-lineage";
 import { createRuleSetSnapshotCommand } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
+import {
+  appointmentPlanStepIdForIndex,
+  remapAppointmentPlanAnchorStepId,
+} from "./appointment-plan-anchor-remapping";
 interface AppointmentPlanFormStep {
   anchorStepId: string;
   appointmentTypeLineageKey: AppointmentPlanTargetSelection;
@@ -214,10 +218,59 @@ const createEmptyAppointmentPlanStep = (): AppointmentPlanFormStep => ({
   anchorStepId: "root",
   appointmentTypeLineageKey: "",
   occupancyKind: "inheritRootPractitioner",
-  offsetUnit: "days",
-  offsetValue: 1,
+  offsetUnit: "minutes",
+  offsetValue: 10,
   timingKind: "afterPreviousEnd",
 });
+
+function moveAppointmentPlanStep(
+  steps: AppointmentPlanFormStep[],
+  fromIndex: number,
+  toIndex: number,
+): AppointmentPlanFormStep[] {
+  const movingStep = steps[fromIndex];
+  if (!movingStep || toIndex < 0 || toIndex >= steps.length) {
+    return steps;
+  }
+
+  const stepsWithoutMovingStep = steps.filter(
+    (_, index) => index !== fromIndex,
+  );
+  const nextSteps = [
+    ...stepsWithoutMovingStep.slice(0, toIndex),
+    movingStep,
+    ...stepsWithoutMovingStep.slice(toIndex),
+  ];
+  return remapAppointmentPlanAnchors(steps, nextSteps);
+}
+
+function remapAppointmentPlanAnchors(
+  previousSteps: AppointmentPlanFormStep[],
+  nextSteps: AppointmentPlanFormStep[],
+): AppointmentPlanFormStep[] {
+  return nextSteps.map((step, nextStepIndex) => {
+    const anchorStepId = remapAppointmentPlanAnchorStepId({
+      anchorStepId: step.anchorStepId,
+      nextStepIndex,
+      nextSteps,
+      previousSteps,
+    });
+
+    return anchorStepId === step.anchorStepId
+      ? step
+      : { ...step, anchorStepId };
+  });
+}
+
+function removeAppointmentPlanStep(
+  steps: AppointmentPlanFormStep[],
+  indexToRemove: number,
+): AppointmentPlanFormStep[] {
+  return remapAppointmentPlanAnchors(
+    steps,
+    steps.filter((_, index) => index !== indexToRemove),
+  );
+}
 
 const normalizeAppointmentPlanForSubmit = (
   steps: AppointmentPlanFormStep[],
@@ -281,21 +334,19 @@ const normalizeAppointmentPlanTiming = (
     };
   }
 
-  if (step.timingKind === "firstAvailableOnOrAfter") {
-    const offsetUnit = step.offsetUnit === "minutes" ? "days" : step.offsetUnit;
+  if (step.timingKind === "afterPreviousEnd") {
     return {
-      anchorStepId: step.anchorStepId,
-      kind: "firstAvailableOnOrAfter",
-      offsetUnit,
+      kind: "afterPreviousEnd",
+      offsetUnit: step.offsetUnit,
       offsetValue: normalizeAppointmentPlanOffsetValue(
-        offsetUnit,
+        step.offsetUnit,
         step.offsetValue,
       ),
     };
   }
 
   return {
-    kind: step.timingKind,
+    kind: "beforeRootStart",
     offsetMinutes: normalizeAppointmentPlanOffsetValue(
       "minutes",
       step.offsetValue,
@@ -358,7 +409,6 @@ const parseAppointmentPlanTimingKind = (
   switch (value) {
     case "afterPreviousEnd":
     case "beforeRootStart":
-    case "firstAvailableOnOrAfter":
     case "sameStartAs": {
       return value;
     }
@@ -379,11 +429,11 @@ const normalizeAppointmentPlanForForm = (
     ),
     occupancyKind: appointmentPlanOccupancyKindForForm(step.occupancy),
     offsetUnit:
-      step.timing.kind === "firstAvailableOnOrAfter"
+      step.timing.kind === "afterPreviousEnd"
         ? step.timing.offsetUnit
         : "minutes",
     offsetValue: normalizeAppointmentPlanOffsetValue(
-      step.timing.kind === "firstAvailableOnOrAfter"
+      step.timing.kind === "afterPreviousEnd"
         ? step.timing.offsetUnit
         : "minutes",
       "offsetValue" in step.timing
@@ -441,7 +491,6 @@ function createAppointmentPlanStepSchema(
         "afterPreviousEnd",
         "beforeRootStart",
         "sameStartAs",
-        "firstAvailableOnOrAfter",
       ]),
     })
     .superRefine((step, ctx) => {
@@ -450,8 +499,18 @@ function createAppointmentPlanStepSchema(
       }
 
       if (
+        step.timingKind === "beforeRootStart" &&
+        step.offsetUnit !== "minutes"
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Vorher kann nur in Minuten angegeben werden",
+          path: ["offsetUnit"],
+        });
+      }
+
+      if (
         step.offsetUnit === "minutes" ||
-        step.timingKind === "afterPreviousEnd" ||
         step.timingKind === "beforeRootStart"
       ) {
         if (step.offsetValue < 0) {
@@ -470,9 +529,7 @@ function createAppointmentPlanStepSchema(
           });
         }
 
-        if (step.timingKind !== "firstAvailableOnOrAfter") {
-          return;
-        }
+        return;
       }
 
       if (step.offsetValue < 1) {
@@ -3431,21 +3488,12 @@ export function AppointmentTypesManagement({
                                                     if (index === 0) {
                                                       return;
                                                     }
-                                                    const current =
-                                                      itemField.state.value;
-                                                    const previous =
-                                                      field.state.value[
-                                                        index - 1
-                                                      ];
-                                                    if (!previous) {
-                                                      return;
-                                                    }
-                                                    itemField.handleChange(
-                                                      previous,
-                                                    );
-                                                    field.replaceValue(
-                                                      index - 1,
-                                                      current,
+                                                    field.handleChange(
+                                                      moveAppointmentPlanStep(
+                                                        field.state.value,
+                                                        index,
+                                                        index - 1,
+                                                      ),
                                                     );
                                                   }}
                                                   size="icon"
@@ -3460,21 +3508,12 @@ export function AppointmentTypesManagement({
                                                     field.state.value.length - 1
                                                   }
                                                   onClick={() => {
-                                                    const current =
-                                                      itemField.state.value;
-                                                    const next =
-                                                      field.state.value[
-                                                        index + 1
-                                                      ];
-                                                    if (!next) {
-                                                      return;
-                                                    }
-                                                    itemField.handleChange(
-                                                      next,
-                                                    );
-                                                    field.replaceValue(
-                                                      index + 1,
-                                                      current,
+                                                    field.handleChange(
+                                                      moveAppointmentPlanStep(
+                                                        field.state.value,
+                                                        index,
+                                                        index + 1,
+                                                      ),
                                                     );
                                                   }}
                                                   size="icon"
@@ -3485,7 +3524,12 @@ export function AppointmentTypesManagement({
                                                 </Button>
                                                 <Button
                                                   onClick={() => {
-                                                    field.removeValue(index);
+                                                    field.handleChange(
+                                                      removeAppointmentPlanStep(
+                                                        field.state.value,
+                                                        index,
+                                                      ),
+                                                    );
                                                   }}
                                                   size="icon"
                                                   type="button"
@@ -3561,13 +3605,10 @@ export function AppointmentTypesManagement({
                                                       ...itemField.state.value,
                                                       offsetUnit:
                                                         timingKind ===
-                                                          "firstAvailableOnOrAfter" &&
-                                                        itemField.state.value
-                                                          .offsetUnit ===
-                                                          "minutes"
-                                                          ? "days"
-                                                          : itemField.state
-                                                              .value.offsetUnit,
+                                                        "afterPreviousEnd"
+                                                          ? itemField.state
+                                                              .value.offsetUnit
+                                                          : "minutes",
                                                       timingKind,
                                                     });
                                                   }}
@@ -3589,18 +3630,13 @@ export function AppointmentTypesManagement({
                                                     <SelectItem value="sameStartAs">
                                                       Gleichzeitig
                                                     </SelectItem>
-                                                    <SelectItem value="firstAvailableOnOrAfter">
-                                                      Später
-                                                    </SelectItem>
                                                   </SelectContent>
                                                 </Select>
                                               </Field>
 
-                                              {(itemField.state.value
-                                                .timingKind === "sameStartAs" ||
-                                                itemField.state.value
-                                                  .timingKind ===
-                                                  "firstAvailableOnOrAfter") && (
+                                              {itemField.state.value
+                                                .timingKind ===
+                                                "sameStartAs" && (
                                                 <Field>
                                                   <FieldLabel>Anker</FieldLabel>
                                                   <Select
@@ -3629,9 +3665,9 @@ export function AppointmentTypesManagement({
                                                           (_, anchorIndex) => (
                                                             <SelectItem
                                                               key={anchorIndex}
-                                                              value={`step-${
-                                                                anchorIndex + 1
-                                                              }`}
+                                                              value={appointmentPlanStepIdForIndex(
+                                                                anchorIndex,
+                                                              )}
                                                             >
                                                               Schritt{" "}
                                                               {anchorIndex + 1}
@@ -3747,21 +3783,27 @@ export function AppointmentTypesManagement({
                                                   </SelectTrigger>
                                                   <SelectContent>
                                                     {itemField.state.value
-                                                      .timingKind !==
-                                                      "firstAvailableOnOrAfter" && (
+                                                      .timingKind ===
+                                                    "afterPreviousEnd" ? (
+                                                      <>
+                                                        <SelectItem value="minutes">
+                                                          Minuten
+                                                        </SelectItem>
+                                                        <SelectItem value="days">
+                                                          Tage
+                                                        </SelectItem>
+                                                        <SelectItem value="weeks">
+                                                          Wochen
+                                                        </SelectItem>
+                                                        <SelectItem value="months">
+                                                          Monate
+                                                        </SelectItem>
+                                                      </>
+                                                    ) : (
                                                       <SelectItem value="minutes">
                                                         Minuten
                                                       </SelectItem>
                                                     )}
-                                                    <SelectItem value="days">
-                                                      Tage
-                                                    </SelectItem>
-                                                    <SelectItem value="weeks">
-                                                      Wochen
-                                                    </SelectItem>
-                                                    <SelectItem value="months">
-                                                      Monate
-                                                    </SelectItem>
                                                   </SelectContent>
                                                 </Select>
                                               </Field>
