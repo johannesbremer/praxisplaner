@@ -457,10 +457,6 @@ async function findPlannerBlockingRuleIdsForAppointmentWrite(
     start: ZonedDateTimeString;
   },
 ): Promise<Id<"ruleConditions">[]> {
-  if (args.practitionerId === undefined) {
-    return [];
-  }
-
   const rules = await db
     .query("ruleConditions")
     .withIndex("by_ruleSetId_isRoot", (q) =>
@@ -501,7 +497,9 @@ async function findPlannerBlockingRuleIdsForAppointmentWrite(
       ? {}
       : { patientDateOfBirth: args.patientDateOfBirth }),
     practiceId: args.practiceId,
-    practitionerId: args.practitionerId,
+    ...(args.practitionerId === undefined
+      ? {}
+      : { practitionerId: args.practitionerId }),
     requestedAt: asZonedDateTimeString(
       Temporal.Now.zonedDateTimeISO(APPOINTMENT_TIMEZONE).toString(),
     ),
@@ -3081,6 +3079,44 @@ async function updateAppointmentByMode(
       ) ||
     resolvedStart !== existingAppointment.start ||
     resolvedEnd !== existingAppointment.end;
+
+  const hasPlannerRuleRelevantAppointmentTypeChange =
+    resolvedAppointmentTypeLineageKey !==
+    existingAppointment.appointmentTypeLineageKey;
+
+  if (
+    hasPlannerRuleRelevantAppointmentTypeChange &&
+    filteredUpdateData.appointmentTypeId !== undefined
+  ) {
+    const plannerRuleSetId = appointmentTypeRecord?.ruleSetId;
+    if (plannerRuleSetId === undefined) {
+      throw new Error("Die Terminart konnte nicht validiert werden.");
+    }
+    const plannerLocationId =
+      filteredUpdateData.locationId ??
+      (await resolveLocationIdForRuleSetByLineage(ctx.db, {
+        lineageKey: resolvedLocationLineageKey,
+        ruleSetId: plannerRuleSetId,
+      }));
+    const plannerPractitionerId =
+      resolvedCalendarResourceColumn === undefined &&
+      resolvedPractitionerLineageKey !== undefined
+        ? (filteredUpdateData.practitionerId ??
+          (await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+            lineageKey: resolvedPractitionerLineageKey,
+            ruleSetId: plannerRuleSetId,
+          })))
+        : undefined;
+    await requireManagerForPlannerRuleOverride(ctx, {
+      appointmentTypeId: filteredUpdateData.appointmentTypeId,
+      locationId: plannerLocationId,
+      practiceId: existingAppointment.practiceId,
+      ...(plannerPractitionerId === undefined
+        ? {}
+        : { practitionerId: plannerPractitionerId }),
+      start: resolvedStart,
+    });
+  }
 
   if (hasSchedulingChange) {
     await requirePracticeManagerForMutation(
