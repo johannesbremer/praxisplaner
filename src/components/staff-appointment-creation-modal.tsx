@@ -185,6 +185,13 @@ export function StaffAppointmentCreationModal({
   const location = locations?.find((entry) => entry._id === locationId);
   const hasAppointmentPlan =
     (appointmentType?.appointmentPlan?.steps.length ?? 0) > 0;
+  const resourceDefaultOccupancy =
+    appointmentType?.defaultOccupancy?.kind === "resourceColumn"
+      ? appointmentType.defaultOccupancy
+      : null;
+  const bookingScope = isSimulation
+    ? ("simulation" as const)
+    : ("real" as const);
   const effectivePatient = selectedFallbackPatient?.info ?? patient;
   const effectiveSelectedPatientId =
     selectedFallbackPatient && "id" in selectedFallbackPatient
@@ -196,7 +203,10 @@ export function StaffAppointmentCreationModal({
 
   const nextAvailableSlot = useQuery(
     api.scheduling.getNextAvailableSlot,
-    open && appointmentType?.lineageKey && location?.lineageKey
+    open &&
+      appointmentType?.lineageKey &&
+      location?.lineageKey &&
+      resourceDefaultOccupancy === null
       ? {
           date: selectedDate,
           practiceId,
@@ -217,6 +227,34 @@ export function StaffAppointmentCreationModal({
         }
       : "skip",
   );
+  const nextAvailableResourceSlot = useQuery(
+    api.appointments.getNextAvailableResourceSeriesRootSlot,
+    open &&
+      hasAppointmentPlan &&
+      resourceDefaultOccupancy !== null &&
+      location !== undefined
+      ? {
+          date: selectedDate,
+          ...(effectivePatient?.dateOfBirth && {
+            patientDateOfBirth: effectivePatient.dateOfBirth,
+          }),
+          ...(effectivePatient?.convexPatientId && {
+            patientId: effectivePatient.convexPatientId,
+          }),
+          isNewPatient,
+          locationId,
+          practiceId,
+          rootAppointmentTypeId: appointmentTypeId,
+          ruleSetId,
+          scope: bookingScope,
+          ...(effectivePatient?.userId && { userId: effectivePatient.userId }),
+        }
+      : "skip",
+  );
+  const effectiveNextAvailableSlot =
+    resourceDefaultOccupancy === null
+      ? nextAvailableSlot
+      : nextAvailableResourceSlot;
   const nextAvailablePractitionerId =
     nextAvailableSlot === undefined || nextAvailableSlot === null
       ? undefined
@@ -236,31 +274,52 @@ export function StaffAppointmentCreationModal({
     effectivePatient.phoneNumber.trim().length > 0;
   const hasAnyPatient =
     hasPersistedPatient || hasUserLinkedPatient || hasTemporaryPatientDraft;
+  const seriesPreviewArgs = (() => {
+    if (
+      !open ||
+      mode !== "next" ||
+      !hasAppointmentPlan ||
+      !effectiveNextAvailableSlot
+    ) {
+      return "skip" as const;
+    }
+
+    const baseArgs = {
+      locationId,
+      ...(effectivePatient?.dateOfBirth && {
+        patientDateOfBirth: effectivePatient.dateOfBirth,
+      }),
+      ...(effectivePatient?.convexPatientId && {
+        patientId: effectivePatient.convexPatientId,
+      }),
+      isNewPatient,
+      practiceId,
+      rootAppointmentTypeId: appointmentTypeId,
+      ruleSetId,
+      scope: bookingScope,
+      start: effectiveNextAvailableSlot.startTime,
+      ...(effectivePatient?.userId && { userId: effectivePatient.userId }),
+    };
+
+    if (resourceDefaultOccupancy !== null) {
+      return {
+        ...baseArgs,
+        calendarResourceColumn: resourceDefaultOccupancy.calendarResourceColumn,
+      };
+    }
+
+    if (nextAvailablePractitionerId === undefined) {
+      return "skip" as const;
+    }
+
+    return {
+      ...baseArgs,
+      practitionerId: nextAvailablePractitionerId,
+    };
+  })();
   const seriesPreview = useQuery(
     api.appointments.previewAppointmentSeries,
-    open &&
-      mode === "next" &&
-      hasAppointmentPlan &&
-      nextAvailableSlot &&
-      nextAvailablePractitionerId
-      ? {
-          locationId,
-          ...(effectivePatient?.dateOfBirth && {
-            patientDateOfBirth: effectivePatient.dateOfBirth,
-          }),
-          ...(effectivePatient?.convexPatientId && {
-            patientId: effectivePatient.convexPatientId,
-          }),
-          isNewPatient,
-          practiceId,
-          practitionerId: nextAvailablePractitionerId,
-          rootAppointmentTypeId: appointmentTypeId,
-          ruleSetId,
-          scope: isSimulation ? "simulation" : "real",
-          start: nextAvailableSlot.startTime,
-          ...(effectivePatient?.userId && { userId: effectivePatient.userId }),
-        }
-      : "skip",
+    seriesPreviewArgs,
   );
 
   // Get display name for patient
@@ -323,7 +382,7 @@ export function StaffAppointmentCreationModal({
     }
 
     const slot = resultFromNullable(
-      nextAvailableSlot,
+      effectiveNextAvailableSlot,
       invalidStateError(
         "Es wurde kein verfügbarer Termin gefunden.",
         "StaffAppointmentCreationModal.nextAvailableSlot",
@@ -368,15 +427,25 @@ export function StaffAppointmentCreationModal({
     if (!start) {
       return;
     }
+    const occupancyScope =
+      resourceDefaultOccupancy === null
+        ? nextAvailableSlot === undefined || nextAvailableSlot === null
+          ? null
+          : {
+              kind: "practitioner" as const,
+              practitionerLineageKey: nextAvailableSlot.practitionerLineageKey,
+            }
+        : {
+            calendarResourceColumn:
+              resourceDefaultOccupancy.calendarResourceColumn,
+            kind: "resource" as const,
+          };
     const placement = resultFromNullable(
-      location?.lineageKey === undefined
+      location?.lineageKey === undefined || occupancyScope === null
         ? null
         : createCalendarPlacement({
             locationLineageKey: location.lineageKey,
-            occupancyScope: {
-              kind: "practitioner",
-              practitionerLineageKey: slot.practitionerLineageKey,
-            },
+            occupancyScope,
           }),
       invalidStateError(
         "Die Referenzen für den gewählten Termin konnten nicht geladen werden.",
@@ -490,7 +559,7 @@ export function StaffAppointmentCreationModal({
   const form = useForm({
     defaultValues: {},
     onSubmit: async () => {
-      if (mode === "next" && nextAvailableSlot) {
+      if (mode === "next" && effectiveNextAvailableSlot) {
         await createAppointmentWithPatient();
       }
     },
@@ -516,13 +585,14 @@ export function StaffAppointmentCreationModal({
     open &&
     mode === "next" &&
     hasAppointmentPlan &&
-    nextAvailableSlot !== undefined &&
-    nextAvailableSlot !== null;
+    effectiveNextAvailableSlot !== undefined &&
+    effectiveNextAvailableSlot !== null;
   const isSeriesPreviewLoading =
     canRunSeriesPreview && seriesPreview === undefined;
   const isSeriesPreviewBlocked = seriesPreview?.status === "blocked";
-  const isNextAvailableSlotLoading = open && nextAvailableSlot === undefined;
-  const hasNoNextAvailableSlot = nextAvailableSlot === null;
+  const isNextAvailableSlotLoading =
+    open && effectiveNextAvailableSlot === undefined;
+  const hasNoNextAvailableSlot = effectiveNextAvailableSlot === null;
   const isSubmitDisabled =
     !form.state.canSubmit ||
     isNextAvailableSlotLoading ||
@@ -560,9 +630,11 @@ export function StaffAppointmentCreationModal({
                     <>Suche nach dem nächsten verfügbaren Termin...</>
                   ) : hasNoNextAvailableSlot ? (
                     <>Es konnte kein freier Termin gefunden werden.</>
-                  ) : nextAvailableSlot ? (
+                  ) : effectiveNextAvailableSlot ? (
                     <>
-                      {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
+                      {Temporal.ZonedDateTime.from(
+                        effectiveNextAvailableSlot.startTime,
+                      )
                         .toPlainDate()
                         .toLocaleString("de-DE", {
                           day: "2-digit",
@@ -571,7 +643,9 @@ export function StaffAppointmentCreationModal({
                           year: "numeric",
                         })}{" "}
                       um{" "}
-                      {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
+                      {Temporal.ZonedDateTime.from(
+                        effectiveNextAvailableSlot.startTime,
+                      )
                         .toPlainTime()
                         .toLocaleString("de-DE", {
                           hour: "2-digit",
@@ -759,16 +833,20 @@ export function StaffAppointmentCreationModal({
                   variant="outline"
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
-                  {nextAvailableSlot ? (
+                  {effectiveNextAvailableSlot ? (
                     <>
-                      {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
+                      {Temporal.ZonedDateTime.from(
+                        effectiveNextAvailableSlot.startTime,
+                      )
                         .toPlainTime()
                         .toLocaleString("de-DE", {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}{" "}
                       Uhr am{" "}
-                      {Temporal.ZonedDateTime.from(nextAvailableSlot.startTime)
+                      {Temporal.ZonedDateTime.from(
+                        effectiveNextAvailableSlot.startTime,
+                      )
                         .toPlainDate()
                         .toLocaleString("de-DE")}
                       {hasAppointmentPlan ? " (mit Kettenterminen)" : ""}

@@ -38,7 +38,10 @@ import {
   invalidStateError,
 } from "../../utils/frontend-errors";
 import { SLOT_DURATION } from "./types";
-import { filterBlockedSlotsForDateAndLocation } from "./use-calendar-logic-helpers";
+import {
+  filterBlockedSlotsForDateAndLocation,
+  TIMEZONE,
+} from "./use-calendar-logic-helpers";
 
 interface AppointmentTypeInfo {
   appointmentPlan: AppointmentPlan;
@@ -476,15 +479,17 @@ export function useCalendarBlockedSlotProjection({
     if (!rootAppointmentType || !appointmentPlan?.steps.length) {
       return [];
     }
-    if (rootAppointmentType.defaultOccupancy?.kind === "resourceColumn") {
-      return [];
-    }
 
     const occupied = new Set<string>();
-    const addOccupiedSlot = (column: CalendarColumnId, slot: number) => {
-      occupied.add(`${calendarColumnScopeKey(column)}:${slot}`);
+    const addOccupiedSlot = (
+      target: Set<string>,
+      column: CalendarColumnId,
+      slot: number,
+    ) => {
+      target.add(`${calendarColumnScopeKey(column)}:${slot}`);
     };
     const addOccupiedRange = (
+      target: Set<string>,
       column: CalendarColumnId,
       start: string,
       end: string,
@@ -496,7 +501,22 @@ export function useCalendarBlockedSlotProjection({
         Temporal.ZonedDateTime.from(end).toPlainTime().toString().slice(0, 5),
       );
       for (let slot = startSlot; slot < endSlot; slot++) {
-        addOccupiedSlot(column, slot);
+        addOccupiedSlot(target, column, slot);
+      }
+    };
+    const addOccupiedZonedRange = (
+      target: Set<string>,
+      column: CalendarColumnId,
+      start: Temporal.ZonedDateTime,
+      end: Temporal.ZonedDateTime,
+    ) => {
+      if (Temporal.PlainDate.compare(start.toPlainDate(), selectedDate) !== 0) {
+        return;
+      }
+      const startSlot = timeToSlot(start.toPlainTime().toString().slice(0, 5));
+      const endSlot = timeToSlot(end.toPlainTime().toString().slice(0, 5));
+      for (let slot = startSlot; slot < endSlot; slot++) {
+        addOccupiedSlot(target, column, slot);
       }
     };
 
@@ -506,7 +526,7 @@ export function useCalendarBlockedSlotProjection({
       ...baseManualBlockedSlots,
       ...baseVacationBlockedSlots,
     ]) {
-      addOccupiedSlot(blockedSlot.column, blockedSlot.slot);
+      addOccupiedSlot(occupied, blockedSlot.column, blockedSlot.slot);
     }
 
     for (const appointment of appointmentsData) {
@@ -520,22 +540,53 @@ export function useCalendarBlockedSlotProjection({
       if (!column) {
         continue;
       }
-      addOccupiedRange(column, appointment.start, appointment.end);
+      addOccupiedRange(occupied, column, appointment.start, appointment.end);
     }
 
     const blockedRootSlots: BlockedSlotProjection[] = [];
-    for (const slot of slots) {
-      if (slot.status !== "AVAILABLE" || !slot.practitionerLineageKey) {
-        continue;
-      }
+    const resourceRootColumn =
+      rootAppointmentType.defaultOccupancy?.kind === "resourceColumn"
+        ? calendarColumnScopeFromResourceColumn(
+            rootAppointmentType.defaultOccupancy.calendarResourceColumn,
+          )
+        : null;
+    const rootCandidates =
+      resourceRootColumn === null
+        ? slots.flatMap((slot) =>
+            slot.status === "AVAILABLE" &&
+            slot.practitionerLineageKey !== undefined
+              ? [
+                  {
+                    column: calendarColumnScopeFromPractitioner(
+                      slot.practitionerLineageKey,
+                    ),
+                    start: Temporal.ZonedDateTime.from(slot.startTime),
+                  },
+                ]
+              : [],
+          )
+        : Array.from({ length: totalSlots }, (_, slot) => {
+            const totalMinutes = businessStartHour * 60 + slot * SLOT_DURATION;
+            return {
+              column: resourceRootColumn,
+              start: selectedDate.toZonedDateTime({
+                plainTime: {
+                  hour: Math.floor(totalMinutes / 60),
+                  minute: totalMinutes % 60,
+                },
+                timeZone: TIMEZONE,
+              }),
+            };
+          });
 
-      const rootColumn = calendarColumnScopeFromPractitioner(
-        slot.practitionerLineageKey,
-      );
-      const rootStart = Temporal.ZonedDateTime.from(slot.startTime);
+    for (const rootCandidate of rootCandidates) {
+      const rootColumn = rootCandidate.column;
+      const rootStart = rootCandidate.start;
       const rootEnd = rootStart.add({
         minutes: rootAppointmentType.duration,
       });
+      const candidateOccupied = new Set(occupied);
+      addOccupiedZonedRange(candidateOccupied, rootColumn, rootStart, rootEnd);
       const plannedSteps = new Map<
         string,
         {
@@ -616,7 +667,9 @@ export function useCalendarBlockedSlotProjection({
         );
         for (let stepSlot = startSlot; stepSlot < endSlot; stepSlot++) {
           if (
-            occupied.has(`${calendarColumnScopeKey(stepColumn)}:${stepSlot}`)
+            candidateOccupied.has(
+              `${calendarColumnScopeKey(stepColumn)}:${stepSlot}`,
+            )
           ) {
             hasVisibleConflict = true;
             break;
@@ -626,6 +679,12 @@ export function useCalendarBlockedSlotProjection({
         if (hasVisibleConflict) {
           break;
         }
+        addOccupiedZonedRange(
+          candidateOccupied,
+          stepColumn,
+          stepStart,
+          stepEnd,
+        );
       }
 
       if (!hasVisibleConflict) {
@@ -648,11 +707,13 @@ export function useCalendarBlockedSlotProjection({
     baseBreakSlots,
     baseManualBlockedSlots,
     baseVacationBlockedSlots,
+    businessStartHour,
     excludedAppointmentIdForAvailability,
     placementAppointmentTypeLineageKey,
     selectedDate,
     slots,
     timeToSlot,
+    totalSlots,
     workingPractitioners,
   ]);
 
