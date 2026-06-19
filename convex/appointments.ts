@@ -3537,6 +3537,27 @@ function getPersistentSimulationFields(
   };
 }
 
+function isSeriesFollowUpResizeOnlyUpdateData(
+  updateData: Partial<AppointmentUpdateData>,
+): boolean {
+  return (
+    updateData.end !== undefined &&
+    updateData.appointmentTypeId === undefined &&
+    updateData.calendarResourceColumn === undefined &&
+    updateData.isSimulation === undefined &&
+    updateData.locationId === undefined &&
+    updateData.patientId === undefined &&
+    updateData.practitionerId === undefined &&
+    updateData.replacesAppointmentId === undefined &&
+    updateData.simulationKind === undefined &&
+    updateData.simulationRuleSetId === undefined &&
+    updateData.smiley === undefined &&
+    updateData.start === undefined &&
+    updateData.title === undefined &&
+    updateData.userId === undefined
+  );
+}
+
 function isSmileyOnlyAppointmentUpdateData(
   updateData: Partial<AppointmentUpdateData>,
 ): boolean {
@@ -4010,6 +4031,64 @@ async function updateAppointmentByMode(
     }
 
     if (existingAppointment.seriesStepIndex !== 0n) {
+      if (isSeriesFollowUpResizeOnlyUpdateData(filteredUpdateData)) {
+        if (filteredUpdateData.end === undefined) {
+          throw appointmentChainError(
+            "CHAIN_NON_ROOT_UPDATE_FORBIDDEN",
+            "Folgetermine können nur in der Länge angepasst werden.",
+          );
+        }
+
+        const resizedEnd = asZonedDateTimeString(filteredUpdateData.end);
+        calculateDurationMinutes(
+          resizedEnd,
+          asZonedDateTimeString(existingAppointment.start),
+        );
+
+        const conflictingOccupancy = await findConflictingCalendarOccupancy(
+          ctx.db,
+          {
+            candidate: {
+              end: resizedEnd,
+              locationLineageKey: resolvedLocationLineageKey,
+              occupancyScope: resolvedOccupancyScope,
+              start: resolvedStart,
+            },
+            practiceId: existingAppointment.practiceId,
+            ...(resolvedIsSimulation === true && resolvedSimulationRuleSetId
+              ? { draftRuleSetId: resolvedSimulationRuleSetId }
+              : {}),
+            excludeAppointmentIds: [existingAppointment._id],
+            occupancyView: getOccupancyViewForBookingScope(
+              getAppointmentBookingScope(resolvedIsSimulation),
+            ),
+          },
+        );
+
+        if (conflictingOccupancy) {
+          throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
+        }
+
+        const seriesRecord = await getAppointmentSeriesRecord(ctx.db, seriesId);
+        if (!seriesRecord) {
+          throw appointmentChainError(
+            "CHAIN_NOT_FOUND",
+            "Die gespeicherte Kettentermin-Serie wurde nicht gefunden.",
+          );
+        }
+
+        const now = BigInt(Date.now());
+        await ctx.db.patch("appointments", id, {
+          ...getPersistentSimulationFields(existingAppointment, now),
+          end: resizedEnd,
+          lastModified: now,
+        });
+        await ctx.db.patch("appointmentSeries", seriesRecord._id, {
+          lastModified: now,
+        });
+        return null;
+      }
+
       throw appointmentChainError(
         "CHAIN_NON_ROOT_UPDATE_FORBIDDEN",
         "Folgetermine können nicht einzeln bearbeitet werden. Bitte den Starttermin bearbeiten.",

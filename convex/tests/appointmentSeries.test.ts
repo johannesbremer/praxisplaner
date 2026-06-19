@@ -3459,7 +3459,7 @@ describe("appointment series", () => {
     expect(preview.blockedStepId).toBe("diagnostik-same-time");
   });
 
-  test("updating a non-root series appointment is rejected", async () => {
+  test("resizing a non-root series appointment is allowed but moving it is rejected", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -3541,6 +3541,22 @@ describe("appointment series", () => {
     if (!planStepAppointmentId) {
       throw new Error("Follow-up appointment should exist");
     }
+
+    const resizedEnd = Temporal.ZonedDateTime.from(
+      createdSeries.steps[1]?.end ?? rootStart,
+    )
+      .add({ minutes: 15 })
+      .toString();
+
+    await t.mutation(api.appointments.updateAppointment, {
+      end: resizedEnd,
+      id: planStepAppointmentId,
+    });
+
+    const resizedAppointment = await t.run((ctx) =>
+      ctx.db.get("appointments", planStepAppointmentId),
+    );
+    expect(resizedAppointment?.end).toBe(resizedEnd);
 
     await expect(
       t.mutation(api.appointments.updateAppointment, {

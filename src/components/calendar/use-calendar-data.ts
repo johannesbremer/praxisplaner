@@ -49,7 +49,7 @@ interface CalendarAppointmentTypeInfo {
 }
 
 export function useCalendarData(args: {
-  excludedAppointmentIdForAvailability?: Id<"appointments"> | undefined;
+  excludedAppointmentIdsForAvailability?: readonly Id<"appointments">[];
   patient: PatientInfo | undefined;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets"> | undefined;
@@ -515,11 +515,12 @@ export function useCalendarData(args: {
       args.ruleSetId
       ? {
           date: args.selectedDate.toString(),
-          ...(args.excludedAppointmentIdForAvailability === undefined
+          ...(args.excludedAppointmentIdsForAvailability === undefined ||
+          args.excludedAppointmentIdsForAvailability.length === 0
             ? {}
             : {
                 excludedAppointmentIds: [
-                  args.excludedAppointmentIdForAvailability,
+                  ...args.excludedAppointmentIdsForAvailability,
                 ],
               }),
           practiceId: args.practiceId,
@@ -545,11 +546,12 @@ export function useCalendarData(args: {
             )?.lineageKey;
             return {
               date: args.selectedDate.toString(),
-              ...(args.excludedAppointmentIdForAvailability === undefined
+              ...(args.excludedAppointmentIdsForAvailability === undefined ||
+              args.excludedAppointmentIdsForAvailability.length === 0
                 ? {}
                 : {
                     excludedAppointmentIds: [
-                      args.excludedAppointmentIdForAvailability,
+                      ...args.excludedAppointmentIdsForAvailability,
                     ],
                   }),
               practiceId: args.practiceId,

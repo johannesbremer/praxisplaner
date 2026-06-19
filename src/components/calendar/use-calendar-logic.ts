@@ -104,6 +104,9 @@ export function useCalendarLogic({
 
   const [draggedAppointment, setDraggedAppointment] =
     useState<CalendarAppointmentLayout | null>(null);
+  const [dragExcludedAppointmentIds, setDragExcludedAppointmentIds] = useState<
+    Id<"appointments">[]
+  >([]);
   const [draggedBlockedSlotId, setDraggedBlockedSlotId] = useState<
     null | string
   >(null);
@@ -138,7 +141,6 @@ export function useCalendarLogic({
     externalSelectedLocationId ?? internalSelectedLocationId;
   const draggedAppointmentTypeLineageKey =
     draggedAppointment?.record.appointmentTypeLineageKey;
-  const excludedAppointmentIdForAvailability = draggedAppointment?.record._id;
 
   const {
     allPracticeAppointmentDocMap,
@@ -171,7 +173,7 @@ export function useCalendarLogic({
     userData,
     vacationsData,
   } = useCalendarData({
-    excludedAppointmentIdForAvailability,
+    excludedAppointmentIdsForAvailability: dragExcludedAppointmentIds,
     patient,
     practiceId,
     ruleSetId,
@@ -181,6 +183,10 @@ export function useCalendarLogic({
     selectedLocationId,
     simulatedContext,
   });
+  const excludedAppointmentIdsForAvailability = useMemo(
+    () => new Set(dragExcludedAppointmentIds),
+    [dragExcludedAppointmentIds],
+  );
   const blockedSlotsQueryArgs = calendarDayQueryArgs;
 
   const isNonRootSeriesAppointment = useCallback(
@@ -443,7 +449,7 @@ export function useCalendarLogic({
       blockedSlotsWithoutAppointmentTypeResult?.slots,
     businessStartHour,
     columns,
-    excludedAppointmentIdForAvailability,
+    excludedAppointmentIdsForAvailability,
     getPractitionerIdForLineageKey,
     locationLineageKeyById,
     placementAppointmentTypeLineageKey,
@@ -495,13 +501,13 @@ export function useCalendarLogic({
       column: CalendarColumnId,
       startSlot: number,
       duration: number,
-      excludeId?: string,
+      excludedIds: ReadonlySet<Id<"appointments">> = new Set(),
     ) => {
       const endSlot = startSlot + Math.ceil(duration / SLOT_DURATION);
 
       return baseAppointmentLayouts.some((apt) => {
         if (
-          apt.id === excludeId ||
+          excludedIds.has(apt.record._id) ||
           !sameCalendarColumnScope(apt.column, column)
         ) {
           return false;
@@ -602,12 +608,10 @@ export function useCalendarLogic({
       planningCommands.convertRealAppointmentToSimulation,
     convertRealBlockedSlotToSimulation:
       planningCommands.convertRealBlockedSlotToSimulation,
-    isNonRootSeriesAppointment,
     resolveBlockedSlotDisplayRefs: resolveBlockedSlotReferenceDisplayIds,
     runUpdateAppointment: planningCommands.updateAppointment,
     runUpdateBlockedSlot: planningCommands.updateBlockedSlot,
     selectedDate,
-    showNonRootSeriesEditToast,
     simulatedContext,
     slotToTime,
     timeToSlot,
@@ -703,6 +707,15 @@ export function useCalendarLogic({
       return;
     }
 
+    const excludedIds =
+      appointment.record.seriesId === undefined
+        ? [appointment.record._id]
+        : appointmentLayouts
+            .filter(
+              (entry) => entry.record.seriesId === appointment.record.seriesId,
+            )
+            .map((entry) => entry.record._id);
+    setDragExcludedAppointmentIds(excludedIds);
     setDraggedAppointment(appointment);
     e.dataTransfer.effectAllowed = "move";
     setTransparentDragImage(e.dataTransfer);
@@ -958,6 +971,7 @@ export function useCalendarLogic({
     if (isNonRootSeriesAppointment(draggedAppointment.record._id)) {
       showNonRootSeriesEditToast();
       setDraggedAppointment(null);
+      setDragExcludedAppointmentIds([]);
       setDragPreview(emptyDragPreview);
       return;
     }
@@ -971,7 +985,7 @@ export function useCalendarLogic({
           column,
           finalSlot,
           draggedAppointment.duration,
-          draggedAppointment.id,
+          excludedAppointmentIdsForAvailability,
         )
       ) {
         toast.error(
@@ -1076,6 +1090,7 @@ export function useCalendarLogic({
     } finally {
       // Convex optimistic updates will handle successful UI updates.
       setDraggedAppointment(null);
+      setDragExcludedAppointmentIds([]);
       setDragPreview(emptyDragPreview);
     }
   };
@@ -1087,6 +1102,7 @@ export function useCalendarLogic({
     }
 
     setDraggedAppointment(null);
+    setDragExcludedAppointmentIds([]);
     setDragPreview(emptyDragPreview);
   };
 
