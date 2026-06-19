@@ -49,6 +49,7 @@ interface CalendarAppointmentTypeInfo {
 }
 
 export function useCalendarData(args: {
+  excludedAppointmentIdForAvailability?: Id<"appointments"> | undefined;
   patient: PatientInfo | undefined;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets"> | undefined;
@@ -514,6 +515,13 @@ export function useCalendarData(args: {
       args.ruleSetId
       ? {
           date: args.selectedDate.toString(),
+          ...(args.excludedAppointmentIdForAvailability === undefined
+            ? {}
+            : {
+                excludedAppointmentIds: [
+                  args.excludedAppointmentIdForAvailability,
+                ],
+              }),
           practiceId: args.practiceId,
           ruleSetId: args.ruleSetId,
           scope: "simulation",
@@ -537,6 +545,13 @@ export function useCalendarData(args: {
             )?.lineageKey;
             return {
               date: args.selectedDate.toString(),
+              ...(args.excludedAppointmentIdForAvailability === undefined
+                ? {}
+                : {
+                    excludedAppointmentIds: [
+                      args.excludedAppointmentIdForAvailability,
+                    ],
+                  }),
               practiceId: args.practiceId,
               ruleSetId: args.ruleSetId,
               scope: "real" as const,
