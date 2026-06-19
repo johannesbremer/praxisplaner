@@ -115,7 +115,6 @@ export const appointmentSeriesCreateResultValidator = v.object({
 });
 
 export const appointmentSeriesArgsValidator = {
-  allowExactStepFallback: v.optional(v.boolean()),
   bookingIdentityId: v.optional(v.id("bookingIdentities")),
   calendarResourceColumn: v.optional(calendarResourceColumnValidator),
   isNewPatient: v.optional(v.boolean()),
@@ -160,7 +159,6 @@ interface ResolvedPlanOccupancy {
 }
 
 interface RootSeriesCandidate {
-  allowExactStepFallback?: boolean;
   calendarResourceColumn?: CalendarResourceColumn;
   excludedAppointmentIds?: Id<"appointments">[];
   isNewPatient?: boolean;
@@ -566,11 +564,6 @@ export async function planSeriesFromRootCandidate(
       step.appointmentTypeLineageKey,
     );
     const plannedStep = await planAppointmentPlanStep(ctx, {
-      ...(args.rootCandidate.allowExactStepFallback === undefined
-        ? {}
-        : {
-            allowExactStepFallback: args.rootCandidate.allowExactStepFallback,
-          }),
       ...(args.rootCandidate.isNewPatient !== undefined && {
         isNewPatient: args.rootCandidate.isNewPatient,
       }),
@@ -621,7 +614,6 @@ export async function planSeriesFromRootCandidate(
 export async function previewAppointmentSeries(
   ctx: SeriesPlannerCtx,
   args: {
-    allowExactStepFallback?: boolean;
     calendarResourceColumn?: CalendarResourceColumn;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
@@ -653,9 +645,6 @@ export async function previewAppointmentSeries(
     planningState,
     requestedAt,
     rootCandidate: {
-      ...(args.allowExactStepFallback === undefined
-        ? {}
-        : { allowExactStepFallback: args.allowExactStepFallback }),
       ...(args.excludedAppointmentIds && {
         excludedAppointmentIds: args.excludedAppointmentIds,
       }),
@@ -961,7 +950,6 @@ function findAnchorStep(
 async function findFirstAvailableStepStart(
   ctx: SeriesPlannerCtx,
   args: {
-    allowExactStepFallback?: boolean;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId: Id<"locations">;
@@ -1477,7 +1465,6 @@ function normalizeAppointmentPlanSnapshotFromType(
 async function planAppointmentPlanStep(
   ctx: SeriesPlannerCtx,
   args: {
-    allowExactStepFallback?: boolean;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId: Id<"locations">;
@@ -1532,25 +1519,7 @@ async function planAppointmentPlanStep(
       start: exactStart,
     }))
   ) {
-    if (!args.allowExactStepFallback) {
-      return null;
-    }
-
-    const fallbackStart = await findFirstAvailableStepStartOnOrAfter(ctx, {
-      ...args,
-      earliestStart: Temporal.ZonedDateTime.from(exactStart),
-      occupancy,
-      respectEarliestStartTime: true,
-    });
-    if (!fallbackStart) {
-      return null;
-    }
-
-    return await buildPlannedStepIfAvailable(ctx, {
-      ...args,
-      occupancy,
-      start: fallbackStart,
-    });
+    return null;
   }
 
   return await buildPlannedStepIfAvailable(ctx, {
