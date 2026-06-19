@@ -1007,7 +1007,7 @@ async function restoreAppointmentSeriesSnapshot(
 
   const originalRootAppointmentId = payload.currentRootAppointmentId;
   const result = await context.runRestoreAppointmentSeriesSnapshotInternal({
-    snapshot: payload.snapshot,
+    seriesId: payload.snapshot.series.seriesId,
   });
   if (!result) {
     return { status: "conflict" };
