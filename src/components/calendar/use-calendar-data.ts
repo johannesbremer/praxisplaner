@@ -9,7 +9,7 @@ import type {
   PractitionerLineageKey,
 } from "../../../convex/identity";
 import type { AppointmentColor } from "../../../convex/schema";
-import type { PatientInfo } from "../../types";
+import type { PatientInfo, SchedulingSlot } from "../../types";
 import type {
   CalendarAppointmentRecord,
   CalendarBlockedSlotRecord,
@@ -22,6 +22,7 @@ import {
   asPractitionerLineageKey,
 } from "../../../convex/identity";
 import { DEFAULT_APPOINTMENT_COLOR } from "../../../lib/appointment-colors";
+import { asZonedDateTimeString } from "../../../convex/typedDtos";
 import { createSimulatedContext } from "../../../lib/utils";
 import {
   captureFrontendError,
@@ -600,6 +601,87 @@ export function useCalendarData(args: {
           })()
         : "skip",
   );
+  const effectiveSchedulingAppointmentTypeLineageKey = useMemo(
+    () =>
+      args.simulatedContext?.appointmentTypeLineageKey ??
+      args.schedulingAppointmentTypeLineageKey ??
+      appointmentTypesData?.find(
+        (appointmentType) =>
+          appointmentType._id === args.selectedAppointmentTypeId,
+      )?.lineageKey,
+    [
+      appointmentTypesData,
+      args.schedulingAppointmentTypeLineageKey,
+      args.selectedAppointmentTypeId,
+      args.simulatedContext?.appointmentTypeLineageKey,
+    ],
+  );
+  const effectiveSchedulingAppointmentTypeId =
+    effectiveSchedulingAppointmentTypeLineageKey === undefined
+      ? undefined
+      : appointmentTypeIdByLineageKey.get(
+          asAppointmentTypeLineageKey(
+            effectiveSchedulingAppointmentTypeLineageKey,
+          ),
+        );
+  const effectiveSchedulingAppointmentTypeInfo =
+    effectiveSchedulingAppointmentTypeLineageKey === undefined
+      ? undefined
+      : appointmentTypeInfoByLineageKey.get(
+          asAppointmentTypeLineageKey(
+            effectiveSchedulingAppointmentTypeLineageKey,
+          ),
+        );
+  const blockedAppointmentSeriesRootSlotsResult = useQuery(
+    api.appointments.getBlockedAppointmentSeriesRootSlotsForCandidates,
+    args.practiceId &&
+      args.ruleSetId &&
+      effectiveLocationId &&
+      effectiveSchedulingAppointmentTypeId &&
+      effectiveSchedulingAppointmentTypeInfo?.hasAppointmentPlan === true &&
+      slotsResult !== undefined
+      ? {
+          candidates: slotsResult.slots
+            .filter((slot) => slot.status === "AVAILABLE")
+            .map((slot) => ({
+              duration: slot.duration,
+              locationLineageKey: slot.locationLineageKey,
+              practitionerLineageKey: slot.practitionerLineageKey,
+              practitionerName: slot.practitionerName,
+              startTime: slot.startTime,
+            })),
+          ...(args.patient?.convexPatientId === undefined
+            ? {}
+            : { patientId: args.patient.convexPatientId }),
+          ...(args.patient?.dateOfBirth === undefined
+            ? {}
+            : { patientDateOfBirth: args.patient.dateOfBirth }),
+          isNewPatient: args.patient?.isNewPatient ?? false,
+          locationId: effectiveLocationId,
+          practiceId: args.practiceId,
+          rootAppointmentTypeId: effectiveSchedulingAppointmentTypeId,
+          ruleSetId: args.ruleSetId,
+          scope: args.simulatedContext === undefined ? "real" : "simulation",
+          ...(args.patient?.userId === undefined
+            ? {}
+            : { userId: args.patient.userId }),
+        }
+      : "skip",
+  );
+  const blockedAppointmentSeriesRootSlots = useMemo<
+    SchedulingSlot[] | undefined
+  >(
+    () =>
+      blockedAppointmentSeriesRootSlotsResult?.map((slot) => ({
+        ...slot,
+        locationLineageKey: asLocationLineageKey(slot.locationLineageKey),
+        practitionerLineageKey: asPractitionerLineageKey(
+          slot.practitionerLineageKey,
+        ),
+        startTime: asZonedDateTimeString(slot.startTime),
+      })),
+    [blockedAppointmentSeriesRootSlotsResult],
+  );
 
   const blockedSlotsClientType =
     args.simulatedContext === undefined
@@ -665,6 +747,7 @@ export function useCalendarData(args: {
     appointmentTypeInfoByLineageKey,
     appointmentTypeLineageKeyById,
     baseSchedulesData,
+    blockedAppointmentSeriesRootSlots,
     blockedSlotDocMap,
     blockedSlotDocMapRef,
     blockedSlotsData,

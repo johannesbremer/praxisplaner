@@ -70,6 +70,7 @@ interface SchedulingSlot {
 interface UseCalendarBlockedSlotProjectionArgs {
   appointmentsData: readonly CalendarAppointmentRecord[];
   baseSchedulesData: readonly VacationSchedule[] | undefined;
+  blockedAppointmentSeriesRootSlots: readonly SchedulingSlot[] | undefined;
   blockedSlotsData: readonly CalendarBlockedSlotRecord[];
   blockedSlotsWithoutAppointmentTypeSlots:
     | readonly SchedulingSlot[]
@@ -109,6 +110,7 @@ interface VacationSchedule extends BlockedSlotSchedule {
 export function useCalendarBlockedSlotProjection({
   appointmentsData,
   baseSchedulesData,
+  blockedAppointmentSeriesRootSlots,
   blockedSlotsData,
   blockedSlotsWithoutAppointmentTypeSlots,
   businessStartHour,
@@ -158,6 +160,13 @@ export function useCalendarBlockedSlotProjection({
     appendSchedulingSlots({
       blocked,
       skipExisting: true,
+      slots: blockedAppointmentSeriesRootSlots,
+      timeToSlot,
+      workingPractitioners,
+    });
+    appendSchedulingSlots({
+      blocked,
+      skipExisting: true,
       slots: blockedSlotsWithoutAppointmentTypeSlots,
       timeToSlot,
       workingPractitioners,
@@ -165,6 +174,7 @@ export function useCalendarBlockedSlotProjection({
 
     return blocked;
   }, [
+    blockedAppointmentSeriesRootSlots,
     blockedSlotsWithoutAppointmentTypeSlots,
     slots,
     timeToSlot,

@@ -820,6 +820,35 @@ describe("appointment series", () => {
     expect(preview.status).toBe("blocked");
     expect(preview.blockedStepId).toBe("step-1");
 
+    const blockedRootSlots = await t.query(
+      api.appointments.getBlockedAppointmentSeriesRootSlotsForCandidates,
+      {
+        candidates: [
+          {
+            duration: 30,
+            locationLineageKey: locationId,
+            practitionerLineageKey: practitionerId,
+            practitionerName: "Dr. Chain",
+            startTime: rootStart,
+          },
+        ],
+        locationId,
+        practiceId,
+        rootAppointmentTypeId,
+        ruleSetId,
+        userId,
+      },
+    );
+
+    expect(blockedRootSlots).toEqual([
+      expect.objectContaining({
+        locationLineageKey: locationId,
+        practitionerLineageKey: practitionerId,
+        startTime: rootStart,
+        status: "BLOCKED",
+      }),
+    ]);
+
     await expect(
       t.mutation(api.appointments.createAppointmentSeries, {
         locationId,
