@@ -259,6 +259,88 @@ describe("calendar planning workbench", () => {
     );
   });
 
+  it("does not record generic create history for appointment-plan roots", async () => {
+    const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
+    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("type_lineage_1"),
+    );
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const appointmentId = toTableId<"appointments">("appointment_1");
+
+    const createAppointmentMutation = makeMutation(appointmentId);
+    mutationQueue.push(
+      createAppointmentMutation,
+      makeMutation(toTableId<"appointments">("appointment_restore_unused")),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(toTableId<"blockedSlots">("blocked_slot_unused")),
+      makeMutation(null),
+      makeMutation(null),
+    );
+
+    const { result } = renderHook(() =>
+      useCalendarPlanningWorkbench({
+        activeDayAppointmentMapRef: { current: new Map() },
+        activeDayBlockedSlotMapRef: { current: new Map() },
+        allPracticeAppointmentMap: new Map(),
+        allPracticeAppointmentMapRef: { current: new Map() },
+        allPracticeAppointmentsLoaded: true,
+        allPracticeBlockedSlotMap: new Map(),
+        allPracticeBlockedSlotMapRef: { current: new Map() },
+        allPracticeBlockedSlotsLoaded: true,
+        blockedSlotsQueryArgs: null,
+        calendarDayQueryArgs: null,
+        getRequiredAppointmentTypeInfo: () => ({
+          duration: 30,
+          hasAppointmentPlan: true,
+          name: "Check-up",
+        }),
+        parseZonedDateTime,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map([
+            [appointmentTypeLineageKey, appointmentTypeId],
+          ]),
+          appointmentTypeLineageKeyById: new Map([
+            [appointmentTypeId, appointmentTypeLineageKey],
+          ]),
+          locationIdByLineageKey: new Map([[locationLineageKey, locationId]]),
+          locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        refreshAllPracticeConflictData: vi.fn(() => Promise.resolve()),
+      }),
+    );
+
+    let createdId: Id<"appointments"> | undefined;
+    await act(async () => {
+      createdId = await result.current.commands.createAppointment({
+        appointmentTypeId,
+        placement: createCalendarPlacement({
+          locationLineageKey,
+          occupancyScope: {
+            calendarResourceColumn: "ekg",
+            kind: "resource",
+          },
+        }),
+        practiceId,
+        start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+        title: "Check-up",
+      });
+    });
+
+    expect(createdId).toBe(appointmentId);
+    expect(createAppointmentMutation).toHaveBeenCalledOnce();
+    expect(recordCalendarCommand).not.toHaveBeenCalled();
+  });
+
   it("preserves appointment smileys in delete undo create args", async () => {
     const appointmentId = toTableId<"appointments">("appointment_1");
     const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
