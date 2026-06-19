@@ -531,6 +531,64 @@ describe("appointment series", () => {
     ).rejects.toThrow("APPOINTMENT_PLAN:SAME_START_ANCHOR_OCCUPANCY_OVERLAP");
   });
 
+  test("createAppointmentType rejects overlapping before-root steps with the same occupancy", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const targetAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "EKG",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetId, {
+        lineageKey: targetId,
+      });
+      return targetId;
+    });
+
+    await expect(
+      t.mutation(api.entities.createAppointmentType, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: {
+                calendarResourceColumn: "ekg",
+                kind: "resourceColumn",
+              },
+              required: true,
+              stepId: "ekg-before-1",
+              timing: { kind: "beforeRootStart", offsetMinutes: 0 },
+            },
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: {
+                calendarResourceColumn: "ekg",
+                kind: "resourceColumn",
+              },
+              required: true,
+              stepId: "ekg-before-2",
+              timing: { kind: "beforeRootStart", offsetMinutes: 0 },
+            },
+          ],
+        },
+        duration: 30,
+        expectedDraftRevision: null,
+        name: "EKG Doppelung",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      }),
+    ).rejects.toThrow("APPOINTMENT_PLAN:BEFORE_ROOT_OCCUPANCY_OVERLAP");
+  });
+
   test("previewAppointmentSeries scans period-based appointment-plan steps top to bottom within the day", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
@@ -2982,8 +3040,10 @@ describe("appointment series", () => {
     });
 
     await t.mutation(api.appointments.updateAppointment, {
+      calendarResourceColumn: null,
       end: shiftedRootEnd,
       id: createdSeries.rootAppointmentId,
+      practitionerId,
       start: shiftedRootStart,
     });
 
