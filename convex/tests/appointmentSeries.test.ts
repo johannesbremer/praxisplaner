@@ -3224,6 +3224,122 @@ describe("appointment series", () => {
     );
   });
 
+  test("updateAppointment excludes the existing series from concurrent-count rules while replanning", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_appointment_series_rule_exclusion",
+      "appointment-series-rule-exclusion@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const followUpTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Speed",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", followUpTypeId, {
+        lineageKey: followUpTypeId,
+      });
+      const rootTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: followUpTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "speed-follow-up",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Akut-2",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootTypeId, {
+        lineageKey: rootTypeId,
+      });
+
+      const ruleRootId = await ctx.db.insert("ruleConditions", {
+        childOrder: 0,
+        createdAt: now,
+        isRoot: true,
+        lastModified: now,
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.insert("ruleConditions", {
+        childOrder: 0,
+        conditionType: "CONCURRENT_COUNT",
+        createdAt: now,
+        isRoot: false,
+        lastModified: now,
+        nodeType: "CONDITION",
+        operator: "GREATER_THAN_OR_EQUAL",
+        parentConditionId: ruleRootId,
+        practiceId,
+        ruleSetId,
+        scope: "location",
+        valueIds: [rootTypeId, followUpTypeId],
+        valueNumber: 1,
+      });
+
+      return rootTypeId;
+    });
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const createdSeries = await t.mutation(
+      api.appointments.createAppointmentSeries,
+      {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Akut-2",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      },
+    );
+
+    const shiftedRootStart = Temporal.ZonedDateTime.from(rootStart)
+      .add({ minutes: 30 })
+      .toString();
+    const shiftedRootEnd = Temporal.ZonedDateTime.from(rootStart)
+      .add({ minutes: 60 })
+      .toString();
+
+    await expect(
+      t.mutation(api.appointments.updateAppointment, {
+        end: shiftedRootEnd,
+        id: createdSeries.rootAppointmentId,
+        start: shiftedRootStart,
+      }),
+    ).resolves.toBeNull();
+  });
+
   test("appointment plans support before steps and same-time EKG resource steps", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
