@@ -1663,6 +1663,10 @@ export function useCalendarPlanningWorkbench(args: {
         title: createArgs.title,
       });
 
+      if (appointmentTypeInfo.hasAppointmentPlan) {
+        return createdId;
+      }
+
       recordCalendarCommand({
         kind: "appointment.create",
         label: "Termin erstellt",
