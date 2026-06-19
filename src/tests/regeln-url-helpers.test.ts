@@ -22,12 +22,14 @@ describe("Regeln search helpers", () => {
       patientTypeSegment: EXISTING_PATIENT_SEGMENT,
       ruleSetDescription: "wintersprechzeiten-2025",
       tabParam: "debug",
+      visibleColumnNames: ["MT", "EKG"],
     });
 
     expect(search).toEqual({
       datum: "30.01.2025",
       patientType: EXISTING_PATIENT_SEGMENT,
       regelwerk: "wintersprechzeiten-2025",
+      spalten: "EKG*MT",
       standort: "Praxis am Markt",
       tab: "debug",
     });
@@ -43,6 +45,7 @@ describe("Regeln search helpers", () => {
     });
 
     expect(Object.hasOwn(search, "datum")).toBe(false);
+    expect(Object.hasOwn(search, "spalten")).toBe(false);
     expect(Object.hasOwn(search, "standort")).toBe(false);
     expect(Object.hasOwn(search, "regelwerk")).toBe(false);
     expect(Object.hasOwn(search, "tab")).toBe(false);
@@ -72,6 +75,7 @@ describe("Regeln search helpers", () => {
         routeSearch: {
           datum: "13.06.2026",
           regelwerk: "ungespeichert",
+          spalten: "EKG",
         },
         ruleSetsQuery: [],
         unsavedRuleSet: null,
@@ -91,8 +95,57 @@ describe("Regeln search helpers", () => {
       search: {
         datum: "13.06.2026",
         regelwerk: "Wintersprechzeiten 2026",
+        spalten: "EKG",
       },
       to: "/$organizationSlug/regeln",
+    });
+  });
+
+  it("can update visible calendar columns on the staff view tab", () => {
+    navigateMock.mockClear();
+
+    const { result } = renderHook(() =>
+      useRegelnUrl({
+        locationsListQuery: [],
+        organizationSlug: "standardpraxis",
+        routeSearch: {
+          datum: "15.06.2026",
+          spalten: "EKG",
+          tab: "mitarbeiter",
+        },
+        ruleSetsQuery: [],
+        unsavedRuleSet: null,
+      }),
+    );
+
+    act(() => {
+      result.current.pushUrl({
+        visibleColumnNames: ["MT", "EKG"],
+      });
+    });
+
+    expect(result.current.visibleColumnNames).toEqual(["EKG"]);
+    expect(navigateMock).toHaveBeenCalledWith({
+      params: { organizationSlug: "standardpraxis" },
+      replace: false,
+      resetScroll: false,
+      search: {
+        datum: "15.06.2026",
+        spalten: "EKG*MT",
+        tab: "mitarbeiter",
+      },
+      to: "/$organizationSlug/regeln",
+    });
+  });
+
+  it("omits visible calendar columns when all columns should be shown", () => {
+    const search = buildRegelnSearchFromState({
+      tabParam: "mitarbeiter",
+      visibleColumnNames: undefined,
+    });
+
+    expect(search).toEqual({
+      tab: "mitarbeiter",
     });
   });
 });

@@ -128,6 +128,9 @@ export interface NewCalendarProps {
         title: string;
       }) => void)
     | undefined;
+  onVisibleColumnNamesChange?:
+    | ((visibleColumnNames?: readonly string[]) => void)
+    | undefined;
 
   /**
    * Pending appointment title set by the sidebar modal before manual placement.
@@ -152,6 +155,7 @@ export interface NewCalendarProps {
   showGdtAlert?: boolean | undefined;
   simulatedContext?: SchedulingSimulatedContext | undefined;
   simulationDate?: Temporal.PlainDate | undefined;
+  visibleColumnNames?: readonly string[] | undefined;
 }
 
 export const SLOT_DURATION = 5; // minutes

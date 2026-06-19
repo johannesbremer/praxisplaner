@@ -6,6 +6,10 @@ import type { DeDateString } from "@/lib/typed-regex";
 import { RESERVED_UNSAVED_DESCRIPTION } from "@/convex/ruleSetValidation";
 
 import { formatJSDateDE, isTodayJS, parseJSDateDE } from "./date-utils";
+import {
+  parseVisibleColumnNamesFromSearch,
+  serializeVisibleColumnNamesForSearch,
+} from "./praxisplaner-search";
 export const NEW_PATIENT_SEGMENT = "neu";
 export const EXISTING_PATIENT_SEGMENT = "bestand";
 
@@ -13,6 +17,7 @@ export interface RegelnSearchParams {
   datum?: DeDateString;
   patientType?: typeof EXISTING_PATIENT_SEGMENT | typeof NEW_PATIENT_SEGMENT;
   regelwerk?: string;
+  spalten?: string;
   standort?: string;
   tab?: RegelnTabParam;
 }
@@ -35,6 +40,7 @@ interface RegelnNavigationState {
     | undefined;
   ruleSetDescription?: string | undefined;
   tabParam?: RegelnTabParam | undefined;
+  visibleColumnNames?: readonly string[] | undefined;
 }
 
 interface RuleSetSummary {
@@ -56,6 +62,12 @@ export function buildRegelnSearchFromState(
   }
   if (state.dateDE) {
     search.datum = state.dateDE;
+  }
+  const visibleColumnsSearch = serializeVisibleColumnNamesForSearch(
+    state.visibleColumnNames,
+  );
+  if (visibleColumnsSearch) {
+    search.spalten = visibleColumnsSearch;
   }
   if (state.patientTypeSegment) {
     search.patientType = state.patientTypeSegment;
@@ -182,6 +194,7 @@ export function useRegelnUrl(options: {
     ruleSetDescription?: string | undefined;
     ruleSetId?: Id<"ruleSets"> | undefined;
     tab?: RegelnTab;
+    visibleColumnNames?: readonly string[] | undefined;
   }) {
     const nextTabParam = internalTabToParam(overrides.tab ?? activeTab);
 
@@ -224,6 +237,10 @@ export function useRegelnUrl(options: {
       patientTypeSegment,
       ruleSetDescription: targetRuleSetDescription,
       tabParam: nextTabParam,
+      visibleColumnNames:
+        "visibleColumnNames" in overrides
+          ? overrides.visibleColumnNames
+          : currentRouteState.visibleColumnNames,
     });
   }
 
@@ -240,6 +257,9 @@ export function useRegelnUrl(options: {
       datum: currentRouteState.dateDE,
       patientType: currentRouteState.patientTypeSegment,
       ruleSet: currentRouteState.ruleSetDescription,
+      spalten: serializeVisibleColumnNamesForSearch(
+        currentRouteState.visibleColumnNames,
+      ),
       standort: currentRouteState.locationName,
       tab: currentRouteState.tabParam,
     },
@@ -249,6 +269,7 @@ export function useRegelnUrl(options: {
     locationIdFromUrl,
     ruleSetIdFromUrl,
     selectedDate,
+    visibleColumnNames: currentRouteState.visibleColumnNames,
     // actions
     navigateTab,
     pushUrl,
@@ -270,6 +291,10 @@ function fromSearchParams(params: RegelnSearchParams): RegelnNavigationState {
     patientTypeSegment,
     ruleSetDescription: params.regelwerk,
     tabParam: params.tab,
+    visibleColumnNames:
+      typeof params.spalten === "string"
+        ? parseVisibleColumnNamesFromSearch(params.spalten)
+        : undefined,
   };
 }
 
@@ -278,6 +303,7 @@ function isSameSearch(left: RegelnSearchParams, right: RegelnSearchParams) {
     left.datum === right.datum &&
     left.patientType === right.patientType &&
     left.regelwerk === right.regelwerk &&
+    left.spalten === right.spalten &&
     left.standort === right.standort &&
     left.tab === right.tab
   );

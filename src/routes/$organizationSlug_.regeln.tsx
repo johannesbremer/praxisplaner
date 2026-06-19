@@ -121,6 +121,10 @@ export const Route = createFileRoute("/$organizationSlug_/regeln")({
       result.datum = params["datum"];
     }
 
+    if (typeof params["spalten"] === "string" && params["spalten"].length > 0) {
+      result.spalten = params["spalten"];
+    }
+
     if (params["patientType"] === EXISTING_PATIENT_SEGMENT) {
       result.patientType = EXISTING_PATIENT_SEGMENT;
     } else if (params["patientType"] === NEW_PATIENT_SEGMENT) {
@@ -492,6 +496,7 @@ function LogicView() {
     raw,
     ruleSetIdFromUrl,
     selectedDate,
+    visibleColumnNames,
   } = useRegelnUrl({
     locationsListQuery: locationsListQuery ?? undefined,
     organizationSlug,
@@ -1527,10 +1532,14 @@ function LogicView() {
                   <MedicalStaffDisplay
                     canManageCalendarPlanning
                     onUpdateSimulatedContext={updateSimulatedContext}
+                    onVisibleColumnNamesChange={(nextVisibleColumnNames) => {
+                      pushUrl({ visibleColumnNames: nextVisibleColumnNames });
+                    }}
                     practiceId={currentPractice._id}
                     ruleSetId={resolvedCurrentWorkingRuleSet._id}
                     simulatedContext={effectiveSimulatedContext}
                     simulationDate={simulationDate}
+                    visibleColumnNames={visibleColumnNames}
                   />
                 ) : (
                   <div className="flex items-center justify-center p-8 text-muted-foreground">

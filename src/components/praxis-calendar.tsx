@@ -22,6 +22,9 @@ interface PraxisCalendarProps {
   onUpdateSimulatedContext?:
     | ((context: SchedulingSimulatedContext) => void)
     | undefined;
+  onVisibleColumnNamesChange?:
+    | ((visibleColumnNames?: readonly string[]) => void)
+    | undefined;
   patient?: PatientInfo | undefined;
   practiceId: Id<"practices">;
   ruleSetId: SchedulingRuleSetId;
@@ -29,6 +32,7 @@ interface PraxisCalendarProps {
   showGdtAlert?: boolean | undefined;
   simulatedContext?: SchedulingSimulatedContext | undefined;
   simulationDate?: Temporal.PlainDate | undefined;
+  visibleColumnNames?: readonly string[] | undefined;
 }
 
 export function PraxisCalendar(props: PraxisCalendarProps) {
