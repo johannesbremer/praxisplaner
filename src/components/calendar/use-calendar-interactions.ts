@@ -75,12 +75,10 @@ export function useCalendarInteractions({
   checkCollision,
   convertRealAppointmentToSimulation,
   convertRealBlockedSlotToSimulation,
-  isNonRootSeriesAppointment,
   resolveBlockedSlotDisplayRefs,
   runUpdateAppointment,
   runUpdateBlockedSlot,
   selectedDate,
-  showNonRootSeriesEditToast,
   simulatedContext,
   slotToTime,
   timeToSlot,
@@ -92,7 +90,7 @@ export function useCalendarInteractions({
     column: CalendarColumnId,
     slot: number,
     duration: number,
-    excludeId?: string,
+    excludedAppointmentIds?: ReadonlySet<Id<"appointments">>,
   ) => boolean;
   convertRealAppointmentToSimulation: (
     appointment: CalendarAppointmentLayout,
@@ -109,7 +107,6 @@ export function useCalendarInteractions({
       title?: string;
     },
   ) => Promise<null | SimulatedBlockedSlotConversionResult>;
-  isNonRootSeriesAppointment: (appointmentId?: string) => boolean;
   resolveBlockedSlotDisplayRefs: (blockedSlot: BlockedSlotRecord) => null | {
     locationId: Id<"locations">;
     occupancyScope: BlockedSlotDisplayOccupancyScope;
@@ -125,7 +122,6 @@ export function useCalendarInteractions({
     isSimulation?: boolean;
   }) => Promise<unknown>;
   selectedDate: Temporal.PlainDate;
-  showNonRootSeriesEditToast: () => void;
   simulatedContext: SimulatedContextInput | undefined;
   slotToTime: (slot: number) => string;
   timeToSlot: (time: string) => number;
@@ -151,8 +147,6 @@ export function useCalendarInteractions({
   const convertRealBlockedSlotToSimulationRef = useRef(
     convertRealBlockedSlotToSimulation,
   );
-  const isNonRootSeriesAppointmentRef = useRef(isNonRootSeriesAppointment);
-  const showNonRootSeriesEditToastRef = useRef(showNonRootSeriesEditToast);
 
   useEffect(() => {
     appointmentsRef.current = baseAppointments;
@@ -199,14 +193,6 @@ export function useCalendarInteractions({
     convertRealBlockedSlotToSimulationRef.current =
       convertRealBlockedSlotToSimulation;
   }, [convertRealBlockedSlotToSimulation]);
-
-  useEffect(() => {
-    isNonRootSeriesAppointmentRef.current = isNonRootSeriesAppointment;
-  }, [isNonRootSeriesAppointment]);
-
-  useEffect(() => {
-    showNonRootSeriesEditToastRef.current = showNonRootSeriesEditToast;
-  }, [showNonRootSeriesEditToast]);
 
   const setResizeDraft = useCallback((draft: ActiveResizeDraft | null) => {
     activeResizeDraftRef.current = draft;
@@ -259,18 +245,12 @@ export function useCalendarInteractions({
     }
 
     if (resizeDraft.kind === "appointment") {
-      const appointmentVisibleId = String(resizeDraft.commitAppointmentId);
-      const collisionExcludeId = appointmentsRef.current.some(
-        (entry) => entry.id === appointmentVisibleId,
-      )
-        ? appointmentVisibleId
-        : resizeDraft.entityId;
       if (
         checkCollisionRef.current(
           resizeDraft.column,
           resizeDraft.startSlot,
           resizeDraft.previewDuration,
-          collisionExcludeId,
+          new Set([resizeDraft.commitAppointmentId]),
         )
       ) {
         return;
@@ -303,18 +283,11 @@ export function useCalendarInteractions({
       return;
     }
 
-    const blockedSlotVisibleId = String(resizeDraft.commitBlockedSlotId);
-    const collisionExcludeId = manualBlockedSlotsRef.current.some(
-      (entry) => entry.id === blockedSlotVisibleId,
-    )
-      ? blockedSlotVisibleId
-      : resizeDraft.entityId;
     if (
       checkCollisionRef.current(
         resizeDraft.column,
         resizeDraft.startSlot,
         resizeDraft.previewDuration,
-        collisionExcludeId,
       )
     ) {
       return;
@@ -371,11 +344,6 @@ export function useCalendarInteractions({
     ) => {
       event.preventDefault();
       event.stopPropagation();
-
-      if (isNonRootSeriesAppointmentRef.current(appointmentId)) {
-        showNonRootSeriesEditToastRef.current();
-        return;
-      }
 
       const targetAppointment = appointmentsRef.current.find(
         (appointment) => appointment.id === appointmentId,

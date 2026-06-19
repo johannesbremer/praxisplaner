@@ -96,7 +96,7 @@ interface UseCalendarBlockedSlotProjectionArgs {
     | undefined;
   businessStartHour: number;
   columns: readonly CalendarColumn[];
-  excludedAppointmentIdForAvailability: Id<"appointments"> | undefined;
+  excludedAppointmentIdsForAvailability: ReadonlySet<Id<"appointments">>;
   getPractitionerIdForLineageKey: (
     practitionerLineageKey: PractitionerLineageKey,
   ) => Id<"practitioners"> | undefined;
@@ -136,7 +136,7 @@ export function useCalendarBlockedSlotProjection({
   blockedSlotsWithoutAppointmentTypeSlots,
   businessStartHour,
   columns,
-  excludedAppointmentIdForAvailability,
+  excludedAppointmentIdsForAvailability,
   getPractitionerIdForLineageKey,
   locationLineageKeyById,
   placementAppointmentTypeLineageKey,
@@ -530,7 +530,7 @@ export function useCalendarBlockedSlotProjection({
     }
 
     for (const appointment of appointmentsData) {
-      if (appointment._id === excludedAppointmentIdForAvailability) {
+      if (excludedAppointmentIdsForAvailability.has(appointment._id)) {
         continue;
       }
 
@@ -708,7 +708,7 @@ export function useCalendarBlockedSlotProjection({
     baseManualBlockedSlots,
     baseVacationBlockedSlots,
     businessStartHour,
-    excludedAppointmentIdForAvailability,
+    excludedAppointmentIdsForAvailability,
     placementAppointmentTypeLineageKey,
     selectedDate,
     slots,
