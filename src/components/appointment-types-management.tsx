@@ -3343,7 +3343,7 @@ export function AppointmentTypesManagement({
                   <Plus className="h-4 w-4" />
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-hidden">
+              <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-4xl">
                 <DialogHeader>
                   <DialogTitle>
                     {editingAppointmentType
@@ -3357,7 +3357,7 @@ export function AppointmentTypesManagement({
                   </DialogDescription>
                 </DialogHeader>
                 <form
-                  className="flex max-h-full flex-col overflow-hidden"
+                  className="flex min-h-0 flex-1 flex-col overflow-hidden"
                   noValidate
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -3365,7 +3365,7 @@ export function AppointmentTypesManagement({
                     void form.handleSubmit();
                   }}
                 >
-                  <div className="flex-1 overflow-y-auto pr-2">
+                  <div className="min-h-0 flex-1 overflow-y-auto py-4 pr-2">
                     <FieldGroup>
                       <form.Field name="name">
                         {(field) => {
@@ -3965,7 +3965,7 @@ export function AppointmentTypesManagement({
                     </FieldGroup>
                   </div>
 
-                  <DialogFooter className="mt-6">
+                  <DialogFooter className="shrink-0 border-t pt-4">
                     <Button
                       onClick={closeDialog}
                       type="button"
