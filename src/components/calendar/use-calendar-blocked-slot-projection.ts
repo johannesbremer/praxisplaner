@@ -548,7 +548,13 @@ export function useCalendarBlockedSlotProjection({
                     column: calendarColumnScopeFromPractitioner(
                       slot.practitionerLineageKey,
                     ),
-                    rootAvailable: true,
+                    rootAvailable: hasConsecutiveSchedulerAvailability(slots, {
+                      column: calendarColumnScopeFromPractitioner(
+                        slot.practitionerLineageKey,
+                      ),
+                      durationMinutes: rootAppointmentType.duration,
+                      startTime: slot.startTime,
+                    }),
                     start: Temporal.ZonedDateTime.from(slot.startTime),
                   },
                 ]
@@ -566,6 +572,7 @@ export function useCalendarBlockedSlotProjection({
             return {
               column: resourceRootColumn,
               rootAvailable: hasConsecutiveSchedulerAvailability(slots, {
+                column: resourceRootColumn,
                 durationMinutes: rootAppointmentType.duration,
                 startTime: start.toString(),
               }),
@@ -667,6 +674,17 @@ export function useCalendarBlockedSlotProjection({
           0
         ) {
           continue;
+        }
+
+        if (
+          !hasConsecutiveSchedulerAvailability(slots, {
+            column: stepColumn,
+            durationMinutes: targetAppointmentType.duration,
+            startTime: stepStart.toString(),
+          })
+        ) {
+          hasVisibleConflict = true;
+          break;
         }
 
         const startSlot = timeToSlot(
@@ -805,6 +823,7 @@ function appendSchedulingSlots(args: {
 function hasConsecutiveSchedulerAvailability(
   slots: readonly SchedulingSlot[],
   args: {
+    column: CalendarColumnId;
     durationMinutes: number;
     startTime: string;
   },
@@ -817,6 +836,12 @@ function hasConsecutiveSchedulerAvailability(
       slot.status !== "AVAILABLE" ||
       slot.startTime !== args.startTime ||
       slot.practitionerLineageKey === undefined
+    ) {
+      return false;
+    }
+    if (
+      args.column.kind === "practitioner" &&
+      slot.practitionerLineageKey !== args.column.practitionerLineageKey
     ) {
       return false;
     }

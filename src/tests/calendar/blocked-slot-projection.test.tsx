@@ -109,6 +109,11 @@ describe("useCalendarBlockedSlotProjection", () => {
             startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
             status: "AVAILABLE",
           },
+          {
+            practitionerLineageKey,
+            startTime: "2026-04-25T09:15:00+02:00[Europe/Berlin]",
+            status: "AVAILABLE",
+          },
         ],
         timeToSlot,
         totalSlots: 108,
@@ -231,6 +236,244 @@ describe("useCalendarBlockedSlotProjection", () => {
             practitionerLineageKey,
             startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
             status: "AVAILABLE",
+          },
+        ],
+        timeToSlot,
+        totalSlots: 108,
+        vacationsData: undefined,
+        workingPractitioners: [
+          {
+            endTime: "17:00",
+            lineageKey: practitionerLineageKey,
+            name: "Dr. Chain",
+            startTime: "08:00",
+          },
+        ],
+      }),
+    );
+
+    expect(result.current.baseAppointmentSeriesRootBlockedSlots).toEqual(
+      expect.arrayContaining([
+        {
+          column: practitionerColumn,
+          reason: "Kettentermin nicht planbar",
+          slot: timeToSlot("09:00"),
+        },
+      ]),
+    );
+  });
+
+  it("blocks practitioner-root Kettentermine without full scheduler availability", () => {
+    const selectedDate = Temporal.PlainDate.from("2026-04-25");
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practitionerId = toTableId<"practitioners">("practitioner_1");
+    const practitionerLineageKey = asPractitionerLineageKey(
+      toTableId<"practitioners">("practitioner_lineage_1"),
+    );
+    const rootAppointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("root_type_lineage_practitioner_rules"),
+    );
+    const followUpAppointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">(
+        "follow_up_type_lineage_practitioner_rules",
+      ),
+    );
+    const practitionerColumn = calendarColumnScopeFromPractitioner(
+      practitionerLineageKey,
+    );
+    const businessStartMinutes = 8 * 60;
+    const timeToSlot = (time: string) => {
+      const [hourText, minuteText] = time.split(":");
+      const hour = Number(hourText);
+      const minute = Number(minuteText);
+      return (hour * 60 + minute - businessStartMinutes) / SLOT_DURATION;
+    };
+
+    const { result } = renderHook(() =>
+      useCalendarBlockedSlotProjection({
+        appointmentsData: [],
+        appointmentTypeInfoByLineageKey: new Map([
+          [
+            followUpAppointmentTypeLineageKey,
+            {
+              appointmentPlan: { steps: [] },
+              defaultOccupancy: undefined,
+              duration: 10,
+            },
+          ],
+          [
+            rootAppointmentTypeLineageKey,
+            {
+              appointmentPlan: {
+                steps: [
+                  {
+                    appointmentTypeLineageKey:
+                      followUpAppointmentTypeLineageKey,
+                    occupancy: { kind: "inheritRootPractitioner" },
+                    required: true,
+                    stepId: "follow-up",
+                    timing: {
+                      kind: "afterPreviousEnd",
+                      offsetUnit: "minutes",
+                      offsetValue: 0,
+                    },
+                  },
+                ],
+              },
+              defaultOccupancy: undefined,
+              duration: 30,
+            },
+          ],
+        ]),
+        baseSchedulesData: undefined,
+        blockedSlotsData: [],
+        blockedSlotsWithoutAppointmentTypeSlots: undefined,
+        businessStartHour: 8,
+        columns: [{ id: practitionerColumn, title: "Dr. Chain" }],
+        excludedAppointmentIdsForAvailability: new Set(),
+        getPractitionerIdForLineageKey: (lineageKey) =>
+          lineageKey === practitionerLineageKey ? practitionerId : undefined,
+        locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
+        placementAppointmentTypeLineageKey: rootAppointmentTypeLineageKey,
+        practitionerLineageKeyById: new Map([
+          [practitionerId, practitionerLineageKey],
+        ]),
+        selectedDate,
+        selectedLocationId: locationId,
+        simulatedContext: undefined,
+        slots: [
+          {
+            practitionerLineageKey,
+            startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+            status: "AVAILABLE",
+          },
+          {
+            practitionerLineageKey,
+            reason: "Pause",
+            startTime: "2026-04-25T09:15:00+02:00[Europe/Berlin]",
+            status: "BLOCKED",
+          },
+        ],
+        timeToSlot,
+        totalSlots: 108,
+        vacationsData: undefined,
+        workingPractitioners: [
+          {
+            endTime: "17:00",
+            lineageKey: practitionerLineageKey,
+            name: "Dr. Chain",
+            startTime: "08:00",
+          },
+        ],
+      }),
+    );
+
+    expect(result.current.baseAppointmentSeriesRootBlockedSlots).toEqual(
+      expect.arrayContaining([
+        {
+          column: practitionerColumn,
+          reason: "Kettentermin nicht planbar",
+          slot: timeToSlot("09:00"),
+        },
+      ]),
+    );
+  });
+
+  it("blocks Kettentermine when a practitioner follow-up lacks full scheduler availability", () => {
+    const selectedDate = Temporal.PlainDate.from("2026-04-25");
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practitionerId = toTableId<"practitioners">("practitioner_1");
+    const practitionerLineageKey = asPractitionerLineageKey(
+      toTableId<"practitioners">("practitioner_lineage_1"),
+    );
+    const rootAppointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("root_type_lineage_follow_up_rules"),
+    );
+    const followUpAppointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("follow_up_type_lineage_follow_up_rules"),
+    );
+    const practitionerColumn = calendarColumnScopeFromPractitioner(
+      practitionerLineageKey,
+    );
+    const businessStartMinutes = 8 * 60;
+    const timeToSlot = (time: string) => {
+      const [hourText, minuteText] = time.split(":");
+      const hour = Number(hourText);
+      const minute = Number(minuteText);
+      return (hour * 60 + minute - businessStartMinutes) / SLOT_DURATION;
+    };
+
+    const { result } = renderHook(() =>
+      useCalendarBlockedSlotProjection({
+        appointmentsData: [],
+        appointmentTypeInfoByLineageKey: new Map([
+          [
+            followUpAppointmentTypeLineageKey,
+            {
+              appointmentPlan: { steps: [] },
+              defaultOccupancy: undefined,
+              duration: 30,
+            },
+          ],
+          [
+            rootAppointmentTypeLineageKey,
+            {
+              appointmentPlan: {
+                steps: [
+                  {
+                    appointmentTypeLineageKey:
+                      followUpAppointmentTypeLineageKey,
+                    occupancy: { kind: "inheritRootPractitioner" },
+                    required: true,
+                    stepId: "follow-up",
+                    timing: {
+                      kind: "afterPreviousEnd",
+                      offsetUnit: "minutes",
+                      offsetValue: 0,
+                    },
+                  },
+                ],
+              },
+              defaultOccupancy: undefined,
+              duration: 15,
+            },
+          ],
+        ]),
+        baseSchedulesData: undefined,
+        blockedSlotsData: [],
+        blockedSlotsWithoutAppointmentTypeSlots: undefined,
+        businessStartHour: 8,
+        columns: [{ id: practitionerColumn, title: "Dr. Chain" }],
+        excludedAppointmentIdsForAvailability: new Set(),
+        getPractitionerIdForLineageKey: (lineageKey) =>
+          lineageKey === practitionerLineageKey ? practitionerId : undefined,
+        locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
+        placementAppointmentTypeLineageKey: rootAppointmentTypeLineageKey,
+        practitionerLineageKeyById: new Map([
+          [practitionerId, practitionerLineageKey],
+        ]),
+        selectedDate,
+        selectedLocationId: locationId,
+        simulatedContext: undefined,
+        slots: [
+          ...["09:00", "09:05", "09:10", "09:15", "09:20", "09:25"].map(
+            (time) => ({
+              practitionerLineageKey,
+              startTime: `2026-04-25T${time}:00+02:00[Europe/Berlin]`,
+              status: "AVAILABLE",
+            }),
+          ),
+          {
+            practitionerLineageKey,
+            reason: "Pause",
+            startTime: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+            status: "BLOCKED",
           },
         ],
         timeToSlot,
@@ -468,18 +711,13 @@ describe("useCalendarBlockedSlotProjection", () => {
         selectedDate,
         selectedLocationId: locationId,
         simulatedContext: undefined,
-        slots: [
-          {
+        slots: ["09:00", "09:05", "09:10", "09:15", "09:20", "09:25"].map(
+          (time) => ({
             practitionerLineageKey,
-            startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+            startTime: `2026-04-25T${time}:00+02:00[Europe/Berlin]`,
             status: "AVAILABLE",
-          },
-          {
-            practitionerLineageKey,
-            startTime: "2026-04-25T09:15:00+02:00[Europe/Berlin]",
-            status: "AVAILABLE",
-          },
-        ],
+          }),
+        ),
         timeToSlot,
         totalSlots: 108,
         vacationsData: undefined,
@@ -541,11 +779,11 @@ describe("useCalendarBlockedSlotProjection", () => {
             ...buildCalendarAppointmentRecord({
               _id: excludedAppointmentId,
               appointmentTypeLineageKey: beAppointmentTypeLineageKey,
-              end: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+              end: "2026-04-25T09:45:00+02:00[Europe/Berlin]",
               locationLineageKey,
               practiceId,
               practitionerLineageKey,
-              start: "2026-04-25T08:55:00+02:00[Europe/Berlin]",
+              start: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
               title: "BE",
             }),
             seriesId: "series_1",
@@ -558,7 +796,7 @@ describe("useCalendarBlockedSlotProjection", () => {
             {
               appointmentPlan: { steps: [] },
               defaultOccupancy: undefined,
-              duration: 5,
+              duration: 15,
             },
           ],
           [
@@ -571,7 +809,11 @@ describe("useCalendarBlockedSlotProjection", () => {
                     occupancy: { kind: "inheritRootPractitioner" },
                     required: true,
                     stepId: "be-before",
-                    timing: { kind: "beforeRootStart", offsetMinutes: 0 },
+                    timing: {
+                      kind: "afterPreviousEnd",
+                      offsetUnit: "minutes",
+                      offsetValue: 0,
+                    },
                   },
                 ],
               },
@@ -597,12 +839,20 @@ describe("useCalendarBlockedSlotProjection", () => {
         selectedLocationId: locationId,
         simulatedContext: undefined,
         slots: [
-          {
-            practitionerLineageKey,
-            startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
-            status: "AVAILABLE",
-          },
-        ],
+          "09:00",
+          "09:05",
+          "09:10",
+          "09:15",
+          "09:20",
+          "09:25",
+          "09:30",
+          "09:35",
+          "09:40",
+        ].map((time) => ({
+          practitionerLineageKey,
+          startTime: `2026-04-25T${time}:00+02:00[Europe/Berlin]`,
+          status: "AVAILABLE",
+        })),
         timeToSlot,
         totalSlots: 108,
         vacationsData: undefined,
