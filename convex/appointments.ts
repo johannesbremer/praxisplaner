@@ -2781,6 +2781,31 @@ export const getAppointmentSeriesRestoreSnapshotByRootId = query({
   returns: v.union(v.null(), appointmentSeriesRestoreSnapshotValidator),
 });
 
+export const getAppointmentSeriesRestoreSnapshotByAppointmentId = query({
+  args: {
+    appointmentId: v.id("appointments"),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const appointment = await ctx.db.get("appointments", args.appointmentId);
+    if (!appointment?.seriesId) {
+      return null;
+    }
+    await ensurePracticeAccessForQuery(ctx, appointment.practiceId);
+
+    const series = await getAppointmentSeriesRecord(
+      ctx.db,
+      appointment.seriesId,
+    );
+    if (!series) {
+      return null;
+    }
+    const appointments = await getSeriesAppointments(ctx.db, series.seriesId);
+    return toAppointmentSeriesRestoreSnapshot({ appointments, series });
+  },
+  returns: v.union(v.null(), appointmentSeriesRestoreSnapshotValidator),
+});
+
 export const restoreAppointmentSeriesSnapshot = mutation({
   args: {
     snapshot: appointmentSeriesRestoreSnapshotValidator,
@@ -3552,28 +3577,76 @@ async function updateAppointmentByMode(
               }
             : {}),
         };
+  const resolvedAppointmentTypeRecord =
+    filteredUpdateData.appointmentTypeId === undefined
+      ? editingRuleSetId === undefined
+        ? undefined
+        : await (async () => {
+            const appointmentTypeIdForWrite =
+              await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
+                lineageKey: asAppointmentTypeLineageKey(
+                  existingAppointment.appointmentTypeLineageKey,
+                ),
+                ruleSetId: editingRuleSetId,
+              });
+            return requireEntityUsableForNewAppointment({
+              entity: await ctx.db.get(
+                "appointmentTypes",
+                appointmentTypeIdForWrite,
+              ),
+              entityId: appointmentTypeIdForWrite,
+              entityLabel: "Terminart",
+            });
+          })()
+      : requireEntityUsableForNewAppointment({
+          entity: appointmentTypeRecord,
+          entityId: filteredUpdateData.appointmentTypeId,
+          entityLabel: "Terminart",
+        });
+  const explicitCalendarResourceColumn =
+    filteredUpdateData.calendarResourceColumn === undefined
+      ? undefined
+      : (filteredUpdateData.calendarResourceColumn ?? undefined);
+  const fallbackCalendarResourceColumn =
+    filteredUpdateData.calendarResourceColumn === undefined &&
+    filteredUpdateData.practitionerId === undefined
+      ? getAppointmentCalendarResourceColumn(existingAppointment.occupancyScope)
+      : undefined;
   const resolvedAppointmentTypeLineageKey =
     resolvedStoredReferences.appointmentTypeLineageKey;
   const resolvedLocationLineageKey =
     resolvedStoredReferences.locationLineageKey;
-  const resolvedPractitionerLineageKey =
-    resolvedStoredReferences.practitionerLineageKey;
-  const resolvedCalendarResourceColumn =
-    filteredUpdateData.calendarResourceColumn === undefined
-      ? filteredUpdateData.practitionerId === undefined
-        ? getAppointmentCalendarResourceColumn(
-            existingAppointment.occupancyScope,
-          )
-        : undefined
-      : (filteredUpdateData.calendarResourceColumn ?? undefined);
-  const resolvedOccupancyScope = appointmentOccupancyScopeFromRefs({
-    ...(resolvedCalendarResourceColumn === undefined
-      ? {}
-      : { calendarResourceColumn: resolvedCalendarResourceColumn }),
-    ...(resolvedPractitionerLineageKey === undefined
-      ? {}
-      : { practitionerLineageKey: resolvedPractitionerLineageKey }),
-  });
+  const resolvedOccupancyScope =
+    resolvedAppointmentTypeRecord === undefined
+      ? appointmentOccupancyScopeFromRefs({
+          ...((explicitCalendarResourceColumn ??
+            fallbackCalendarResourceColumn) === undefined
+            ? {}
+            : {
+                calendarResourceColumn:
+                  explicitCalendarResourceColumn ??
+                  fallbackCalendarResourceColumn,
+              }),
+          ...(resolvedStoredReferences.practitionerLineageKey === undefined
+            ? {}
+            : {
+                practitionerLineageKey:
+                  resolvedStoredReferences.practitionerLineageKey,
+              }),
+        })
+      : resolveSingleAppointmentOccupancy({
+          appointmentType: resolvedAppointmentTypeRecord,
+          ...(explicitCalendarResourceColumn === undefined
+            ? {}
+            : { calendarResourceColumn: explicitCalendarResourceColumn }),
+          storedReferences: resolvedStoredReferences,
+        });
+  const resolvedPractitionerLineageKey = getAppointmentPractitionerLineageKey(
+    resolvedOccupancyScope,
+  );
+  const resolvedCalendarResourceColumn = getAppointmentCalendarResourceColumn(
+    resolvedOccupancyScope,
+  );
   const resolvedStart = filteredUpdateData.start ?? existingAppointment.start;
   const resolvedEnd = filteredUpdateData.end ?? existingAppointment.end;
   const resolvedIsSimulation = existingAppointment.isSimulation;
@@ -3682,7 +3755,9 @@ async function updateAppointmentByMode(
       resolvedPractitionerLineageKey !== undefined
         ? (filteredUpdateData.practitionerId ??
           (await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
-            lineageKey: resolvedPractitionerLineageKey,
+            lineageKey: asPractitionerLineageKey(
+              resolvedPractitionerLineageKey,
+            ),
             ruleSetId: plannerRuleSetId,
           })))
         : undefined;
@@ -3702,29 +3777,6 @@ async function updateAppointmentByMode(
       ctx,
       existingAppointment.practiceId,
     );
-    const appointmentBookingScope =
-      getAppointmentBookingScope(resolvedIsSimulation);
-    const conflictingOccupancy = await findConflictingCalendarOccupancy(
-      ctx.db,
-      {
-        candidate: {
-          end: resolvedEnd,
-          locationLineageKey: resolvedLocationLineageKey,
-          occupancyScope: resolvedOccupancyScope,
-          start: resolvedStart,
-        },
-        practiceId: existingAppointment.practiceId,
-        ...(resolvedIsSimulation === true && resolvedSimulationRuleSetId
-          ? { draftRuleSetId: resolvedSimulationRuleSetId }
-          : {}),
-        excludeAppointmentIds: [existingAppointment._id],
-        occupancyView: getOccupancyViewForBookingScope(appointmentBookingScope),
-      },
-    );
-
-    if (conflictingOccupancy) {
-      throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
-    }
   }
 
   if (existingAppointment.seriesId !== undefined) {
@@ -4006,6 +4058,32 @@ async function updateAppointmentByMode(
 
   const persistedUpdateData =
     persistedAppointmentUpdateData(filteredUpdateData);
+
+  if (hasSchedulingChange) {
+    const appointmentBookingScope =
+      getAppointmentBookingScope(resolvedIsSimulation);
+    const conflictingOccupancy = await findConflictingCalendarOccupancy(
+      ctx.db,
+      {
+        candidate: {
+          end: resolvedEnd,
+          locationLineageKey: resolvedLocationLineageKey,
+          occupancyScope: resolvedOccupancyScope,
+          start: resolvedStart,
+        },
+        practiceId: existingAppointment.practiceId,
+        ...(resolvedIsSimulation === true && resolvedSimulationRuleSetId
+          ? { draftRuleSetId: resolvedSimulationRuleSetId }
+          : {}),
+        excludeAppointmentIds: [existingAppointment._id],
+        occupancyView: getOccupancyViewForBookingScope(appointmentBookingScope),
+      },
+    );
+
+    if (conflictingOccupancy) {
+      throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
+    }
+  }
 
   await ctx.db.patch("appointments", id, {
     ...persistedUpdateData,
