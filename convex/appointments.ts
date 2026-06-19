@@ -2110,6 +2110,171 @@ export const previewAppointmentSeries = query({
   returns: appointmentSeriesPreviewResultValidator,
 });
 
+const appointmentSeriesResourceRootSlotValidator = v.object({
+  calendarResourceColumn: calendarResourceColumnValidator,
+  duration: v.number(),
+  locationLineageKey: v.id("locations"),
+  startTime: v.string(),
+  status: v.literal("AVAILABLE"),
+});
+
+type AppointmentSeriesResourceRootSlot = Infer<
+  typeof appointmentSeriesResourceRootSlotValidator
+>;
+
+export const getNextAvailableResourceSeriesRootSlot = query({
+  args: {
+    date: v.string(),
+    isNewPatient: v.optional(v.boolean()),
+    locationId: v.id("locations"),
+    patientDateOfBirth: v.optional(v.string()),
+    patientId: v.optional(v.id("patients")),
+    practiceId: v.id("practices"),
+    rootAppointmentTypeId: v.id("appointmentTypes"),
+    ruleSetId: v.id("ruleSets"),
+    scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
+    userId: v.optional(v.id("users")),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<AppointmentSeriesResourceRootSlot | null> => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await validateAppointmentSeriesOwnerRefs(ctx, {
+      practiceId: args.practiceId,
+      ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+      ...(args.userId === undefined ? {} : { userId: args.userId }),
+    });
+
+    const rootAppointmentType = await ctx.db.get(
+      "appointmentTypes",
+      args.rootAppointmentTypeId,
+    );
+    if (
+      rootAppointmentType?.practiceId !== args.practiceId ||
+      rootAppointmentType.ruleSetId !== args.ruleSetId ||
+      !hasAppointmentPlan(rootAppointmentType)
+    ) {
+      return null;
+    }
+
+    const rootDefaultOccupancy = normalizeDefaultOccupancy(
+      rootAppointmentType.defaultOccupancy,
+    );
+    if (rootDefaultOccupancy.kind !== "resourceColumn") {
+      return null;
+    }
+
+    const locationLineageKey = await resolveLocationLineageKey(
+      ctx.db,
+      asLocationId(args.locationId),
+    );
+    const schedules = await ctx.db
+      .query("baseSchedules")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect();
+    const rangesByDayOfWeek = new Map<number, { end: string; start: string }>();
+    for (const schedule of schedules) {
+      if (
+        schedule.practiceId !== args.practiceId ||
+        schedule.locationLineageKey !== locationLineageKey
+      ) {
+        continue;
+      }
+      const existing = rangesByDayOfWeek.get(schedule.dayOfWeek);
+      rangesByDayOfWeek.set(schedule.dayOfWeek, {
+        end:
+          existing === undefined || schedule.endTime > existing.end
+            ? schedule.endTime
+            : existing.end,
+        start:
+          existing === undefined || schedule.startTime < existing.start
+            ? schedule.startTime
+            : existing.start,
+      });
+    }
+    if (rangesByDayOfWeek.size === 0) {
+      return null;
+    }
+
+    const patientDateOfBirth =
+      args.patientDateOfBirth === undefined
+        ? args.patientId === undefined
+          ? undefined
+          : await resolvePreferredAppointmentPatientDateOfBirth(ctx.db, {
+              patientId: args.patientId,
+            })
+        : asOptionalIsoDateString(args.patientDateOfBirth);
+    const startDate = Temporal.PlainDate.from(asIsoDateString(args.date));
+    const now = Temporal.Now.zonedDateTimeISO(APPOINTMENT_TIMEZONE);
+    const maxSearchDays = 90;
+    const slotDurationMinutes = 5;
+
+    for (let offset = 0; offset <= maxSearchDays; offset += 1) {
+      const day = startDate.add({ days: offset });
+      const dayOfWeek = day.dayOfWeek === 7 ? 0 : day.dayOfWeek;
+      const range = rangesByDayOfWeek.get(dayOfWeek);
+      if (range === undefined) {
+        continue;
+      }
+
+      const [startHourText, startMinuteText] = range.start.split(":");
+      const [endHourText, endMinuteText] = range.end.split(":");
+      const rangeStartMinutes =
+        Number(startHourText) * 60 + Number(startMinuteText);
+      const rangeEndMinutes = Number(endHourText) * 60 + Number(endMinuteText);
+      for (
+        let minuteOfDay = rangeStartMinutes;
+        minuteOfDay + rootAppointmentType.duration <= rangeEndMinutes;
+        minuteOfDay += slotDurationMinutes
+      ) {
+        const start = day.toZonedDateTime({
+          plainTime: {
+            hour: Math.floor(minuteOfDay / 60),
+            minute: minuteOfDay % 60,
+          },
+          timeZone: APPOINTMENT_TIMEZONE,
+        });
+        if (Temporal.ZonedDateTime.compare(start, now) <= 0) {
+          continue;
+        }
+
+        const preview = await previewAppointmentSeriesHelper(ctx, {
+          ...(args.isNewPatient === undefined
+            ? {}
+            : { isNewPatient: args.isNewPatient }),
+          calendarResourceColumn: rootDefaultOccupancy.calendarResourceColumn,
+          locationId: args.locationId,
+          ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+          ...(args.patientId === undefined
+            ? {}
+            : { patientId: args.patientId }),
+          practiceId: args.practiceId,
+          rootAppointmentTypeId: args.rootAppointmentTypeId,
+          ruleSetId: args.ruleSetId,
+          ...(args.scope === undefined ? {} : { scope: args.scope }),
+          start: asZonedDateTimeString(start.toString()),
+          ...(args.userId === undefined ? {} : { userId: args.userId }),
+        });
+
+        if (preview.status === "ready") {
+          return {
+            calendarResourceColumn: rootDefaultOccupancy.calendarResourceColumn,
+            duration: rootAppointmentType.duration,
+            locationLineageKey,
+            startTime: asZonedDateTimeString(start.toString()),
+            status: "AVAILABLE",
+          };
+        }
+      }
+    }
+
+    return null;
+  },
+  returns: v.union(v.null(), appointmentSeriesResourceRootSlotValidator),
+});
+
 const appointmentSeriesBlockedRootSlotValidator = v.object({
   duration: v.number(),
   locationLineageKey: v.id("locations"),
