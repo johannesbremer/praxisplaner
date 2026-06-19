@@ -1519,7 +1519,7 @@ describe("appointment series", () => {
     ).rejects.toThrow("Terminart wurde gelöscht");
   });
 
-  test("previewAppointmentSeries can fall back exact practitioner steps to the next available slot", async () => {
+  test("previewAppointmentSeries blocks exact practitioner steps instead of moving them", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -1607,34 +1607,15 @@ describe("appointment series", () => {
       });
     });
 
-    const strictPreview = await t.query(
-      api.appointments.previewAppointmentSeries,
-      {
-        locationId,
-        practiceId,
-        practitionerId,
-        rootAppointmentTypeId,
-        ruleSetId,
-        start: rootStart,
-      },
-    );
-    expect(strictPreview.status).toBe("blocked");
-
-    const fallbackPreview = await t.query(
-      api.appointments.previewAppointmentSeries,
-      {
-        allowExactStepFallback: true,
-        locationId,
-        practiceId,
-        practitionerId,
-        rootAppointmentTypeId,
-        ruleSetId,
-        start: rootStart,
-      },
-    );
-
-    expect(fallbackPreview.status).toBe("ready");
-    expect(fallbackPreview.steps[1]?.start).toBe(blockedStepEnd);
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      ruleSetId,
+      start: rootStart,
+    });
+    expect(preview.status).toBe("blocked");
   });
 
   test("previewAppointmentSeries blocks immediately when an inherited practitioner is not allowed for the plan-step type", async () => {

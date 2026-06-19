@@ -192,7 +192,6 @@ interface TemporaryAppointmentOwner {
 }
 
 interface TrustedAppointmentInput {
-  allowExactAppointmentPlanStepFallback?: boolean;
   allowHistoricalSmiley?: boolean;
   allowRestoredEnd?: boolean;
   allowUnrelatedUserId?: boolean;
@@ -377,7 +376,6 @@ function appointmentChainError(code: string, message: string) {
 }
 
 function asTrustedAppointmentInput(args: {
-  allowExactAppointmentPlanStepFallback?: boolean;
   allowHistoricalSmiley?: boolean;
   allowRestoredEnd?: boolean;
   allowUnrelatedUserId?: boolean;
@@ -2508,7 +2506,6 @@ export const createAppointmentSeries = mutation({
 export async function createAppointmentFromTrustedSource(
   ctx: MutationCtx,
   rawArgs: {
-    allowExactAppointmentPlanStepFallback?: boolean;
     allowHistoricalSmiley?: boolean;
     allowRestoredEnd?: boolean;
     allowUnrelatedUserId?: boolean;
@@ -2538,7 +2535,6 @@ export async function createAppointmentFromTrustedSource(
   const args = asTrustedAppointmentInput(rawArgs);
   const now = BigInt(Date.now());
   const {
-    allowExactAppointmentPlanStepFallback,
     allowHistoricalSmiley,
     allowRestoredEnd,
     allowUnrelatedUserId,
@@ -2581,10 +2577,6 @@ export async function createAppointmentFromTrustedSource(
     owner,
     scope: await requireTrustedPracticeScope(ctx, practiceId),
   });
-  if (allowExactAppointmentPlanStepFallback === true) {
-    await ensurePracticeAccessForMutation(ctx, practiceId, "admin");
-  }
-
   if (simulationKind && isSimulation !== true) {
     throw new Error(
       "simulationKind can only be used with simulated appointments.",
@@ -2667,11 +2659,6 @@ export async function createAppointmentFromTrustedSource(
     }
 
     const result = await createAppointmentSeriesHelper(ctx, {
-      ...(allowExactAppointmentPlanStepFallback === undefined
-        ? {}
-        : {
-            allowExactStepFallback: allowExactAppointmentPlanStepFallback,
-          }),
       ...(ownerRefs.bookingIdentityId !== undefined && {
         bookingIdentityId: ownerRefs.bookingIdentityId,
       }),
@@ -2921,7 +2908,6 @@ async function validateAppointmentSeriesOwnerRefs(
 // Mutation to create a new appointment
 export const createAppointment = mutation({
   args: {
-    allowExactAppointmentPlanStepFallback: v.optional(v.boolean()),
     appointmentTypeId: v.id("appointmentTypes"),
     bookingIdentityId: v.optional(v.id("bookingIdentities")),
     calendarResourceColumn: v.optional(calendarResourceColumnValidator),

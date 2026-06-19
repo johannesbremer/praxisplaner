@@ -1600,9 +1600,7 @@ export function useCalendarLogic({
         column,
         isManualBlock,
         onConfirm: () => {
-          createAppointmentInSlot(column, slot, {
-            allowExactAppointmentPlanStepFallback: true,
-          });
+          createAppointmentInSlot(column, slot);
         },
         reason:
           blockedSlotData.reason ||
@@ -1617,11 +1615,7 @@ export function useCalendarLogic({
     createAppointmentInSlot(column, slot);
   };
 
-  const createAppointmentInSlot = (
-    column: CalendarColumnId,
-    slot: number,
-    options: { allowExactAppointmentPlanStepFallback?: boolean } = {},
-  ) => {
+  const createAppointmentInSlot = (column: CalendarColumnId, slot: number) => {
     const mode = simulatedContext ? "simulation" : "real";
     const appointmentTypeId =
       simulatedContext?.appointmentTypeLineageKey === undefined
@@ -1751,12 +1745,7 @@ export function useCalendarLogic({
     }
 
     void planningCommands
-      .createAppointment({
-        ...requestResult.request,
-        ...(options.allowExactAppointmentPlanStepFallback === true
-          ? { allowExactAppointmentPlanStepFallback: true }
-          : {}),
-      })
+      .createAppointment(requestResult.request)
       .then((createdAppointmentId) => {
         if (createdAppointmentId) {
           onAppointmentCreated?.(createdAppointmentId);
