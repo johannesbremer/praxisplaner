@@ -4125,8 +4125,10 @@ async function updateAppointmentByMode(
       const requestedCalendarResourceColumn =
         filteredUpdateData.calendarResourceColumn ?? undefined;
       const changesCalendarResourceColumn =
-        existingCalendarResourceColumn === undefined ||
-        requestedCalendarResourceColumn === undefined ||
+        (existingCalendarResourceColumn === undefined &&
+          requestedCalendarResourceColumn !== undefined) ||
+        (existingCalendarResourceColumn !== undefined &&
+          requestedCalendarResourceColumn === undefined) ||
         requestedCalendarResourceColumn !== existingCalendarResourceColumn;
       if (changesCalendarResourceColumn) {
         throw appointmentChainError(
@@ -4165,6 +4167,25 @@ async function updateAppointmentByMode(
     const seriesAppointmentIds = seriesAppointments.map(
       (appointment) => appointment._id,
     );
+    const seriesRootCalendarResourceColumn =
+      filteredUpdateData.calendarResourceColumn === undefined
+        ? getAppointmentCalendarResourceColumn(
+            existingAppointment.occupancyScope,
+          )
+        : (filteredUpdateData.calendarResourceColumn ?? undefined);
+    const seriesRootPractitionerLineageKey =
+      seriesRootCalendarResourceColumn === undefined
+        ? (resolvedStoredReferences.practitionerLineageKey ??
+          existingPractitionerLineageKey)
+        : undefined;
+    const seriesRootOccupancyScope =
+      seriesRootCalendarResourceColumn === undefined
+        ? appointmentOccupancyScopeFromRefs({
+            practitionerLineageKey: seriesRootPractitionerLineageKey,
+          })
+        : appointmentOccupancyScopeFromRefs({
+            calendarResourceColumn: seriesRootCalendarResourceColumn,
+          });
     const resolvedPatientId =
       filteredUpdateData.patientId ?? existingAppointment.patientId;
     const provisionalDateOfBirth = asOptionalIsoDateString(
@@ -4194,26 +4215,37 @@ async function updateAppointmentByMode(
       );
     }
     const practitionerId =
-      filteredUpdateData.practitionerId ??
-      (existingPractitionerLineageKey
-        ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
-            lineageKey: asPractitionerLineageKey(
-              existingPractitionerLineageKey,
-            ),
-            ruleSetId: seriesRecord.ruleSetIdAtBooking,
-          })
-        : undefined);
+      seriesRootCalendarResourceColumn === undefined
+        ? (filteredUpdateData.practitionerId ??
+          (seriesRootPractitionerLineageKey
+            ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+                lineageKey: asPractitionerLineageKey(
+                  seriesRootPractitionerLineageKey,
+                ),
+                ruleSetId: seriesRecord.ruleSetIdAtBooking,
+              })
+            : undefined))
+        : undefined;
+    if (
+      seriesRootCalendarResourceColumn === undefined &&
+      practitionerId === undefined
+    ) {
+      throw appointmentChainError(
+        "CHAIN_REPLAN_FAILED",
+        "Der Starttermin hat keine Behandler-Belegung.",
+      );
+    }
     const rootOccupancy: SeriesRootOccupancy = {
-      ...(resolvedCalendarResourceColumn !== undefined && {
-        calendarResourceColumn: resolvedCalendarResourceColumn,
+      ...(seriesRootCalendarResourceColumn !== undefined && {
+        calendarResourceColumn: seriesRootCalendarResourceColumn,
       }),
-      occupancyScope: resolvedOccupancyScope,
+      occupancyScope: seriesRootOccupancyScope,
       ...(practitionerId !== undefined && { practitionerId }),
     };
 
     const plannedSteps = await replanAppointmentSeries(ctx, {
-      ...(resolvedCalendarResourceColumn !== undefined && {
-        calendarResourceColumn: resolvedCalendarResourceColumn,
+      ...(seriesRootCalendarResourceColumn !== undefined && {
+        calendarResourceColumn: seriesRootCalendarResourceColumn,
       }),
       excludedAppointmentIds: seriesAppointmentIds,
       locationId:

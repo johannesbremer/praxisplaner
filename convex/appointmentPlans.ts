@@ -88,6 +88,13 @@ export type AppointmentPlanTiming = Infer<
 export type AppointmentTypeDefaultOccupancy = Infer<
   typeof appointmentTypeDefaultOccupancyValidator
 >;
+interface BeforeRootPlanRange {
+  endOffsetMinutes: number;
+  occupancy: AppointmentPlanOccupancy;
+  startOffsetMinutes: number;
+  stepId: string;
+}
+
 type RawAppointmentPlan = Infer<typeof appointmentPlanValidator>;
 
 type RawAppointmentPlanStep = Infer<typeof appointmentPlanStepValidator>;
@@ -169,6 +176,7 @@ export async function validateAppointmentPlan(
 
   const seenStepIds = new Set<string>();
   const previousStepOccupancies = new Map<string, AppointmentPlanOccupancy>();
+  const previousBeforeRootRanges: BeforeRootPlanRange[] = [];
   for (const step of normalizedPlan.steps) {
     validateStepId(step, seenStepIds);
     validateRequiredStep(step);
@@ -185,12 +193,20 @@ export async function validateAppointmentPlan(
       );
     }
 
-    await requireAppointmentTypeByLineageKey(
+    const targetAppointmentType = await requireAppointmentTypeByLineageKey(
       db,
       ruleSetId,
       step.appointmentTypeLineageKey,
     );
+    validateBeforeRootOccupancyOverlap(
+      step,
+      targetAppointmentType.duration,
+      previousBeforeRootRanges,
+    );
     previousStepOccupancies.set(step.stepId, step.occupancy);
+    addBeforeRootRange(step, targetAppointmentType.duration, {
+      previousBeforeRootRanges,
+    });
   }
 
   return normalizedPlan;
@@ -202,8 +218,46 @@ export function validateDefaultOccupancy(
   return normalizeDefaultOccupancy(defaultOccupancy);
 }
 
+function addBeforeRootRange(
+  step: AppointmentPlanStep,
+  durationMinutes: number,
+  args: { previousBeforeRootRanges: BeforeRootPlanRange[] },
+) {
+  const range = buildBeforeRootRange(step, durationMinutes);
+  if (range) {
+    args.previousBeforeRootRanges.push(range);
+  }
+}
+
 function appointmentPlanError(code: string, message: string) {
   return new ConvexError({ code, message });
+}
+
+function beforeRootRangesOverlap(
+  left: BeforeRootPlanRange,
+  right: BeforeRootPlanRange,
+) {
+  return (
+    left.startOffsetMinutes < right.endOffsetMinutes &&
+    right.startOffsetMinutes < left.endOffsetMinutes
+  );
+}
+
+function buildBeforeRootRange(
+  step: AppointmentPlanStep,
+  durationMinutes: number,
+): BeforeRootPlanRange | null {
+  if (step.timing.kind !== "beforeRootStart") {
+    return null;
+  }
+
+  const endOffsetMinutes = -step.timing.offsetMinutes;
+  return {
+    endOffsetMinutes,
+    occupancy: step.occupancy,
+    startOffsetMinutes: endOffsetMinutes - durationMinutes,
+    stepId: step.stepId,
+  };
 }
 
 function buildMissingAppointmentTypeError(
@@ -250,6 +304,31 @@ function validateAnchorStepId(
   throw appointmentPlanError(
     "APPOINTMENT_PLAN:INVALID_ANCHOR",
     `Schritt "${stepId}" verweist auf einen unbekannten oder späteren Anker "${anchorStepId}".`,
+  );
+}
+
+function validateBeforeRootOccupancyOverlap(
+  step: AppointmentPlanStep,
+  durationMinutes: number,
+  previousBeforeRootRanges: readonly BeforeRootPlanRange[],
+) {
+  const range = buildBeforeRootRange(step, durationMinutes);
+  if (!range) {
+    return;
+  }
+
+  const overlappingRange = previousBeforeRootRanges.find(
+    (previousRange) =>
+      planOccupanciesMatch(range.occupancy, previousRange.occupancy) &&
+      beforeRootRangesOverlap(range, previousRange),
+  );
+  if (!overlappingRange) {
+    return;
+  }
+
+  throw appointmentPlanError(
+    "APPOINTMENT_PLAN:BEFORE_ROOT_OCCUPANCY_OVERLAP",
+    `Schritt "${step.stepId}" darf vor dem Starttermin nicht dieselbe Belegung wie Schritt "${overlappingRange.stepId}" überlappend verwenden.`,
   );
 }
 
