@@ -11,6 +11,7 @@ import type { AppointmentTypeLineageKey } from "./identity";
 
 import { calendarResourceColumnValidator } from "./appointmentOccupancy";
 import { asAppointmentTypeLineageKey } from "./identity";
+import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 
 type DatabaseReader = GenericDatabaseReader<DataModel>;
 type DatabaseWriter = GenericDatabaseWriter<DataModel>;
@@ -147,7 +148,7 @@ export async function requireAppointmentTypeByLineageKey(
     lineageKey,
   );
 
-  if (!appointmentType) {
+  if (!appointmentType || isRuleSetEntityDeleted(appointmentType)) {
     throw buildMissingAppointmentTypeError(lineageKey, ruleSetId);
   }
 
