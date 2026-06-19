@@ -1049,6 +1049,29 @@ async function getSearchDatesOnOrAfter(
   return searchDates;
 }
 
+function hasConsecutiveAvailablePractitionerSlots(
+  slots: InternalSchedulingResultSlot[],
+  args: { durationMinutes: number; start: ZonedDateTimeString },
+): boolean {
+  const slotsByStartTime = new Map(slots.map((slot) => [slot.startTime, slot]));
+  const requestedStart = Temporal.ZonedDateTime.from(args.start);
+  const requestedEnd = requestedStart.add({
+    minutes: args.durationMinutes,
+  });
+  let cursor = requestedStart;
+
+  while (Temporal.ZonedDateTime.compare(cursor, requestedEnd) < 0) {
+    const slot = slotsByStartTime.get(asZonedDateTimeString(cursor.toString()));
+    if (!slot || slot.duration <= 0) {
+      return false;
+    }
+
+    cursor = cursor.add({ minutes: slot.duration });
+  }
+
+  return true;
+}
+
 async function hasExactPractitionerSlot(
   ctx: SeriesPlannerCtx,
   args: {
@@ -1093,7 +1116,10 @@ async function hasExactPractitionerSlot(
     }),
   });
 
-  return slots.some((slot) => slot.startTime === args.start);
+  return hasConsecutiveAvailablePractitionerSlots(slots, {
+    durationMinutes: args.targetAppointmentType.duration,
+    start: args.start,
+  });
 }
 
 function hasPlannedStepConflict(

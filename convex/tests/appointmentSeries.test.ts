@@ -872,6 +872,91 @@ describe("appointment series", () => {
     expect(appointments).toHaveLength(0);
   });
 
+  test("previewAppointmentSeries rejects exact practitioner steps that do not have full-duration availability", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Lange Diagnostik",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        lineageKey: targetAppointmentTypeId,
+      });
+
+      const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Root",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootAppointmentTypeId, {
+        lineageKey: rootAppointmentTypeId,
+      });
+
+      const baseSchedules = await ctx.db.query("baseSchedules").collect();
+      const mondaySchedule = baseSchedules.find(
+        (schedule) =>
+          schedule.practiceId === practiceId &&
+          schedule.ruleSetId === ruleSetId &&
+          schedule.locationLineageKey === locationId &&
+          schedule.practitionerLineageKey === practitionerId &&
+          schedule.dayOfWeek === 1,
+      );
+      assertDefined(mondaySchedule, "Monday schedule should exist");
+      await ctx.db.patch("baseSchedules", mondaySchedule._id, {
+        breakTimes: [{ end: "09:30", start: "09:15" }],
+      });
+
+      return rootAppointmentTypeId;
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 8, minute: 30 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      ruleSetId,
+      start: rootStart,
+    });
+
+    expect(preview.status).toBe("blocked");
+    expect(preview.blockedStepId).toBe("step-1");
+  });
+
   test("previewAppointmentSeries blocks immediately when an inherited practitioner is not allowed for the plan-step type", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
