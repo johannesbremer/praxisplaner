@@ -217,6 +217,14 @@ export async function createAppointmentSeries(
     userId?: Id<"users">;
   },
 ) {
+  const scope = args.scope ?? "real";
+  if (args.rootReplacesAppointmentId && scope !== "simulation") {
+    throw appointmentSeriesError(
+      "CHAIN_REPLAN_FAILED",
+      "Only simulated appointment series can replace existing appointments.",
+    );
+  }
+
   const rootAppointmentType = await loadRootAppointmentType(ctx, {
     practiceId: args.practiceId,
     rootAppointmentTypeId: args.rootAppointmentTypeId,
@@ -249,7 +257,6 @@ export async function createAppointmentSeries(
   const createdSteps: (PlannedSeriesStep & {
     appointmentId: Id<"appointments">;
   })[] = [];
-  const scope = args.scope ?? "real";
   const simulationRuleSetId = resolveSeriesSimulationRuleSetId({
     ruleSetId: args.ruleSetId,
     scope,
