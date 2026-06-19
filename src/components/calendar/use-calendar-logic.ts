@@ -177,7 +177,6 @@ export function useCalendarLogic({
     appointmentTypeInfoByLineageKey,
     appointmentTypeLineageKeyById,
     baseSchedulesData,
-    blockedAppointmentSeriesRootSlots,
     blockedSlotDocMapRef,
     blockedSlotsData,
     blockedSlotsWithoutAppointmentTypeResult,
@@ -450,6 +449,7 @@ export function useCalendarLogic({
   );
 
   const {
+    baseAppointmentSeriesRootBlockedSlots,
     baseAppointmentTypeUnavailableBlockedSlots,
     baseBlockedSlots,
     baseBreakSlots,
@@ -459,8 +459,8 @@ export function useCalendarLogic({
     baseVacationBlockedSlots,
   } = useCalendarBlockedSlotProjection({
     appointmentsData,
+    appointmentTypeInfoByLineageKey,
     baseSchedulesData,
-    blockedAppointmentSeriesRootSlots,
     blockedSlotsData,
     blockedSlotsWithoutAppointmentTypeSlots:
       blockedSlotsWithoutAppointmentTypeResult?.slots,
@@ -468,6 +468,7 @@ export function useCalendarLogic({
     columns,
     getPractitionerIdForLineageKey,
     locationLineageKeyById,
+    placementAppointmentTypeLineageKey,
     practitionerLineageKeyById,
     selectedDate,
     selectedLocationId,
@@ -658,6 +659,7 @@ export function useCalendarLogic({
     const combined = [
       ...baseBlockedSlots,
       ...baseBreakSlots,
+      ...baseAppointmentSeriesRootBlockedSlots,
       ...baseAppointmentTypeUnavailableBlockedSlots,
       ...baseDragDisabledPractitionerBlockedSlots,
       ...manualBlockedSlots,
@@ -681,6 +683,7 @@ export function useCalendarLogic({
     return [...uniqueSlots.values()];
   }, [
     baseAppointmentTypeUnavailableBlockedSlots,
+    baseAppointmentSeriesRootBlockedSlots,
     baseBlockedSlots,
     baseBreakSlots,
     baseDragDisabledPractitionerBlockedSlots,
