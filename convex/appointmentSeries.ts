@@ -393,6 +393,63 @@ export async function createAppointmentSeries(
   };
 }
 
+export function createSeriesPlanningState(): SeriesPlanningState {
+  return {
+    baseSchedulesByRuleSet: new Map(),
+    eligibleWeekdays: new Map(),
+    slotCache: new Map(),
+  };
+}
+
+export async function hasResourceRootSchedulerAvailability(
+  ctx: SeriesPlannerCtx,
+  args: {
+    appointmentType: Doc<"appointmentTypes">;
+    excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
+    locationId: Id<"locations">;
+    patientDateOfBirth?: IsoDateString;
+    planningState: SeriesPlanningState;
+    practiceId: Id<"practices">;
+    requestedAt: InstantString;
+    rootDurationMinutes: number;
+    ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
+    start: ZonedDateTimeString;
+  },
+): Promise<boolean> {
+  const rootSlots = await queryAvailableSlotsForDay(ctx, {
+    appointmentType: args.appointmentType,
+    date: asIsoDateString(
+      Temporal.ZonedDateTime.from(args.start).toPlainDate().toString(),
+    ),
+    ...(args.excludedAppointmentIds && {
+      excludedAppointmentIds: args.excludedAppointmentIds,
+    }),
+    ...(args.isNewPatient !== undefined && {
+      isNewPatient: args.isNewPatient,
+    }),
+    locationId: args.locationId,
+    planningState: args.planningState,
+    ...(args.patientDateOfBirth && {
+      patientDateOfBirth: args.patientDateOfBirth,
+    }),
+    practiceId: args.practiceId,
+    requestedAt: args.requestedAt,
+    ruleSetId: args.ruleSetId,
+    ...(args.scope && { scope: args.scope }),
+    ...(args.simulationRuleSetId && {
+      simulationRuleSetId: args.simulationRuleSetId,
+    }),
+  });
+
+  return hasAnyConsecutiveAvailablePractitionerSlots(rootSlots, {
+    durationMinutes: args.rootDurationMinutes,
+    start: args.start,
+  });
+}
+
 export async function planSeriesFromRootCandidate(
   ctx: SeriesPlannerCtx,
   args: {
@@ -859,14 +916,6 @@ function createSeriesId(): string {
   return `series_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function createSeriesPlanningState(): SeriesPlanningState {
-  return {
-    baseSchedulesByRuleSet: new Map(),
-    eligibleWeekdays: new Map(),
-    slotCache: new Map(),
-  };
-}
-
 function findAnchorStep(
   plannedSteps: PlannedSeriesStep[],
   anchorStepId: string,
@@ -1157,6 +1206,33 @@ async function getSearchDatesOnOrAfter(
   }
 
   return searchDates;
+}
+
+function hasAnyConsecutiveAvailablePractitionerSlots(
+  slots: InternalSchedulingResultSlot[],
+  args: { durationMinutes: number; start: ZonedDateTimeString },
+): boolean {
+  const practitionerLineageKeys = new Set(
+    slots
+      .filter((slot) => slot.startTime === args.start)
+      .map((slot) => slot.practitionerLineageKey),
+  );
+
+  for (const practitionerLineageKey of practitionerLineageKeys) {
+    const practitionerSlots = slots.filter(
+      (slot) => slot.practitionerLineageKey === practitionerLineageKey,
+    );
+    if (
+      hasConsecutiveAvailablePractitionerSlots(practitionerSlots, {
+        durationMinutes: args.durationMinutes,
+        start: args.start,
+      })
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function hasConsecutiveAvailablePractitionerSlots(
@@ -1790,6 +1866,41 @@ async function validateRootCandidate(
     );
 
     if (!hasSelectedRootSlot) {
+      return {
+        blockedStepId: "root",
+        failureMessage:
+          "Der ausgewählte Starttermin ist nicht mehr verfügbar oder wird durch Regeln blockiert.",
+        status: "blocked",
+        steps: [],
+      };
+    }
+  } else if (args.rootOccupancy.calendarResourceColumn) {
+    const hasSelectedResourceRootSlot =
+      await hasResourceRootSchedulerAvailability(ctx, {
+        appointmentType: args.appointmentType,
+        ...(args.excludedAppointmentIds && {
+          excludedAppointmentIds: args.excludedAppointmentIds,
+        }),
+        ...(args.isNewPatient !== undefined && {
+          isNewPatient: args.isNewPatient,
+        }),
+        locationId: args.locationId,
+        planningState: args.planningState,
+        ...(args.patientDateOfBirth && {
+          patientDateOfBirth: args.patientDateOfBirth,
+        }),
+        practiceId: args.practiceId,
+        requestedAt: args.requestedAt,
+        rootDurationMinutes: args.rootDurationMinutes,
+        ruleSetId: args.ruleSetId,
+        ...(args.scope && { scope: args.scope }),
+        ...(args.simulationRuleSetId && {
+          simulationRuleSetId: args.simulationRuleSetId,
+        }),
+        start: args.start,
+      });
+
+    if (!hasSelectedResourceRootSlot) {
       return {
         blockedStepId: "root",
         failureMessage:
