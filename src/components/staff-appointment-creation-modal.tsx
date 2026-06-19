@@ -544,10 +544,10 @@ export function StaffAppointmentCreationModal({
   return (
     <>
       <Dialog onOpenChange={handleDialogOpenChange} open={open}>
-        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-2xl">
           {mode === "next" ? (
             <form
-              className="space-y-4"
+              className="flex min-h-0 flex-1 flex-col overflow-hidden"
               onSubmit={(e) => {
                 e.preventDefault();
                 void form.handleSubmit();
@@ -585,7 +585,7 @@ export function StaffAppointmentCreationModal({
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="grid gap-4">
+              <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto py-4 pr-2">
                 {/* Patient info display */}
                 <div className="flex items-center gap-2 rounded-md border p-3">
                   <User className="h-4 w-4 text-muted-foreground" />
@@ -678,7 +678,7 @@ export function StaffAppointmentCreationModal({
                 )}
               </div>
 
-              <DialogFooter className="border-t pt-4">
+              <DialogFooter className="shrink-0 border-t pt-4">
                 {hasAppointmentPlan &&
                   (isSeriesPreviewLoading || isSeriesPreviewBlocked) && (
                     <div className="mr-auto text-sm text-muted-foreground">
@@ -712,7 +712,7 @@ export function StaffAppointmentCreationModal({
               </DialogFooter>
             </form>
           ) : (
-            <>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <DialogHeader>
                 <DialogTitle>
                   {appointmentType?.name ?? "Unbekannt"}-Termin erstellen
@@ -724,7 +724,7 @@ export function StaffAppointmentCreationModal({
                 </VisuallyHidden>
               </DialogHeader>
 
-              <div className="grid gap-4">
+              <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto py-4 pr-2">
                 <div className="space-y-2">
                   <Label htmlFor="appointment-reason">Termingrund</Label>
                   <Input
@@ -812,7 +812,7 @@ export function StaffAppointmentCreationModal({
                 </Button>
               </div>
 
-              <DialogFooter className="border-t pt-4">
+              <DialogFooter className="shrink-0 border-t pt-4">
                 <Button
                   onClick={() => {
                     handleClose();
@@ -822,7 +822,7 @@ export function StaffAppointmentCreationModal({
                   Abbrechen
                 </Button>
               </DialogFooter>
-            </>
+            </div>
           )}
         </DialogContent>
       </Dialog>
