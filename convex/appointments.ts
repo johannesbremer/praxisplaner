@@ -32,7 +32,6 @@ import {
   getBlockedSlotPractitionerLineageKey,
 } from "./appointmentOccupancy";
 import {
-  appointmentPlanStepValidator,
   hasAppointmentPlan,
   normalizeDefaultOccupancy,
 } from "./appointmentPlans";
@@ -54,6 +53,7 @@ import {
   replanAppointmentSeries,
   type SeriesRootOccupancy,
 } from "./appointmentSeries";
+import { appointmentSeriesRestoreSnapshotValidator } from "./appointmentSeriesRestoreSnapshots";
 import {
   appointmentReplacementInsertFields,
   appointmentReplacementState,
@@ -153,57 +153,6 @@ type OptionalKeys<T> = {
 }[keyof T];
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 const STAFF_PLANNER_CLIENT_TYPE = "MFA";
-
-const appointmentSeriesRestoreAppointmentSnapshotValidator = v.object({
-  appointmentTypeLineageKey: v.id("appointmentTypes"),
-  appointmentTypeTitle: v.string(),
-  bookingIdentityId: v.optional(v.id("bookingIdentities")),
-  cancelledAt: v.optional(v.int64()),
-  cancelledByPhoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
-  cancelledByUserId: v.optional(v.id("users")),
-  createdAt: v.int64(),
-  end: v.string(),
-  isSimulation: v.optional(v.boolean()),
-  lastModified: v.int64(),
-  locationLineageKey: v.id("locations"),
-  occupancyScope: appointmentOccupancyScopeValidator,
-  originalAppointmentId: v.id("appointments"),
-  patientId: v.optional(v.id("patients")),
-  phoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
-  practiceId: v.id("practices"),
-  reassignmentSourceVacationLineageKey: v.optional(v.id("vacations")),
-  replacesAppointmentId: v.optional(v.id("appointments")),
-  seriesStepId: v.optional(v.string()),
-  seriesStepIndex: v.optional(v.int64()),
-  simulationKind: v.optional(appointmentSimulationKindValidator),
-  simulationRuleSetId: v.optional(v.id("ruleSets")),
-  simulationValidatedAt: v.optional(v.int64()),
-  smiley: v.optional(appointmentSmileyValidator),
-  start: v.string(),
-  title: v.string(),
-  userId: v.optional(v.id("users")),
-});
-
-const appointmentSeriesRestoreSnapshotValidator = v.object({
-  appointments: v.array(appointmentSeriesRestoreAppointmentSnapshotValidator),
-  series: v.object({
-    appointmentPlanSnapshot: v.array(appointmentPlanStepValidator),
-    bookingIdentityId: v.optional(v.id("bookingIdentities")),
-    createdAt: v.int64(),
-    lastModified: v.int64(),
-    patientDateOfBirth: v.optional(v.string()),
-    patientId: v.optional(v.id("patients")),
-    practiceId: v.id("practices"),
-    rootAppointmentId: v.id("appointments"),
-    rootAppointmentTypeId: v.id("appointmentTypes"),
-    rootAppointmentTypeLineageKey: v.id("appointmentTypes"),
-    rootDurationMinutes: v.number(),
-    ruleSetIdAtBooking: v.id("ruleSets"),
-    scope: v.union(v.literal("real"), v.literal("simulation")),
-    seriesId: v.string(),
-    userId: v.optional(v.id("users")),
-  }),
-});
 
 const appointmentSeriesRestoreResultValidator = v.object({
   appointments: v.array(
@@ -1154,6 +1103,39 @@ async function saveAppointmentRestoreSnapshot(
     start: appointment.start,
     title: appointment.title,
     ...(appointment.userId === undefined ? {} : { userId: appointment.userId }),
+  });
+}
+
+async function saveAppointmentSeriesRestoreSnapshot(
+  ctx: MutationCtx,
+  args: {
+    appointments: AppointmentDoc[];
+    deletedAt: bigint;
+    series: AppointmentSeriesDoc;
+  },
+) {
+  const snapshot = toAppointmentSeriesRestoreSnapshot({
+    appointments: args.appointments,
+    series: args.series,
+  });
+  const existingSnapshot = await ctx.db
+    .query("appointmentSeriesRestoreSnapshots")
+    .withIndex("by_originalSeriesId", (q) =>
+      q.eq("originalSeriesId", args.series.seriesId),
+    )
+    .first();
+  if (existingSnapshot) {
+    await ctx.db.delete(
+      "appointmentSeriesRestoreSnapshots",
+      existingSnapshot._id,
+    );
+  }
+
+  await ctx.db.insert("appointmentSeriesRestoreSnapshots", {
+    deletedAt: args.deletedAt,
+    originalSeriesId: args.series.seriesId,
+    practiceId: args.series.practiceId,
+    snapshot,
   });
 }
 
@@ -2843,18 +2825,31 @@ export const getAppointmentSeriesRestoreSnapshotByAppointmentId = query({
 
 export const restoreAppointmentSeriesSnapshot = mutation({
   args: {
-    snapshot: appointmentSeriesRestoreSnapshotValidator,
+    seriesId: v.string(),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const { appointments, series } = args.snapshot;
+    const storedSnapshot = await ctx.db
+      .query("appointmentSeriesRestoreSnapshots")
+      .withIndex("by_originalSeriesId", (q) =>
+        q.eq("originalSeriesId", args.seriesId),
+      )
+      .first();
+    if (!storedSnapshot) {
+      throw appointmentChainError(
+        "CHAIN_NOT_FOUND",
+        "Kettentermin-Wiederherstellung wurde nicht gefunden.",
+      );
+    }
+    await ensurePracticeAccessForMutation(ctx, storedSnapshot.practiceId);
+
+    const { appointments, series } = storedSnapshot.snapshot;
     if (appointments.length === 0) {
       throw appointmentChainError(
         "CHAIN_RESTORE_EMPTY",
         "Die Kettentermin-Serie enthält keine Termine.",
       );
     }
-    await ensurePracticeAccessForMutation(ctx, series.practiceId);
 
     const activeSeries = await getAppointmentSeriesRecord(
       ctx.db,
@@ -3057,6 +3052,10 @@ export const restoreAppointmentSeriesSnapshot = mutation({
       seriesId: series.seriesId,
       ...(series.userId === undefined ? {} : { userId: series.userId }),
     });
+    await ctx.db.delete(
+      "appointmentSeriesRestoreSnapshots",
+      storedSnapshot._id,
+    );
 
     return {
       appointments: restoredAppointments,
@@ -4335,10 +4334,17 @@ export const deleteAppointment = mutation({
         );
       }
       const seriesAppointments = await getSeriesAppointments(ctx.db, seriesId);
+      const seriesRecord = await getAppointmentSeriesRecord(ctx.db, seriesId);
+      if (seriesRecord) {
+        await saveAppointmentSeriesRestoreSnapshot(ctx, {
+          appointments: seriesAppointments,
+          deletedAt: BigInt(Date.now()),
+          series: seriesRecord,
+        });
+      }
       for (const seriesAppointment of seriesAppointments) {
         await ctx.db.delete("appointments", seriesAppointment._id);
       }
-      const seriesRecord = await getAppointmentSeriesRecord(ctx.db, seriesId);
       if (seriesRecord) {
         await ctx.db.delete("appointmentSeries", seriesRecord._id);
       }

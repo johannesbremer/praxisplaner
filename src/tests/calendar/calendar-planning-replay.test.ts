@@ -1367,7 +1367,7 @@ describe("calendar planning replay", () => {
 
     expect(result).toEqual({ status: "applied" });
     expect(runRestoreAppointmentSeriesSnapshotInternal).toHaveBeenCalledWith({
-      snapshot,
+      seriesId: "series_1",
     });
     expect(rememberRecreatedAppointmentId).toHaveBeenCalledWith({
       currentId: restoredRootAppointmentId,

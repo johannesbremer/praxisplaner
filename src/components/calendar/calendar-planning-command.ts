@@ -13,9 +13,11 @@ import type {
 
 import { api } from "../../../convex/_generated/api";
 
-export type AppointmentSeriesRestoreSnapshot = FunctionArgs<
-  typeof api.appointments.restoreAppointmentSeriesSnapshot
->["snapshot"];
+export type AppointmentSeriesRestoreSnapshot = NonNullable<
+  FunctionReturnType<
+    typeof api.appointments.getAppointmentSeriesRestoreSnapshotByRootId
+  >
+>;
 
 export type AppointmentState = Pick<
   CalendarAppointmentRecord,
