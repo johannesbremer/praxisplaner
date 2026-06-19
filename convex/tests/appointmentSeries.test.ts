@@ -2125,6 +2125,121 @@ describe("appointment series", () => {
     );
   });
 
+  test("simulated series replacements exclude the whole replaced series", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_simulated_series_replacement_user",
+      "simulated-series-replacement@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const planStepTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", planStepTypeId, {
+        lineageKey: planStepTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: planStepTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const originalSeries = await t.mutation(
+      api.appointments.createAppointmentSeries,
+      {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Ersttermin",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      },
+    );
+
+    await expect(
+      t.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: rootAppointmentTypeId,
+        isSimulation: true,
+        locationId,
+        practiceId,
+        practitionerId,
+        replacesAppointmentId: originalSeries.rootAppointmentId,
+        simulationRuleSetId: ruleSetId,
+        start: rootStart,
+        title: "Ersatz-Ersttermin",
+        userId,
+      }),
+    ).resolves.toBeDefined();
+
+    const replacementAppointments = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_replacesAppointmentId", (q) =>
+          q.eq("replacesAppointmentId", originalSeries.rootAppointmentId),
+        )
+        .collect();
+    });
+    expect(replacementAppointments).toHaveLength(1);
+    expect(replacementAppointments[0]?.seriesId).toBeDefined();
+
+    const replacementSeriesAppointments = await t.run(async (ctx) => {
+      const replacementSeriesId = replacementAppointments[0]?.seriesId;
+      if (!replacementSeriesId) {
+        return [];
+      }
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) => q.eq("seriesId", replacementSeriesId))
+        .collect();
+    });
+    expect(replacementSeriesAppointments).toHaveLength(2);
+  });
+
   test("createAppointmentSeries rejects booking identities from another practice", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
