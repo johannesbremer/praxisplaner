@@ -555,6 +555,126 @@ describe("appointment series", () => {
     expect(planStepStart.toPlainTime().toString()).toBe("08:00:00");
   });
 
+  test("previewAppointmentSeries skips first-available step slots without full-duration availability", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Lange Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        lineageKey: targetAppointmentTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "days",
+                offsetValue: 1,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Root",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      const baseSchedules = await ctx.db.query("baseSchedules").collect();
+      const tuesdaySchedule = baseSchedules.find(
+        (schedule) =>
+          schedule.practiceId === practiceId &&
+          schedule.ruleSetId === ruleSetId &&
+          schedule.locationLineageKey === locationId &&
+          schedule.practitionerLineageKey === practitionerId &&
+          schedule.dayOfWeek === 2,
+      );
+      assertDefined(tuesdaySchedule, "Tuesday schedule should exist");
+      await ctx.db.patch("baseSchedules", tuesdaySchedule._id, {
+        breakTimes: [{ end: "09:30", start: "09:15" }],
+      });
+
+      return rootId;
+    });
+
+    const monday = nextWeekday(1);
+    const tuesday = monday.add({ days: 1 });
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 8, minute: 30 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: rootAppointmentTypeId,
+        appointmentTypeTitle: "Blocker",
+        createdAt: now,
+        end: tuesday
+          .toZonedDateTime({
+            plainTime: { hour: 9, minute: 0 },
+            timeZone: TIMEZONE,
+          })
+          .toString(),
+        lastModified: now,
+        locationLineageKey: locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: practitionerId,
+        },
+        practiceId,
+        start: tuesday
+          .toZonedDateTime({
+            plainTime: { hour: 8, minute: 0 },
+            timeZone: TIMEZONE,
+          })
+          .toString(),
+        title: "Blockiert",
+      });
+    });
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      ruleSetId,
+      start: rootStart,
+    });
+
+    expect(preview.status).toBe("ready");
+    expect(
+      Temporal.ZonedDateTime.from(preview.steps[1]?.start ?? rootStart)
+        .toPlainTime()
+        .toString(),
+    ).toBe("09:30:00");
+  });
+
   test("previewAppointmentSeries searches month-based appointment-plan steps from the target date onward", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
@@ -831,7 +951,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
-        duration: 30,
+        duration: 15,
         lastModified: now,
         name: "Spättermin",
         practiceId,
@@ -870,7 +990,7 @@ describe("appointment series", () => {
       {
         candidates: [
           {
-            duration: 30,
+            duration: 15,
             locationLineageKey: locationId,
             practitionerLineageKey: practitionerId,
             practitionerName: "Dr. Chain",
@@ -1000,6 +1120,169 @@ describe("appointment series", () => {
 
     expect(preview.status).toBe("blocked");
     expect(preview.blockedStepId).toBe("step-1");
+  });
+
+  test("previewAppointmentSeries rejects roots that do not have full-duration availability", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 15,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        lineageKey: targetAppointmentTypeId,
+      });
+
+      const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Langer Starttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootAppointmentTypeId, {
+        lineageKey: rootAppointmentTypeId,
+      });
+
+      const baseSchedules = await ctx.db.query("baseSchedules").collect();
+      const mondaySchedule = baseSchedules.find(
+        (schedule) =>
+          schedule.practiceId === practiceId &&
+          schedule.ruleSetId === ruleSetId &&
+          schedule.locationLineageKey === locationId &&
+          schedule.practitionerLineageKey === practitionerId &&
+          schedule.dayOfWeek === 1,
+      );
+      assertDefined(mondaySchedule, "Monday schedule should exist");
+      await ctx.db.patch("baseSchedules", mondaySchedule._id, {
+        breakTimes: [{ end: "09:30", start: "09:15" }],
+      });
+
+      return rootAppointmentTypeId;
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      ruleSetId,
+      start: rootStart,
+    });
+
+    expect(preview.status).toBe("blocked");
+    expect(preview.blockedStepId).toBe("root");
+  });
+
+  test("createAppointmentSeries rejects deleted appointment-plan target types", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_deleted_plan_target_user",
+      "deleted-plan-target@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Gelöschter Folgetermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        lineageKey: targetAppointmentTypeId,
+      });
+      const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Root",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootAppointmentTypeId, {
+        lineageKey: rootAppointmentTypeId,
+      });
+      await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+        deleted: true,
+      });
+      return rootAppointmentTypeId;
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    await expect(
+      t.mutation(api.appointments.createAppointmentSeries, {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Root",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      }),
+    ).rejects.toThrow("APPOINTMENT_PLAN:APPOINTMENT_TYPE_NOT_FOUND");
   });
 
   test("previewAppointmentSeries can fall back exact practitioner steps to the next available slot", async () => {
