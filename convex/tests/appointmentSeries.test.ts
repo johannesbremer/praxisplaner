@@ -1921,6 +1921,115 @@ describe("appointment series", () => {
     expect(seriesRecord?.rootAppointmentId).toBeDefined();
   });
 
+  test("createAppointmentSeries rejects direct real replacements before excluding the replaced root", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_real_series_replacement_user",
+      "real-series-replacement@example.com",
+    );
+
+    const { replacedAppointmentId, rootAppointmentTypeId } = await t.run(
+      async (ctx) => {
+        const now = BigInt(Date.now());
+        const targetAppointmentTypeId = await ctx.db.insert(
+          "appointmentTypes",
+          {
+            allowedPractitionerLineageKeys: [practitionerId],
+            createdAt: now,
+            duration: 30,
+            lastModified: now,
+            name: "Kontrolle",
+            practiceId,
+            ruleSetId,
+          },
+        );
+        await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+          lineageKey: targetAppointmentTypeId,
+        });
+
+        const rootId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: targetAppointmentTypeId,
+                occupancy: { kind: "inheritRootPractitioner" },
+                required: true,
+                stepId: "step-1",
+                timing: {
+                  kind: "afterPreviousEnd",
+                  offsetUnit: "days",
+                  offsetValue: 2,
+                },
+              },
+            ],
+          },
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          name: "Ersttermin",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", rootId, {
+          lineageKey: rootId,
+        });
+
+        const rootStart = nextWeekday(1).toZonedDateTime({
+          plainTime: { hour: 9, minute: 0 },
+          timeZone: TIMEZONE,
+        });
+        const replacedId = await ctx.db.insert("appointments", {
+          appointmentTypeLineageKey: rootId,
+          appointmentTypeTitle: "Ersttermin",
+          createdAt: now,
+          end: rootStart.add({ minutes: 30 }).toString(),
+          lastModified: now,
+          locationLineageKey: locationId,
+          occupancyScope: {
+            kind: "practitioner",
+            practitionerLineageKey: practitionerId,
+          },
+          practiceId,
+          start: rootStart.toString(),
+          title: "Bestehender Termin",
+          userId,
+        });
+
+        return {
+          replacedAppointmentId: replacedId,
+          rootAppointmentTypeId: rootId,
+        };
+      },
+    );
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    await expect(
+      t.mutation(api.appointments.createAppointmentSeries, {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootReplacesAppointmentId: replacedAppointmentId,
+        rootTitle: "Ersttermin",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      }),
+    ).rejects.toThrow(
+      "Only simulated appointment series can replace existing appointments.",
+    );
+  });
+
   test("createAppointmentSeries rejects booking identities from another practice", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
@@ -3454,6 +3563,142 @@ describe("appointment series", () => {
         .collect();
     });
     expect(restoredAppointments).toHaveLength(2);
+  });
+
+  test("restoreAppointmentSeriesSnapshot ignores cancelled snapshot appointments when checking occupancy", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_restore_cancelled_series_user",
+      "restore-cancelled-series@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const planStepTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", planStepTypeId, {
+        lineageKey: planStepTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: planStepTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "days",
+                offsetValue: 2,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const createdSeries = await t.mutation(
+      api.appointments.createAppointmentSeries,
+      {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Ersttermin",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      },
+    );
+
+    const cancelledStep = createdSeries.steps[1];
+    expect(cancelledStep).toBeDefined();
+    if (!cancelledStep) {
+      throw new Error("Follow-up appointment should exist");
+    }
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("appointments", cancelledStep.appointmentId, {
+        cancelledAt: BigInt(Date.now()),
+      });
+    });
+
+    await t.mutation(api.appointments.deleteAppointment, {
+      id: createdSeries.rootAppointmentId,
+    });
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: cancelledStep.appointmentTypeLineageKey,
+        appointmentTypeTitle: cancelledStep.appointmentTypeTitle,
+        createdAt: now,
+        end: cancelledStep.end,
+        lastModified: now,
+        locationLineageKey: locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: practitionerId,
+        },
+        practiceId,
+        start: cancelledStep.start,
+        title: "Neuer Termin im freigewordenen Zeitraum",
+        userId,
+      });
+    });
+
+    await expect(
+      t.mutation(api.appointments.restoreAppointmentSeriesSnapshot, {
+        seriesId: createdSeries.seriesId,
+      }),
+    ).resolves.toMatchObject({
+      seriesId: createdSeries.seriesId,
+    });
+
+    const restoredAppointments = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) =>
+          q.eq("seriesId", createdSeries.seriesId),
+        )
+        .collect();
+    });
+    expect(restoredAppointments).toHaveLength(2);
+    expect(
+      restoredAppointments.some(
+        (appointment) => appointment.cancelledAt !== undefined,
+      ),
+    ).toBe(true);
   });
 });
 
