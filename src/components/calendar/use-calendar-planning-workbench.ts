@@ -1610,10 +1610,6 @@ export function useCalendarPlanningWorkbench(args: {
         toast.error("Die Terminart konnte nicht geladen werden.");
         return;
       }
-      if (appointmentTypeInfo.hasAppointmentPlan) {
-        return await createAppointmentMutation(mutationArgs);
-      }
-
       const isSimulationReplacement =
         mutationArgs.isSimulation === true &&
         mutationArgs.replacesAppointmentId !== undefined;

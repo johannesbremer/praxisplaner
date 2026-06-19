@@ -4,6 +4,10 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type {
+  AppointmentPlan,
+  AppointmentTypeDefaultOccupancy,
+} from "../../../convex/appointmentPlans";
+import type {
   AppointmentTypeLineageKey,
   LocationLineageKey,
   PractitionerLineageKey,
@@ -21,8 +25,8 @@ import {
   asLocationLineageKey,
   asPractitionerLineageKey,
 } from "../../../convex/identity";
-import { DEFAULT_APPOINTMENT_COLOR } from "../../../lib/appointment-colors";
 import { asZonedDateTimeString } from "../../../convex/typedDtos";
+import { DEFAULT_APPOINTMENT_COLOR } from "../../../lib/appointment-colors";
 import { createSimulatedContext } from "../../../lib/utils";
 import {
   captureFrontendError,
@@ -40,6 +44,8 @@ import {
 interface CalendarAppointmentTypeInfo {
   allowedPractitionerLineageKeys: PractitionerLineageKey[];
   color: AppointmentColor;
+  appointmentPlan: AppointmentPlan | undefined;
+  defaultOccupancy: AppointmentTypeDefaultOccupancy | undefined;
   duration: number;
   hasAppointmentPlan: boolean;
   lineageKey: AppointmentTypeLineageKey;
@@ -489,6 +495,18 @@ export function useCalendarData(args: {
       map.set(asAppointmentTypeLineageKey(appointmentType.lineageKey), {
         allowedPractitionerLineageKeys,
         color: resolveAppointmentTypeColor(appointmentType),
+        appointmentPlan:
+          appointmentType.appointmentPlan === undefined
+            ? undefined
+            : {
+                steps: appointmentType.appointmentPlan.steps.map((step) => ({
+                  ...step,
+                  appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+                    step.appointmentTypeLineageKey,
+                  ),
+                })),
+              },
+        defaultOccupancy: appointmentType.defaultOccupancy,
         duration: appointmentType.duration,
         hasAppointmentPlan:
           (appointmentType.appointmentPlan?.steps.length ?? 0) > 0,
@@ -601,88 +619,6 @@ export function useCalendarData(args: {
           })()
         : "skip",
   );
-  const effectiveSchedulingAppointmentTypeLineageKey = useMemo(
-    () =>
-      args.simulatedContext?.appointmentTypeLineageKey ??
-      args.schedulingAppointmentTypeLineageKey ??
-      appointmentTypesData?.find(
-        (appointmentType) =>
-          appointmentType._id === args.selectedAppointmentTypeId,
-      )?.lineageKey,
-    [
-      appointmentTypesData,
-      args.schedulingAppointmentTypeLineageKey,
-      args.selectedAppointmentTypeId,
-      args.simulatedContext?.appointmentTypeLineageKey,
-    ],
-  );
-  const effectiveSchedulingAppointmentTypeId =
-    effectiveSchedulingAppointmentTypeLineageKey === undefined
-      ? undefined
-      : appointmentTypeIdByLineageKey.get(
-          asAppointmentTypeLineageKey(
-            effectiveSchedulingAppointmentTypeLineageKey,
-          ),
-        );
-  const effectiveSchedulingAppointmentTypeInfo =
-    effectiveSchedulingAppointmentTypeLineageKey === undefined
-      ? undefined
-      : appointmentTypeInfoByLineageKey.get(
-          asAppointmentTypeLineageKey(
-            effectiveSchedulingAppointmentTypeLineageKey,
-          ),
-        );
-  const blockedAppointmentSeriesRootSlotsResult = useQuery(
-    api.appointments.getBlockedAppointmentSeriesRootSlotsForCandidates,
-    args.practiceId &&
-      args.ruleSetId &&
-      effectiveLocationId &&
-      effectiveSchedulingAppointmentTypeId &&
-      effectiveSchedulingAppointmentTypeInfo?.hasAppointmentPlan === true &&
-      slotsResult !== undefined
-      ? {
-          candidates: slotsResult.slots
-            .filter((slot) => slot.status === "AVAILABLE")
-            .map((slot) => ({
-              duration: slot.duration,
-              locationLineageKey: slot.locationLineageKey,
-              practitionerLineageKey: slot.practitionerLineageKey,
-              practitionerName: slot.practitionerName,
-              startTime: slot.startTime,
-            })),
-          ...(args.patient?.convexPatientId === undefined
-            ? {}
-            : { patientId: args.patient.convexPatientId }),
-          ...(args.patient?.dateOfBirth === undefined
-            ? {}
-            : { patientDateOfBirth: args.patient.dateOfBirth }),
-          isNewPatient: args.patient?.isNewPatient ?? false,
-          locationId: effectiveLocationId,
-          practiceId: args.practiceId,
-          rootAppointmentTypeId: effectiveSchedulingAppointmentTypeId,
-          ruleSetId: args.ruleSetId,
-          scope: args.simulatedContext === undefined ? "real" : "simulation",
-          ...(args.patient?.userId === undefined
-            ? {}
-            : { userId: args.patient.userId }),
-        }
-      : "skip",
-  );
-  const blockedAppointmentSeriesRootSlots = useMemo<
-    SchedulingSlot[] | undefined
-  >(
-    () =>
-      blockedAppointmentSeriesRootSlotsResult?.map((slot) => ({
-        ...slot,
-        locationLineageKey: asLocationLineageKey(slot.locationLineageKey),
-        practitionerLineageKey: asPractitionerLineageKey(
-          slot.practitionerLineageKey,
-        ),
-        startTime: asZonedDateTimeString(slot.startTime),
-      })),
-    [blockedAppointmentSeriesRootSlotsResult],
-  );
-
   const blockedSlotsClientType =
     args.simulatedContext === undefined
       ? "MFA"
@@ -747,7 +683,6 @@ export function useCalendarData(args: {
     appointmentTypeInfoByLineageKey,
     appointmentTypeLineageKeyById,
     baseSchedulesData,
-    blockedAppointmentSeriesRootSlots,
     blockedSlotDocMap,
     blockedSlotDocMapRef,
     blockedSlotsData,
