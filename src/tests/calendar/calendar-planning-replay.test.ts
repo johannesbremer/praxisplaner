@@ -1267,6 +1267,7 @@ describe("calendar planning replay", () => {
         {
           appointmentTypeLineageKey,
           appointmentTypeTitle: "BE",
+          cancelledAt: 2n,
           createdAt: 1n,
           end: "2026-04-25T09:20:00+02:00[Europe/Berlin]",
           isSimulation: false,
@@ -1318,6 +1319,12 @@ describe("calendar planning replay", () => {
         seriesId: "series_1",
       }),
     );
+    const hasAppointmentConflict = vi.fn<
+      CalendarPlanningCommandExecutorContext["hasAppointmentConflict"]
+    >(
+      (candidate) =>
+        candidate.start === "2026-04-25T09:10:00+02:00[Europe/Berlin]",
+    );
 
     const result = await executeCalendarPlanningCommand(
       {
@@ -1335,7 +1342,7 @@ describe("calendar planning replay", () => {
         forgetBlockedSlotHistoryDoc: vi.fn(),
         getCurrentAppointmentDoc: vi.fn(),
         getCurrentBlockedSlotDoc: vi.fn(),
-        hasAppointmentConflict: () => false,
+        hasAppointmentConflict,
         hasBlockedSlotConflict: () => false,
         referenceMaps: {
           appointmentTypeIdByLineageKey: new Map(),
@@ -1369,6 +1376,12 @@ describe("calendar planning replay", () => {
     expect(runRestoreAppointmentSeriesSnapshotInternal).toHaveBeenCalledWith({
       seriesId: "series_1",
     });
+    expect(hasAppointmentConflict).toHaveBeenCalledTimes(1);
+    expect(hasAppointmentConflict).toHaveBeenCalledWith(
+      expect.objectContaining({
+        start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+      }),
+    );
     expect(rememberRecreatedAppointmentId).toHaveBeenCalledWith({
       currentId: restoredRootAppointmentId,
       originalId: originalRootAppointmentId,

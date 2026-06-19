@@ -983,6 +983,7 @@ async function restoreAppointmentSeriesSnapshot(
   await context.ensureLatestConflictData();
   const conflictingAppointment = payload.snapshot.appointments.some(
     (appointment) =>
+      appointment.cancelledAt === undefined &&
       context.hasAppointmentConflict({
         end: appointment.end,
         isSimulation: appointment.isSimulation ?? false,
