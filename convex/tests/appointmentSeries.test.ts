@@ -391,6 +391,51 @@ describe("appointment series", () => {
     expect(validResult.entityId).toBeDefined();
   });
 
+  test("createAppointmentType rejects same-start root steps that inherit the root practitioner", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const targetAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 20,
+        lastModified: now,
+        name: "Diagnostik",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetId, {
+        lineageKey: targetId,
+      });
+      return targetId;
+    });
+
+    await expect(
+      t.mutation(api.entities.createAppointmentType, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "diagnostik-same-time",
+              timing: { anchorStepId: "root", kind: "sameStartAs" },
+            },
+          ],
+        },
+        duration: 30,
+        expectedDraftRevision: null,
+        name: "Ergometrie",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      }),
+    ).rejects.toThrow("APPOINTMENT_PLAN:SAME_START_ROOT_PRACTITIONER_OVERLAP");
+  });
+
   test("previewAppointmentSeries scans period-based appointment-plan steps top to bottom within the day", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =

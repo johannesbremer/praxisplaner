@@ -171,6 +171,7 @@ export async function validateAppointmentPlan(
     validateStepId(step, seenStepIds);
     validateRequiredStep(step);
     validateTiming(step, seenStepIds);
+    validateSameStartOccupancy(step);
 
     if (
       currentAppointmentTypeLineageKey &&
@@ -261,6 +262,19 @@ function validateRequiredStep(step: AppointmentPlanStep) {
     throw appointmentPlanError(
       "APPOINTMENT_PLAN:OPTIONAL_STEPS_UNSUPPORTED",
       `Schritt "${step.stepId}" muss im MVP als erforderlich markiert sein.`,
+    );
+  }
+}
+
+function validateSameStartOccupancy(step: AppointmentPlanStep) {
+  if (
+    step.timing.kind === "sameStartAs" &&
+    step.timing.anchorStepId === "root" &&
+    step.occupancy.kind === "inheritRootPractitioner"
+  ) {
+    throw appointmentPlanError(
+      "APPOINTMENT_PLAN:SAME_START_ROOT_PRACTITIONER_OVERLAP",
+      `Schritt "${step.stepId}" darf nicht gleichzeitig mit dem Starttermin denselben Behandler belegen.`,
     );
   }
 }
