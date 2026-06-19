@@ -575,7 +575,6 @@ export function useCalendarLogic({
   );
 
   const {
-    baseAppointmentSeriesRootBlockedSlots,
     baseAppointmentTypeUnavailableBlockedSlots,
     baseBlockedSlots,
     baseBreakSlots,
@@ -583,6 +582,7 @@ export function useCalendarLogic({
     baseManualBlockedSlots,
     baseUnavailablePractitionerBlockedSlots,
     baseVacationBlockedSlots,
+    serverAppointmentSeriesRootBlockedSlots,
   } = useCalendarBlockedSlotProjection({
     appointmentsData,
     appointmentSeriesRootBlockedSlots,
@@ -783,7 +783,7 @@ export function useCalendarLogic({
     const combined = [
       ...baseBlockedSlots,
       ...baseBreakSlots,
-      ...baseAppointmentSeriesRootBlockedSlots,
+      ...serverAppointmentSeriesRootBlockedSlots,
       ...baseAppointmentTypeUnavailableBlockedSlots,
       ...baseDragDisabledPractitionerBlockedSlots,
       ...manualBlockedSlots,
@@ -807,7 +807,7 @@ export function useCalendarLogic({
     return [...uniqueSlots.values()];
   }, [
     baseAppointmentTypeUnavailableBlockedSlots,
-    baseAppointmentSeriesRootBlockedSlots,
+    serverAppointmentSeriesRootBlockedSlots,
     baseBlockedSlots,
     baseBreakSlots,
     baseDragDisabledPractitionerBlockedSlots,
