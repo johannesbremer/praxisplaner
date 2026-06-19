@@ -35,8 +35,14 @@ const recordCalendarCommand =
   vi.fn<(command: CalendarPlanningCommand) => void>();
 let executeRecordedCalendarCommand: CalendarPlanningCommandExecutor | null =
   null;
+const convexQuery = vi.fn();
+const convexMutation = vi.fn();
 
 vi.mock("convex/react", () => ({
+  useConvex: () => ({
+    mutation: convexMutation,
+    query: convexQuery,
+  }),
   useMutation: () => {
     const mutation = mutationQueue.shift();
     if (!mutation) {
@@ -100,6 +106,8 @@ const parseZonedDateTime = (value: string, source: string) =>
 describe("calendar planning workbench", () => {
   beforeEach(() => {
     mutationQueue.length = 0;
+    convexMutation.mockReset();
+    convexQuery.mockReset();
     recordCalendarCommand.mockReset();
     executeRecordedCalendarCommand = null;
   });
@@ -259,7 +267,7 @@ describe("calendar planning workbench", () => {
     );
   });
 
-  it("does not record generic create history for appointment-plan roots", async () => {
+  it("records exact series create history for appointment-plan roots", async () => {
     const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
     const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
       toTableId<"appointmentTypes">("type_lineage_1"),
@@ -270,8 +278,46 @@ describe("calendar planning workbench", () => {
     );
     const practiceId = toTableId<"practices">("practice_1");
     const appointmentId = toTableId<"appointments">("appointment_1");
+    const seriesId = "series_1";
+    const ruleSetId = toTableId<"ruleSets">("rule_set_1");
 
     const createAppointmentMutation = makeMutation(appointmentId);
+    const seriesSnapshot = {
+      appointments: [
+        {
+          appointmentTypeLineageKey,
+          appointmentTypeTitle: "Check-up",
+          createdAt: 1n,
+          end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+          isSimulation: false,
+          lastModified: 1n,
+          locationLineageKey,
+          occupancyScope: {
+            calendarResourceColumn: "ekg" as const,
+            kind: "resource" as const,
+          },
+          originalAppointmentId: appointmentId,
+          practiceId,
+          seriesStepIndex: 0n,
+          start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+          title: "Check-up",
+        },
+      ],
+      series: {
+        appointmentPlanSnapshot: [],
+        createdAt: 1n,
+        lastModified: 1n,
+        practiceId,
+        rootAppointmentId: appointmentId,
+        rootAppointmentTypeId: appointmentTypeId,
+        rootAppointmentTypeLineageKey: appointmentTypeLineageKey,
+        rootDurationMinutes: 30,
+        ruleSetIdAtBooking: ruleSetId,
+        scope: "real" as const,
+        seriesId,
+      },
+    };
+    convexQuery.mockResolvedValue(seriesSnapshot);
     mutationQueue.push(
       createAppointmentMutation,
       makeMutation(toTableId<"appointments">("appointment_restore_unused")),
@@ -338,7 +384,17 @@ describe("calendar planning workbench", () => {
 
     expect(createdId).toBe(appointmentId);
     expect(createAppointmentMutation).toHaveBeenCalledOnce();
-    expect(recordCalendarCommand).not.toHaveBeenCalled();
+    expect(convexQuery).toHaveBeenCalledWith(expect.anything(), {
+      rootAppointmentId: appointmentId,
+    });
+    expect(recordCalendarCommand).toHaveBeenCalledWith({
+      kind: "appointmentSeries.create",
+      label: "Kettentermine erstellt",
+      payload: {
+        currentRootAppointmentId: appointmentId,
+        snapshot: seriesSnapshot,
+      },
+    });
   });
 
   it("preserves appointment smileys in delete undo create args", async () => {

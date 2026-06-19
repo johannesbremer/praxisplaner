@@ -1,4 +1,4 @@
-import type { FunctionArgs } from "convex/server";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { AppointmentTypeLineageKey } from "../../../convex/identity";
@@ -11,6 +11,10 @@ import type {
 } from "./types";
 
 import { api } from "../../../convex/_generated/api";
+
+export type AppointmentSeriesRestoreSnapshot = FunctionArgs<
+  typeof api.appointments.restoreAppointmentSeriesSnapshot
+>["snapshot"];
 
 export type AppointmentState = Pick<
   CalendarAppointmentRecord,
@@ -41,6 +45,14 @@ export interface CalendarAppointmentDeleteCommand extends CalendarPlanningComman
     createEnd: string;
     currentAppointmentId: Id<"appointments">;
     deleted: CalendarAppointmentRecord;
+  };
+}
+
+export interface CalendarAppointmentSeriesCreateCommand extends CalendarPlanningCommandBase {
+  kind: "appointmentSeries.create";
+  payload: {
+    currentRootAppointmentId: Id<"appointments">;
+    snapshot: AppointmentSeriesRestoreSnapshot;
   };
 }
 
@@ -88,6 +100,7 @@ export interface CalendarBlockedSlotUpdateCommand extends CalendarPlanningComman
 export type CalendarPlanningCommand =
   | CalendarAppointmentCreateCommand
   | CalendarAppointmentDeleteCommand
+  | CalendarAppointmentSeriesCreateCommand
   | CalendarAppointmentUpdateCommand
   | CalendarBlockedSlotCreateCommand
   | CalendarBlockedSlotDeleteCommand
@@ -109,6 +122,14 @@ export type DeleteAppointmentMutationArgs = FunctionArgs<
 
 export type DeleteBlockedSlotMutationArgs = FunctionArgs<
   typeof api.appointments.deleteBlockedSlot
+>;
+
+export type RestoreAppointmentSeriesSnapshotMutationArgs = FunctionArgs<
+  typeof api.appointments.restoreAppointmentSeriesSnapshot
+>;
+
+export type RestoreAppointmentSeriesSnapshotMutationResult = FunctionReturnType<
+  typeof api.appointments.restoreAppointmentSeriesSnapshot
 >;
 
 export type RestoreDeletedAppointmentMutationArgs = FunctionArgs<

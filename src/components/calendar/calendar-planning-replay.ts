@@ -9,6 +9,7 @@ import type {
   BlockedSlotState,
   CalendarAppointmentCreateCommand,
   CalendarAppointmentDeleteCommand,
+  CalendarAppointmentSeriesCreateCommand,
   CalendarAppointmentUpdateCommand,
   CalendarBlockedSlotCreateCommand,
   CalendarBlockedSlotDeleteCommand,
@@ -18,6 +19,8 @@ import type {
   CreateBlockedSlotMutationArgs,
   DeleteAppointmentMutationArgs,
   DeleteBlockedSlotMutationArgs,
+  RestoreAppointmentSeriesSnapshotMutationArgs,
+  RestoreAppointmentSeriesSnapshotMutationResult,
   RestoreDeletedAppointmentMutationArgs,
   UpdateAppointmentMutationArgs,
   UpdateBlockedSlotMutationArgs,
@@ -30,6 +33,10 @@ import type {
   CalendarBlockedSlotRecord,
 } from "./types";
 
+import {
+  asLocationLineageKey,
+  asPractitionerLineageKey,
+} from "../../../convex/identity";
 import { sameCalendarOccupancyScope } from "../../../lib/calendar-occupancy";
 import {
   type AppointmentOwnerRefs,
@@ -100,6 +107,9 @@ export interface CalendarPlanningCommandExecutorContext {
   runDeleteBlockedSlotInternal: (
     args: DeleteBlockedSlotMutationArgs,
   ) => Promise<unknown>;
+  runRestoreAppointmentSeriesSnapshotInternal: (
+    args: RestoreAppointmentSeriesSnapshotMutationArgs,
+  ) => Promise<null | RestoreAppointmentSeriesSnapshotMutationResult>;
   runRestoreDeletedAppointmentInternal: (
     args: RestoreDeletedAppointmentMutationArgs,
   ) => Promise<Id<"appointments"> | null>;
@@ -257,6 +267,13 @@ export function executeCalendarPlanningCommand(
       }
       case "appointment.update": {
         return executeAppointmentUpdateCommand(command, operation, context);
+      }
+      case "appointmentSeries.create": {
+        return executeAppointmentSeriesCreateCommand(
+          command,
+          operation,
+          context,
+        );
       }
       case "blockedSlot.create": {
         return executeBlockedSlotCreateCommand(command, operation, context);
@@ -418,6 +435,94 @@ async function executeAppointmentDeleteCommand(
     _id: recreatedId,
   });
   return { status: "applied" };
+}
+
+async function executeAppointmentSeriesCreateCommand(
+  command: CalendarAppointmentSeriesCreateCommand,
+  operation: LedgerOperation,
+  context: CalendarPlanningCommandExecutorContext,
+): Promise<CalendarPlanningReplayResult> {
+  const { payload } = command;
+
+  if (operation === "redo") {
+    await context.ensureLatestConflictData();
+    const conflictingAppointment = payload.snapshot.appointments.some(
+      (appointment) =>
+        context.hasAppointmentConflict({
+          end: appointment.end,
+          isSimulation: appointment.isSimulation ?? false,
+          placement: {
+            locationLineageKey: asLocationLineageKey(
+              appointment.locationLineageKey,
+            ),
+            occupancyScope:
+              appointment.occupancyScope.kind === "resource"
+                ? appointment.occupancyScope
+                : {
+                    kind: "practitioner",
+                    practitionerLineageKey: asPractitionerLineageKey(
+                      appointment.occupancyScope.practitionerLineageKey,
+                    ),
+                  },
+          },
+          start: appointment.start,
+        }),
+    );
+    if (conflictingAppointment) {
+      return {
+        message:
+          "Die Kettentermine können nicht wiederhergestellt werden, weil ein gespeicherter Zeitraum bereits belegt ist.",
+        status: "conflict",
+      };
+    }
+
+    const originalRootAppointmentId = payload.currentRootAppointmentId;
+    const result = await context.runRestoreAppointmentSeriesSnapshotInternal({
+      snapshot: payload.snapshot,
+    });
+    if (!result) {
+      return { status: "conflict" };
+    }
+
+    payload.currentRootAppointmentId = result.rootAppointmentId;
+    context.rememberRecreatedAppointmentId({
+      currentId: result.rootAppointmentId,
+      originalId: originalRootAppointmentId,
+    });
+    for (const appointment of result.appointments) {
+      context.rememberRecreatedAppointmentId({
+        currentId: appointment.appointmentId,
+        originalId: appointment.originalAppointmentId,
+      });
+    }
+    return { status: "applied" };
+  }
+
+  try {
+    await context.runDeleteAppointmentInternal({
+      id: payload.currentRootAppointmentId,
+    });
+    for (const appointment of payload.snapshot.appointments) {
+      context.forgetAppointmentHistoryDoc(appointment.originalAppointmentId);
+    }
+    context.forgetAppointmentHistoryDoc(payload.currentRootAppointmentId);
+    return { status: "applied" };
+  } catch (error: unknown) {
+    for (const appointment of payload.snapshot.appointments) {
+      context.forgetAppointmentHistoryDoc(appointment.originalAppointmentId);
+    }
+    context.forgetAppointmentHistoryDoc(payload.currentRootAppointmentId);
+    if (context.isMissingAppointmentError?.(error)) {
+      return { status: "applied" };
+    }
+    return {
+      message:
+        error instanceof Error
+          ? error.message
+          : "Die Kettentermine konnten nicht entfernt werden.",
+      status: "conflict",
+    };
+  }
 }
 
 async function executeAppointmentUpdateCommand(

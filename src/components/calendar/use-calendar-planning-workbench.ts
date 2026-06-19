@@ -1,6 +1,6 @@
 import type { FunctionArgs } from "convex/server";
 
-import { useMutation } from "convex/react";
+import { useConvex, useMutation } from "convex/react";
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
@@ -815,6 +815,8 @@ export function useCalendarPlanningWorkbench(args: {
     [referenceMaps],
   );
 
+  const convex = useConvex();
+
   const resolveAppointmentReferenceDisplayIds = useCallback(
     (refs: {
       appointmentTypeLineageKey: AppointmentTypeLineageKey;
@@ -1100,6 +1102,20 @@ export function useCalendarPlanningWorkbench(args: {
       parseZonedDateTime,
       resolveAppointmentReferenceLineageKeys,
     ],
+  );
+
+  const runRestoreAppointmentSeriesSnapshotInternal = useCallback(
+    async (
+      args: FunctionArgs<
+        typeof api.appointments.restoreAppointmentSeriesSnapshot
+      >,
+    ) => {
+      return await convex.mutation(
+        api.appointments.restoreAppointmentSeriesSnapshot,
+        args,
+      );
+    },
+    [convex],
   );
 
   const runRestoreDeletedAppointmentInternal = useCallback(
@@ -1635,6 +1651,20 @@ export function useCalendarPlanningWorkbench(args: {
       });
 
       if (appointmentTypeInfo.hasAppointmentPlan) {
+        const snapshot = await convex.query(
+          api.appointments.getAppointmentSeriesRestoreSnapshotByRootId,
+          { rootAppointmentId: createdId },
+        );
+        if (snapshot) {
+          recordCalendarCommand({
+            kind: "appointmentSeries.create",
+            label: "Kettentermine erstellt",
+            payload: {
+              currentRootAppointmentId: createdId,
+              snapshot,
+            },
+          });
+        }
         return createdId;
       }
 
@@ -1656,6 +1686,7 @@ export function useCalendarPlanningWorkbench(args: {
     [
       createAppointmentMutation,
       createAppointmentMutationArgsFromCommand,
+      convex,
       getAppointmentCreationEnd,
       getRequiredAppointmentTypeInfo,
       recordCalendarCommand,
@@ -2127,6 +2158,7 @@ export function useCalendarPlanningWorkbench(args: {
       runCreateBlockedSlotInternal,
       runDeleteAppointmentInternal,
       runDeleteBlockedSlotInternal,
+      runRestoreAppointmentSeriesSnapshotInternal,
       runRestoreDeletedAppointmentInternal,
       runUpdateAppointmentInternal,
       runUpdateBlockedSlotInternal,
@@ -2154,6 +2186,7 @@ export function useCalendarPlanningWorkbench(args: {
     runCreateBlockedSlotInternal,
     runDeleteAppointmentInternal,
     runDeleteBlockedSlotInternal,
+    runRestoreAppointmentSeriesSnapshotInternal,
     runUpdateAppointmentInternal,
     runUpdateBlockedSlotInternal,
   ]);
