@@ -3,7 +3,11 @@ import { Temporal } from "temporal-polyfill";
 
 import type { InstantString, IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type {
+  DatabaseReader,
+  MutationCtx,
+  QueryCtx,
+} from "./_generated/server";
 import type { InternalSchedulingResultSlot } from "./scheduling";
 import type { AppointmentColor, AppointmentSmiley } from "./schema";
 import type { ZonedDateTimeString } from "./typedDtos";
@@ -232,12 +236,17 @@ export async function createAppointmentSeries(
     rootAppointmentTypeId: args.rootAppointmentTypeId,
     ruleSetId: args.ruleSetId,
   });
+  const replacementExcludedAppointmentIds =
+    await resolveReplacementExcludedAppointmentIds(
+      ctx.db,
+      args.rootReplacesAppointmentId,
+    );
   const planningState = createSeriesPlanningState();
   const preview = await previewAppointmentSeries(
     ctx,
     {
-      ...(args.rootReplacesAppointmentId && {
-        excludedAppointmentIds: [args.rootReplacesAppointmentId],
+      ...(replacementExcludedAppointmentIds && {
+        excludedAppointmentIds: replacementExcludedAppointmentIds,
       }),
       ...args,
       rootAppointmentTypeId: rootAppointmentType._id,
@@ -295,10 +304,9 @@ export async function createAppointmentSeries(
         ...(simulationRuleSetId && { draftRuleSetId: simulationRuleSetId }),
         occupancyView: getOccupancyViewForBookingScope(scope),
         practiceId: args.practiceId,
-        ...(index === 0 &&
-          args.rootReplacesAppointmentId && {
-            excludeAppointmentIds: [args.rootReplacesAppointmentId],
-          }),
+        ...(replacementExcludedAppointmentIds && {
+          excludeAppointmentIds: replacementExcludedAppointmentIds,
+        }),
       },
     );
 
@@ -1719,6 +1727,32 @@ async function resolvePractitionerOccupancy(
     practitionerId: asPractitionerId(practitioner._id),
     practitionerName: practitioner.name,
   };
+}
+
+async function resolveReplacementExcludedAppointmentIds(
+  db: DatabaseReader,
+  rootReplacesAppointmentId: Id<"appointments"> | undefined,
+): Promise<Id<"appointments">[] | undefined> {
+  if (rootReplacesAppointmentId === undefined) {
+    return undefined;
+  }
+
+  const replacedAppointment = await db.get(
+    "appointments",
+    rootReplacesAppointmentId,
+  );
+  if (replacedAppointment?.seriesId === undefined) {
+    return [rootReplacesAppointmentId];
+  }
+
+  const replacedSeriesAppointments = await db
+    .query("appointments")
+    .withIndex("by_seriesId", (q) =>
+      q.eq("seriesId", replacedAppointment.seriesId),
+    )
+    .collect();
+
+  return replacedSeriesAppointments.map((appointment) => appointment._id);
 }
 
 async function resolveRootOccupancy(
