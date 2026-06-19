@@ -3222,10 +3222,22 @@ async function updateAppointmentByMode(
     }
 
     if (filteredUpdateData.calendarResourceColumn !== undefined) {
-      throw appointmentChainError(
-        "CHAIN_REPLAN_FAILED",
-        "Kettentermine können nicht in EKG- oder Labor-Spalten verschoben werden.",
-      );
+      const existingCalendarResourceColumn =
+        getAppointmentCalendarResourceColumn(
+          existingAppointment.occupancyScope,
+        );
+      const requestedCalendarResourceColumn =
+        filteredUpdateData.calendarResourceColumn ?? undefined;
+      const changesCalendarResourceColumn =
+        existingCalendarResourceColumn === undefined ||
+        requestedCalendarResourceColumn === undefined ||
+        requestedCalendarResourceColumn !== existingCalendarResourceColumn;
+      if (changesCalendarResourceColumn) {
+        throw appointmentChainError(
+          "CHAIN_REPLAN_FAILED",
+          "Kettentermine können nicht in EKG- oder Labor-Spalten verschoben werden.",
+        );
+      }
     }
 
     if (filteredUpdateData.appointmentTypeId !== undefined) {
