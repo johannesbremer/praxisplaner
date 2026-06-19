@@ -1962,6 +1962,135 @@ export const previewAppointmentSeries = query({
   returns: appointmentSeriesPreviewResultValidator,
 });
 
+const appointmentSeriesBlockedRootSlotValidator = v.object({
+  duration: v.number(),
+  locationLineageKey: v.id("locations"),
+  practitionerLineageKey: v.id("practitioners"),
+  practitionerName: v.string(),
+  reason: v.optional(v.string()),
+  startTime: v.string(),
+  status: v.literal("BLOCKED"),
+});
+
+const appointmentSeriesRootSlotCandidateValidator = v.object({
+  duration: v.number(),
+  locationLineageKey: v.id("locations"),
+  practitionerLineageKey: v.id("practitioners"),
+  practitionerName: v.string(),
+  startTime: v.string(),
+});
+
+type AppointmentSeriesBlockedRootSlot = Infer<
+  typeof appointmentSeriesBlockedRootSlotValidator
+>;
+
+export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
+  args: {
+    candidates: v.array(appointmentSeriesRootSlotCandidateValidator),
+    isNewPatient: v.optional(v.boolean()),
+    locationId: v.id("locations"),
+    patientDateOfBirth: v.optional(v.string()),
+    patientId: v.optional(v.id("patients")),
+    practiceId: v.id("practices"),
+    rootAppointmentTypeId: v.id("appointmentTypes"),
+    ruleSetId: v.id("ruleSets"),
+    scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
+    userId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await validateAppointmentSeriesOwnerRefs(ctx, {
+      practiceId: args.practiceId,
+      ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+      ...(args.userId === undefined ? {} : { userId: args.userId }),
+    });
+
+    const rootAppointmentType = await ctx.db.get(
+      "appointmentTypes",
+      args.rootAppointmentTypeId,
+    );
+    if (
+      rootAppointmentType?.practiceId !== args.practiceId ||
+      rootAppointmentType.ruleSetId !== args.ruleSetId ||
+      !hasAppointmentPlan(rootAppointmentType)
+    ) {
+      return [];
+    }
+
+    const rootDefaultOccupancy = normalizeDefaultOccupancy(
+      rootAppointmentType.defaultOccupancy,
+    );
+    if (rootDefaultOccupancy.kind === "resourceColumn") {
+      return [];
+    }
+
+    const locationLineageKey = await resolveLocationLineageKey(
+      ctx.db,
+      asLocationId(args.locationId),
+    );
+    const patientDateOfBirth =
+      args.patientDateOfBirth === undefined
+        ? args.patientId === undefined
+          ? undefined
+          : await resolvePreferredAppointmentPatientDateOfBirth(ctx.db, {
+              patientId: args.patientId,
+            })
+        : asOptionalIsoDateString(args.patientDateOfBirth);
+
+    const blockedRootSlots: AppointmentSeriesBlockedRootSlot[] = [];
+    for (const candidate of args.candidates) {
+      if (candidate.locationLineageKey !== locationLineageKey) {
+        continue;
+      }
+
+      const practitionerId = await resolvePractitionerIdForRuleSetByLineage(
+        ctx.db,
+        {
+          lineageKey: asPractitionerLineageKey(
+            candidate.practitionerLineageKey,
+          ),
+          ruleSetId: args.ruleSetId,
+        },
+      );
+      const preview = await previewAppointmentSeriesHelper(ctx, {
+        ...(args.isNewPatient === undefined
+          ? {}
+          : { isNewPatient: args.isNewPatient }),
+        locationId: args.locationId,
+        ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+        ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+        practiceId: args.practiceId,
+        practitionerId,
+        rootAppointmentTypeId: args.rootAppointmentTypeId,
+        ruleSetId: args.ruleSetId,
+        ...(args.scope === undefined ? {} : { scope: args.scope }),
+        start: asZonedDateTimeString(candidate.startTime),
+        ...(args.userId === undefined ? {} : { userId: args.userId }),
+      });
+
+      if (preview.status === "blocked") {
+        blockedRootSlots.push({
+          duration: candidate.duration,
+          locationLineageKey,
+          practitionerLineageKey: asPractitionerLineageKey(
+            candidate.practitionerLineageKey,
+          ),
+          practitionerName: candidate.practitionerName,
+          reason:
+            preview.failureMessage ??
+            "Die Kettentermine sind für diesen Starttermin nicht planbar.",
+          startTime: candidate.startTime,
+          status: "BLOCKED" as const,
+        });
+      }
+    }
+
+    return blockedRootSlots;
+  },
+  returns: v.array(appointmentSeriesBlockedRootSlotValidator),
+});
+
 export const createAppointmentSeries = mutation({
   args: {
     ...appointmentSeriesArgsValidator,
