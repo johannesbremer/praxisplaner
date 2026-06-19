@@ -957,6 +957,124 @@ describe("appointment series", () => {
     expect(preview.blockedStepId).toBe("step-1");
   });
 
+  test("previewAppointmentSeries can fall back exact practitioner steps to the next available slot", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const { rootAppointmentTypeId, targetAppointmentTypeId } = await t.run(
+      async (ctx) => {
+        const now = BigInt(Date.now());
+        const targetAppointmentTypeId = await ctx.db.insert(
+          "appointmentTypes",
+          {
+            allowedPractitionerLineageKeys: [practitionerId],
+            createdAt: now,
+            duration: 30,
+            lastModified: now,
+            name: "Diagnostik",
+            practiceId,
+            ruleSetId,
+          },
+        );
+        await ctx.db.patch("appointmentTypes", targetAppointmentTypeId, {
+          lineageKey: targetAppointmentTypeId,
+        });
+
+        const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: targetAppointmentTypeId,
+                occupancy: { kind: "inheritRootPractitioner" },
+                required: true,
+                stepId: "step-1",
+                timing: {
+                  kind: "afterPreviousEnd",
+                  offsetUnit: "minutes",
+                  offsetValue: 0,
+                },
+              },
+            ],
+          },
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          name: "Root",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", rootAppointmentTypeId, {
+          lineageKey: rootAppointmentTypeId,
+        });
+
+        return { rootAppointmentTypeId, targetAppointmentTypeId };
+      },
+    );
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 8, minute: 30 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const blockedStepStart = Temporal.ZonedDateTime.from(rootStart)
+      .add({ minutes: 30 })
+      .toString();
+    const blockedStepEnd = Temporal.ZonedDateTime.from(blockedStepStart)
+      .add({ minutes: 30 })
+      .toString();
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: targetAppointmentTypeId,
+        appointmentTypeTitle: "Blocker",
+        createdAt: now,
+        end: blockedStepEnd,
+        lastModified: now,
+        locationLineageKey: locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: practitionerId,
+        },
+        practiceId,
+        start: blockedStepStart,
+        title: "Blockiert",
+      });
+    });
+
+    const strictPreview = await t.query(
+      api.appointments.previewAppointmentSeries,
+      {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        ruleSetId,
+        start: rootStart,
+      },
+    );
+    expect(strictPreview.status).toBe("blocked");
+
+    const fallbackPreview = await t.query(
+      api.appointments.previewAppointmentSeries,
+      {
+        allowExactStepFallback: true,
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        ruleSetId,
+        start: rootStart,
+      },
+    );
+
+    expect(fallbackPreview.status).toBe("ready");
+    expect(fallbackPreview.steps[1]?.start).toBe(blockedStepEnd);
+  });
+
   test("previewAppointmentSeries blocks immediately when an inherited practitioner is not allowed for the plan-step type", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
