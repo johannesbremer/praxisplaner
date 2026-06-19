@@ -1871,7 +1871,21 @@ export function useCalendarPlanningWorkbench(args: {
     async (args: Parameters<typeof deleteAppointmentMutation>[0]) => {
       const deleted = getAppointmentHistoryDoc(args.id);
       if (deleted?.seriesId) {
+        const snapshot = await convex.query(
+          api.appointments.getAppointmentSeriesRestoreSnapshotByAppointmentId,
+          { appointmentId: args.id },
+        );
         await deleteAppointmentMutation(args);
+        if (snapshot) {
+          recordCalendarCommand({
+            kind: "appointmentSeries.delete",
+            label: "Kettentermine gelöscht",
+            payload: {
+              currentRootAppointmentId: snapshot.series.rootAppointmentId,
+              snapshot,
+            },
+          });
+        }
         return;
       }
 
@@ -1938,6 +1952,7 @@ export function useCalendarPlanningWorkbench(args: {
     },
     [
       deleteAppointmentMutation,
+      convex,
       forgetAppointmentHistoryDoc,
       getAppointmentHistoryDoc,
       getAppointmentCreationEnd,

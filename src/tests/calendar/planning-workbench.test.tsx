@@ -400,6 +400,141 @@ describe("calendar planning workbench", () => {
     });
   });
 
+  it("records exact series delete history for appointment-plan series", async () => {
+    const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
+    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("type_lineage_1"),
+    );
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const appointmentId = toTableId<"appointments">("appointment_1");
+    const ruleSetId = toTableId<"ruleSets">("rule_set_1");
+    const seriesId = "series_1";
+    const appointment = {
+      ...buildCalendarAppointmentRecord({
+        _id: appointmentId,
+        appointmentTypeLineageKey,
+        appointmentTypeTitle: "Check-up",
+        calendarResourceColumn: "ekg",
+        end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+        locationLineageKey,
+        practiceId,
+        start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+        title: "Check-up",
+      }),
+      seriesId,
+      seriesStepId: "root",
+      seriesStepIndex: 0n,
+    } satisfies CalendarAppointmentRecord;
+    const appointmentMap = new Map([[appointment._id, appointment]]);
+    const seriesSnapshot = {
+      appointments: [
+        {
+          appointmentTypeLineageKey,
+          appointmentTypeTitle: "Check-up",
+          createdAt: 1n,
+          end: appointment.end,
+          isSimulation: false,
+          lastModified: 1n,
+          locationLineageKey,
+          occupancyScope: {
+            calendarResourceColumn: "ekg" as const,
+            kind: "resource" as const,
+          },
+          originalAppointmentId: appointmentId,
+          practiceId,
+          seriesStepId: "root",
+          seriesStepIndex: 0n,
+          start: appointment.start,
+          title: "Check-up",
+        },
+      ],
+      series: {
+        appointmentPlanSnapshot: [],
+        createdAt: 1n,
+        lastModified: 1n,
+        practiceId,
+        rootAppointmentId: appointmentId,
+        rootAppointmentTypeId: appointmentTypeId,
+        rootAppointmentTypeLineageKey: appointmentTypeLineageKey,
+        rootDurationMinutes: 30,
+        ruleSetIdAtBooking: ruleSetId,
+        scope: "real" as const,
+        seriesId,
+      },
+    };
+    const deleteAppointmentMutation = makeMutation(null);
+    convexQuery.mockResolvedValue(seriesSnapshot);
+    mutationQueue.push(
+      makeMutation(toTableId<"appointments">("appointment_unused")),
+      makeMutation(toTableId<"appointments">("appointment_restore_unused")),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(null),
+      deleteAppointmentMutation,
+      makeMutation(toTableId<"blockedSlots">("blocked_slot_unused")),
+      makeMutation(null),
+      makeMutation(null),
+    );
+
+    const { result } = renderHook(() =>
+      useCalendarPlanningWorkbench({
+        activeDayAppointmentMapRef: { current: appointmentMap },
+        activeDayBlockedSlotMapRef: { current: new Map() },
+        allPracticeAppointmentMap: appointmentMap,
+        allPracticeAppointmentMapRef: { current: appointmentMap },
+        allPracticeAppointmentsLoaded: true,
+        allPracticeBlockedSlotMap: new Map(),
+        allPracticeBlockedSlotMapRef: { current: new Map() },
+        allPracticeBlockedSlotsLoaded: true,
+        blockedSlotsQueryArgs: null,
+        calendarDayQueryArgs: null,
+        getRequiredAppointmentTypeInfo: () => ({
+          duration: 30,
+          hasAppointmentPlan: true,
+          name: "Check-up",
+        }),
+        parseZonedDateTime,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map([
+            [appointmentTypeLineageKey, appointmentTypeId],
+          ]),
+          appointmentTypeLineageKeyById: new Map([
+            [appointmentTypeId, appointmentTypeLineageKey],
+          ]),
+          locationIdByLineageKey: new Map([[locationLineageKey, locationId]]),
+          locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        refreshAllPracticeConflictData: vi.fn(() => Promise.resolve()),
+      }),
+    );
+
+    await act(async () => {
+      await result.current.commands.deleteAppointment({ id: appointmentId });
+    });
+
+    expect(convexQuery).toHaveBeenCalledWith(expect.anything(), {
+      appointmentId,
+    });
+    expect(deleteAppointmentMutation).toHaveBeenCalledWith({
+      id: appointmentId,
+    });
+    expect(recordCalendarCommand).toHaveBeenCalledWith({
+      kind: "appointmentSeries.delete",
+      label: "Kettentermine gelöscht",
+      payload: {
+        currentRootAppointmentId: appointmentId,
+        snapshot: seriesSnapshot,
+      },
+    });
+  });
+
   it("preserves appointment smileys in delete undo create args", async () => {
     const appointmentId = toTableId<"appointments">("appointment_1");
     const appointmentTypeId = toTableId<"appointmentTypes">("type_1");

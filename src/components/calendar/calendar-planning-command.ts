@@ -58,6 +58,14 @@ export interface CalendarAppointmentSeriesCreateCommand extends CalendarPlanning
   };
 }
 
+export interface CalendarAppointmentSeriesDeleteCommand extends CalendarPlanningCommandBase {
+  kind: "appointmentSeries.delete";
+  payload: {
+    currentRootAppointmentId: Id<"appointments">;
+    snapshot: AppointmentSeriesRestoreSnapshot;
+  };
+}
+
 export interface CalendarAppointmentUpdateCommand extends CalendarPlanningCommandBase {
   kind: "appointment.update";
   payload: {
@@ -103,6 +111,7 @@ export type CalendarPlanningCommand =
   | CalendarAppointmentCreateCommand
   | CalendarAppointmentDeleteCommand
   | CalendarAppointmentSeriesCreateCommand
+  | CalendarAppointmentSeriesDeleteCommand
   | CalendarAppointmentUpdateCommand
   | CalendarBlockedSlotCreateCommand
   | CalendarBlockedSlotDeleteCommand

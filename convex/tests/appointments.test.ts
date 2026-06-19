@@ -1913,6 +1913,65 @@ describe("appointments update safety", () => {
     });
   });
 
+  test("updateAppointment applies resource default occupancy when changing appointment type", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_type_resource_default";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-type-resource-default@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-type-resource-default@example.com",
+      subject: authId,
+    });
+
+    const resourceAppointmentTypeId = await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      return await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
+        allowedPractitionerLineageKeys: [baseData.practitionerId],
+        createdAt: BigInt(Date.now()),
+        defaultOccupancy: {
+          calendarResourceColumn: "labor",
+          kind: "resourceColumn",
+        },
+        duration: 30,
+        lastModified: BigInt(Date.now()),
+        name: "Labor",
+        practiceId: baseData.practiceId,
+        ruleSetId: baseData.ruleSetId,
+      });
+    });
+
+    const appointmentId = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(4),
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        appointmentTypeId: resourceAppointmentTypeId,
+        id: appointmentId,
+      }),
+    ).resolves.toBeNull();
+
+    const updatedAppointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", appointmentId);
+    });
+
+    expect(updatedAppointment?.occupancyScope).toEqual({
+      calendarResourceColumn: "labor",
+      kind: "resource",
+    });
+  });
+
   test("createAppointment rejects creating an appointment on an occupied blocked slot", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
