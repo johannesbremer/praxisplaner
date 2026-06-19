@@ -991,15 +991,21 @@ async function findFirstAvailableStepStartOnOrAfter(
         simulationRuleSetId: args.simulationRuleSetId,
       }),
     });
-    const matchingSlot = args.respectEarliestStartTime
-      ? slots.find(
-          (slot) =>
-            Temporal.ZonedDateTime.compare(
-              Temporal.ZonedDateTime.from(slot.startTime),
-              args.earliestStart,
-            ) >= 0,
-        )
-      : slots[0];
+    const matchingSlot = slots.find((slot) => {
+      if (
+        args.respectEarliestStartTime &&
+        Temporal.ZonedDateTime.compare(
+          Temporal.ZonedDateTime.from(slot.startTime),
+          args.earliestStart,
+        ) < 0
+      ) {
+        return false;
+      }
+      return hasConsecutiveAvailablePractitionerSlots(slots, {
+        durationMinutes: args.targetAppointmentType.duration,
+        start: asZonedDateTimeString(slot.startTime),
+      });
+    });
     if (matchingSlot) {
       return asZonedDateTimeString(matchingSlot.startTime);
     }
@@ -1786,7 +1792,11 @@ async function validateRootCandidate(
       (slot) =>
         slot.startTime === args.start &&
         slot.locationLineageKey === rootLocationLineageKey &&
-        slot.practitionerLineageKey === rootPractitionerLineageKey,
+        slot.practitionerLineageKey === rootPractitionerLineageKey &&
+        hasConsecutiveAvailablePractitionerSlots(rootSlots, {
+          durationMinutes: args.rootDurationMinutes,
+          start: args.start,
+        }),
     );
 
     if (!hasSelectedRootSlot) {
