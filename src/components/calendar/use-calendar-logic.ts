@@ -152,6 +152,7 @@ export function useCalendarLogic({
     appointmentTypeInfoByLineageKey,
     appointmentTypeLineageKeyById,
     baseSchedulesData,
+    blockedAppointmentSeriesRootSlots,
     blockedSlotDocMapRef,
     blockedSlotsData,
     blockedSlotsWithoutAppointmentTypeResult,
@@ -434,6 +435,7 @@ export function useCalendarLogic({
   } = useCalendarBlockedSlotProjection({
     appointmentsData,
     baseSchedulesData,
+    blockedAppointmentSeriesRootSlots,
     blockedSlotsData,
     blockedSlotsWithoutAppointmentTypeSlots:
       blockedSlotsWithoutAppointmentTypeResult?.slots,
