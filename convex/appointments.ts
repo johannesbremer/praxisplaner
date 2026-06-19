@@ -2327,20 +2327,22 @@ export const getNextAvailableResourceSeriesRootSlot = query({
 });
 
 const appointmentSeriesBlockedRootSlotValidator = v.object({
+  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
   duration: v.number(),
   locationLineageKey: v.id("locations"),
-  practitionerLineageKey: v.id("practitioners"),
-  practitionerName: v.string(),
+  practitionerLineageKey: v.optional(v.id("practitioners")),
+  practitionerName: v.optional(v.string()),
   reason: v.optional(v.string()),
   startTime: v.string(),
   status: v.literal("BLOCKED"),
 });
 
 const appointmentSeriesRootSlotCandidateValidator = v.object({
+  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
   duration: v.number(),
   locationLineageKey: v.id("locations"),
-  practitionerLineageKey: v.id("practitioners"),
-  practitionerName: v.string(),
+  practitionerLineageKey: v.optional(v.id("practitioners")),
+  practitionerName: v.optional(v.string()),
   startTime: v.string(),
 });
 
@@ -2351,6 +2353,7 @@ type AppointmentSeriesBlockedRootSlot = Infer<
 export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
   args: {
     candidates: v.array(appointmentSeriesRootSlotCandidateValidator),
+    excludedAppointmentIds: v.optional(v.array(v.id("appointments"))),
     isNewPatient: v.optional(v.boolean()),
     locationId: v.id("locations"),
     patientDateOfBirth: v.optional(v.string()),
@@ -2382,13 +2385,6 @@ export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
       return [];
     }
 
-    const rootDefaultOccupancy = normalizeDefaultOccupancy(
-      rootAppointmentType.defaultOccupancy,
-    );
-    if (rootDefaultOccupancy.kind === "resourceColumn") {
-      return [];
-    }
-
     const locationLineageKey = await resolveLocationLineageKey(
       ctx.db,
       asLocationId(args.locationId),
@@ -2403,21 +2399,42 @@ export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
         : asOptionalIsoDateString(args.patientDateOfBirth);
 
     const blockedRootSlots: AppointmentSeriesBlockedRootSlot[] = [];
+    const practitionerIdsByLineageKey = new Map<
+      PractitionerLineageKey,
+      Id<"practitioners">
+    >();
     for (const candidate of args.candidates) {
       if (candidate.locationLineageKey !== locationLineageKey) {
         continue;
       }
 
-      const practitionerId = await resolvePractitionerIdForRuleSetByLineage(
-        ctx.db,
-        {
-          lineageKey: asPractitionerLineageKey(
-            candidate.practitionerLineageKey,
-          ),
-          ruleSetId: args.ruleSetId,
-        },
-      );
+      const practitionerLineageKey =
+        candidate.practitionerLineageKey === undefined
+          ? undefined
+          : asPractitionerLineageKey(candidate.practitionerLineageKey);
+      const cachedPractitionerId =
+        practitionerLineageKey === undefined
+          ? undefined
+          : practitionerIdsByLineageKey.get(practitionerLineageKey);
+      const practitionerId =
+        cachedPractitionerId ??
+        (practitionerLineageKey === undefined
+          ? undefined
+          : await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+              lineageKey: practitionerLineageKey,
+              ruleSetId: args.ruleSetId,
+            }));
+      if (
+        practitionerLineageKey !== undefined &&
+        practitionerId !== undefined
+      ) {
+        practitionerIdsByLineageKey.set(practitionerLineageKey, practitionerId);
+      }
+
       const preview = await previewAppointmentSeriesHelper(ctx, {
+        ...(args.excludedAppointmentIds === undefined
+          ? {}
+          : { excludedAppointmentIds: args.excludedAppointmentIds }),
         ...(args.isNewPatient === undefined
           ? {}
           : { isNewPatient: args.isNewPatient }),
@@ -2425,7 +2442,10 @@ export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
         ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
         ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
         practiceId: args.practiceId,
-        practitionerId,
+        ...(candidate.calendarResourceColumn === undefined
+          ? {}
+          : { calendarResourceColumn: candidate.calendarResourceColumn }),
+        ...(practitionerId === undefined ? {} : { practitionerId }),
         rootAppointmentTypeId: args.rootAppointmentTypeId,
         ruleSetId: args.ruleSetId,
         ...(args.scope === undefined ? {} : { scope: args.scope }),
@@ -2435,12 +2455,17 @@ export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
 
       if (preview.status === "blocked") {
         blockedRootSlots.push({
+          ...(candidate.calendarResourceColumn === undefined
+            ? {}
+            : { calendarResourceColumn: candidate.calendarResourceColumn }),
           duration: candidate.duration,
           locationLineageKey,
-          practitionerLineageKey: asPractitionerLineageKey(
-            candidate.practitionerLineageKey,
-          ),
-          practitionerName: candidate.practitionerName,
+          ...(practitionerLineageKey === undefined
+            ? {}
+            : { practitionerLineageKey }),
+          ...(candidate.practitionerName === undefined
+            ? {}
+            : { practitionerName: candidate.practitionerName }),
           reason:
             preview.failureMessage ??
             "Die Kettentermine sind für diesen Starttermin nicht planbar.",

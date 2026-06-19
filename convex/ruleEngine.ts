@@ -145,6 +145,7 @@ export async function buildPreloadedDayData(
   ruleSetId: Id<"ruleSets">,
   practitioners: Doc<"practitioners">[],
   options: {
+    excludeAppointmentIds?: readonly Id<"appointments">[];
     occupancyView?: AppointmentOccupancyView;
   } = {},
 ): Promise<PreloadedDayData> {
@@ -177,6 +178,8 @@ export async function buildPreloadedDayData(
     rawAppointments,
     options.occupancyView ?? "live",
     ruleSetId,
+  ).filter(
+    (appointment) => !options.excludeAppointmentIds?.includes(appointment._id),
   );
 
   const [ruleSetAppointmentTypes, ruleSetLocations] = await Promise.all([

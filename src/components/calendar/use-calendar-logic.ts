@@ -1,3 +1,4 @@
+import { useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
@@ -9,6 +10,7 @@ import type {
 } from "../../../convex/identity";
 import type { ZonedDateTimeString } from "../../../convex/typedDtos";
 
+import { api } from "../../../convex/_generated/api";
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
@@ -263,6 +265,7 @@ export function useCalendarLogic({
 
   const placementAppointmentTypeLineageKey =
     simulatedContext?.appointmentTypeLineageKey ??
+    draggedAppointmentTypeLineageKey ??
     (selectedAppointmentTypeId === undefined
       ? undefined
       : appointmentTypeLineageKeyById.get(selectedAppointmentTypeId));
@@ -432,6 +435,120 @@ export function useCalendarLogic({
     [businessStartHour],
   );
 
+  const appointmentSeriesRootCandidates = useMemo(() => {
+    if (
+      placementAppointmentTypeLineageKey === undefined ||
+      selectedLocationId === undefined
+    ) {
+      return [];
+    }
+
+    const rootAppointmentType = appointmentTypeInfoByLineageKey.get(
+      placementAppointmentTypeLineageKey,
+    );
+    const locationLineageKey = locationLineageKeyById.get(selectedLocationId);
+    if (
+      rootAppointmentType === undefined ||
+      !rootAppointmentType.hasAppointmentPlan ||
+      locationLineageKey === undefined
+    ) {
+      return [];
+    }
+
+    const startForSlot = (slot: number) =>
+      selectedDate
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from(slotToTime(slot)),
+          timeZone: TIMEZONE,
+        })
+        .toString();
+
+    const rootDefaultOccupancy = rootAppointmentType.defaultOccupancy;
+    if (rootDefaultOccupancy?.kind === "resourceColumn") {
+      const resourceColumn = columns.find(
+        (column) =>
+          getCalendarResourceColumnFromColumn(column.id) ===
+          rootDefaultOccupancy.calendarResourceColumn,
+      );
+      if (resourceColumn === undefined) {
+        return [];
+      }
+
+      return Array.from({ length: totalSlots }, (_, slot) => ({
+        calendarResourceColumn: rootDefaultOccupancy.calendarResourceColumn,
+        duration: rootAppointmentType.duration,
+        locationLineageKey,
+        startTime: startForSlot(slot),
+      }));
+    }
+
+    return columns.flatMap((column) => {
+      const practitionerLineageKey = getPractitionerLineageKeyFromColumn(
+        column.id,
+      );
+      if (practitionerLineageKey === undefined) {
+        return [];
+      }
+
+      const practitionerName =
+        workingPractitioners.find(
+          (practitioner) => practitioner.lineageKey === practitionerLineageKey,
+        )?.name ?? column.title;
+
+      return Array.from({ length: totalSlots }, (_, slot) => ({
+        duration: rootAppointmentType.duration,
+        locationLineageKey,
+        practitionerLineageKey,
+        practitionerName,
+        startTime: startForSlot(slot),
+      }));
+    });
+  }, [
+    appointmentTypeInfoByLineageKey,
+    columns,
+    locationLineageKeyById,
+    placementAppointmentTypeLineageKey,
+    selectedDate,
+    selectedLocationId,
+    slotToTime,
+    totalSlots,
+    workingPractitioners,
+  ]);
+
+  const appointmentSeriesRootAppointmentTypeId =
+    placementAppointmentTypeLineageKey === undefined
+      ? undefined
+      : appointmentTypeIdByLineageKey.get(placementAppointmentTypeLineageKey);
+  const appointmentSeriesRootBlockedSlots = useQuery(
+    api.appointments.getBlockedAppointmentSeriesRootSlotsForCandidates,
+    appointmentSeriesRootCandidates.length > 0 &&
+      appointmentSeriesRootAppointmentTypeId !== undefined &&
+      selectedLocationId !== undefined &&
+      ruleSetId !== undefined
+      ? {
+          candidates: appointmentSeriesRootCandidates,
+          ...(dragExcludedAppointmentIds.length === 0
+            ? {}
+            : { excludedAppointmentIds: dragExcludedAppointmentIds }),
+          ...(patient?.dateOfBirth === undefined
+            ? {}
+            : { patientDateOfBirth: patient.dateOfBirth }),
+          ...(patient?.isNewPatient === undefined
+            ? {}
+            : { isNewPatient: patient.isNewPatient }),
+          ...(patient?.recordType === "pvs"
+            ? { patientId: patient.convexPatientId }
+            : {}),
+          locationId: selectedLocationId,
+          practiceId,
+          rootAppointmentTypeId: appointmentSeriesRootAppointmentTypeId,
+          ruleSetId,
+          scope: simulatedContext === undefined ? "real" : "simulation",
+          ...(patient?.userId === undefined ? {} : { userId: patient.userId }),
+        }
+      : "skip",
+  );
+
   const {
     baseAppointmentSeriesRootBlockedSlots,
     baseAppointmentTypeUnavailableBlockedSlots,
@@ -443,17 +560,16 @@ export function useCalendarLogic({
     baseVacationBlockedSlots,
   } = useCalendarBlockedSlotProjection({
     appointmentsData,
-    appointmentTypeInfoByLineageKey,
+    appointmentSeriesRootBlockedSlots,
+    appointmentTypeSelected: placementAppointmentTypeLineageKey !== undefined,
     baseSchedulesData,
     blockedSlotsData,
     blockedSlotsWithoutAppointmentTypeSlots:
       blockedSlotsWithoutAppointmentTypeResult?.slots,
     businessStartHour,
     columns,
-    excludedAppointmentIdsForAvailability,
     getPractitionerIdForLineageKey,
     locationLineageKeyById,
-    placementAppointmentTypeLineageKey,
     practitionerLineageKeyById,
     selectedDate,
     selectedLocationId,

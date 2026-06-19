@@ -211,6 +211,11 @@ export async function evaluateCandidateSlotsForDay(
     args.ruleSetId,
     practitioners,
     {
+      ...(args.bookingContext.excludedAppointmentIds === undefined
+        ? {}
+        : {
+            excludeAppointmentIds: args.bookingContext.excludedAppointmentIds,
+          }),
       occupancyView: getOccupancyViewForBookingScope(args.scope),
     },
   );
