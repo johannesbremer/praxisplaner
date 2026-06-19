@@ -2333,6 +2333,115 @@ describe("appointment series", () => {
     expect(remainingAppointments).toHaveLength(0);
   });
 
+  test("updateAppointment replans a series when the new root overlaps an old follow-up", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await ensurePracticeOwnerUser(t, {
+      authId: "workos_appointment_series",
+      email: "appointment-series@example.com",
+    });
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const followUpTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Folgetermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", followUpTypeId, {
+        lineageKey: followUpTypeId,
+      });
+      const rootTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: followUpTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "follow-up",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Starttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootTypeId, {
+        lineageKey: rootTypeId,
+      });
+      return rootTypeId;
+    });
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const createdSeries = await t.mutation(
+      api.appointments.createAppointmentSeries,
+      {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Starttermin",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      },
+    );
+
+    const shiftedRootStart = Temporal.ZonedDateTime.from(rootStart)
+      .add({ minutes: 30 })
+      .toString();
+    const shiftedRootEnd = Temporal.ZonedDateTime.from(rootStart)
+      .add({ minutes: 60 })
+      .toString();
+
+    await expect(
+      t.mutation(api.appointments.updateAppointment, {
+        end: shiftedRootEnd,
+        id: createdSeries.rootAppointmentId,
+        start: shiftedRootStart,
+      }),
+    ).resolves.toBeNull();
+
+    const updatedAppointments = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) =>
+          q.eq("seriesId", createdSeries.seriesId),
+        )
+        .collect();
+    });
+    const sortedUpdatedAppointments = updatedAppointments.toSorted(
+      (left, right) =>
+        Number(left.seriesStepIndex ?? 0n) -
+        Number(right.seriesStepIndex ?? 0n),
+    );
+
+    expect(sortedUpdatedAppointments[0]?.start).toBe(shiftedRootStart);
+    expect(sortedUpdatedAppointments[1]?.start).toBe(
+      Temporal.ZonedDateTime.from(rootStart).add({ minutes: 60 }).toString(),
+    );
+  });
+
   test("appointment plans support before steps and same-time EKG resource steps", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
