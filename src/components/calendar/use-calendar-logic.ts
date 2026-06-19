@@ -34,6 +34,7 @@ import { findFirstBlockedSlotInRange } from "./calendar-slot-blocking";
 import {
   buildCalendarAppointmentLayouts,
   buildCalendarAppointmentViews,
+  getCalendarAppointmentColumn,
 } from "./calendar-view-models";
 import {
   type CalendarAppointmentLayout,
@@ -864,14 +865,23 @@ export function useCalendarLogic({
       startClientX: e.clientX,
       startClientY: e.clientY,
     };
+    const sameSeriesAppointments =
+      appointment.record.seriesId === undefined
+        ? []
+        : [...allPracticeAppointmentDocMap.values()].filter(
+            (entry) => entry.seriesId === appointment.record.seriesId,
+          );
     const excludedIds =
       appointment.record.seriesId === undefined
         ? [appointment.record._id]
-        : appointmentLayouts
-            .filter(
-              (entry) => entry.record.seriesId === appointment.record.seriesId,
-            )
-            .map((entry) => entry.record._id);
+        : sameSeriesAppointments.length > 0
+          ? sameSeriesAppointments.map((entry) => entry._id)
+          : appointmentLayouts
+              .filter(
+                (entry) =>
+                  entry.record.seriesId === appointment.record.seriesId,
+              )
+              .map((entry) => entry.record._id);
     setDragExcludedAppointmentIds(excludedIds);
     setDraggedAppointment(appointment);
   };
@@ -1248,14 +1258,6 @@ export function useCalendarLogic({
       return;
     }
 
-    if (isNonRootSeriesAppointment(draggedAppointment.record._id)) {
-      showNonRootSeriesEditToast();
-      setDraggedAppointment(null);
-      setDragExcludedAppointmentIds([]);
-      setDragPreview(emptyDragPreview);
-      return;
-    }
-
     const finalSlot = resolveDropSlot(e, draggedAppointment.duration);
     const newTime = slotToTime(finalSlot);
 
@@ -1298,38 +1300,98 @@ export function useCalendarLogic({
 
       const endZoned = startZoned.add({ minutes: draggedAppointment.duration });
 
-      const targetResourceColumn = getCalendarResourceColumnFromColumn(column);
+      const rootSeriesAppointment =
+        draggedAppointment.record.seriesId === undefined
+          ? undefined
+          : [...allPracticeAppointmentDocMap.values()].find(
+              (appointment) =>
+                appointment.seriesId === draggedAppointment.record.seriesId &&
+                appointment.seriesStepIndex === 0n,
+            );
+      const moveSeriesFromFollowUp =
+        isNonRootSeriesAppointment(draggedAppointment.record._id) &&
+        rootSeriesAppointment !== undefined;
+
+      if (
+        isNonRootSeriesAppointment(draggedAppointment.record._id) &&
+        rootSeriesAppointment === undefined
+      ) {
+        toast.error(
+          "Der Starttermin dieser Kette ist noch nicht geladen. Bitte erneut versuchen.",
+        );
+        return;
+      }
+
+      const appointmentToMove =
+        rootSeriesAppointment ?? draggedAppointment.record;
+      const appointmentToMoveStart = Temporal.ZonedDateTime.from(
+        appointmentToMove.start,
+      );
+      const appointmentToMoveEnd = Temporal.ZonedDateTime.from(
+        appointmentToMove.end,
+      );
+      const moveDeltaMilliseconds = moveSeriesFromFollowUp
+        ? startZoned.epochMilliseconds -
+          Temporal.ZonedDateTime.from(draggedAppointment.record.start)
+            .epochMilliseconds
+        : 0;
+      const movedStartZoned = moveSeriesFromFollowUp
+        ? appointmentToMoveStart.add({ milliseconds: moveDeltaMilliseconds })
+        : startZoned;
+      const movedEndZoned = moveSeriesFromFollowUp
+        ? appointmentToMoveEnd.add({ milliseconds: moveDeltaMilliseconds })
+        : endZoned;
+      const moveColumn = moveSeriesFromFollowUp
+        ? getCalendarAppointmentColumn(appointmentToMove)
+        : column;
+
+      const targetResourceColumn =
+        getCalendarResourceColumnFromColumn(moveColumn);
       const targetPractitionerId =
         targetResourceColumn === undefined
-          ? getPractitionerIdForColumn(column)
+          ? getPractitionerIdForColumn(moveColumn)
           : undefined;
 
       if (simulatedContext && draggedAppointment.record.isSimulation !== true) {
+        const appointmentLayoutToMove =
+          appointmentLayouts.find(
+            (appointment) => appointment.record._id === appointmentToMove._id,
+          ) ??
+          ({
+            column: moveColumn,
+            duration:
+              (appointmentToMoveEnd.epochMilliseconds -
+                appointmentToMoveStart.epochMilliseconds) /
+              60_000,
+            id: appointmentToMove._id,
+            record: appointmentToMove,
+            startTime: formatTime(appointmentToMoveStart.toPlainTime()),
+          } satisfies CalendarAppointmentLayout);
         await planningCommands.convertRealAppointmentToSimulation(
-          draggedAppointment,
+          appointmentLayoutToMove,
           {
-            columnOverride: column,
-            endISO: endZoned.toString(),
+            columnOverride: moveColumn,
+            endISO: movedEndZoned.toString(),
             ...(targetResourceColumn === undefined
               ? { calendarResourceColumn: null }
               : { calendarResourceColumn: targetResourceColumn }),
             ...(targetPractitionerId && {
               practitionerId: targetPractitionerId,
             }),
-            startISO: startZoned.toString(),
+            startISO: movedStartZoned.toString(),
           },
         );
       } else {
         try {
           const targetPractitionerLineageKey =
-            getPractitionerLineageKeyFromColumn(column);
+            getPractitionerLineageKeyFromColumn(moveColumn);
           const targetPlacement =
             targetResourceColumn === undefined
               ? targetPractitionerLineageKey === undefined
                 ? null
                 : createCalendarPlacement({
                     locationLineageKey:
-                      draggedAppointment.record.placement.locationLineageKey,
+                      appointmentToMove.placement.locationLineageKey,
                     occupancyScope: {
                       kind: "practitioner",
                       practitionerLineageKey: targetPractitionerLineageKey,
@@ -1337,7 +1399,7 @@ export function useCalendarLogic({
                   })
               : createCalendarPlacement({
                   locationLineageKey:
-                    draggedAppointment.record.placement.locationLineageKey,
+                    appointmentToMove.placement.locationLineageKey,
                   occupancyScope: {
                     calendarResourceColumn: targetResourceColumn,
                     kind: "resource",
@@ -1347,19 +1409,18 @@ export function useCalendarLogic({
               toast.error("Ungültige Ressource");
               return;
             }
-            await planningCommands.updateAppointment({
-              end: endZoned.toString(),
-              id: draggedAppointment.record._id,
-              placement: targetPlacement,
-              start: startZoned.toString(),
-            });
-          } catch (error) {
-            captureErrorGlobal(error, {
-              appointmentId: draggedAppointment.record._id,
-              context: "NewCalendar - Failed to update appointment (drag)",
-            });
-            toast.error("Termin konnte nicht verschoben werden");
-          }
+          await planningCommands.updateAppointment({
+            end: movedEndZoned.toString(),
+            id: appointmentToMove._id,
+            placement: targetPlacement,
+            start: movedStartZoned.toString(),
+          });
+        } catch (error) {
+          captureErrorGlobal(error, {
+            appointmentId: appointmentToMove._id,
+            context: "NewCalendar - Failed to update appointment (drag)",
+          });
+          toast.error("Termin konnte nicht verschoben werden");
         }
       } catch (error) {
         captureErrorGlobal(error, {
