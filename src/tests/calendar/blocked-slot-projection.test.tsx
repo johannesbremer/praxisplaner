@@ -2,6 +2,8 @@ import { renderHook } from "@testing-library/react";
 import { Temporal } from "temporal-polyfill";
 import { describe, expect, it } from "vitest";
 
+import type { Id } from "../../../convex/_generated/dataModel";
+
 import {
   asLocationLineageKey,
   asPractitionerLineageKey,
@@ -43,6 +45,8 @@ describe("useCalendarBlockedSlotProjection", () => {
   function renderProjection(args: {
     appointmentSeriesRootBlockedSlots?: {
       calendarResourceColumn?: "ekg" | "labor";
+      blockingRuleIds?: Id<"ruleConditions">[];
+      failureKind?: "ruleBlock";
       practitionerLineageKey?: typeof rawPractitionerLineageId;
       reason?: string;
       startTime: string;
@@ -188,6 +192,31 @@ describe("useCalendarBlockedSlotProjection", () => {
       {
         column: ekgColumn,
         reason: "Kettentermin nicht planbar",
+        slot: 12,
+      },
+    ]);
+  });
+
+  it("keeps server-planned Kettentermin rule provenance on projected slots", () => {
+    const { result } = renderProjection({
+      appointmentSeriesRootBlockedSlots: [
+        {
+          blockingRuleIds: [toTableId<"ruleConditions">("rule_condition_1")],
+          failureKind: "ruleBlock",
+          practitionerLineageKey: rawPractitionerLineageId,
+          reason: "Regel blockiert Folgetermin",
+          startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+        },
+      ],
+      appointmentTypeSelected: true,
+    });
+
+    expect(result.current.baseAppointmentSeriesRootBlockedSlots).toEqual([
+      {
+        blockedByRuleId: "rule_condition_1",
+        column: practitionerColumn,
+        failureKind: "ruleBlock",
+        reason: "Regel blockiert Folgetermin",
         slot: 12,
       },
     ]);
