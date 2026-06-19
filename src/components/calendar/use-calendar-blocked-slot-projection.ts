@@ -3,11 +3,6 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type {
-  AppointmentPlan,
-  AppointmentTypeDefaultOccupancy,
-} from "../../../convex/appointmentPlans";
-import type {
-  AppointmentTypeLineageKey,
   LocationLineageKey,
   PractitionerLineageKey,
 } from "../../../convex/identity";
@@ -24,12 +19,11 @@ import {
   getAppointmentPractitionerLineageKey,
   getBlockedSlotPractitionerLineageKey,
 } from "../../../convex/appointmentOccupancy";
+import { asPractitionerLineageKey } from "../../../convex/identity";
 import {
-  calendarColumnScopeFromOccupancy,
   calendarColumnScopeFromPractitioner,
   calendarColumnScopeFromResourceColumn,
   getCalendarResourceColumnFromOccupancy,
-  calendarColumnScopeKey,
   sameCalendarColumnScope,
 } from "../../../lib/calendar-occupancy";
 import { getPractitionerVacationRangesForDate } from "../../../lib/vacation-utils";
@@ -38,16 +32,7 @@ import {
   invalidStateError,
 } from "../../utils/frontend-errors";
 import { SLOT_DURATION } from "./types";
-import {
-  filterBlockedSlotsForDateAndLocation,
-  TIMEZONE,
-} from "./use-calendar-logic-helpers";
-
-interface AppointmentTypeInfo {
-  appointmentPlan: AppointmentPlan;
-  defaultOccupancy: AppointmentTypeDefaultOccupancy | undefined;
-  duration: number;
-}
+import { filterBlockedSlotsForDateAndLocation } from "./use-calendar-logic-helpers";
 
 type BlockedSlotProjection =
   | CalendarManualBlockedSlot
@@ -83,12 +68,19 @@ interface SchedulingSlot {
   status: string;
 }
 
+interface ServerAppointmentSeriesRootBlockedSlot {
+  calendarResourceColumn?: "ekg" | "labor";
+  practitionerLineageKey?: Id<"practitioners">;
+  reason?: string;
+  startTime: string;
+}
+
 interface UseCalendarBlockedSlotProjectionArgs {
   appointmentsData: readonly CalendarAppointmentRecord[];
-  appointmentTypeInfoByLineageKey: ReadonlyMap<
-    AppointmentTypeLineageKey,
-    AppointmentTypeInfo
-  >;
+  appointmentSeriesRootBlockedSlots:
+    | readonly ServerAppointmentSeriesRootBlockedSlot[]
+    | undefined;
+  appointmentTypeSelected: boolean;
   baseSchedulesData: readonly VacationSchedule[] | undefined;
   blockedSlotsData: readonly CalendarBlockedSlotRecord[];
   blockedSlotsWithoutAppointmentTypeSlots:
@@ -96,12 +88,10 @@ interface UseCalendarBlockedSlotProjectionArgs {
     | undefined;
   businessStartHour: number;
   columns: readonly CalendarColumn[];
-  excludedAppointmentIdsForAvailability: ReadonlySet<Id<"appointments">>;
   getPractitionerIdForLineageKey: (
     practitionerLineageKey: PractitionerLineageKey,
   ) => Id<"practitioners"> | undefined;
   locationLineageKeyById: ReadonlyMap<Id<"locations">, LocationLineageKey>;
-  placementAppointmentTypeLineageKey: AppointmentTypeLineageKey | undefined;
   practitionerLineageKeyById: ReadonlyMap<
     Id<"practitioners">,
     PractitionerLineageKey
@@ -130,16 +120,15 @@ interface VacationSchedule extends BlockedSlotSchedule {
 
 export function useCalendarBlockedSlotProjection({
   appointmentsData,
-  appointmentTypeInfoByLineageKey,
+  appointmentSeriesRootBlockedSlots,
+  appointmentTypeSelected,
   baseSchedulesData,
   blockedSlotsData,
   blockedSlotsWithoutAppointmentTypeSlots,
   businessStartHour,
   columns,
-  excludedAppointmentIdsForAvailability,
   getPractitionerIdForLineageKey,
   locationLineageKeyById,
-  placementAppointmentTypeLineageKey,
   practitionerLineageKeyById,
   selectedDate,
   selectedLocationId,
@@ -180,16 +169,19 @@ export function useCalendarBlockedSlotProjection({
       timeToSlot,
       workingPractitioners,
     });
-    appendSchedulingSlots({
-      blocked,
-      skipExisting: true,
-      slots: blockedSlotsWithoutAppointmentTypeSlots,
-      timeToSlot,
-      workingPractitioners,
-    });
+    if (!appointmentTypeSelected) {
+      appendSchedulingSlots({
+        blocked,
+        skipExisting: true,
+        slots: blockedSlotsWithoutAppointmentTypeSlots,
+        timeToSlot,
+        workingPractitioners,
+      });
+    }
 
     return blocked;
   }, [
+    appointmentTypeSelected,
     blockedSlotsWithoutAppointmentTypeSlots,
     slots,
     timeToSlot,
@@ -463,317 +455,36 @@ export function useCalendarBlockedSlotProjection({
     workingPractitioners,
   ]);
 
-  const baseAppointmentSeriesRootBlockedSlots = useMemo(() => {
-    if (
-      !placementAppointmentTypeLineageKey ||
-      !slots ||
-      workingPractitioners.length === 0
-    ) {
-      return [];
-    }
-
-    const rootAppointmentType = appointmentTypeInfoByLineageKey.get(
-      placementAppointmentTypeLineageKey,
-    );
-    const appointmentPlan = rootAppointmentType?.appointmentPlan;
-    if (!rootAppointmentType || !appointmentPlan?.steps.length) {
-      return [];
-    }
-
-    const occupied = new Set<string>();
-    const addOccupiedSlot = (
-      target: Set<string>,
-      column: CalendarColumnId,
-      slot: number,
-    ) => {
-      target.add(`${calendarColumnScopeKey(column)}:${slot}`);
-    };
-    const addOccupiedRange = (
-      target: Set<string>,
-      column: CalendarColumnId,
-      start: string,
-      end: string,
-    ) => {
-      const startSlot = timeToSlot(
-        Temporal.ZonedDateTime.from(start).toPlainTime().toString().slice(0, 5),
-      );
-      const endSlot = timeToSlot(
-        Temporal.ZonedDateTime.from(end).toPlainTime().toString().slice(0, 5),
-      );
-      for (let slot = startSlot; slot < endSlot; slot++) {
-        addOccupiedSlot(target, column, slot);
-      }
-    };
-    const addOccupiedZonedRange = (
-      target: Set<string>,
-      column: CalendarColumnId,
-      start: Temporal.ZonedDateTime,
-      end: Temporal.ZonedDateTime,
-    ) => {
-      if (Temporal.PlainDate.compare(start.toPlainDate(), selectedDate) !== 0) {
-        return;
-      }
-      const startSlot = timeToSlot(start.toPlainTime().toString().slice(0, 5));
-      const endSlot = timeToSlot(end.toPlainTime().toString().slice(0, 5));
-      for (let slot = startSlot; slot < endSlot; slot++) {
-        addOccupiedSlot(target, column, slot);
-      }
-    };
-    const hasOccupiedZonedRange = (
-      target: Set<string>,
-      column: CalendarColumnId,
-      start: Temporal.ZonedDateTime,
-      end: Temporal.ZonedDateTime,
-    ) => {
-      if (Temporal.PlainDate.compare(start.toPlainDate(), selectedDate) !== 0) {
-        return false;
-      }
-      const startSlot = timeToSlot(start.toPlainTime().toString().slice(0, 5));
-      const endSlot = timeToSlot(end.toPlainTime().toString().slice(0, 5));
-      for (let slot = startSlot; slot < endSlot; slot++) {
-        if (target.has(`${calendarColumnScopeKey(column)}:${slot}`)) {
-          return true;
+  const baseAppointmentSeriesRootBlockedSlots = useMemo(
+    () =>
+      (appointmentSeriesRootBlockedSlots ?? []).flatMap((blockedSlot) => {
+        const column =
+          blockedSlot.calendarResourceColumn === undefined
+            ? blockedSlot.practitionerLineageKey === undefined
+              ? null
+              : calendarColumnScopeFromPractitioner(
+                  asPractitionerLineageKey(blockedSlot.practitionerLineageKey),
+                )
+            : calendarColumnScopeFromResourceColumn(
+                blockedSlot.calendarResourceColumn,
+              );
+        if (column === null) {
+          return [];
         }
-      }
-      return false;
-    };
 
-    for (const blockedSlot of [
-      ...baseBlockedSlots,
-      ...baseBreakSlots,
-      ...baseManualBlockedSlots,
-      ...baseVacationBlockedSlots,
-    ]) {
-      addOccupiedSlot(occupied, blockedSlot.column, blockedSlot.slot);
-    }
-
-    for (const appointment of appointmentsData) {
-      if (excludedAppointmentIdsForAvailability.has(appointment._id)) {
-        continue;
-      }
-
-      const column = calendarColumnScopeFromOccupancy(
-        appointment.placement.occupancyScope,
-      );
-      if (!column) {
-        continue;
-      }
-      addOccupiedRange(occupied, column, appointment.start, appointment.end);
-    }
-
-    const blockedRootSlots: BlockedSlotProjection[] = [];
-    const resourceRootColumn =
-      rootAppointmentType.defaultOccupancy?.kind === "resourceColumn"
-        ? calendarColumnScopeFromResourceColumn(
-            rootAppointmentType.defaultOccupancy.calendarResourceColumn,
-          )
-        : null;
-    const rootCandidates =
-      resourceRootColumn === null
-        ? slots.flatMap((slot) =>
-            slot.status === "AVAILABLE" &&
-            slot.practitionerLineageKey !== undefined
-              ? [
-                  {
-                    column: calendarColumnScopeFromPractitioner(
-                      slot.practitionerLineageKey,
-                    ),
-                    rootAvailable: hasConsecutiveSchedulerAvailability(slots, {
-                      column: calendarColumnScopeFromPractitioner(
-                        slot.practitionerLineageKey,
-                      ),
-                      durationMinutes: rootAppointmentType.duration,
-                      startTime: slot.startTime,
-                    }),
-                    start: Temporal.ZonedDateTime.from(slot.startTime),
-                  },
-                ]
-              : [],
-          )
-        : Array.from({ length: totalSlots }, (_, slot) => {
-            const totalMinutes = businessStartHour * 60 + slot * SLOT_DURATION;
-            const start = selectedDate.toZonedDateTime({
-              plainTime: {
-                hour: Math.floor(totalMinutes / 60),
-                minute: totalMinutes % 60,
-              },
-              timeZone: TIMEZONE,
-            });
-            return {
-              column: resourceRootColumn,
-              rootAvailable: hasConsecutiveSchedulerAvailability(slots, {
-                column: resourceRootColumn,
-                durationMinutes: rootAppointmentType.duration,
-                startTime: start.toString(),
-              }),
-              start,
-            };
-          });
-
-    for (const rootCandidate of rootCandidates) {
-      const rootColumn = rootCandidate.column;
-      const rootStart = rootCandidate.start;
-      const rootEnd = rootStart.add({
-        minutes: rootAppointmentType.duration,
-      });
-      if (!rootCandidate.rootAvailable) {
-        blockedRootSlots.push({
-          column: rootColumn,
-          reason: "Kettentermin nicht planbar",
-          slot: timeToSlot(rootStart.toPlainTime().toString()),
-        });
-        continue;
-      }
-      if (hasOccupiedZonedRange(occupied, rootColumn, rootStart, rootEnd)) {
-        blockedRootSlots.push({
-          column: rootColumn,
-          reason: "Kettentermin nicht planbar",
-          slot: timeToSlot(rootStart.toPlainTime().toString()),
-        });
-        continue;
-      }
-      const candidateOccupied = new Set(occupied);
-      addOccupiedZonedRange(candidateOccupied, rootColumn, rootStart, rootEnd);
-      const plannedSteps = new Map<
-        string,
-        {
-          column: CalendarColumnId;
-          durationMinutes: number;
-          end: Temporal.ZonedDateTime;
-          start: Temporal.ZonedDateTime;
-        }
-      >([
-        [
-          "root",
+        const startTime = Temporal.ZonedDateTime.from(
+          blockedSlot.startTime,
+        ).toPlainTime();
+        return [
           {
-            column: rootColumn,
-            durationMinutes: rootAppointmentType.duration,
-            end: rootEnd,
-            start: rootStart,
+            column,
+            reason: blockedSlot.reason ?? "Kettentermin nicht planbar",
+            slot: timeToSlot(startTime.toString().slice(0, 5)),
           },
-        ],
-      ]);
-      let previousStep = plannedSteps.get("root");
-      let hasVisibleConflict = false;
-
-      for (const step of appointmentPlan.steps) {
-        if (!previousStep) {
-          break;
-        }
-
-        const targetAppointmentType = appointmentTypeInfoByLineageKey.get(
-          step.appointmentTypeLineageKey,
-        );
-        if (!targetAppointmentType) {
-          break;
-        }
-
-        const stepColumn =
-          step.occupancy.kind === "resourceColumn"
-            ? calendarColumnScopeFromResourceColumn(
-                step.occupancy.calendarResourceColumn,
-              )
-            : rootColumn;
-        const stepStart = resolveVisibleAppointmentPlanStepStart({
-          durationMinutes: targetAppointmentType.duration,
-          plannedSteps,
-          previousStep,
-          rootStart,
-          timing: step.timing,
-        });
-
-        if (!stepStart) {
-          previousStep = undefined;
-          break;
-        }
-
-        const stepEnd = stepStart.add({
-          minutes: targetAppointmentType.duration,
-        });
-        const plannedStep = {
-          column: stepColumn,
-          durationMinutes: targetAppointmentType.duration,
-          end: stepEnd,
-          start: stepStart,
-        };
-        plannedSteps.set(step.stepId, plannedStep);
-        previousStep = plannedStep;
-
-        if (
-          Temporal.PlainDate.compare(stepStart.toPlainDate(), selectedDate) !==
-          0
-        ) {
-          continue;
-        }
-
-        if (
-          !hasConsecutiveSchedulerAvailability(slots, {
-            column: stepColumn,
-            durationMinutes: targetAppointmentType.duration,
-            startTime: stepStart.toString(),
-          })
-        ) {
-          hasVisibleConflict = true;
-          break;
-        }
-
-        const startSlot = timeToSlot(
-          stepStart.toPlainTime().toString().slice(0, 5),
-        );
-        const endSlot = timeToSlot(
-          stepEnd.toPlainTime().toString().slice(0, 5),
-        );
-        for (let stepSlot = startSlot; stepSlot < endSlot; stepSlot++) {
-          if (
-            candidateOccupied.has(
-              `${calendarColumnScopeKey(stepColumn)}:${stepSlot}`,
-            )
-          ) {
-            hasVisibleConflict = true;
-            break;
-          }
-        }
-
-        if (hasVisibleConflict) {
-          break;
-        }
-        addOccupiedZonedRange(
-          candidateOccupied,
-          stepColumn,
-          stepStart,
-          stepEnd,
-        );
-      }
-
-      if (!hasVisibleConflict) {
-        continue;
-      }
-
-      const startTime = rootStart.toPlainTime().toString().slice(0, 5);
-      blockedRootSlots.push({
-        column: rootColumn,
-        reason: "Kettentermin nicht planbar",
-        slot: timeToSlot(startTime),
-      });
-    }
-
-    return blockedRootSlots;
-  }, [
-    appointmentTypeInfoByLineageKey,
-    appointmentsData,
-    baseBlockedSlots,
-    baseBreakSlots,
-    baseManualBlockedSlots,
-    baseVacationBlockedSlots,
-    businessStartHour,
-    excludedAppointmentIdsForAvailability,
-    placementAppointmentTypeLineageKey,
-    selectedDate,
-    slots,
-    timeToSlot,
-    totalSlots,
-    workingPractitioners,
-  ]);
+        ];
+      }),
+    [appointmentSeriesRootBlockedSlots, timeToSlot],
+  );
 
   return {
     baseAppointmentSeriesRootBlockedSlots,
@@ -847,81 +558,5 @@ function appendSchedulingSlots(args: {
         ? {}
         : { blockedByRuleId: slotData.blockedByRuleId }),
     });
-  }
-}
-
-function hasConsecutiveSchedulerAvailability(
-  slots: readonly SchedulingSlot[],
-  args: {
-    column: CalendarColumnId;
-    durationMinutes: number;
-    startTime: string;
-  },
-): boolean {
-  const start = Temporal.ZonedDateTime.from(args.startTime);
-  const requiredSlots = Math.ceil(args.durationMinutes / SLOT_DURATION);
-
-  return slots.some((slot) => {
-    if (
-      slot.status !== "AVAILABLE" ||
-      slot.startTime !== args.startTime ||
-      slot.practitionerLineageKey === undefined
-    ) {
-      return false;
-    }
-    if (
-      args.column.kind === "practitioner" &&
-      slot.practitionerLineageKey !== args.column.practitionerLineageKey
-    ) {
-      return false;
-    }
-
-    for (let offset = 1; offset < requiredSlots; offset += 1) {
-      const requiredStart = start
-        .add({ minutes: offset * SLOT_DURATION })
-        .toString();
-      const matchingSlot = slots.find(
-        (candidate) =>
-          candidate.status === "AVAILABLE" &&
-          candidate.startTime === requiredStart &&
-          candidate.practitionerLineageKey === slot.practitionerLineageKey,
-      );
-      if (matchingSlot === undefined) {
-        return false;
-      }
-    }
-
-    return true;
-  });
-}
-
-function resolveVisibleAppointmentPlanStepStart(args: {
-  durationMinutes: number;
-  plannedSteps: ReadonlyMap<
-    string,
-    { end: Temporal.ZonedDateTime; start: Temporal.ZonedDateTime }
-  >;
-  previousStep: { end: Temporal.ZonedDateTime };
-  rootStart: Temporal.ZonedDateTime;
-  timing: NonNullable<AppointmentPlan>["steps"][number]["timing"];
-}): null | Temporal.ZonedDateTime {
-  switch (args.timing.kind) {
-    case "afterPreviousEnd": {
-      if (args.timing.offsetUnit !== "minutes") {
-        return null;
-      }
-      return args.previousStep.end.add({ minutes: args.timing.offsetValue });
-    }
-    case "beforeRootStart": {
-      return args.rootStart.subtract({
-        minutes: args.durationMinutes + args.timing.offsetMinutes,
-      });
-    }
-    case "sameStartAs": {
-      return (
-        args.plannedSteps.get(args.timing.anchorStepId)?.start ??
-        (args.timing.anchorStepId === "root" ? args.rootStart : null)
-      );
-    }
   }
 }
