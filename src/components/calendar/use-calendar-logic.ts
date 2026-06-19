@@ -1509,15 +1509,15 @@ export function useCalendarLogic({
       // Check if this is a manual block (from blockedSlots memo, has isManual flag)
       const isManualBlock =
         "isManual" in blockedSlotData && blockedSlotData.isManual === true;
-      // Only allow booking if an appointment type is selected
       const canBook = placementAppointmentTypeLineageKey !== undefined;
       setBlockedSlotWarning({
         canBook,
         column,
         isManualBlock,
         onConfirm: () => {
-          // User confirmed, proceed with appointment creation despite block
-          createAppointmentInSlot(column, slot);
+          createAppointmentInSlot(column, slot, {
+            allowExactAppointmentPlanStepFallback: true,
+          });
         },
         reason:
           blockedSlotData.reason ||
@@ -1532,7 +1532,11 @@ export function useCalendarLogic({
     createAppointmentInSlot(column, slot);
   };
 
-  const createAppointmentInSlot = (column: CalendarColumnId, slot: number) => {
+  const createAppointmentInSlot = (
+    column: CalendarColumnId,
+    slot: number,
+    options: { allowExactAppointmentPlanStepFallback?: boolean } = {},
+  ) => {
     const mode = simulatedContext ? "simulation" : "real";
     const appointmentTypeId =
       simulatedContext?.appointmentTypeLineageKey === undefined
@@ -1662,7 +1666,12 @@ export function useCalendarLogic({
     }
 
     void planningCommands
-      .createAppointment(requestResult.request)
+      .createAppointment({
+        ...requestResult.request,
+        ...(options.allowExactAppointmentPlanStepFallback === true
+          ? { allowExactAppointmentPlanStepFallback: true }
+          : {}),
+      })
       .then((createdAppointmentId) => {
         if (createdAppointmentId) {
           onAppointmentCreated?.(createdAppointmentId);

@@ -110,6 +110,7 @@ export const appointmentSeriesCreateResultValidator = v.object({
 });
 
 export const appointmentSeriesArgsValidator = {
+  allowExactStepFallback: v.optional(v.boolean()),
   bookingIdentityId: v.optional(v.id("bookingIdentities")),
   calendarResourceColumn: v.optional(calendarResourceColumnValidator),
   isNewPatient: v.optional(v.boolean()),
@@ -154,6 +155,7 @@ interface ResolvedPlanOccupancy {
 }
 
 interface RootSeriesCandidate {
+  allowExactStepFallback?: boolean;
   calendarResourceColumn?: CalendarResourceColumn;
   excludedAppointmentIds?: Id<"appointments">[];
   isNewPatient?: boolean;
@@ -491,6 +493,11 @@ export async function planSeriesFromRootCandidate(
       step.appointmentTypeLineageKey,
     );
     const plannedStep = await planAppointmentPlanStep(ctx, {
+      ...(args.rootCandidate.allowExactStepFallback === undefined
+        ? {}
+        : {
+            allowExactStepFallback: args.rootCandidate.allowExactStepFallback,
+          }),
       ...(args.rootCandidate.isNewPatient !== undefined && {
         isNewPatient: args.rootCandidate.isNewPatient,
       }),
@@ -541,6 +548,7 @@ export async function planSeriesFromRootCandidate(
 export async function previewAppointmentSeries(
   ctx: SeriesPlannerCtx,
   args: {
+    allowExactStepFallback?: boolean;
     calendarResourceColumn?: CalendarResourceColumn;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
@@ -572,6 +580,9 @@ export async function previewAppointmentSeries(
     planningState,
     requestedAt,
     rootCandidate: {
+      ...(args.allowExactStepFallback === undefined
+        ? {}
+        : { allowExactStepFallback: args.allowExactStepFallback }),
       ...(args.excludedAppointmentIds && {
         excludedAppointmentIds: args.excludedAppointmentIds,
       }),
@@ -758,6 +769,56 @@ function buildPlannedStepCandidate(args: {
   };
 }
 
+async function buildPlannedStepIfAvailable(
+  ctx: SeriesPlannerCtx,
+  args: {
+    excludedAppointmentIds?: Id<"appointments">[];
+    locationId: Id<"locations">;
+    occupancy: ResolvedPlanOccupancy;
+    plannedSteps: PlannedSeriesStep[];
+    practiceId: Id<"practices">;
+    rootStep: PlannedSeriesStep;
+    scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
+    start: ZonedDateTimeString;
+    step: AppointmentPlanStep;
+    targetAppointmentType: Doc<"appointmentTypes">;
+  },
+): Promise<null | PlannedSeriesStep> {
+  const candidate = buildPlannedStepCandidate({
+    locationId: args.locationId,
+    locationLineageKey: args.rootStep.locationLineageKey,
+    occupancy: args.occupancy,
+    plannedStepsCount: args.plannedSteps.length,
+    start: args.start,
+    step: args.step,
+    targetAppointmentType: args.targetAppointmentType,
+  });
+
+  if (hasPlannedStepConflict(args.plannedSteps, candidate)) {
+    return null;
+  }
+
+  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
+    candidate: {
+      end: candidate.end,
+      locationLineageKey: candidate.locationLineageKey,
+      occupancyScope: candidate.occupancyScope,
+      start: candidate.start,
+    },
+    ...(args.simulationRuleSetId && {
+      draftRuleSetId: args.simulationRuleSetId,
+    }),
+    ...(args.excludedAppointmentIds && {
+      excludeAppointmentIds: args.excludedAppointmentIds,
+    }),
+    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
+    practiceId: args.practiceId,
+  });
+
+  return conflictingOccupancy ? null : candidate;
+}
+
 function calculateEndTime(
   startTime: ZonedDateTimeString,
   durationMinutes: number,
@@ -835,6 +896,7 @@ function findAnchorStep(
 async function findFirstAvailableStepStart(
   ctx: SeriesPlannerCtx,
   args: {
+    allowExactStepFallback?: boolean;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId: Id<"locations">;
@@ -865,12 +927,39 @@ async function findFirstAvailableStepStart(
     args.timing,
   );
 
+  return await findFirstAvailableStepStartOnOrAfter(ctx, {
+    ...args,
+    earliestStart,
+    respectEarliestStartTime: false,
+  });
+}
+
+async function findFirstAvailableStepStartOnOrAfter(
+  ctx: SeriesPlannerCtx,
+  args: {
+    earliestStart: Temporal.ZonedDateTime;
+    excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
+    locationId: Id<"locations">;
+    occupancy: ResolvedPlanOccupancy;
+    patientDateOfBirth?: IsoDateString;
+    plannedSteps: PlannedSeriesStep[];
+    planningState: SeriesPlanningState;
+    practiceId: Id<"practices">;
+    requestedAt: InstantString;
+    respectEarliestStartTime: boolean;
+    ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
+    targetAppointmentType: Doc<"appointmentTypes">;
+  },
+): Promise<null | ZonedDateTimeString> {
   if (!args.occupancy.practitionerId) {
-    return asZonedDateTimeString(earliestStart.toString());
+    return asZonedDateTimeString(args.earliestStart.toString());
   }
 
   const searchDates = await getSearchDatesOnOrAfter(ctx, {
-    earliestStart,
+    earliestStart: args.earliestStart,
     locationId: args.locationId,
     planningState: args.planningState,
     practiceId: args.practiceId,
@@ -902,7 +991,15 @@ async function findFirstAvailableStepStart(
         simulationRuleSetId: args.simulationRuleSetId,
       }),
     });
-    const matchingSlot = slots[0];
+    const matchingSlot = args.respectEarliestStartTime
+      ? slots.find(
+          (slot) =>
+            Temporal.ZonedDateTime.compare(
+              Temporal.ZonedDateTime.from(slot.startTime),
+              args.earliestStart,
+            ) >= 0,
+        )
+      : slots[0];
     if (matchingSlot) {
       return asZonedDateTimeString(matchingSlot.startTime);
     }
@@ -1216,6 +1313,7 @@ function normalizeAppointmentPlanSnapshotFromType(
 async function planAppointmentPlanStep(
   ctx: SeriesPlannerCtx,
   args: {
+    allowExactStepFallback?: boolean;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId: Id<"locations">;
@@ -1270,41 +1368,32 @@ async function planAppointmentPlanStep(
       start: exactStart,
     }))
   ) {
-    return null;
+    if (!args.allowExactStepFallback) {
+      return null;
+    }
+
+    const fallbackStart = await findFirstAvailableStepStartOnOrAfter(ctx, {
+      ...args,
+      earliestStart: Temporal.ZonedDateTime.from(exactStart),
+      occupancy,
+      respectEarliestStartTime: true,
+    });
+    if (!fallbackStart) {
+      return null;
+    }
+
+    return await buildPlannedStepIfAvailable(ctx, {
+      ...args,
+      occupancy,
+      start: fallbackStart,
+    });
   }
 
-  const candidate = buildPlannedStepCandidate({
-    locationId: args.locationId,
-    locationLineageKey: args.rootStep.locationLineageKey,
+  return await buildPlannedStepIfAvailable(ctx, {
+    ...args,
     occupancy,
-    plannedStepsCount: args.plannedSteps.length,
     start,
-    step: args.step,
-    targetAppointmentType: args.targetAppointmentType,
   });
-
-  if (hasPlannedStepConflict(args.plannedSteps, candidate)) {
-    return null;
-  }
-
-  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
-    candidate: {
-      end: candidate.end,
-      locationLineageKey: candidate.locationLineageKey,
-      occupancyScope: candidate.occupancyScope,
-      start: candidate.start,
-    },
-    ...(args.simulationRuleSetId && {
-      draftRuleSetId: args.simulationRuleSetId,
-    }),
-    ...(args.excludedAppointmentIds && {
-      excludeAppointmentIds: args.excludedAppointmentIds,
-    }),
-    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
-    practiceId: args.practiceId,
-  });
-
-  return conflictingOccupancy ? null : candidate;
 }
 
 async function queryAvailableSlotsForDay(

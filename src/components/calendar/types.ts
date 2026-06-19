@@ -156,7 +156,6 @@ export interface NewCalendarProps {
   onUpdateSimulatedContext?:
     | ((context: SchedulingSimulatedContext) => void)
     | undefined;
-
   patient?: PatientInfo | undefined;
   practiceId: Id<"practices">;
   ruleSetId: SchedulingRuleSetId;
