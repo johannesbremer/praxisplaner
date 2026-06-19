@@ -3062,6 +3062,9 @@ export const restoreAppointmentSeriesSnapshot = mutation({
       if (!appointment) {
         continue;
       }
+      if (appointment.cancelledAt !== undefined) {
+        continue;
+      }
       const candidate = {
         end: appointment.end,
         locationLineageKey: asLocationLineageKey(
@@ -3073,6 +3076,7 @@ export const restoreAppointmentSeriesSnapshot = mutation({
       const conflictsWithSnapshot = appointments.some(
         (otherAppointment, otherIndex) =>
           otherIndex !== index &&
+          otherAppointment.cancelledAt === undefined &&
           appointmentOverlapsCandidate(otherAppointment, candidate),
       );
       if (conflictsWithSnapshot) {
