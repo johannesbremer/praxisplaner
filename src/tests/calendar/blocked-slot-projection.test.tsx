@@ -102,7 +102,7 @@ describe("useCalendarBlockedSlotProjection", () => {
       appointmentTypeSelected: true,
     });
 
-    expect(result.current.baseAppointmentSeriesRootBlockedSlots).toEqual([
+    expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
       {
         column: practitionerColumn,
         reason: "Kettentermin nicht planbar",
@@ -125,7 +125,7 @@ describe("useCalendarBlockedSlotProjection", () => {
       appointmentTypeSelected: true,
     });
 
-    expect(result.current.baseAppointmentSeriesRootBlockedSlots).toEqual([
+    expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
       {
         blockedByRuleId: "rule_condition_1",
         column: practitionerColumn,

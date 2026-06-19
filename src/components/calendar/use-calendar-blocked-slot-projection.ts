@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { AppointmentSeriesPlanningFailureKind } from "../../../convex/appointmentSeriesPlanner";
 import type {
   LocationLineageKey,
   PractitionerLineageKey,
@@ -52,13 +53,7 @@ interface BlockedSlotVacation {
 interface RuleBlockedSlotProjection {
   blockedByRuleId?: Id<"ruleConditions">;
   column: CalendarColumnId;
-  failureKind?:
-    | "appointmentOccupancy"
-    | "blockedSlot"
-    | "ruleBlock"
-    | "schedulerUnavailable"
-    | "seriesInternalConflict"
-    | "seriesStepUnavailable";
+  failureKind?: AppointmentSeriesPlanningFailureKind;
   isManual?: false;
   reason?: string;
   slot: number;
@@ -77,13 +72,7 @@ interface SchedulingSlot {
 interface ServerAppointmentSeriesRootBlockedSlot {
   blockingRuleIds?: Id<"ruleConditions">[];
   calendarResourceColumn?: "ekg" | "labor";
-  failureKind?:
-    | "appointmentOccupancy"
-    | "blockedSlot"
-    | "ruleBlock"
-    | "schedulerUnavailable"
-    | "seriesInternalConflict"
-    | "seriesStepUnavailable";
+  failureKind?: AppointmentSeriesPlanningFailureKind;
   practitionerLineageKey?: Id<"practitioners">;
   reason?: string;
   startTime: string;
@@ -440,7 +429,7 @@ export function useCalendarBlockedSlotProjection({
     workingPractitioners,
   ]);
 
-  const baseAppointmentSeriesRootBlockedSlots = useMemo(
+  const serverAppointmentSeriesRootBlockedSlots = useMemo(
     () =>
       (appointmentSeriesRootBlockedSlots ?? []).flatMap((blockedSlot) => {
         const column =
@@ -478,7 +467,6 @@ export function useCalendarBlockedSlotProjection({
   );
 
   return {
-    baseAppointmentSeriesRootBlockedSlots,
     baseAppointmentTypeUnavailableBlockedSlots: createBlockedSlotsForColumns(
       "Behandler nicht für Terminart freigegeben",
       (column) => column.isAppointmentTypeUnavailable === true,
@@ -495,6 +483,7 @@ export function useCalendarBlockedSlotProjection({
       (column) => column.isUnavailable === true,
     ),
     baseVacationBlockedSlots,
+    serverAppointmentSeriesRootBlockedSlots,
   };
 }
 
