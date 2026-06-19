@@ -258,6 +258,122 @@ describe("useCalendarBlockedSlotProjection", () => {
     );
   });
 
+  it("blocks resource-root Kettentermine without full scheduler availability", () => {
+    const selectedDate = Temporal.PlainDate.from("2026-04-25");
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practitionerId = toTableId<"practitioners">("practitioner_1");
+    const practitionerLineageKey = asPractitionerLineageKey(
+      toTableId<"practitioners">("practitioner_lineage_1"),
+    );
+    const rootAppointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("root_type_lineage_resource"),
+    );
+    const ekgAppointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("ekg_type_lineage_resource"),
+    );
+    const ekgColumn = calendarColumnScopeFromResourceColumn("ekg");
+    const businessStartMinutes = 8 * 60;
+    const timeToSlot = (time: string) => {
+      const [hourText, minuteText] = time.split(":");
+      const hour = Number(hourText);
+      const minute = Number(minuteText);
+      return (hour * 60 + minute - businessStartMinutes) / SLOT_DURATION;
+    };
+
+    const { result } = renderHook(() =>
+      useCalendarBlockedSlotProjection({
+        appointmentsData: [],
+        appointmentTypeInfoByLineageKey: new Map([
+          [
+            ekgAppointmentTypeLineageKey,
+            {
+              appointmentPlan: { steps: [] },
+              defaultOccupancy: undefined,
+              duration: 10,
+            },
+          ],
+          [
+            rootAppointmentTypeLineageKey,
+            {
+              appointmentPlan: {
+                steps: [
+                  {
+                    appointmentTypeLineageKey: ekgAppointmentTypeLineageKey,
+                    occupancy: {
+                      calendarResourceColumn: "ekg",
+                      kind: "resourceColumn",
+                    },
+                    required: true,
+                    stepId: "ekg-step",
+                    timing: { anchorStepId: "root", kind: "sameStartAs" },
+                  },
+                ],
+              },
+              defaultOccupancy: {
+                calendarResourceColumn: "ekg",
+                kind: "resourceColumn",
+              },
+              duration: 30,
+            },
+          ],
+        ]),
+        baseSchedulesData: undefined,
+        blockedSlotsData: [],
+        blockedSlotsWithoutAppointmentTypeSlots: undefined,
+        businessStartHour: 8,
+        columns: [{ id: ekgColumn, title: "EKG" }],
+        excludedAppointmentIdsForAvailability: new Set(),
+        getPractitionerIdForLineageKey: (lineageKey) =>
+          lineageKey === practitionerLineageKey ? practitionerId : undefined,
+        locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
+        placementAppointmentTypeLineageKey: rootAppointmentTypeLineageKey,
+        practitionerLineageKeyById: new Map([
+          [practitionerId, practitionerLineageKey],
+        ]),
+        selectedDate,
+        selectedLocationId: locationId,
+        simulatedContext: undefined,
+        slots: [
+          {
+            practitionerLineageKey,
+            startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+            status: "AVAILABLE",
+          },
+          {
+            practitionerLineageKey,
+            reason: "Pause",
+            startTime: "2026-04-25T09:15:00+02:00[Europe/Berlin]",
+            status: "BLOCKED",
+          },
+        ],
+        timeToSlot,
+        totalSlots: 108,
+        vacationsData: undefined,
+        workingPractitioners: [
+          {
+            endTime: "17:00",
+            lineageKey: practitionerLineageKey,
+            name: "Dr. Chain",
+            startTime: "08:00",
+          },
+        ],
+      }),
+    );
+
+    expect(result.current.baseAppointmentSeriesRootBlockedSlots).toEqual(
+      expect.arrayContaining([
+        {
+          column: ekgColumn,
+          reason: "Kettentermin nicht planbar",
+          slot: timeToSlot("09:00"),
+        },
+      ]),
+    );
+  });
+
   it("does not project the dragged series as blocking itself", () => {
     const selectedDate = Temporal.PlainDate.from("2026-04-25");
     const locationId = toTableId<"locations">("location_1");

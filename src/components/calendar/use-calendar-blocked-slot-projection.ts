@@ -530,6 +530,7 @@ export function useCalendarBlockedSlotProjection({
                     column: calendarColumnScopeFromPractitioner(
                       slot.practitionerLineageKey,
                     ),
+                    rootAvailable: true,
                     start: Temporal.ZonedDateTime.from(slot.startTime),
                   },
                 ]
@@ -537,15 +538,20 @@ export function useCalendarBlockedSlotProjection({
           )
         : Array.from({ length: totalSlots }, (_, slot) => {
             const totalMinutes = businessStartHour * 60 + slot * SLOT_DURATION;
+            const start = selectedDate.toZonedDateTime({
+              plainTime: {
+                hour: Math.floor(totalMinutes / 60),
+                minute: totalMinutes % 60,
+              },
+              timeZone: TIMEZONE,
+            });
             return {
               column: resourceRootColumn,
-              start: selectedDate.toZonedDateTime({
-                plainTime: {
-                  hour: Math.floor(totalMinutes / 60),
-                  minute: totalMinutes % 60,
-                },
-                timeZone: TIMEZONE,
+              rootAvailable: hasConsecutiveSchedulerAvailability(slots, {
+                durationMinutes: rootAppointmentType.duration,
+                startTime: start.toString(),
               }),
+              start,
             };
           });
 
@@ -555,6 +561,14 @@ export function useCalendarBlockedSlotProjection({
       const rootEnd = rootStart.add({
         minutes: rootAppointmentType.duration,
       });
+      if (!rootCandidate.rootAvailable) {
+        blockedRootSlots.push({
+          column: rootColumn,
+          reason: "Kettentermin nicht planbar",
+          slot: timeToSlot(rootStart.toPlainTime().toString()),
+        });
+        continue;
+      }
       const candidateOccupied = new Set(occupied);
       addOccupiedZonedRange(candidateOccupied, rootColumn, rootStart, rootEnd);
       const plannedSteps = new Map<
@@ -760,6 +774,44 @@ function appendSchedulingSlots(args: {
         : { blockedByRuleId: slotData.blockedByRuleId }),
     });
   }
+}
+
+function hasConsecutiveSchedulerAvailability(
+  slots: readonly SchedulingSlot[],
+  args: {
+    durationMinutes: number;
+    startTime: string;
+  },
+): boolean {
+  const start = Temporal.ZonedDateTime.from(args.startTime);
+  const requiredSlots = Math.ceil(args.durationMinutes / SLOT_DURATION);
+
+  return slots.some((slot) => {
+    if (
+      slot.status !== "AVAILABLE" ||
+      slot.startTime !== args.startTime ||
+      slot.practitionerLineageKey === undefined
+    ) {
+      return false;
+    }
+
+    for (let offset = 1; offset < requiredSlots; offset += 1) {
+      const requiredStart = start
+        .add({ minutes: offset * SLOT_DURATION })
+        .toString();
+      const matchingSlot = slots.find(
+        (candidate) =>
+          candidate.status === "AVAILABLE" &&
+          candidate.startTime === requiredStart &&
+          candidate.practitionerLineageKey === slot.practitionerLineageKey,
+      );
+      if (matchingSlot === undefined) {
+        return false;
+      }
+    }
+
+    return true;
+  });
 }
 
 function resolveVisibleAppointmentPlanStepStart(args: {

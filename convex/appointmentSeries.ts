@@ -52,6 +52,7 @@ import {
 } from "./identity";
 import { requireLineageKey } from "./lineage";
 import { isPublicHoliday } from "./publicHolidays";
+import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
   asInstantString,
   asIsoDateString,
@@ -1002,7 +1003,66 @@ async function findFirstAvailableStepStartOnOrAfter(
   },
 ): Promise<null | ZonedDateTimeString> {
   if (!args.occupancy.practitionerId) {
-    return asZonedDateTimeString(args.earliestStart.toString());
+    if (!args.occupancy.calendarResourceColumn) {
+      return null;
+    }
+
+    const searchDates = await getSearchDatesOnOrAfter(ctx, {
+      earliestStart: args.earliestStart,
+      locationId: args.locationId,
+      planningState: args.planningState,
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+    });
+
+    for (const searchDate of searchDates) {
+      const slots = await queryAvailableSlotsForDay(ctx, {
+        appointmentType: args.targetAppointmentType,
+        date: asIsoDateString(searchDate.toString()),
+        ...(args.excludedAppointmentIds && {
+          excludedAppointmentIds: args.excludedAppointmentIds,
+        }),
+        ...(args.isNewPatient !== undefined && {
+          isNewPatient: args.isNewPatient,
+        }),
+        locationId: args.locationId,
+        planningState: args.planningState,
+        ...(args.patientDateOfBirth && {
+          patientDateOfBirth: args.patientDateOfBirth,
+        }),
+        practiceId: args.practiceId,
+        requestedAt: args.requestedAt,
+        ruleSetId: args.ruleSetId,
+        ...(args.scope && { scope: args.scope }),
+        ...(args.simulationRuleSetId && {
+          simulationRuleSetId: args.simulationRuleSetId,
+        }),
+      });
+      const matchingSlot = slots.find((slot) => {
+        if (
+          args.respectEarliestStartTime &&
+          Temporal.ZonedDateTime.compare(
+            Temporal.ZonedDateTime.from(slot.startTime),
+            args.earliestStart,
+          ) < 0
+        ) {
+          return false;
+        }
+        const practitionerSlots = slots.filter(
+          (candidate) =>
+            candidate.practitionerLineageKey === slot.practitionerLineageKey,
+        );
+        return hasConsecutiveAvailablePractitionerSlots(practitionerSlots, {
+          durationMinutes: args.targetAppointmentType.duration,
+          start: asZonedDateTimeString(slot.startTime),
+        });
+      });
+      if (matchingSlot) {
+        return asZonedDateTimeString(matchingSlot.startTime);
+      }
+    }
+
+    return null;
   }
 
   const searchDates = await getSearchDatesOnOrAfter(ctx, {
@@ -1355,6 +1415,13 @@ async function loadRootAppointmentType(
     throw appointmentSeriesError(
       "CHAIN_NOT_FOUND",
       "Appointment type not found",
+    );
+  }
+
+  if (isRuleSetEntityDeleted(appointmentType)) {
+    throw appointmentSeriesError(
+      "CHAIN_NOT_FOUND",
+      "Terminart wurde gelöscht und kann nicht mehr neu referenziert werden.",
     );
   }
 
