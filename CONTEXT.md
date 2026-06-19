@@ -255,6 +255,9 @@ _Avoid_: Form data, profile
 - An **Appointment** snapshots the appointment type display name, duration, Location name, and Practitioner name used at booking time.
 - An **Appointment Series** has exactly one root **Appointment** and one root **Appointment Type**.
 - A **Follow-up Plan** belongs to an **Appointment Type** and can produce an **Appointment Series**.
+- An **Appointment Series** is planned atomically: **Scheduling Rules** that count existing **Appointments** consider appointments outside the candidate series, not other planned appointments in the same series.
+- Internal time or resource overlap inside an **Appointment Series** is an **Appointment Occupancy** planning conflict, not a **Rule Block**.
+- Replanning an existing **Appointment Series** evaluates the candidate series against external calendar state with the whole existing series excluded.
 - An **Absence** belongs to either one **Practitioner** lineage or one **Medical Assistant** lineage.
 - **Medical Assistant** Absence is tracked for unified absence planning but currently does not affect appointment availability or reassignment.
 - **Practitioner** Absence can automatically reassign affected **Appointments** when a valid replacement is available.
@@ -275,8 +278,16 @@ _Avoid_: Form data, profile
 - A **Scheduling Rule** can block many candidate appointment slots by matching their attributes.
 - A **Candidate Slot** belongs to exactly one **Practice**, one **Appointment Type**, one **Location**, and optionally one **Practitioner**.
 - A **Candidate Slot** can become an **Available Slot** only if it is inside a **Base Schedule** and outside relevant **Absences**, **Blocked Slots**, **Appointment Occupancy**, and **Rule Blocks**.
+- A root **Candidate Slot** for an **Appointment Type** with a **Follow-up Plan** can become an **Available Slot** only if the whole resulting **Appointment Series** can be planned atomically against the same external calendar state.
+- If a required step from a **Follow-up Plan** cannot be placed, the root **Candidate Slot** is unavailable.
+- Staff calendar availability for an **Appointment Series** root reflects the atomic series planning decision, not a separate single-appointment projection.
+- Appointment-type-independent availability can guide the calendar before staff selects an **Appointment Type**, but after selection placement availability is determined by the concrete **Candidate Slot**.
+- Server-side scheduling validation is authoritative for **Available Slots**; staff calendar projections render that validation rather than reimplementing scheduling semantics.
+- Staff calendar placement availability is evaluated at the same time granularity that staff can place or drag Appointments.
+- A successful atomic **Appointment Series** planning decision is the blueprint for the Appointments that may be written.
 - **Appointment Occupancy** is not a **Scheduling Rule** and cannot be overridden by a **Staff Override**.
 - A **Rule Block** identifies which **Scheduling Rules** matched the **Candidate Slot**.
+- An unavailable **Candidate Slot** keeps the provenance of why it is unavailable; **Blocked Slots**, **Appointment Occupancy**, **Rule Blocks**, and atomic **Appointment Series** planning failures are distinct reasons.
 - A **Rule Block** can be bypassed only by an explicit **Staff Override**.
 - A **Blocked Slot** and **Appointment Occupancy** block booking before **Scheduling Rules** are considered.
 - **Available Slots** are advisory until a **Booking Attempt** validates the selected **Candidate Slot** server-side.
@@ -297,6 +308,8 @@ _Avoid_: Form data, profile
 - A confirmed **Appointment** snapshots the **Rule Set** used to validate the booking attempt.
 - An **Appointment** records the **Rule Set** used to validate its creation.
 - A **Staff Override** belongs to the **Appointment** it allowed and records which **Scheduling Rule** was overridden.
+- A **Staff Override** for an **Appointment Series** applies only to **Rule Blocks** encountered while planning the series.
+- A **Staff Override** for an **Appointment Series** does not override **Blocked Slots**, **Appointment Occupancy**, **Absences**, Base Schedule gaps, or internal series planning conflicts.
 - Changing an **Appointment** creates a replacement **Appointment** linked to the previous one.
 - Convex should not expose an in-place edit operation for existing **Appointments**.
 - Cancelling an **Appointment** creates an **Appointment Cancellation** record for the root **Appointment** instead of mutating any **Appointment** in the chain.
