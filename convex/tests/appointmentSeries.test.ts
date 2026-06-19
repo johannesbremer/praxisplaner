@@ -2159,6 +2159,121 @@ describe("appointment series", () => {
     });
   });
 
+  test("resource-root appointment series can move within the same resource column", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_series_resource_root_move_user",
+      "series-resource-root-move@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const ekgTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "EKG Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", ekgTypeId, {
+        lineageKey: ekgTypeId,
+      });
+      const rootTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: ekgTypeId,
+              occupancy: {
+                calendarResourceColumn: "ekg",
+                kind: "resourceColumn",
+              },
+              required: true,
+              stepId: "ekg-follow-up",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        defaultOccupancy: {
+          calendarResourceColumn: "ekg",
+          kind: "resourceColumn",
+        },
+        duration: 20,
+        lastModified: now,
+        name: "EKG Serie",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootTypeId, {
+        lineageKey: rootTypeId,
+      });
+      return rootTypeId;
+    });
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const series = await t.mutation(api.appointments.createAppointmentSeries, {
+      calendarResourceColumn: "ekg",
+      locationId,
+      practiceId,
+      rootAppointmentTypeId,
+      rootTitle: "EKG Serie",
+      ruleSetId,
+      start: rootStart,
+      userId,
+    });
+
+    const shiftedRootStart = Temporal.ZonedDateTime.from(rootStart)
+      .add({ days: 1 })
+      .toString();
+
+    await t.mutation(api.appointments.updateAppointment, {
+      calendarResourceColumn: "ekg",
+      id: series.rootAppointmentId,
+      start: shiftedRootStart,
+    });
+
+    const movedAppointments = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) => q.eq("seriesId", series.seriesId))
+        .collect();
+    });
+    const movedRootAppointment = movedAppointments.find(
+      (appointment) => appointment.seriesStepIndex === 0n,
+    );
+    assertDefined(movedRootAppointment);
+    expect(movedRootAppointment.start).toBe(shiftedRootStart);
+    expect(movedRootAppointment.occupancyScope).toEqual({
+      calendarResourceColumn: "ekg",
+      kind: "resource",
+    });
+
+    await expect(
+      t.mutation(api.appointments.updateAppointment, {
+        calendarResourceColumn: "labor",
+        id: series.rootAppointmentId,
+      }),
+    ).rejects.toThrow(
+      "Kettentermine können nicht in EKG- oder Labor-Spalten verschoben werden.",
+    );
+  });
+
   test("appointment plans reject date-offset resource steps inside blocked ranges", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
