@@ -147,7 +147,6 @@ export function NewCalendar({
         ...(ruleSetId === undefined ? {} : { selectedRuleSetId: ruleSetId }),
       }
     : { scope: "real" as const };
-
   // State for selected appointment (shown with blue border)
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<
     Id<"appointments"> | undefined
