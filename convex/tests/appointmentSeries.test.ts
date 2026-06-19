@@ -3143,6 +3143,34 @@ describe("appointment series", () => {
 
     expect(remainingAppointments).toHaveLength(0);
     expect(remainingSeriesRecord).toBeNull();
+
+    const storedSnapshot = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointmentSeriesRestoreSnapshots")
+        .withIndex("by_originalSeriesId", (q) =>
+          q.eq("originalSeriesId", createdSeries.seriesId),
+        )
+        .first();
+    });
+    expect(storedSnapshot?.snapshot.appointments).toHaveLength(2);
+
+    const restoredSeries = await t.mutation(
+      api.appointments.restoreAppointmentSeriesSnapshot,
+      {
+        seriesId: createdSeries.seriesId,
+      },
+    );
+    expect(restoredSeries.seriesId).toBe(createdSeries.seriesId);
+
+    const restoredAppointments = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) =>
+          q.eq("seriesId", createdSeries.seriesId),
+        )
+        .collect();
+    });
+    expect(restoredAppointments).toHaveLength(2);
   });
 });
 

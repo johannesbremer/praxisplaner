@@ -12,6 +12,7 @@ import {
   appointmentPlanValidator,
   appointmentTypeDefaultOccupancyValidator,
 } from "./appointmentPlans";
+import { appointmentSeriesRestoreSnapshotValidator } from "./appointmentSeriesRestoreSnapshots";
 import {
   beihilfeStatusValidator,
   dataSharingContactInputValidator,
@@ -442,6 +443,13 @@ export default defineSchema({
     .index("by_practiceId", ["practiceId"])
     .index("by_rootAppointmentId", ["rootAppointmentId"])
     .index("by_seriesId", ["seriesId"]),
+
+  appointmentSeriesRestoreSnapshots: defineTable({
+    deletedAt: v.int64(),
+    originalSeriesId: v.string(),
+    practiceId: v.id("practices"),
+    snapshot: appointmentSeriesRestoreSnapshotValidator,
+  }).index("by_originalSeriesId", ["originalSeriesId"]),
 
   bookingIdentities: defineTable({
     createdAt: v.int64(),
