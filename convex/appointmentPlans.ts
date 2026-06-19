@@ -168,11 +168,12 @@ export async function validateAppointmentPlan(
   }
 
   const seenStepIds = new Set<string>();
+  const previousStepOccupancies = new Map<string, AppointmentPlanOccupancy>();
   for (const step of normalizedPlan.steps) {
     validateStepId(step, seenStepIds);
     validateRequiredStep(step);
     validateTiming(step, seenStepIds);
-    validateSameStartOccupancy(step);
+    validateSameStartOccupancy(step, previousStepOccupancies);
 
     if (
       currentAppointmentTypeLineageKey &&
@@ -189,6 +190,7 @@ export async function validateAppointmentPlan(
       ruleSetId,
       step.appointmentTypeLineageKey,
     );
+    previousStepOccupancies.set(step.stepId, step.occupancy);
   }
 
   return normalizedPlan;
@@ -212,6 +214,22 @@ function buildMissingAppointmentTypeError(
     "APPOINTMENT_PLAN:APPOINTMENT_TYPE_NOT_FOUND",
     `Terminart mit lineageKey ${lineageKey} wurde im Regelset ${ruleSetId} nicht gefunden.`,
   );
+}
+
+function planOccupanciesMatch(
+  left: AppointmentPlanOccupancy,
+  right: AppointmentPlanOccupancy,
+) {
+  if (
+    left.kind === "inheritRootPractitioner" &&
+    right.kind === "inheritRootPractitioner"
+  ) {
+    return true;
+  }
+  if (left.kind === "resourceColumn" && right.kind === "resourceColumn") {
+    return left.calendarResourceColumn === right.calendarResourceColumn;
+  }
+  return false;
 }
 
 function validateAnchorStepId(
@@ -267,7 +285,10 @@ function validateRequiredStep(step: AppointmentPlanStep) {
   }
 }
 
-function validateSameStartOccupancy(step: AppointmentPlanStep) {
+function validateSameStartOccupancy(
+  step: AppointmentPlanStep,
+  previousStepOccupancies: ReadonlyMap<string, AppointmentPlanOccupancy>,
+) {
   if (
     step.timing.kind === "sameStartAs" &&
     step.timing.anchorStepId === "root" &&
@@ -277,6 +298,24 @@ function validateSameStartOccupancy(step: AppointmentPlanStep) {
       "APPOINTMENT_PLAN:SAME_START_ROOT_PRACTITIONER_OVERLAP",
       `Schritt "${step.stepId}" darf nicht gleichzeitig mit dem Starttermin denselben Behandler belegen.`,
     );
+  }
+
+  if (
+    step.timing.kind === "sameStartAs" &&
+    step.timing.anchorStepId !== "root"
+  ) {
+    const anchorOccupancy = previousStepOccupancies.get(
+      step.timing.anchorStepId,
+    );
+    if (
+      anchorOccupancy &&
+      planOccupanciesMatch(step.occupancy, anchorOccupancy)
+    ) {
+      throw appointmentPlanError(
+        "APPOINTMENT_PLAN:SAME_START_ANCHOR_OCCUPANCY_OVERLAP",
+        `Schritt "${step.stepId}" darf nicht gleichzeitig mit Schritt "${step.timing.anchorStepId}" dieselbe Belegung verwenden.`,
+      );
+    }
   }
 }
 
