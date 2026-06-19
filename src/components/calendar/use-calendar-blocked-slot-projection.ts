@@ -489,6 +489,24 @@ export function useCalendarBlockedSlotProjection({
         addOccupiedSlot(target, column, slot);
       }
     };
+    const hasOccupiedZonedRange = (
+      target: Set<string>,
+      column: CalendarColumnId,
+      start: Temporal.ZonedDateTime,
+      end: Temporal.ZonedDateTime,
+    ) => {
+      if (Temporal.PlainDate.compare(start.toPlainDate(), selectedDate) !== 0) {
+        return false;
+      }
+      const startSlot = timeToSlot(start.toPlainTime().toString().slice(0, 5));
+      const endSlot = timeToSlot(end.toPlainTime().toString().slice(0, 5));
+      for (let slot = startSlot; slot < endSlot; slot++) {
+        if (target.has(`${calendarColumnScopeKey(column)}:${slot}`)) {
+          return true;
+        }
+      }
+      return false;
+    };
 
     for (const blockedSlot of [
       ...baseBlockedSlots,
@@ -562,6 +580,14 @@ export function useCalendarBlockedSlotProjection({
         minutes: rootAppointmentType.duration,
       });
       if (!rootCandidate.rootAvailable) {
+        blockedRootSlots.push({
+          column: rootColumn,
+          reason: "Kettentermin nicht planbar",
+          slot: timeToSlot(rootStart.toPlainTime().toString()),
+        });
+        continue;
+      }
+      if (hasOccupiedZonedRange(occupied, rootColumn, rootStart, rootEnd)) {
         blockedRootSlots.push({
           column: rootColumn,
           reason: "Kettentermin nicht planbar",
