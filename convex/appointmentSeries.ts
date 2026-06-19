@@ -42,7 +42,12 @@ import {
   resolvePractitionerLineageKey,
 } from "./appointmentReferences";
 import {
-  type AppointmentTypeLineageKey,
+  type AppointmentSeriesPlanningFailureKind,
+  type BlockedSeriesPlanningResult,
+  type PlannedSeriesStep,
+  type SeriesPlanningResult,
+} from "./appointmentSeriesPlanner";
+import {
   asAppointmentTypeLineageKey,
   asLocationId,
   asLocationLineageKey,
@@ -61,43 +66,6 @@ import {
 } from "./typedDtos";
 
 const MAX_SERIES_SEARCH_DAYS = 370;
-
-export const appointmentSeriesPreviewStepValidator = v.object({
-  appointmentTypeId: v.id("appointmentTypes"),
-  appointmentTypeLineageKey: v.id("appointmentTypes"),
-  appointmentTypeTitle: v.string(),
-  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
-  durationMinutes: v.number(),
-  end: v.string(),
-  locationId: v.id("locations"),
-  locationLineageKey: v.id("locations"),
-  note: v.optional(v.string()),
-  occupancyScope: appointmentOccupancyScopeValidator,
-  practitionerId: v.optional(v.id("practitioners")),
-  practitionerName: v.optional(v.string()),
-  seriesStepIndex: v.number(),
-  start: v.string(),
-  stepId: v.string(),
-});
-
-export const appointmentSeriesPreviewResultValidator = v.object({
-  blockedStepId: v.optional(v.string()),
-  blockingBlockedSlotId: v.optional(v.id("blockedSlots")),
-  blockingRuleIds: v.optional(v.array(v.id("ruleConditions"))),
-  failureKind: v.optional(
-    v.union(
-      v.literal("appointmentOccupancy"),
-      v.literal("blockedSlot"),
-      v.literal("ruleBlock"),
-      v.literal("schedulerUnavailable"),
-      v.literal("seriesInternalConflict"),
-      v.literal("seriesStepUnavailable"),
-    ),
-  ),
-  failureMessage: v.optional(v.string()),
-  status: v.union(v.literal("blocked"), v.literal("ready")),
-  steps: v.array(appointmentSeriesPreviewStepValidator),
-});
 
 export const appointmentSeriesCreatedStepValidator = v.object({
   appointmentId: v.id("appointments"),
@@ -142,40 +110,7 @@ export const appointmentSeriesArgsValidator = {
   userId: v.optional(v.id("users")),
 };
 
-export interface PlannedSeriesStep {
-  appointmentTypeId: Id<"appointmentTypes">;
-  appointmentTypeLineageKey: AppointmentTypeLineageKey;
-  appointmentTypeTitle: string;
-  calendarResourceColumn?: CalendarResourceColumn;
-  durationMinutes: number;
-  end: ZonedDateTimeString;
-  locationId: Id<"locations">;
-  locationLineageKey: LocationLineageKey;
-  note?: string;
-  occupancyScope: AppointmentOccupancyScope;
-  practitionerId?: Id<"practitioners">;
-  practitionerName?: string;
-  seriesStepIndex: number;
-  start: ZonedDateTimeString;
-  stepId: string;
-}
-
 export type SeriesRootOccupancy = ResolvedPlanOccupancy;
-
-interface BlockedSeriesPlanningResult {
-  blockedStepId: string;
-  blockingBlockedSlotId?: Id<"blockedSlots">;
-  blockingRuleIds?: Id<"ruleConditions">[];
-  failureKind: SeriesPlanningFailureKind;
-  failureMessage: string;
-  status: "blocked";
-  steps: PlannedSeriesStep[];
-}
-
-interface ReadySeriesPlanningResult {
-  status: "ready";
-  steps: PlannedSeriesStep[];
-}
 
 interface ResolvedPlanOccupancy {
   calendarResourceColumn?: CalendarResourceColumn;
@@ -205,18 +140,6 @@ type SeriesPlannerCtx =
   | Pick<MutationCtx, "db" | "runQuery">
   | Pick<QueryCtx, "db" | "runQuery">;
 
-type SeriesPlanningFailureKind =
-  | "appointmentOccupancy"
-  | "blockedSlot"
-  | "ruleBlock"
-  | "schedulerUnavailable"
-  | "seriesInternalConflict"
-  | "seriesStepUnavailable";
-
-type SeriesPlanningResult =
-  | BlockedSeriesPlanningResult
-  | ReadySeriesPlanningResult;
-
 interface SeriesPlanningState {
   baseSchedulesByRuleSet: Map<Id<"ruleSets">, Promise<Doc<"baseSchedules">[]>>;
   eligibleWeekdays: Map<string, number[]>;
@@ -236,7 +159,7 @@ type StepPlanningResult =
   | {
       blockingBlockedSlotId?: Id<"blockedSlots">;
       blockingRuleIds?: Id<"ruleConditions">[];
-      failureKind: SeriesPlanningFailureKind;
+      failureKind: AppointmentSeriesPlanningFailureKind;
       failureMessage: string;
       status: "blocked";
     };
@@ -863,7 +786,7 @@ function blockedSeriesPlanningResult(args: {
   blockedStepId: string;
   blockingBlockedSlotId?: Id<"blockedSlots">;
   blockingRuleIds?: Id<"ruleConditions">[];
-  failureKind: SeriesPlanningFailureKind;
+  failureKind: AppointmentSeriesPlanningFailureKind;
   failureMessage: string;
   steps: PlannedSeriesStep[];
 }): BlockedSeriesPlanningResult {
@@ -2072,7 +1995,7 @@ function schedulerFailureForSlot(
 ): {
   blockingBlockedSlotId?: Id<"blockedSlots">;
   blockingRuleIds?: Id<"ruleConditions">[];
-  failureKind: SeriesPlanningFailureKind;
+  failureKind: AppointmentSeriesPlanningFailureKind;
   failureMessage: string;
 } {
   if (slot?.blockedByBlockedSlotId !== undefined) {

@@ -43,7 +43,6 @@ import {
 import {
   appointmentSeriesArgsValidator,
   appointmentSeriesCreateResultValidator,
-  appointmentSeriesPreviewResultValidator,
   createAppointmentSeries as createAppointmentSeriesHelper,
   createSeriesPlanningState,
   hasResourceRootSchedulerAvailability,
@@ -51,6 +50,10 @@ import {
   replanAppointmentSeries,
   type SeriesRootOccupancy,
 } from "./appointmentSeries";
+import {
+  appointmentSeriesPlanningFailureKindValidator,
+  appointmentSeriesPreviewResultValidator,
+} from "./appointmentSeriesPlanner";
 import { appointmentSeriesRestoreSnapshotValidator } from "./appointmentSeriesRestoreSnapshots";
 import {
   appointmentReplacementInsertFields,
@@ -2333,16 +2336,7 @@ const appointmentSeriesBlockedRootSlotValidator = v.object({
   blockingRuleIds: v.optional(v.array(v.id("ruleConditions"))),
   calendarResourceColumn: v.optional(calendarResourceColumnValidator),
   duration: v.number(),
-  failureKind: v.optional(
-    v.union(
-      v.literal("appointmentOccupancy"),
-      v.literal("blockedSlot"),
-      v.literal("ruleBlock"),
-      v.literal("schedulerUnavailable"),
-      v.literal("seriesInternalConflict"),
-      v.literal("seriesStepUnavailable"),
-    ),
-  ),
+  failureKind: v.optional(appointmentSeriesPlanningFailureKindValidator),
   locationLineageKey: v.id("locations"),
   practitionerLineageKey: v.optional(v.id("practitioners")),
   practitionerName: v.optional(v.string()),
