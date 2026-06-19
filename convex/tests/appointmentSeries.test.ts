@@ -3052,6 +3052,142 @@ describe("appointment series", () => {
     );
   });
 
+  test("resource-default single appointment types expose next available resource slots", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const appointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const typeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        defaultOccupancy: {
+          calendarResourceColumn: "ekg",
+          kind: "resourceColumn",
+        },
+        duration: 20,
+        lastModified: now,
+        name: "EKG Einzeltermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", typeId, {
+        lineageKey: typeId,
+      });
+      return typeId;
+    });
+
+    const slot = await t.query(
+      api.appointments.getNextAvailableResourceSeriesRootSlot,
+      {
+        date: nextWeekday(1).toString(),
+        locationId,
+        practiceId,
+        rootAppointmentTypeId: appointmentTypeId,
+        ruleSetId,
+      },
+    );
+
+    expect(slot).toMatchObject({
+      calendarResourceColumn: "ekg",
+      duration: 20,
+      locationLineageKey: locationId,
+      status: "AVAILABLE",
+    });
+  });
+
+  test("resource-root appointment series require scheduler availability for the root", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const ekgTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "EKG Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", ekgTypeId, {
+        lineageKey: ekgTypeId,
+      });
+      const rootTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: ekgTypeId,
+              occupancy: {
+                calendarResourceColumn: "ekg",
+                kind: "resourceColumn",
+              },
+              required: true,
+              stepId: "ekg-follow-up",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        defaultOccupancy: {
+          calendarResourceColumn: "ekg",
+          kind: "resourceColumn",
+        },
+        duration: 20,
+        lastModified: now,
+        name: "EKG Serie",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootTypeId, {
+        lineageKey: rootTypeId,
+      });
+
+      const baseSchedules = await ctx.db.query("baseSchedules").collect();
+      const mondaySchedule = baseSchedules.find(
+        (schedule) =>
+          schedule.practiceId === practiceId &&
+          schedule.ruleSetId === ruleSetId &&
+          schedule.locationLineageKey === locationId &&
+          schedule.practitionerLineageKey === practitionerId &&
+          schedule.dayOfWeek === 1,
+      );
+      assertDefined(mondaySchedule, "Monday schedule should exist");
+      await ctx.db.patch("baseSchedules", mondaySchedule._id, {
+        breakTimes: [{ end: "09:30", start: "09:00" }],
+      });
+
+      return rootTypeId;
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      calendarResourceColumn: "ekg",
+      locationId,
+      practiceId,
+      rootAppointmentTypeId,
+      ruleSetId,
+      start: rootStart,
+    });
+
+    expect(preview.status).toBe("blocked");
+    expect(preview.blockedStepId).toBe("root");
+  });
+
   test("appointment plans reject date-offset resource steps inside blocked ranges", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =

@@ -45,6 +45,8 @@ import {
   appointmentSeriesCreateResultValidator,
   appointmentSeriesPreviewResultValidator,
   createAppointmentSeries as createAppointmentSeriesHelper,
+  createSeriesPlanningState,
+  hasResourceRootSchedulerAvailability,
   previewAppointmentSeries as previewAppointmentSeriesHelper,
   replanAppointmentSeries,
   type SeriesRootOccupancy,
@@ -105,6 +107,7 @@ import {
 } from "./scopedResources";
 import { createTemporaryPatientRecordWithIdentity } from "./temporaryPatients";
 import {
+  asInstantString,
   asIsoDateString,
   asOptionalIsoDateString,
   asTypedDateTimeRange,
@@ -2153,8 +2156,7 @@ export const getNextAvailableResourceSeriesRootSlot = query({
     );
     if (
       rootAppointmentType?.practiceId !== args.practiceId ||
-      rootAppointmentType.ruleSetId !== args.ruleSetId ||
-      !hasAppointmentPlan(rootAppointmentType)
+      rootAppointmentType.ruleSetId !== args.ruleSetId
     ) {
       return null;
     }
@@ -2208,8 +2210,11 @@ export const getNextAvailableResourceSeriesRootSlot = query({
         : asOptionalIsoDateString(args.patientDateOfBirth);
     const startDate = Temporal.PlainDate.from(asIsoDateString(args.date));
     const now = Temporal.Now.zonedDateTimeISO(APPOINTMENT_TIMEZONE);
+    const requestedAt = asInstantString(Temporal.Now.instant().toString());
+    const planningState = createSeriesPlanningState();
     const maxSearchDays = 90;
     const slotDurationMinutes = 5;
+    const appointmentHasPlan = hasAppointmentPlan(rootAppointmentType);
 
     for (let offset = 0; offset <= maxSearchDays; offset += 1) {
       const day = startDate.add({ days: offset });
@@ -2240,33 +2245,81 @@ export const getNextAvailableResourceSeriesRootSlot = query({
           continue;
         }
 
-        const preview = await previewAppointmentSeriesHelper(ctx, {
-          ...(args.isNewPatient === undefined
-            ? {}
-            : { isNewPatient: args.isNewPatient }),
-          calendarResourceColumn: rootDefaultOccupancy.calendarResourceColumn,
-          locationId: args.locationId,
-          ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
-          ...(args.patientId === undefined
-            ? {}
-            : { patientId: args.patientId }),
-          practiceId: args.practiceId,
-          rootAppointmentTypeId: args.rootAppointmentTypeId,
-          ruleSetId: args.ruleSetId,
-          ...(args.scope === undefined ? {} : { scope: args.scope }),
-          start: asZonedDateTimeString(start.toString()),
-          ...(args.userId === undefined ? {} : { userId: args.userId }),
-        });
-
-        if (preview.status === "ready") {
-          return {
-            calendarResourceColumn: rootDefaultOccupancy.calendarResourceColumn,
-            duration: rootAppointmentType.duration,
-            locationLineageKey,
-            startTime: asZonedDateTimeString(start.toString()),
-            status: "AVAILABLE",
-          };
+        const hasSchedulerAvailability =
+          await hasResourceRootSchedulerAvailability(ctx, {
+            appointmentType: rootAppointmentType,
+            ...(args.isNewPatient === undefined
+              ? {}
+              : { isNewPatient: args.isNewPatient }),
+            locationId: args.locationId,
+            planningState,
+            ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+            practiceId: args.practiceId,
+            requestedAt,
+            rootDurationMinutes: rootAppointmentType.duration,
+            ruleSetId: args.ruleSetId,
+            ...(args.scope === undefined ? {} : { scope: args.scope }),
+            start: asZonedDateTimeString(start.toString()),
+          });
+        if (!hasSchedulerAvailability) {
+          continue;
         }
+
+        if (appointmentHasPlan) {
+          const preview = await previewAppointmentSeriesHelper(ctx, {
+            ...(args.isNewPatient === undefined
+              ? {}
+              : { isNewPatient: args.isNewPatient }),
+            calendarResourceColumn: rootDefaultOccupancy.calendarResourceColumn,
+            locationId: args.locationId,
+            ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+            ...(args.patientId === undefined
+              ? {}
+              : { patientId: args.patientId }),
+            practiceId: args.practiceId,
+            rootAppointmentTypeId: args.rootAppointmentTypeId,
+            ruleSetId: args.ruleSetId,
+            ...(args.scope === undefined ? {} : { scope: args.scope }),
+            start: asZonedDateTimeString(start.toString()),
+            ...(args.userId === undefined ? {} : { userId: args.userId }),
+          });
+
+          if (preview.status !== "ready") {
+            continue;
+          }
+        } else {
+          const conflictingOccupancy = await findConflictingCalendarOccupancy(
+            ctx.db,
+            {
+              candidate: {
+                end: start
+                  .add({ minutes: rootAppointmentType.duration })
+                  .toString(),
+                locationLineageKey,
+                occupancyScope: appointmentOccupancyScopeFromRefs({
+                  calendarResourceColumn:
+                    rootDefaultOccupancy.calendarResourceColumn,
+                }),
+                start: asZonedDateTimeString(start.toString()),
+              },
+              occupancyView: getOccupancyViewForBookingScope(
+                args.scope ?? "real",
+              ),
+              practiceId: args.practiceId,
+            },
+          );
+          if (conflictingOccupancy) {
+            continue;
+          }
+        }
+
+        return {
+          calendarResourceColumn: rootDefaultOccupancy.calendarResourceColumn,
+          duration: rootAppointmentType.duration,
+          locationLineageKey,
+          startTime: asZonedDateTimeString(start.toString()),
+          status: "AVAILABLE",
+        };
       }
     }
 

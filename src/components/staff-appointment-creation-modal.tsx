@@ -229,10 +229,7 @@ export function StaffAppointmentCreationModal({
   );
   const nextAvailableResourceSlot = useQuery(
     api.appointments.getNextAvailableResourceSeriesRootSlot,
-    open &&
-      hasAppointmentPlan &&
-      resourceDefaultOccupancy !== null &&
-      location !== undefined
+    open && resourceDefaultOccupancy !== null && location !== undefined
       ? {
           date: selectedDate,
           ...(effectivePatient?.dateOfBirth && {
