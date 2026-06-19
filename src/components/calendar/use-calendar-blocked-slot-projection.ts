@@ -52,6 +52,13 @@ interface BlockedSlotVacation {
 interface RuleBlockedSlotProjection {
   blockedByRuleId?: Id<"ruleConditions">;
   column: CalendarColumnId;
+  failureKind?:
+    | "appointmentOccupancy"
+    | "blockedSlot"
+    | "ruleBlock"
+    | "schedulerUnavailable"
+    | "seriesInternalConflict"
+    | "seriesStepUnavailable";
   isManual?: false;
   reason?: string;
   slot: number;
@@ -68,7 +75,15 @@ interface SchedulingSlot {
 }
 
 interface ServerAppointmentSeriesRootBlockedSlot {
+  blockingRuleIds?: Id<"ruleConditions">[];
   calendarResourceColumn?: "ekg" | "labor";
+  failureKind?:
+    | "appointmentOccupancy"
+    | "blockedSlot"
+    | "ruleBlock"
+    | "schedulerUnavailable"
+    | "seriesInternalConflict"
+    | "seriesStepUnavailable";
   practitionerLineageKey?: Id<"practitioners">;
   reason?: string;
   startTime: string;
@@ -447,7 +462,13 @@ export function useCalendarBlockedSlotProjection({
         ).toPlainTime();
         return [
           {
+            ...(blockedSlot.blockingRuleIds?.[0] === undefined
+              ? {}
+              : { blockedByRuleId: blockedSlot.blockingRuleIds[0] }),
             column,
+            ...(blockedSlot.failureKind === undefined
+              ? {}
+              : { failureKind: blockedSlot.failureKind }),
             reason: blockedSlot.reason ?? "Kettentermin nicht planbar",
             slot: timeToSlot(startTime.toString().slice(0, 5)),
           },

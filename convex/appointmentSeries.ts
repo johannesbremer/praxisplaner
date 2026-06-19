@@ -82,6 +82,18 @@ export const appointmentSeriesPreviewStepValidator = v.object({
 
 export const appointmentSeriesPreviewResultValidator = v.object({
   blockedStepId: v.optional(v.string()),
+  blockingBlockedSlotId: v.optional(v.id("blockedSlots")),
+  blockingRuleIds: v.optional(v.array(v.id("ruleConditions"))),
+  failureKind: v.optional(
+    v.union(
+      v.literal("appointmentOccupancy"),
+      v.literal("blockedSlot"),
+      v.literal("ruleBlock"),
+      v.literal("schedulerUnavailable"),
+      v.literal("seriesInternalConflict"),
+      v.literal("seriesStepUnavailable"),
+    ),
+  ),
   failureMessage: v.optional(v.string()),
   status: v.union(v.literal("blocked"), v.literal("ready")),
   steps: v.array(appointmentSeriesPreviewStepValidator),
@@ -150,6 +162,21 @@ export interface PlannedSeriesStep {
 
 export type SeriesRootOccupancy = ResolvedPlanOccupancy;
 
+interface BlockedSeriesPlanningResult {
+  blockedStepId: string;
+  blockingBlockedSlotId?: Id<"blockedSlots">;
+  blockingRuleIds?: Id<"ruleConditions">[];
+  failureKind: SeriesPlanningFailureKind;
+  failureMessage: string;
+  status: "blocked";
+  steps: PlannedSeriesStep[];
+}
+
+interface ReadySeriesPlanningResult {
+  status: "ready";
+  steps: PlannedSeriesStep[];
+}
+
 interface ResolvedPlanOccupancy {
   calendarResourceColumn?: CalendarResourceColumn;
   occupancyScope: AppointmentOccupancyScope;
@@ -158,6 +185,7 @@ interface ResolvedPlanOccupancy {
 }
 
 interface RootSeriesCandidate {
+  allowPlannerRuleOverride?: boolean;
   calendarResourceColumn?: CalendarResourceColumn;
   excludedAppointmentIds?: Id<"appointments">[];
   isNewPatient?: boolean;
@@ -177,12 +205,17 @@ type SeriesPlannerCtx =
   | Pick<MutationCtx, "db" | "runQuery">
   | Pick<QueryCtx, "db" | "runQuery">;
 
-interface SeriesPlanningResult {
-  blockedStepId?: string;
-  failureMessage?: string;
-  status: "blocked" | "ready";
-  steps: PlannedSeriesStep[];
-}
+type SeriesPlanningFailureKind =
+  | "appointmentOccupancy"
+  | "blockedSlot"
+  | "ruleBlock"
+  | "schedulerUnavailable"
+  | "seriesInternalConflict"
+  | "seriesStepUnavailable";
+
+type SeriesPlanningResult =
+  | BlockedSeriesPlanningResult
+  | ReadySeriesPlanningResult;
 
 interface SeriesPlanningState {
   baseSchedulesByRuleSet: Map<Id<"ruleSets">, Promise<Doc<"baseSchedules">[]>>;
@@ -198,9 +231,20 @@ interface SeriesSpecification {
   ruleSetId: Id<"ruleSets">;
 }
 
+type StepPlanningResult =
+  | PlannedSeriesStep
+  | {
+      blockingBlockedSlotId?: Id<"blockedSlots">;
+      blockingRuleIds?: Id<"ruleConditions">[];
+      failureKind: SeriesPlanningFailureKind;
+      failureMessage: string;
+      status: "blocked";
+    };
+
 export async function createAppointmentSeries(
   ctx: MutationCtx,
   args: {
+    allowPlannerRuleOverride?: boolean;
     bookingIdentityId?: Id<"bookingIdentities">;
     calendarResourceColumn?: CalendarResourceColumn;
     isNewPatient?: boolean;
@@ -242,6 +286,9 @@ export async function createAppointmentSeries(
   const preview = await previewAppointmentSeries(
     ctx,
     {
+      ...(args.allowPlannerRuleOverride === undefined
+        ? {}
+        : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
       ...(replacementExcludedAppointmentIds && {
         excludedAppointmentIds: replacementExcludedAppointmentIds,
       }),
@@ -411,6 +458,7 @@ export function createSeriesPlanningState(): SeriesPlanningState {
 export async function hasResourceRootSchedulerAvailability(
   ctx: SeriesPlannerCtx,
   args: {
+    allowPlannerRuleOverride?: boolean;
     appointmentType: Doc<"appointmentTypes">;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
@@ -427,6 +475,9 @@ export async function hasResourceRootSchedulerAvailability(
   },
 ): Promise<boolean> {
   const rootSlots = await queryAvailableSlotsForDay(ctx, {
+    ...(args.allowPlannerRuleOverride === undefined
+      ? {}
+      : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
     appointmentType: args.appointmentType,
     date: asIsoDateString(
       Temporal.ZonedDateTime.from(args.start).toPlainDate().toString(),
@@ -479,6 +530,11 @@ export async function planSeriesFromRootCandidate(
       ruleSetId: args.seriesSpecification.ruleSetId,
     }));
   const validatedRoot = await validateRootCandidate(ctx, {
+    ...(args.rootCandidate.allowPlannerRuleOverride === undefined
+      ? {}
+      : {
+          allowPlannerRuleOverride: args.rootCandidate.allowPlannerRuleOverride,
+        }),
     appointmentType: args.seriesSpecification.rootAppointmentType,
     ...(args.rootCandidate.excludedAppointmentIds && {
       excludedAppointmentIds: args.rootCandidate.excludedAppointmentIds,
@@ -546,7 +602,13 @@ export async function planSeriesFromRootCandidate(
       args.seriesSpecification.ruleSetId,
       step.appointmentTypeLineageKey,
     );
-    const plannedStep = await planAppointmentPlanStep(ctx, {
+    const plannedStepResult = await planAppointmentPlanStep(ctx, {
+      ...(args.rootCandidate.allowPlannerRuleOverride === undefined
+        ? {}
+        : {
+            allowPlannerRuleOverride:
+              args.rootCandidate.allowPlannerRuleOverride,
+          }),
       ...(args.rootCandidate.isNewPatient !== undefined && {
         isNewPatient: args.rootCandidate.isNewPatient,
       }),
@@ -572,20 +634,40 @@ export async function planSeriesFromRootCandidate(
       }),
     });
 
-    if (!plannedStep) {
+    if (plannedStepResult && "status" in plannedStepResult) {
       if (step.required) {
-        return {
+        return blockedSeriesPlanningResult({
           blockedStepId: step.stepId,
-          failureMessage: `Kein verfügbarer Kettentermin für "${targetAppointmentType.name}" gefunden.`,
-          status: "blocked",
+          ...(plannedStepResult.blockingBlockedSlotId === undefined
+            ? {}
+            : {
+                blockingBlockedSlotId: plannedStepResult.blockingBlockedSlotId,
+              }),
+          ...(plannedStepResult.blockingRuleIds === undefined
+            ? {}
+            : { blockingRuleIds: plannedStepResult.blockingRuleIds }),
+          failureKind: plannedStepResult.failureKind,
+          failureMessage: plannedStepResult.failureMessage,
           steps: plannedSteps,
-        };
+        });
       }
       continue;
     }
 
-    plannedSteps.push(plannedStep);
-    previousStep = plannedStep;
+    if (!plannedStepResult) {
+      if (step.required) {
+        return blockedSeriesPlanningResult({
+          blockedStepId: step.stepId,
+          failureKind: "seriesStepUnavailable",
+          failureMessage: `Kein verfügbarer Kettentermin für "${targetAppointmentType.name}" gefunden.`,
+          steps: plannedSteps,
+        });
+      }
+      continue;
+    }
+
+    plannedSteps.push(plannedStepResult);
+    previousStep = plannedStepResult;
   }
 
   return {
@@ -597,6 +679,7 @@ export async function planSeriesFromRootCandidate(
 export async function previewAppointmentSeries(
   ctx: SeriesPlannerCtx,
   args: {
+    allowPlannerRuleOverride?: boolean;
     calendarResourceColumn?: CalendarResourceColumn;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
@@ -628,6 +711,9 @@ export async function previewAppointmentSeries(
     planningState,
     requestedAt,
     rootCandidate: {
+      ...(args.allowPlannerRuleOverride === undefined
+        ? {}
+        : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
       ...(args.excludedAppointmentIds && {
         excludedAppointmentIds: args.excludedAppointmentIds,
       }),
@@ -773,6 +859,29 @@ function appointmentSeriesError(code: string, message: string) {
   return new ConvexError({ code, message });
 }
 
+function blockedSeriesPlanningResult(args: {
+  blockedStepId: string;
+  blockingBlockedSlotId?: Id<"blockedSlots">;
+  blockingRuleIds?: Id<"ruleConditions">[];
+  failureKind: SeriesPlanningFailureKind;
+  failureMessage: string;
+  steps: PlannedSeriesStep[];
+}): BlockedSeriesPlanningResult {
+  return {
+    blockedStepId: args.blockedStepId,
+    ...(args.blockingBlockedSlotId === undefined
+      ? {}
+      : { blockingBlockedSlotId: args.blockingBlockedSlotId }),
+    ...(args.blockingRuleIds === undefined || args.blockingRuleIds.length === 0
+      ? {}
+      : { blockingRuleIds: args.blockingRuleIds }),
+    failureKind: args.failureKind,
+    failureMessage: args.failureMessage,
+    status: "blocked",
+    steps: args.steps,
+  };
+}
+
 function buildPlannedStepCandidate(args: {
   locationId: Id<"locations">;
   locationLineageKey: LocationLineageKey;
@@ -817,6 +926,7 @@ function buildPlannedStepCandidate(args: {
 async function buildPlannedStepIfAvailable(
   ctx: SeriesPlannerCtx,
   args: {
+    allowPlannerRuleOverride?: boolean;
     excludedAppointmentIds?: Id<"appointments">[];
     locationId: Id<"locations">;
     occupancy: ResolvedPlanOccupancy;
@@ -829,7 +939,7 @@ async function buildPlannedStepIfAvailable(
     step: AppointmentPlanStep;
     targetAppointmentType: Doc<"appointmentTypes">;
   },
-): Promise<null | PlannedSeriesStep> {
+): Promise<null | StepPlanningResult> {
   const candidate = buildPlannedStepCandidate({
     locationId: args.locationId,
     locationLineageKey: args.rootStep.locationLineageKey,
@@ -841,7 +951,12 @@ async function buildPlannedStepIfAvailable(
   });
 
   if (hasPlannedStepConflict(args.plannedSteps, candidate)) {
-    return null;
+    return {
+      failureKind: "seriesInternalConflict",
+      failureMessage:
+        "Der Kettentermin überschneidet sich mit einem anderen Schritt.",
+      status: "blocked",
+    };
   }
 
   const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
@@ -861,7 +976,14 @@ async function buildPlannedStepIfAvailable(
     practiceId: args.practiceId,
   });
 
-  return conflictingOccupancy ? null : candidate;
+  return conflictingOccupancy
+    ? {
+        failureKind: "appointmentOccupancy",
+        failureMessage:
+          "Der Kettentermin ist bereits durch einen Termin belegt.",
+        status: "blocked",
+      }
+    : candidate;
 }
 
 function calculateEndTime(
@@ -973,6 +1095,7 @@ async function findFirstAvailableStepStart(
 async function findFirstAvailableStepStartOnOrAfter(
   ctx: SeriesPlannerCtx,
   args: {
+    allowPlannerRuleOverride?: boolean;
     earliestStart: Temporal.ZonedDateTime;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
@@ -1005,6 +1128,9 @@ async function findFirstAvailableStepStartOnOrAfter(
 
     for (const searchDate of searchDates) {
       const slots = await queryAvailableSlotsForDay(ctx, {
+        ...(args.allowPlannerRuleOverride === undefined
+          ? {}
+          : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
         appointmentType: args.targetAppointmentType,
         date: asIsoDateString(searchDate.toString()),
         ...(args.excludedAppointmentIds && {
@@ -1064,6 +1190,9 @@ async function findFirstAvailableStepStartOnOrAfter(
 
   for (const searchDate of searchDates) {
     const slots = await queryAvailableSlotsForDay(ctx, {
+      ...(args.allowPlannerRuleOverride === undefined
+        ? {}
+        : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
       appointmentType: args.targetAppointmentType,
       date: asIsoDateString(searchDate.toString()),
       ...(args.excludedAppointmentIds && {
@@ -1107,6 +1236,41 @@ async function findFirstAvailableStepStartOnOrAfter(
   }
 
   return null;
+}
+
+function findFirstUnavailableSchedulerSlotInRange(
+  slots: InternalSchedulingResultSlot[],
+  args: {
+    allowPlannerRuleOverride?: boolean;
+    durationMinutes: number;
+    start: ZonedDateTimeString;
+  },
+): InternalSchedulingResultSlot | undefined {
+  const rangeEnd = Temporal.ZonedDateTime.from(args.start).add({
+    minutes: args.durationMinutes,
+  });
+  let cursor = Temporal.ZonedDateTime.from(args.start);
+
+  while (Temporal.ZonedDateTime.compare(cursor, rangeEnd) < 0) {
+    const slot = slots.find(
+      (candidate) => candidate.startTime === cursor.toString(),
+    );
+    if (!slot) {
+      return undefined;
+    }
+    if (
+      slot.status !== "AVAILABLE" &&
+      !(
+        args.allowPlannerRuleOverride === true &&
+        slot.blockedByRuleId !== undefined
+      )
+    ) {
+      return slot;
+    }
+    cursor = cursor.add({ minutes: slot.duration });
+  }
+
+  return undefined;
 }
 
 function getAppointmentPlanSearchWindow(
@@ -1217,6 +1381,86 @@ async function getEligibleWeekdays(
   return weekdays;
 }
 
+async function getExactPractitionerSlotAvailability(
+  ctx: SeriesPlannerCtx,
+  args: {
+    allowPlannerRuleOverride?: boolean;
+    excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
+    locationId: Id<"locations">;
+    patientDateOfBirth?: IsoDateString;
+    planningState: SeriesPlanningState;
+    practiceId: Id<"practices">;
+    practitionerId: Id<"practitioners">;
+    requestedAt: InstantString;
+    ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
+    start: ZonedDateTimeString;
+    targetAppointmentType: Doc<"appointmentTypes">;
+  },
+): Promise<
+  | {
+      available: false;
+      failure: ReturnType<typeof schedulerFailureForSlot>;
+    }
+  | { available: true }
+> {
+  const schedulerSlots = await querySchedulingSlotsForDay(ctx, {
+    ...(args.allowPlannerRuleOverride === undefined
+      ? {}
+      : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
+    appointmentType: args.targetAppointmentType,
+    date: asIsoDateString(
+      Temporal.ZonedDateTime.from(args.start).toPlainDate().toString(),
+    ),
+    ...(args.excludedAppointmentIds && {
+      excludedAppointmentIds: args.excludedAppointmentIds,
+    }),
+    ...(args.isNewPatient !== undefined && {
+      isNewPatient: args.isNewPatient,
+    }),
+    locationId: args.locationId,
+    planningState: args.planningState,
+    ...(args.patientDateOfBirth && {
+      patientDateOfBirth: args.patientDateOfBirth,
+    }),
+    practiceId: args.practiceId,
+    practitionerId: args.practitionerId,
+    requestedAt: args.requestedAt,
+    ruleSetId: args.ruleSetId,
+    ...(args.scope && { scope: args.scope }),
+    ...(args.simulationRuleSetId && {
+      simulationRuleSetId: args.simulationRuleSetId,
+    }),
+  });
+
+  const slots = schedulerSlots.filter(
+    (slot) =>
+      slot.status === "AVAILABLE" ||
+      (args.allowPlannerRuleOverride === true &&
+        slot.blockedByRuleId !== undefined),
+  );
+
+  return hasConsecutiveAvailablePractitionerSlots(slots, {
+    durationMinutes: args.targetAppointmentType.duration,
+    start: args.start,
+  })
+    ? { available: true }
+    : {
+        available: false,
+        failure: schedulerFailureForSlot(
+          findFirstUnavailableSchedulerSlotInRange(schedulerSlots, {
+            ...(args.allowPlannerRuleOverride === undefined
+              ? {}
+              : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
+            durationMinutes: args.targetAppointmentType.duration,
+            start: args.start,
+          }),
+        ),
+      };
+}
+
 async function getSearchDatesOnOrAfter(
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
   args: {
@@ -1314,56 +1558,6 @@ function hasConsecutiveAvailablePractitionerSlots(
   return true;
 }
 
-async function hasExactPractitionerSlot(
-  ctx: SeriesPlannerCtx,
-  args: {
-    excludedAppointmentIds?: Id<"appointments">[];
-    isNewPatient?: boolean;
-    locationId: Id<"locations">;
-    patientDateOfBirth?: IsoDateString;
-    planningState: SeriesPlanningState;
-    practiceId: Id<"practices">;
-    practitionerId: Id<"practitioners">;
-    requestedAt: InstantString;
-    ruleSetId: Id<"ruleSets">;
-    scope?: AppointmentBookingScope;
-    simulationRuleSetId?: Id<"ruleSets">;
-    start: ZonedDateTimeString;
-    targetAppointmentType: Doc<"appointmentTypes">;
-  },
-): Promise<boolean> {
-  const slots = await queryAvailableSlotsForDay(ctx, {
-    appointmentType: args.targetAppointmentType,
-    date: asIsoDateString(
-      Temporal.ZonedDateTime.from(args.start).toPlainDate().toString(),
-    ),
-    ...(args.excludedAppointmentIds && {
-      excludedAppointmentIds: args.excludedAppointmentIds,
-    }),
-    ...(args.isNewPatient !== undefined && {
-      isNewPatient: args.isNewPatient,
-    }),
-    locationId: args.locationId,
-    planningState: args.planningState,
-    ...(args.patientDateOfBirth && {
-      patientDateOfBirth: args.patientDateOfBirth,
-    }),
-    practiceId: args.practiceId,
-    practitionerId: args.practitionerId,
-    requestedAt: args.requestedAt,
-    ruleSetId: args.ruleSetId,
-    ...(args.scope && { scope: args.scope }),
-    ...(args.simulationRuleSetId && {
-      simulationRuleSetId: args.simulationRuleSetId,
-    }),
-  });
-
-  return hasConsecutiveAvailablePractitionerSlots(slots, {
-    durationMinutes: args.targetAppointmentType.duration,
-    start: args.start,
-  });
-}
-
 function hasPlannedStepConflict(
   plannedSteps: PlannedSeriesStep[],
   candidate: PlannedSeriesStep,
@@ -1448,6 +1642,7 @@ function normalizeAppointmentPlanSnapshotFromType(
 async function planAppointmentPlanStep(
   ctx: SeriesPlannerCtx,
   args: {
+    allowPlannerRuleOverride?: boolean;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId: Id<"locations">;
@@ -1464,7 +1659,7 @@ async function planAppointmentPlanStep(
     step: AppointmentPlanStep;
     targetAppointmentType: Doc<"appointmentTypes">;
   },
-): Promise<null | PlannedSeriesStep> {
+): Promise<null | StepPlanningResult> {
   const occupancy = await resolveStepOccupancy(ctx, {
     occupancy: args.step.occupancy,
     rootStep: args.rootStep,
@@ -1493,16 +1688,21 @@ async function planAppointmentPlanStep(
     return null;
   }
 
-  if (
-    exactStart &&
-    occupancy.practitionerId &&
-    !(await hasExactPractitionerSlot(ctx, {
-      ...args,
-      practitionerId: occupancy.practitionerId,
-      start: exactStart,
-    }))
-  ) {
-    return null;
+  if (exactStart && occupancy.practitionerId) {
+    const exactSlotAvailability = await getExactPractitionerSlotAvailability(
+      ctx,
+      {
+        ...args,
+        practitionerId: occupancy.practitionerId,
+        start: exactStart,
+      },
+    );
+    if (!exactSlotAvailability.available) {
+      return {
+        ...exactSlotAvailability.failure,
+        status: "blocked",
+      };
+    }
   }
 
   return await buildPlannedStepIfAvailable(ctx, {
@@ -1515,6 +1715,35 @@ async function planAppointmentPlanStep(
 async function queryAvailableSlotsForDay(
   ctx: Pick<MutationCtx, "db" | "runQuery"> | Pick<QueryCtx, "db" | "runQuery">,
   args: {
+    allowPlannerRuleOverride?: boolean;
+    appointmentType: Doc<"appointmentTypes">;
+    date: IsoDateString;
+    excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
+    locationId?: Id<"locations">;
+    patientDateOfBirth?: IsoDateString;
+    planningState: SeriesPlanningState;
+    practiceId: Id<"practices">;
+    practitionerId?: Id<"practitioners">;
+    requestedAt: InstantString;
+    ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
+  },
+) {
+  const slots = await querySchedulingSlotsForDay(ctx, args);
+  return slots.filter(
+    (slot) =>
+      slot.status === "AVAILABLE" ||
+      (args.allowPlannerRuleOverride === true &&
+        slot.blockedByRuleId !== undefined),
+  );
+}
+
+async function querySchedulingSlotsForDay(
+  ctx: Pick<MutationCtx, "db" | "runQuery"> | Pick<QueryCtx, "db" | "runQuery">,
+  args: {
+    allowPlannerRuleOverride?: boolean;
     appointmentType: Doc<"appointmentTypes">;
     date: IsoDateString;
     excludedAppointmentIds?: Id<"appointments">[];
@@ -1533,6 +1762,7 @@ async function queryAvailableSlotsForDay(
   const cacheKey = [
     args.appointmentType._id,
     args.date,
+    "all-scheduler-slots",
     args.excludedAppointmentIds?.join(",") ?? "",
     args.isNewPatient === true ? "new" : "existing",
     args.locationId ?? "",
@@ -1608,7 +1838,6 @@ async function queryAvailableSlotsForDay(
     });
 
   const slots = result.slots
-    .filter((slot) => slot.status === "AVAILABLE")
     .filter((slot) =>
       allowedPractitionerLineageKeys.has(slot.practitionerLineageKey),
     )
@@ -1838,6 +2067,40 @@ async function resolveStepOccupancy(
   }
 }
 
+function schedulerFailureForSlot(
+  slot: InternalSchedulingResultSlot | undefined,
+): {
+  blockingBlockedSlotId?: Id<"blockedSlots">;
+  blockingRuleIds?: Id<"ruleConditions">[];
+  failureKind: SeriesPlanningFailureKind;
+  failureMessage: string;
+} {
+  if (slot?.blockedByBlockedSlotId !== undefined) {
+    return {
+      blockingBlockedSlotId: slot.blockedByBlockedSlotId,
+      failureKind: "blockedSlot",
+      failureMessage:
+        slot.reason ?? "Der ausgewählte Starttermin ist blockiert.",
+    };
+  }
+
+  if (slot?.blockedByRuleId !== undefined) {
+    return {
+      blockingRuleIds: [slot.blockedByRuleId],
+      failureKind: "ruleBlock",
+      failureMessage:
+        slot.reason ??
+        "Der ausgewählte Starttermin wird durch eine Regel blockiert.",
+    };
+  }
+
+  return {
+    failureKind: "schedulerUnavailable",
+    failureMessage:
+      "Der ausgewählte Starttermin ist nicht mehr verfügbar oder liegt außerhalb der Verfügbarkeit.",
+  };
+}
+
 function validateDurationMinutes(durationMinutes: number): number {
   if (!Number.isInteger(durationMinutes) || durationMinutes <= 0) {
     throw appointmentSeriesError(
@@ -1852,6 +2115,7 @@ function validateDurationMinutes(durationMinutes: number): number {
 async function validateRootCandidate(
   ctx: SeriesPlannerCtx,
   args: {
+    allowPlannerRuleOverride?: boolean;
     appointmentType: Doc<"appointmentTypes">;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
@@ -1868,12 +2132,7 @@ async function validateRootCandidate(
     start: ZonedDateTimeString;
   },
 ): Promise<
-  | {
-      blockedStepId: string;
-      failureMessage: string;
-      status: "blocked";
-      steps: PlannedSeriesStep[];
-    }
+  | BlockedSeriesPlanningResult
   | {
       locationLineageKey: LocationLineageKey;
       practitionerName?: string;
@@ -1898,7 +2157,10 @@ async function validateRootCandidate(
       );
     }
 
-    const rootSlots = await queryAvailableSlotsForDay(ctx, {
+    const rootSchedulerSlots = await querySchedulingSlotsForDay(ctx, {
+      ...(args.allowPlannerRuleOverride === undefined
+        ? {}
+        : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
       appointmentType: args.appointmentType,
       date: asIsoDateString(
         Temporal.ZonedDateTime.from(args.start).toPlainDate().toString(),
@@ -1923,6 +2185,12 @@ async function validateRootCandidate(
         simulationRuleSetId: args.simulationRuleSetId,
       }),
     });
+    const rootSlots = rootSchedulerSlots.filter(
+      (slot) =>
+        slot.status === "AVAILABLE" ||
+        (args.allowPlannerRuleOverride === true &&
+          slot.blockedByRuleId !== undefined),
+    );
 
     const hasSelectedRootSlot = rootSlots.some(
       (slot) =>
@@ -1936,17 +2204,24 @@ async function validateRootCandidate(
     );
 
     if (!hasSelectedRootSlot) {
-      return {
+      const matchingBlockedSlot = rootSchedulerSlots.find(
+        (slot) =>
+          slot.startTime === args.start &&
+          slot.locationLineageKey === rootLocationLineageKey &&
+          slot.practitionerLineageKey === rootPractitionerLineageKey,
+      );
+      return blockedSeriesPlanningResult({
         blockedStepId: "root",
-        failureMessage:
-          "Der ausgewählte Starttermin ist nicht mehr verfügbar oder wird durch Regeln blockiert.",
-        status: "blocked",
+        ...schedulerFailureForSlot(matchingBlockedSlot),
         steps: [],
-      };
+      });
     }
   } else if (args.rootOccupancy.calendarResourceColumn) {
     const hasSelectedResourceRootSlot =
       await hasResourceRootSchedulerAvailability(ctx, {
+        ...(args.allowPlannerRuleOverride === undefined
+          ? {}
+          : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
         appointmentType: args.appointmentType,
         ...(args.excludedAppointmentIds && {
           excludedAppointmentIds: args.excludedAppointmentIds,
@@ -1971,13 +2246,40 @@ async function validateRootCandidate(
       });
 
     if (!hasSelectedResourceRootSlot) {
-      return {
+      const rootSchedulerSlots = await querySchedulingSlotsForDay(ctx, {
+        appointmentType: args.appointmentType,
+        date: asIsoDateString(
+          Temporal.ZonedDateTime.from(args.start).toPlainDate().toString(),
+        ),
+        ...(args.excludedAppointmentIds && {
+          excludedAppointmentIds: args.excludedAppointmentIds,
+        }),
+        ...(args.isNewPatient !== undefined && {
+          isNewPatient: args.isNewPatient,
+        }),
+        locationId: args.locationId,
+        planningState: args.planningState,
+        ...(args.patientDateOfBirth && {
+          patientDateOfBirth: args.patientDateOfBirth,
+        }),
+        practiceId: args.practiceId,
+        requestedAt: args.requestedAt,
+        ruleSetId: args.ruleSetId,
+        ...(args.scope && { scope: args.scope }),
+        ...(args.simulationRuleSetId && {
+          simulationRuleSetId: args.simulationRuleSetId,
+        }),
+      });
+      const matchingBlockedSlot = rootSchedulerSlots.find(
+        (slot) =>
+          slot.startTime === args.start &&
+          slot.locationLineageKey === rootLocationLineageKey,
+      );
+      return blockedSeriesPlanningResult({
         blockedStepId: "root",
-        failureMessage:
-          "Der ausgewählte Starttermin ist nicht mehr verfügbar oder wird durch Regeln blockiert.",
-        status: "blocked",
+        ...schedulerFailureForSlot(matchingBlockedSlot),
         steps: [],
-      };
+      });
     }
   }
 
@@ -1999,13 +2301,13 @@ async function validateRootCandidate(
   });
 
   if (conflictingOccupancy) {
-    return {
+    return blockedSeriesPlanningResult({
       blockedStepId: "root",
+      failureKind: "appointmentOccupancy",
       failureMessage:
-        "Der ausgewählte Starttermin ist nicht mehr verfügbar oder wird durch Regeln blockiert.",
-      status: "blocked",
+        "Der ausgewählte Starttermin ist bereits durch einen Termin belegt.",
       steps: [],
-    };
+    });
   }
 
   return {

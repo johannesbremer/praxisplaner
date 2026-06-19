@@ -193,6 +193,7 @@ interface TemporaryAppointmentOwner {
 
 interface TrustedAppointmentInput {
   allowHistoricalSmiley?: boolean;
+  allowPlannerRuleOverride?: boolean;
   allowRestoredEnd?: boolean;
   allowUnrelatedUserId?: boolean;
   appointmentTypeId: Id<"appointmentTypes">;
@@ -377,6 +378,7 @@ function appointmentChainError(code: string, message: string) {
 
 function asTrustedAppointmentInput(args: {
   allowHistoricalSmiley?: boolean;
+  allowPlannerRuleOverride?: boolean;
   allowRestoredEnd?: boolean;
   allowUnrelatedUserId?: boolean;
   appointmentTypeId: Id<"appointmentTypes">;
@@ -2327,8 +2329,20 @@ export const getNextAvailableResourceSeriesRootSlot = query({
 });
 
 const appointmentSeriesBlockedRootSlotValidator = v.object({
+  blockingBlockedSlotId: v.optional(v.id("blockedSlots")),
+  blockingRuleIds: v.optional(v.array(v.id("ruleConditions"))),
   calendarResourceColumn: v.optional(calendarResourceColumnValidator),
   duration: v.number(),
+  failureKind: v.optional(
+    v.union(
+      v.literal("appointmentOccupancy"),
+      v.literal("blockedSlot"),
+      v.literal("ruleBlock"),
+      v.literal("schedulerUnavailable"),
+      v.literal("seriesInternalConflict"),
+      v.literal("seriesStepUnavailable"),
+    ),
+  ),
   locationLineageKey: v.id("locations"),
   practitionerLineageKey: v.optional(v.id("practitioners")),
   practitionerName: v.optional(v.string()),
@@ -2455,10 +2469,17 @@ export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
 
       if (preview.status === "blocked") {
         blockedRootSlots.push({
+          ...(preview.blockingBlockedSlotId === undefined
+            ? {}
+            : { blockingBlockedSlotId: preview.blockingBlockedSlotId }),
+          ...(preview.blockingRuleIds === undefined
+            ? {}
+            : { blockingRuleIds: preview.blockingRuleIds }),
           ...(candidate.calendarResourceColumn === undefined
             ? {}
             : { calendarResourceColumn: candidate.calendarResourceColumn }),
           duration: candidate.duration,
+          failureKind: preview.failureKind,
           locationLineageKey,
           ...(practitionerLineageKey === undefined
             ? {}
@@ -2466,9 +2487,7 @@ export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
           ...(candidate.practitionerName === undefined
             ? {}
             : { practitionerName: candidate.practitionerName }),
-          reason:
-            preview.failureMessage ??
-            "Die Kettentermine sind für diesen Starttermin nicht planbar.",
+          reason: preview.failureMessage,
           startTime: candidate.startTime,
           status: "BLOCKED" as const,
         });
@@ -2532,6 +2551,7 @@ export async function createAppointmentFromTrustedSource(
   ctx: MutationCtx,
   rawArgs: {
     allowHistoricalSmiley?: boolean;
+    allowPlannerRuleOverride?: boolean;
     allowRestoredEnd?: boolean;
     allowUnrelatedUserId?: boolean;
     appointmentTypeId: Id<"appointmentTypes">;
@@ -2561,6 +2581,7 @@ export async function createAppointmentFromTrustedSource(
   const now = BigInt(Date.now());
   const {
     allowHistoricalSmiley,
+    allowPlannerRuleOverride,
     allowRestoredEnd,
     allowUnrelatedUserId,
     appointmentTypeId,
@@ -2684,6 +2705,9 @@ export async function createAppointmentFromTrustedSource(
     }
 
     const result = await createAppointmentSeriesHelper(ctx, {
+      ...(allowPlannerRuleOverride === undefined
+        ? {}
+        : { allowPlannerRuleOverride }),
       ...(ownerRefs.bookingIdentityId !== undefined && {
         bookingIdentityId: ownerRefs.bookingIdentityId,
       }),
@@ -2933,6 +2957,7 @@ async function validateAppointmentSeriesOwnerRefs(
 // Mutation to create a new appointment
 export const createAppointment = mutation({
   args: {
+    allowPlannerRuleOverride: v.optional(v.boolean()),
     appointmentTypeId: v.id("appointmentTypes"),
     bookingIdentityId: v.optional(v.id("bookingIdentities")),
     calendarResourceColumn: v.optional(calendarResourceColumnValidator),
@@ -2958,8 +2983,16 @@ export const createAppointment = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await requirePracticeStaffForMutation(ctx, args.practiceId);
+    if (args.allowPlannerRuleOverride === true) {
+      await requirePracticeManagerForMutation(ctx, args.practiceId);
+    }
     await requireManagerForPlannerRuleOverride(ctx, args);
-    return await createAppointmentFromTrustedSource(ctx, args);
+    return await createAppointmentFromTrustedSource(ctx, {
+      ...args,
+      ...(args.allowPlannerRuleOverride === true
+        ? { allowPlannerRuleOverride: true }
+        : {}),
+    });
   },
   returns: v.id("appointments"),
 });
