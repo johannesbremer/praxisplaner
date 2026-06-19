@@ -577,6 +577,7 @@ export function useCalendarBlockedSlotProjection({
               )
             : rootColumn;
         const stepStart = resolveVisibleAppointmentPlanStepStart({
+          durationMinutes: targetAppointmentType.duration,
           plannedSteps,
           previousStep,
           rootStart,
@@ -731,6 +732,7 @@ function appendSchedulingSlots(args: {
 }
 
 function resolveVisibleAppointmentPlanStepStart(args: {
+  durationMinutes: number;
   plannedSteps: ReadonlyMap<
     string,
     { end: Temporal.ZonedDateTime; start: Temporal.ZonedDateTime }
@@ -747,7 +749,9 @@ function resolveVisibleAppointmentPlanStepStart(args: {
       return args.previousStep.end.add({ minutes: args.timing.offsetValue });
     }
     case "beforeRootStart": {
-      return args.rootStart.subtract({ minutes: args.timing.offsetMinutes });
+      return args.rootStart.subtract({
+        minutes: args.durationMinutes + args.timing.offsetMinutes,
+      });
     }
     case "sameStartAs": {
       return (
