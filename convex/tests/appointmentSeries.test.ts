@@ -1215,6 +1215,9 @@ describe("appointment series", () => {
     });
 
     expect(preview.status).toBe("blocked");
+    if (preview.status !== "blocked") {
+      throw new Error("Expected preview to be blocked.");
+    }
     expect(preview.blockedStepId).toBe("step-1");
 
     const blockedRootSlots = await t.query(
@@ -1257,7 +1260,7 @@ describe("appointment series", () => {
         start: rootStart,
         userId,
       }),
-    ).rejects.toThrow("Kein verfügbarer Kettentermin");
+    ).rejects.toThrow("Der ausgewählte Starttermin ist nicht mehr verfügbar");
 
     const appointments = await t.run(async (ctx) => {
       return await ctx.db
@@ -1351,6 +1354,9 @@ describe("appointment series", () => {
     });
 
     expect(preview.status).toBe("blocked");
+    if (preview.status !== "blocked") {
+      throw new Error("Expected preview to be blocked.");
+    }
     expect(preview.blockedStepId).toBe("step-1");
   });
 
@@ -1436,6 +1442,9 @@ describe("appointment series", () => {
     });
 
     expect(preview.status).toBe("blocked");
+    if (preview.status !== "blocked") {
+      throw new Error("Expected preview to be blocked.");
+    }
     expect(preview.blockedStepId).toBe("root");
   });
 
@@ -1767,6 +1776,9 @@ describe("appointment series", () => {
     });
 
     expect(preview.status).toBe("blocked");
+    if (preview.status !== "blocked") {
+      throw new Error("Expected preview to be blocked.");
+    }
     expect(preview.blockedStepId).toBe("step-1");
     expect(preview.steps).toHaveLength(1);
     expect(preview.failureMessage).toContain("Kein verfügbarer Kettentermin");
@@ -1963,6 +1975,9 @@ describe("appointment series", () => {
     });
 
     expect(preview.status).toBe("blocked");
+    if (preview.status !== "blocked") {
+      throw new Error("Expected preview to be blocked.");
+    }
     expect(preview.blockedStepId).toBe("root");
 
     await expect(
@@ -3340,6 +3355,176 @@ describe("appointment series", () => {
     ).resolves.toBeNull();
   });
 
+  test("exact follow-up rule blocks surface as ruleBlock and can be manager-overridden", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_appointment_series_rule_override",
+      "appointment-series-rule-override@example.com",
+    );
+
+    const { otherPractitionerId, rootAppointmentTypeId, speedTypeId } =
+      await t.run(async (ctx) => {
+        const now = BigInt(Date.now());
+        const otherPractitioner = await insertWithLineage(
+          ctx,
+          "practitioners",
+          {
+            name: "Dr. Parallel",
+            practiceId,
+            ruleSetId,
+          },
+        );
+        for (const dayOfWeek of [1, 2, 3, 4, 5]) {
+          await insertWithLineage(ctx, "baseSchedules", {
+            dayOfWeek,
+            endTime: "17:00",
+            locationLineageKey: locationId,
+            practiceId,
+            practitionerLineageKey: otherPractitioner,
+            ruleSetId,
+            startTime: "08:00",
+          });
+        }
+
+        const speedType = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId, otherPractitioner],
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          name: "Speed",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", speedType, {
+          lineageKey: speedType,
+        });
+        const rootType = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: speedType,
+                occupancy: { kind: "inheritRootPractitioner" },
+                required: true,
+                stepId: "speed-follow-up",
+                timing: {
+                  kind: "afterPreviousEnd",
+                  offsetUnit: "minutes",
+                  offsetValue: 0,
+                },
+              },
+            ],
+          },
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          name: "Akut-2",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", rootType, {
+          lineageKey: rootType,
+        });
+
+        const ruleRootId = await ctx.db.insert("ruleConditions", {
+          childOrder: 0,
+          createdAt: now,
+          isRoot: true,
+          lastModified: now,
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.insert("ruleConditions", {
+          childOrder: 0,
+          conditionType: "CONCURRENT_COUNT",
+          createdAt: now,
+          isRoot: false,
+          lastModified: now,
+          nodeType: "CONDITION",
+          operator: "GREATER_THAN_OR_EQUAL",
+          parentConditionId: ruleRootId,
+          practiceId,
+          ruleSetId,
+          scope: "location",
+          valueIds: [speedType],
+          valueNumber: 1,
+        });
+
+        return {
+          otherPractitionerId: otherPractitioner,
+          rootAppointmentTypeId: rootType,
+          speedTypeId: speedType,
+        };
+      });
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const followUpStart = Temporal.ZonedDateTime.from(rootStart)
+      .add({ minutes: 30 })
+      .toString();
+
+    await t.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: speedTypeId,
+      locationId,
+      practiceId,
+      practitionerId: otherPractitionerId,
+      start: followUpStart,
+      title: "Parallel Speed",
+      userId,
+    });
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      ruleSetId,
+      start: rootStart,
+      userId,
+    });
+
+    expect(preview.status).toBe("blocked");
+    if (preview.status !== "blocked") {
+      throw new Error("Expected preview to be blocked.");
+    }
+    expect(preview.blockedStepId).toBe("speed-follow-up");
+    expect(preview.failureKind).toBe("ruleBlock");
+    expect(preview.blockingRuleIds).toHaveLength(1);
+
+    await expect(
+      t.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: rootAppointmentTypeId,
+        locationId,
+        practiceId,
+        practitionerId,
+        start: rootStart,
+        title: "Akut-2",
+        userId,
+      }),
+    ).rejects.toThrow("Wenn gleichzeitig 1 oder mehr Speed-Termine");
+
+    await expect(
+      t.mutation(api.appointments.createAppointment, {
+        allowPlannerRuleOverride: true,
+        appointmentTypeId: rootAppointmentTypeId,
+        locationId,
+        practiceId,
+        practitionerId,
+        start: rootStart,
+        title: "Akut-2",
+        userId,
+      }),
+    ).resolves.toBeDefined();
+  });
+
   test("appointment plans support before steps and same-time EKG resource steps", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
@@ -3691,6 +3876,9 @@ describe("appointment series", () => {
     });
 
     expect(preview.status).toBe("blocked");
+    if (preview.status !== "blocked") {
+      throw new Error("Expected preview to be blocked.");
+    }
     expect(preview.blockedStepId).toBe("root");
   });
 
@@ -3881,6 +4069,9 @@ describe("appointment series", () => {
     });
 
     expect(preview.status).toBe("blocked");
+    if (preview.status !== "blocked") {
+      throw new Error("Expected preview to be blocked.");
+    }
     expect(preview.blockedStepId).toBe("diagnostik-same-time");
   });
 

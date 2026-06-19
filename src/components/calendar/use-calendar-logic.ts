@@ -1309,13 +1309,19 @@ export function useCalendarLogic({
       // Check if this is a manual block (from blockedSlots memo, has isManual flag)
       const isManualBlock =
         "isManual" in blockedSlotData && blockedSlotData.isManual === true;
-      const canBook = placementAppointmentTypeLineageKey !== undefined;
+      const canBook =
+        placementAppointmentTypeLineageKey !== undefined &&
+        ("blockedByRuleId" in blockedSlotData ||
+          ("failureKind" in blockedSlotData &&
+            blockedSlotData.failureKind === "ruleBlock"));
       setBlockedSlotWarning({
         canBook,
         column,
         isManualBlock,
         onConfirm: () => {
-          createAppointmentInSlot(column, slot);
+          createAppointmentInSlot(column, slot, {
+            allowPlannerRuleOverride: canBook,
+          });
         },
         reason:
           blockedSlotData.reason ||
@@ -1330,7 +1336,11 @@ export function useCalendarLogic({
     createAppointmentInSlot(column, slot);
   };
 
-  const createAppointmentInSlot = (column: CalendarColumnId, slot: number) => {
+  const createAppointmentInSlot = (
+    column: CalendarColumnId,
+    slot: number,
+    options: { allowPlannerRuleOverride?: boolean } = {},
+  ) => {
     const mode = simulatedContext ? "simulation" : "real";
     const appointmentTypeId =
       simulatedContext?.appointmentTypeLineageKey === undefined
@@ -1352,12 +1362,14 @@ export function useCalendarLogic({
       return;
     }
 
-    const maxAvailableDuration = getMaxAvailableDuration(column, slot);
-    if (
-      Math.min(appointmentTypeInfo.duration, maxAvailableDuration) <
-      SLOT_DURATION
-    ) {
-      return;
+    if (!appointmentTypeInfo.hasAppointmentPlan) {
+      const maxAvailableDuration = getMaxAvailableDuration(column, slot);
+      if (
+        Math.min(appointmentTypeInfo.duration, maxAvailableDuration) <
+        SLOT_DURATION
+      ) {
+        return;
+      }
     }
 
     const practitionerLineageKey = getPractitionerLineageKeyFromColumn(column);
@@ -1408,6 +1420,9 @@ export function useCalendarLogic({
     }
 
     const requestArgs: Parameters<typeof buildCalendarAppointmentRequest>[0] = {
+      ...(options.allowPlannerRuleOverride === undefined
+        ? {}
+        : { allowPlannerRuleOverride: options.allowPlannerRuleOverride }),
       appointmentTypeId,
       appointmentTypeLineageKey: appointmentTypeInfo.lineageKey,
       appointmentTypeName: appointmentTypeInfo.name,
