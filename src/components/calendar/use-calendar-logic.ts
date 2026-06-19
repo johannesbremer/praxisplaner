@@ -163,6 +163,7 @@ export function useCalendarLogic({
     externalSelectedLocationId ?? internalSelectedLocationId;
   const draggedAppointmentTypeLineageKey =
     draggedAppointment?.record.appointmentTypeLineageKey;
+  const excludedAppointmentIdForAvailability = draggedAppointment?.record._id;
 
   const {
     allPracticeAppointmentDocMap,
@@ -195,6 +196,7 @@ export function useCalendarLogic({
     userData,
     vacationsData,
   } = useCalendarData({
+    excludedAppointmentIdForAvailability,
     patient,
     practiceId,
     ruleSetId,
@@ -466,6 +468,7 @@ export function useCalendarLogic({
       blockedSlotsWithoutAppointmentTypeResult?.slots,
     businessStartHour,
     columns,
+    excludedAppointmentIdForAvailability,
     getPractitionerIdForLineageKey,
     locationLineageKeyById,
     placementAppointmentTypeLineageKey,
