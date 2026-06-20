@@ -2548,6 +2548,12 @@ export const getNextAvailableAppointmentSeriesRootSlot = query({
       PractitionerLineageKey,
       string
     >();
+    const allowedRootPractitionerLineageKeys = new Set(
+      rootAppointmentType.allowedPractitionerLineageKeys.map(
+        (practitionerLineageKey) =>
+          asPractitionerLineageKey(practitionerLineageKey),
+      ),
+    );
 
     for (let offset = 0; offset <= maxSearchDays; offset += 1) {
       const day = startDate.add({ days: offset });
@@ -2580,6 +2586,11 @@ export const getNextAvailableAppointmentSeriesRootSlot = query({
       const candidateSlots = slotsResult.slots
         .filter((slot) => slot.status === "AVAILABLE")
         .filter((slot) => slot.locationLineageKey === locationLineageKey)
+        .filter((slot) =>
+          allowedRootPractitionerLineageKeys.has(
+            asPractitionerLineageKey(slot.practitionerLineageKey),
+          ),
+        )
         .filter((slot) => {
           const start = Temporal.ZonedDateTime.from(slot.startTime);
           return Temporal.ZonedDateTime.compare(start, now) > 0;
