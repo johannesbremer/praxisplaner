@@ -3101,6 +3101,83 @@ describe("appointment series", () => {
     expect(updatedAppointmentType?.appointmentPlan).toEqual({ steps: [] });
   });
 
+  test("createAppointmentType rejects appointment-plan steps that target another appointment plan", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const nestedRootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const nestedStepTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "Nested child",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", nestedStepTypeId, {
+        lineageKey: nestedStepTypeId,
+      });
+
+      const nestedRootTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: nestedStepTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "Nested root",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", nestedRootTypeId, {
+        lineageKey: nestedRootTypeId,
+      });
+      return nestedRootTypeId;
+    });
+
+    await expect(
+      t.mutation(api.entities.createAppointmentType, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: nestedRootAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        duration: 20,
+        expectedDraftRevision: null,
+        name: "Outer root",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      }),
+    ).rejects.toThrow("ist selbst ein Kettentermin");
+  });
+
   test("createAppointmentType allows an empty practitioner allowlist", async () => {
     const t = createAuthedTestContext();
     const { practiceId, ruleSetId } = await createBasePractice(t);

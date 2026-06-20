@@ -1270,6 +1270,10 @@ describe("calendar planning replay", () => {
       vi.fn<
         CalendarPlanningCommandExecutorContext["rememberRecreatedAppointmentId"]
       >();
+    const rememberAppointmentHistoryDoc =
+      vi.fn<
+        CalendarPlanningCommandExecutorContext["rememberAppointmentHistoryDoc"]
+      >();
     const runRestoreAppointmentSeriesSnapshotInternal = vi.fn(() =>
       Promise.resolve({
         appointments: [
@@ -1319,7 +1323,7 @@ describe("calendar planning replay", () => {
           practitionerIdByLineageKey: new Map(),
           practitionerLineageKeyById: new Map(),
         },
-        rememberAppointmentHistoryDoc: vi.fn(),
+        rememberAppointmentHistoryDoc,
         rememberBlockedSlotHistoryDoc: vi.fn(),
         rememberCreatedAppointmentFromStrings: vi.fn(),
         rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
@@ -1357,5 +1361,19 @@ describe("calendar planning replay", () => {
       currentId: restoredStepAppointmentId,
       originalId: originalStepAppointmentId,
     });
+    expect(rememberAppointmentHistoryDoc).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: restoredRootAppointmentId,
+        appointmentTypeLineageKey,
+        start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+      }),
+    );
+    expect(rememberAppointmentHistoryDoc).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: restoredStepAppointmentId,
+        appointmentTypeLineageKey,
+        start: "2026-04-25T09:10:00+02:00[Europe/Berlin]",
+      }),
+    );
   });
 });

@@ -5,6 +5,7 @@ import type {
   LedgerOperation,
 } from "../../utils/command-ledger";
 import type {
+  AppointmentSeriesRestoreSnapshot,
   AppointmentState,
   BlockedSlotState,
   CalendarAppointmentCreateCommand,
@@ -35,9 +36,11 @@ import type {
 } from "./types";
 
 import {
+  asAppointmentTypeLineageKey,
   asLocationLineageKey,
   asPractitionerLineageKey,
 } from "../../../convex/identity";
+import { asZonedDateTimeString } from "../../../convex/typedDtos";
 import { sameCalendarOccupancyScope } from "../../../lib/calendar-occupancy";
 import {
   type AppointmentOwnerRefs,
@@ -231,6 +234,80 @@ const withFreshBlockedSlotHistoryIdentity = (
   ...blockedSlot,
   _id: id,
   lastModified: BigInt(Date.now()),
+});
+
+const restoredSeriesAppointmentToHistoryDoc = (
+  appointment: AppointmentSeriesRestoreSnapshot["appointments"][number],
+  id: Id<"appointments">,
+): CalendarAppointmentRecord => ({
+  _creationTime: 0,
+  _id: id,
+  appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+    appointment.appointmentTypeLineageKey,
+  ),
+  appointmentTypeTitle: appointment.appointmentTypeTitle,
+  ...(appointment.bookingIdentityId === undefined
+    ? {}
+    : { bookingIdentityId: appointment.bookingIdentityId }),
+  ...(appointment.cancelledByPhoneBookingIdentityId === undefined
+    ? {}
+    : {
+        cancelledByPhoneBookingIdentityId:
+          appointment.cancelledByPhoneBookingIdentityId,
+      }),
+  createdAt: appointment.createdAt,
+  end: asZonedDateTimeString(appointment.end),
+  ...(appointment.isSimulation === undefined
+    ? {}
+    : { isSimulation: appointment.isSimulation }),
+  lastModified: BigInt(Date.now()),
+  placement: {
+    locationLineageKey: asLocationLineageKey(appointment.locationLineageKey),
+    occupancyScope:
+      appointment.occupancyScope.kind === "resource"
+        ? appointment.occupancyScope
+        : {
+            kind: "practitioner",
+            practitionerLineageKey: asPractitionerLineageKey(
+              appointment.occupancyScope.practitionerLineageKey,
+            ),
+          },
+  },
+  ...(appointment.patientId === undefined
+    ? {}
+    : { patientId: appointment.patientId }),
+  ...(appointment.phoneBookingIdentityId === undefined
+    ? {}
+    : { phoneBookingIdentityId: appointment.phoneBookingIdentityId }),
+  practiceId: appointment.practiceId,
+  ...(appointment.reassignmentSourceVacationLineageKey === undefined
+    ? {}
+    : {
+        reassignmentSourceVacationLineageKey:
+          appointment.reassignmentSourceVacationLineageKey,
+      }),
+  ...(appointment.replacesAppointmentId === undefined
+    ? {}
+    : { replacesAppointmentId: appointment.replacesAppointmentId }),
+  ...(appointment.seriesStepId === undefined
+    ? {}
+    : { seriesStepId: appointment.seriesStepId }),
+  ...(appointment.seriesStepIndex === undefined
+    ? {}
+    : { seriesStepIndex: appointment.seriesStepIndex }),
+  ...(appointment.simulationKind === undefined
+    ? {}
+    : { simulationKind: appointment.simulationKind }),
+  ...(appointment.simulationRuleSetId === undefined
+    ? {}
+    : { simulationRuleSetId: appointment.simulationRuleSetId }),
+  ...(appointment.simulationValidatedAt === undefined
+    ? {}
+    : { simulationValidatedAt: appointment.simulationValidatedAt }),
+  ...(appointment.smiley === undefined ? {} : { smiley: appointment.smiley }),
+  start: asZonedDateTimeString(appointment.start),
+  title: appointment.title,
+  ...(appointment.userId === undefined ? {} : { userId: appointment.userId }),
 });
 
 const rememberFreshAppointment = (
@@ -1019,11 +1096,28 @@ async function restoreAppointmentSeriesSnapshot(
     currentId: result.rootAppointmentId,
     originalId: originalRootAppointmentId,
   });
+  const snapshotAppointmentsByOriginalId = new Map(
+    payload.snapshot.appointments.map((appointment) => [
+      appointment.originalAppointmentId,
+      appointment,
+    ]),
+  );
   for (const appointment of result.appointments) {
     context.rememberRecreatedAppointmentId({
       currentId: appointment.appointmentId,
       originalId: appointment.originalAppointmentId,
     });
+    const snapshotAppointment = snapshotAppointmentsByOriginalId.get(
+      appointment.originalAppointmentId,
+    );
+    if (snapshotAppointment !== undefined) {
+      context.rememberAppointmentHistoryDoc(
+        restoredSeriesAppointmentToHistoryDoc(
+          snapshotAppointment,
+          appointment.appointmentId,
+        ),
+      );
+    }
   }
   return { status: "applied" };
 }
