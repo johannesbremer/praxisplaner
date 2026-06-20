@@ -158,6 +158,8 @@ interface SeriesSpecification {
 type StepPlanningResult =
   | PlannedSeriesStep
   | {
+      blockedStepEnd?: ZonedDateTimeString;
+      blockedStepStart?: ZonedDateTimeString;
       blockingBlockedSlotId?: Id<"blockedSlots">;
       blockingRuleIds?: Id<"ruleConditions">[];
       failureKind: AppointmentSeriesPlanningFailureKind;
@@ -578,6 +580,12 @@ export async function planSeriesFromRootCandidate(
       if (step.required) {
         return blockedSeriesPlanningResult({
           blockedStepId: step.stepId,
+          ...(plannedStepResult.blockedStepEnd === undefined
+            ? {}
+            : { blockedStepEnd: plannedStepResult.blockedStepEnd }),
+          ...(plannedStepResult.blockedStepStart === undefined
+            ? {}
+            : { blockedStepStart: plannedStepResult.blockedStepStart }),
           ...(plannedStepResult.blockingBlockedSlotId === undefined
             ? {}
             : {
@@ -800,7 +808,9 @@ function appointmentSeriesError(code: string, message: string) {
 }
 
 function blockedSeriesPlanningResult(args: {
+  blockedStepEnd?: ZonedDateTimeString;
   blockedStepId: string;
+  blockedStepStart?: ZonedDateTimeString;
   blockingBlockedSlotId?: Id<"blockedSlots">;
   blockingRuleIds?: Id<"ruleConditions">[];
   failureKind: AppointmentSeriesPlanningFailureKind;
@@ -808,7 +818,13 @@ function blockedSeriesPlanningResult(args: {
   steps: PlannedSeriesStep[];
 }): BlockedSeriesPlanningResult {
   return {
+    ...(args.blockedStepEnd === undefined
+      ? {}
+      : { blockedStepEnd: args.blockedStepEnd }),
     blockedStepId: args.blockedStepId,
+    ...(args.blockedStepStart === undefined
+      ? {}
+      : { blockedStepStart: args.blockedStepStart }),
     ...(args.blockingBlockedSlotId === undefined
       ? {}
       : { blockingBlockedSlotId: args.blockingBlockedSlotId }),
@@ -892,6 +908,8 @@ async function buildPlannedStepIfAvailable(
 
   if (hasPlannedStepConflict(args.plannedSteps, candidate)) {
     return {
+      blockedStepEnd: candidate.end,
+      blockedStepStart: candidate.start,
       failureKind: "seriesInternalConflict",
       failureMessage:
         "Der Kettentermin überschneidet sich mit einem anderen Schritt.",
@@ -918,6 +936,8 @@ async function buildPlannedStepIfAvailable(
 
   return conflictingOccupancy
     ? {
+        blockedStepEnd: candidate.end,
+        blockedStepStart: candidate.start,
         failureKind: "appointmentOccupancy",
         failureMessage:
           "Der Kettentermin ist bereits durch einen Termin belegt.",
@@ -1662,6 +1682,11 @@ async function planAppointmentPlanStep(
     );
     if (!exactSlotAvailability.available) {
       return {
+        blockedStepEnd: calculateEndTime(
+          exactStart,
+          args.targetAppointmentType.duration,
+        ),
+        blockedStepStart: exactStart,
         ...exactSlotAvailability.failure,
         status: "blocked",
       };

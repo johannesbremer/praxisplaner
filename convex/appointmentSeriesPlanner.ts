@@ -29,7 +29,9 @@ export type AppointmentSeriesPlanningFailureKind =
   | "seriesStepUnavailable";
 
 export interface BlockedSeriesPlanningResult {
+  blockedStepEnd?: ZonedDateTimeString;
   blockedStepId: string;
+  blockedStepStart?: ZonedDateTimeString;
   blockingBlockedSlotId?: Id<"blockedSlots">;
   blockingRuleIds?: Id<"ruleConditions">[];
   failureKind: AppointmentSeriesPlanningFailureKind;
@@ -84,7 +86,9 @@ export const appointmentSeriesPreviewStepValidator = v.object({
 });
 
 export const appointmentSeriesPreviewResultValidator = v.object({
+  blockedStepEnd: v.optional(v.string()),
   blockedStepId: v.optional(v.string()),
+  blockedStepStart: v.optional(v.string()),
   blockingBlockedSlotId: v.optional(v.id("blockedSlots")),
   blockingRuleIds: v.optional(v.array(v.id("ruleConditions"))),
   failureKind: v.optional(appointmentSeriesPlanningFailureKindValidator),

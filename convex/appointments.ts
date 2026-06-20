@@ -2695,6 +2695,41 @@ type AppointmentSeriesBlockedRootSlot = Infer<
   typeof appointmentSeriesBlockedRootSlotValidator
 >;
 
+function calculateBlockedSeriesRootProjectionDuration(args: {
+  preview: Awaited<ReturnType<typeof previewAppointmentSeriesHelper>>;
+  rootDurationMinutes: number;
+  rootStart: string;
+}): number {
+  const rootStart = Temporal.ZonedDateTime.from(args.rootStart);
+  let projectionEnd = rootStart.add({ minutes: args.rootDurationMinutes });
+
+  for (const step of args.preview.steps) {
+    const stepEnd = Temporal.ZonedDateTime.from(step.end);
+    if (Temporal.ZonedDateTime.compare(stepEnd, projectionEnd) > 0) {
+      projectionEnd = stepEnd;
+    }
+  }
+
+  if (
+    args.preview.status === "blocked" &&
+    args.preview.blockedStepEnd !== undefined
+  ) {
+    const blockedStepEnd = Temporal.ZonedDateTime.from(
+      args.preview.blockedStepEnd,
+    );
+    if (Temporal.ZonedDateTime.compare(blockedStepEnd, projectionEnd) > 0) {
+      projectionEnd = blockedStepEnd;
+    }
+  }
+
+  return Math.max(
+    args.rootDurationMinutes,
+    Math.ceil(
+      (projectionEnd.epochMilliseconds - rootStart.epochMilliseconds) / 60_000,
+    ),
+  );
+}
+
 export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
   args: {
     candidates: v.array(appointmentSeriesRootSlotCandidateValidator),
@@ -2809,7 +2844,11 @@ export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
           ...(candidate.calendarResourceColumn === undefined
             ? {}
             : { calendarResourceColumn: candidate.calendarResourceColumn }),
-          duration: candidate.duration,
+          duration: calculateBlockedSeriesRootProjectionDuration({
+            preview,
+            rootDurationMinutes: candidate.duration,
+            rootStart: candidate.startTime,
+          }),
           failureKind: preview.failureKind,
           locationLineageKey,
           ...(practitionerLineageKey === undefined
