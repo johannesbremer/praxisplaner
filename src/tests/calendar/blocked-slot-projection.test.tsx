@@ -46,11 +46,13 @@ describe("useCalendarBlockedSlotProjection", () => {
     appointmentSeriesRootBlockedSlots?: {
       calendarResourceColumn?: "ekg" | "labor";
       blockingRuleIds?: Id<"ruleConditions">[];
+      canOverride: boolean;
       duration: number;
-      failureKind?: "ruleBlock";
       practitionerLineageKey?: typeof rawPractitionerLineageId;
+      provenance?: "ruleBlock";
       reason?: string;
       startTime: string;
+      status: "available" | "unavailable";
     }[];
     appointmentSeriesRootPendingCandidates?: {
       duration: number;
@@ -115,6 +117,7 @@ describe("useCalendarBlockedSlotProjection", () => {
       useCalendarBlockedSlotProjection({
         appointmentsData: [],
         appointmentSeriesRootBlockedSlots: undefined,
+        appointmentSeriesRootPendingCandidates: undefined,
         appointmentTypeSelected: false,
         baseSchedulesData: undefined,
         blockedSlotsData: [
@@ -166,10 +169,12 @@ describe("useCalendarBlockedSlotProjection", () => {
     const { result } = renderProjection({
       appointmentSeriesRootBlockedSlots: [
         {
+          canOverride: false,
           duration: SLOT_DURATION,
           practitionerLineageKey: rawPractitionerLineageId,
           reason: "Kettentermin nicht planbar",
           startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+          status: "unavailable",
         },
       ],
       appointmentTypeSelected: true,
@@ -177,6 +182,8 @@ describe("useCalendarBlockedSlotProjection", () => {
 
     expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
       {
+        blocksPlacementStartOnly: true,
+        canOverride: false,
         column: practitionerColumn,
         reason: "Kettentermin nicht planbar",
         slot: 12,
@@ -190,9 +197,11 @@ describe("useCalendarBlockedSlotProjection", () => {
       appointmentSeriesRootBlockedSlots: [
         {
           calendarResourceColumn: "ekg",
+          canOverride: false,
           duration: SLOT_DURATION,
           reason: "Kettentermin nicht planbar",
           startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+          status: "unavailable",
         },
       ],
       appointmentTypeSelected: true,
@@ -200,6 +209,8 @@ describe("useCalendarBlockedSlotProjection", () => {
 
     expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
       {
+        blocksPlacementStartOnly: true,
+        canOverride: false,
         column: ekgColumn,
         reason: "Kettentermin nicht planbar",
         slot: 12,
@@ -207,14 +218,16 @@ describe("useCalendarBlockedSlotProjection", () => {
     ]);
   });
 
-  it("projects server-planned Kettentermin root blocks for the full root duration", () => {
+  it("projects server-planned Candidate Slot decisions as exact start blocks", () => {
     const { result } = renderProjection({
       appointmentSeriesRootBlockedSlots: [
         {
+          canOverride: false,
           duration: 15,
           practitionerLineageKey: rawPractitionerLineageId,
           reason: "Der ausgewählte Starttermin ist nicht mehr verfügbar",
           startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+          status: "unavailable",
         },
       ],
       appointmentTypeSelected: true,
@@ -222,19 +235,11 @@ describe("useCalendarBlockedSlotProjection", () => {
 
     expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
       {
+        blocksPlacementStartOnly: true,
+        canOverride: false,
         column: practitionerColumn,
         reason: "Der ausgewählte Starttermin ist nicht mehr verfügbar",
         slot: 12,
-      },
-      {
-        column: practitionerColumn,
-        reason: "Der ausgewählte Starttermin ist nicht mehr verfügbar",
-        slot: 13,
-      },
-      {
-        column: practitionerColumn,
-        reason: "Der ausgewählte Starttermin ist nicht mehr verfügbar",
-        slot: 14,
       },
     ]);
   });
@@ -244,11 +249,13 @@ describe("useCalendarBlockedSlotProjection", () => {
       appointmentSeriesRootBlockedSlots: [
         {
           blockingRuleIds: [toTableId<"ruleConditions">("rule_condition_1")],
+          canOverride: true,
           duration: SLOT_DURATION,
-          failureKind: "ruleBlock",
           practitionerLineageKey: rawPractitionerLineageId,
+          provenance: "ruleBlock",
           reason: "Regel blockiert Folgetermin",
           startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+          status: "unavailable",
         },
       ],
       appointmentTypeSelected: true,
@@ -257,8 +264,10 @@ describe("useCalendarBlockedSlotProjection", () => {
     expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
       {
         blockedByRuleId: "rule_condition_1",
+        blocksPlacementStartOnly: true,
+        canOverride: true,
         column: practitionerColumn,
-        failureKind: "ruleBlock",
+        provenance: "ruleBlock",
         reason: "Regel blockiert Folgetermin",
         slot: 12,
       },
@@ -279,14 +288,10 @@ describe("useCalendarBlockedSlotProjection", () => {
 
     expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
       {
+        blocksPlacementStartOnly: true,
         column: practitionerColumn,
         reason: "Kettentermine werden geprüft",
         slot: 12,
-      },
-      {
-        column: practitionerColumn,
-        reason: "Kettentermine werden geprüft",
-        slot: 13,
       },
     ]);
   });
@@ -295,10 +300,12 @@ describe("useCalendarBlockedSlotProjection", () => {
     const { result } = renderProjection({
       appointmentSeriesRootBlockedSlots: [
         {
+          canOverride: false,
           duration: SLOT_DURATION,
           practitionerLineageKey: rawPractitionerLineageId,
           reason: "Kettentermin nicht planbar",
           startTime: "2026-04-25T09:05:00+02:00[Europe/Berlin]",
+          status: "unavailable",
         },
       ],
       appointmentTypeSelected: true,
@@ -306,6 +313,8 @@ describe("useCalendarBlockedSlotProjection", () => {
 
     expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
       {
+        blocksPlacementStartOnly: true,
+        canOverride: false,
         column: practitionerColumn,
         reason: "Kettentermin nicht planbar",
         slot: 13,

@@ -53,9 +53,11 @@ interface BlockedSlotVacation {
 
 interface RuleBlockedSlotProjection {
   blockedByRuleId?: Id<"ruleConditions">;
+  blocksPlacementStartOnly?: boolean;
+  canOverride?: boolean;
   column: CalendarColumnId;
-  failureKind?: AppointmentSeriesPlanningFailureKind;
   isManual?: false;
+  provenance?: "insufficientDuration" | AppointmentSeriesPlanningFailureKind;
   reason?: string;
   slot: number;
   title?: string;
@@ -70,16 +72,6 @@ interface SchedulingSlot {
   status: string;
 }
 
-interface ServerAppointmentSeriesRootBlockedSlot {
-  blockingRuleIds?: Id<"ruleConditions">[];
-  calendarResourceColumn?: "ekg" | "labor";
-  duration: number;
-  failureKind?: AppointmentSeriesPlanningFailureKind;
-  practitionerLineageKey?: Id<"practitioners">;
-  reason?: string;
-  startTime: string;
-}
-
 interface ServerAppointmentSeriesRootPendingCandidate {
   calendarResourceColumn?: "ekg" | "labor";
   duration: number;
@@ -87,10 +79,22 @@ interface ServerAppointmentSeriesRootPendingCandidate {
   startTime: string;
 }
 
+interface ServerCandidateSlotDecision {
+  blockingRuleIds?: Id<"ruleConditions">[];
+  calendarResourceColumn?: "ekg" | "labor";
+  canOverride: boolean;
+  duration: number;
+  practitionerLineageKey?: Id<"practitioners">;
+  provenance?: "insufficientDuration" | AppointmentSeriesPlanningFailureKind;
+  reason?: string;
+  startTime: string;
+  status: "available" | "unavailable";
+}
+
 interface UseCalendarBlockedSlotProjectionArgs {
   appointmentsData: readonly CalendarAppointmentRecord[];
   appointmentSeriesRootBlockedSlots:
-    | readonly ServerAppointmentSeriesRootBlockedSlot[]
+    | readonly ServerCandidateSlotDecision[]
     | undefined;
   appointmentSeriesRootPendingCandidates:
     | readonly ServerAppointmentSeriesRootPendingCandidate[]
@@ -475,8 +479,8 @@ export function useCalendarBlockedSlotProjection({
     (
       slots:
         | readonly (
-            | ServerAppointmentSeriesRootBlockedSlot
             | ServerAppointmentSeriesRootPendingCandidate
+            | ServerCandidateSlotDecision
           )[]
         | undefined,
       defaultReason: string,
@@ -500,17 +504,18 @@ export function useCalendarBlockedSlotProjection({
           blockedSlot.startTime,
         ).toPlainTime();
         const startSlot = timeToSlot(startTime.toString().slice(0, 5));
-        const slotCount = Math.max(
-          1,
-          Math.ceil(blockedSlot.duration / SLOT_DURATION),
-        );
+        const slotCount = 1;
+
+        if ("status" in blockedSlot && blockedSlot.status === "available") {
+          return [];
+        }
 
         const blockedByRuleId =
           "blockingRuleIds" in blockedSlot
             ? blockedSlot.blockingRuleIds.at(0)
             : undefined;
-        const failureKind =
-          "failureKind" in blockedSlot ? blockedSlot.failureKind : undefined;
+        const provenance =
+          "provenance" in blockedSlot ? blockedSlot.provenance : undefined;
         const reason =
           "reason" in blockedSlot
             ? (blockedSlot.reason ?? defaultReason)
@@ -518,8 +523,12 @@ export function useCalendarBlockedSlotProjection({
 
         return Array.from({ length: slotCount }, (_, offset) => ({
           ...(blockedByRuleId === undefined ? {} : { blockedByRuleId }),
+          blocksPlacementStartOnly: true,
           column,
-          ...(failureKind === undefined ? {} : { failureKind }),
+          ...("canOverride" in blockedSlot
+            ? { canOverride: blockedSlot.canOverride }
+            : {}),
+          ...(provenance === undefined ? {} : { provenance }),
           reason,
           slot: startSlot + offset,
         }));

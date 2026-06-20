@@ -1326,8 +1326,9 @@ describe("appointment series", () => {
     expect(preview.blockedStepId).toBe("step-1");
 
     const blockedRootSlots = await t.query(
-      api.appointments.getBlockedAppointmentSeriesRootSlotsForCandidates,
+      api.appointments.getCandidateSlotDecisionsForStaffPlacement,
       {
+        appointmentTypeId: rootAppointmentTypeId,
         candidates: [
           {
             duration: 15,
@@ -1339,7 +1340,6 @@ describe("appointment series", () => {
         ],
         locationId,
         practiceId,
-        rootAppointmentTypeId,
         ruleSetId,
         userId,
       },
@@ -1350,7 +1350,7 @@ describe("appointment series", () => {
         locationLineageKey: locationId,
         practitionerLineageKey: practitionerId,
         startTime: rootStart,
-        status: "BLOCKED",
+        status: "unavailable",
       }),
     ]);
 
@@ -1576,8 +1576,9 @@ describe("appointment series", () => {
     expect(preview.failureKind).toBe("schedulerUnavailable");
 
     const blockedRootSlots = await t.query(
-      api.appointments.getBlockedAppointmentSeriesRootSlotsForCandidates,
+      api.appointments.getCandidateSlotDecisionsForStaffPlacement,
       {
+        appointmentTypeId: rootAppointmentTypeId,
         candidates: [
           {
             duration: 10,
@@ -1589,7 +1590,6 @@ describe("appointment series", () => {
         ],
         locationId,
         practiceId,
-        rootAppointmentTypeId,
         ruleSetId,
         userId,
       },
@@ -1597,14 +1597,13 @@ describe("appointment series", () => {
 
     expect(blockedRootSlots).toEqual([
       expect.objectContaining({
-        duration: 20,
-        failureKind: "schedulerUnavailable",
         locationLineageKey: locationId,
         practitionerLineageKey: practitionerId,
+        provenance: "schedulerUnavailable",
         reason:
           "Der ausgewählte Starttermin ist nicht mehr verfügbar oder liegt außerhalb der Verfügbarkeit.",
         startTime: rootStart,
-        status: "BLOCKED",
+        status: "unavailable",
       }),
     ]);
   });
