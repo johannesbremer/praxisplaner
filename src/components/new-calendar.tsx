@@ -713,6 +713,8 @@ export function NewCalendar({
         canManageCalendarPlanning,
         currentTime,
         isBlockingModeActive: canManageCalendarPlanning && isBlockingModeActive,
+        isManualAppointmentPlacementActive:
+          pendingAppointmentTitle !== undefined,
         locationsData,
         onAppointmentCreated: handleAppointmentSelection,
         onAppointmentTypeSelect: handleAppointmentTypeSelect,
