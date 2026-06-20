@@ -41,6 +41,7 @@ import {
   appointmentPlanValidator,
   type AppointmentTypeDefaultOccupancy,
   appointmentTypeDefaultOccupancyValidator,
+  hasAppointmentPlan,
   validateAppointmentPlan,
   validateDefaultOccupancy,
 } from "./appointmentPlans";
@@ -1266,6 +1267,7 @@ export const getBookingAppointmentTypes = query({
 
     return appointmentTypes
       .filter((appointmentType) => !isDeletedRuleSetEntity(appointmentType))
+      .filter((appointmentType) => !hasAppointmentPlan(appointmentType))
       .map((appointmentType) => patientFacingAppointmentType(appointmentType));
   },
 });

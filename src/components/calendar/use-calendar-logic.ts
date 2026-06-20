@@ -1795,6 +1795,18 @@ export function useCalendarLogic({
         ? getLocationLineageKeyForDisplayId(selectedLocationId)
         : undefined);
     const resourceColumn = getCalendarResourceColumnFromColumn(column);
+    if (
+      appointmentTypeInfo.defaultOccupancy?.kind === "resourceColumn" &&
+      resourceColumn !==
+        appointmentTypeInfo.defaultOccupancy.calendarResourceColumn
+    ) {
+      toast.error(
+        appointmentTypeInfo.defaultOccupancy.calendarResourceColumn === "ekg"
+          ? "Diese Terminart kann nur in der EKG-Spalte gebucht werden."
+          : "Diese Terminart kann nur in der Labor-Spalte gebucht werden.",
+      );
+      return;
+    }
     const requestPlacement: CalendarAppointmentPlacement | undefined =
       locationLineageKey === undefined
         ? undefined
