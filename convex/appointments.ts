@@ -2268,6 +2268,7 @@ async function evaluateSingleAppointmentCandidateSlot(
     allowPlannerRuleOverride?: boolean;
     appointmentType: Doc<"appointmentTypes">;
     candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+    durationMinutes?: number;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId: Id<"locations">;
@@ -2308,10 +2309,46 @@ async function evaluateSingleAppointmentCandidateSlot(
       : { calendarResourceColumn: args.candidate.calendarResourceColumn }),
     storedReferences,
   });
+  const durationMinutes = args.durationMinutes ?? args.appointmentType.duration;
   const candidateEnd = calculateEndFromDuration(
     asZonedDateTimeString(args.candidate.startTime),
-    args.appointmentType.duration,
+    durationMinutes,
   );
+
+  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
+    candidate: {
+      end: candidateEnd,
+      locationLineageKey: storedReferences.locationLineageKey,
+      occupancyScope,
+      start: args.candidate.startTime,
+    },
+    ...(args.simulationRuleSetId === undefined
+      ? {}
+      : { draftRuleSetId: args.simulationRuleSetId }),
+    ...(args.excludedAppointmentIds === undefined
+      ? {}
+      : { excludeAppointmentIds: args.excludedAppointmentIds }),
+    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
+    practiceId: args.practiceId,
+  });
+
+  if (conflictingOccupancy) {
+    return unavailableCandidateSlotDecision({
+      ...(conflictingOccupancy.kind === "blockedSlot"
+        ? { blockingBlockedSlotId: conflictingOccupancy.record._id }
+        : {}),
+      candidate: args.candidate,
+      locationLineageKey: args.locationLineageKey,
+      provenance:
+        conflictingOccupancy.kind === "blockedSlot"
+          ? "blockedSlot"
+          : "appointmentOccupancy",
+      reason:
+        conflictingOccupancy.kind === "blockedSlot"
+          ? conflictingOccupancy.record.title
+          : "Der ausgewählte Zeitraum ist bereits durch einen Termin belegt.",
+    });
+  }
 
   if (practitionerId === undefined) {
     const hasResourceAvailability = await hasResourceRootSchedulerAvailability(
@@ -2334,7 +2371,7 @@ async function evaluateSingleAppointmentCandidateSlot(
           : { patientDateOfBirth: args.patientDateOfBirth }),
         practiceId: args.practiceId,
         requestedAt: args.requestedAt,
-        rootDurationMinutes: args.appointmentType.duration,
+        rootDurationMinutes: durationMinutes,
         ruleSetId: args.ruleSetId,
         ...(args.scope === undefined ? {} : { scope: args.scope }),
         ...(args.simulationRuleSetId === undefined
@@ -2406,6 +2443,8 @@ async function evaluateSingleAppointmentCandidateSlot(
     );
     const selectedSlotCanStart =
       selectedSlot?.status === "AVAILABLE" ||
+      (selectedSlot !== undefined &&
+        isSchedulerSlotBlockedOnlyByAppointmentOccupancy(selectedSlot)) ||
       (args.allowPlannerRuleOverride === true &&
         selectedSlot?.blockedByRuleId !== undefined);
     if (!selectedSlotCanStart) {
@@ -2429,7 +2468,7 @@ async function evaluateSingleAppointmentCandidateSlot(
         ...(args.allowPlannerRuleOverride === undefined
           ? {}
           : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
-        durationMinutes: args.appointmentType.duration,
+        durationMinutes,
         slots: practitionerSlots,
         start: args.candidate.startTime,
       })
@@ -2441,41 +2480,6 @@ async function evaluateSingleAppointmentCandidateSlot(
         reason: "Nicht genug freie Zeit für diese Terminart",
       });
     }
-  }
-
-  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
-    candidate: {
-      end: candidateEnd,
-      locationLineageKey: storedReferences.locationLineageKey,
-      occupancyScope,
-      start: args.candidate.startTime,
-    },
-    ...(args.simulationRuleSetId === undefined
-      ? {}
-      : { draftRuleSetId: args.simulationRuleSetId }),
-    ...(args.excludedAppointmentIds === undefined
-      ? {}
-      : { excludeAppointmentIds: args.excludedAppointmentIds }),
-    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
-    practiceId: args.practiceId,
-  });
-
-  if (conflictingOccupancy) {
-    return unavailableCandidateSlotDecision({
-      ...(conflictingOccupancy.kind === "blockedSlot"
-        ? { blockingBlockedSlotId: conflictingOccupancy.record._id }
-        : {}),
-      candidate: args.candidate,
-      locationLineageKey: args.locationLineageKey,
-      provenance:
-        conflictingOccupancy.kind === "blockedSlot"
-          ? "blockedSlot"
-          : "appointmentOccupancy",
-      reason:
-        conflictingOccupancy.kind === "blockedSlot"
-          ? conflictingOccupancy.record.title
-          : "Der ausgewählte Zeitraum ist bereits durch einen Termin belegt.",
-    });
   }
 
   return availableCandidateSlotDecision({
@@ -2561,7 +2565,9 @@ function hasSchedulerCoverageForCandidate(args: {
     if (
       slot === undefined ||
       slot.duration <= 0 ||
-      (slot.status !== "AVAILABLE" && !isRuleOverrideSlot)
+      (slot.status !== "AVAILABLE" &&
+        !isRuleOverrideSlot &&
+        !isSchedulerSlotBlockedOnlyByAppointmentOccupancy(slot))
     ) {
       return false;
     }
@@ -2569,6 +2575,22 @@ function hasSchedulerCoverageForCandidate(args: {
   }
 
   return true;
+}
+
+function isSchedulerSlotBlockedOnlyByAppointmentOccupancy(slot: {
+  blockedByBlockedSlotId?: Id<"blockedSlots">;
+  blockedByRuleId?: Id<"ruleConditions">;
+  reason?: string;
+  status: string;
+}): boolean {
+  return (
+    slot.status === "BLOCKED" &&
+    slot.blockedByBlockedSlotId === undefined &&
+    slot.blockedByRuleId === undefined &&
+    (slot.reason === undefined ||
+      slot.reason ===
+        "Dieser Zeitfenster ist bereits durch einen Termin belegt.")
+  );
 }
 
 async function resolveCandidateSlotDecisionForStaffPlacement(
@@ -3253,27 +3275,51 @@ export async function createAppointmentFromTrustedSource(
     throw new Error("Die Endzeit muss nach der Startzeit liegen.");
   }
 
-  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
+  const durationMinutes = calculateDurationMinutes(
+    asZonedDateTimeString(end),
+    args.start,
+  );
+  const calendarResourceColumnForCandidate =
+    getAppointmentCalendarResourceColumn(occupancyScope);
+  const practitionerLineageKeyForCandidate =
+    getAppointmentPractitionerLineageKey(occupancyScope);
+  const candidateDecision = await evaluateSingleAppointmentCandidateSlot(ctx, {
+    ...(allowPlannerRuleOverride === undefined
+      ? {}
+      : { allowPlannerRuleOverride }),
+    appointmentType: activeAppointmentType,
     candidate: {
-      end,
+      ...(calendarResourceColumnForCandidate === undefined
+        ? {}
+        : { calendarResourceColumn: calendarResourceColumnForCandidate }),
+      duration: durationMinutes,
       locationLineageKey: storedReferences.locationLineageKey,
-      occupancyScope,
-      start: args.start,
+      ...(practitionerLineageKeyForCandidate === undefined
+        ? {}
+        : { practitionerLineageKey: practitionerLineageKeyForCandidate }),
+      startTime: args.start,
     },
+    durationMinutes,
+    ...(replacesAppointmentId === undefined
+      ? {}
+      : { excludedAppointmentIds: [replacesAppointmentId] }),
+    ...(isNewPatient === undefined ? {} : { isNewPatient }),
+    locationId,
+    locationLineageKey: storedReferences.locationLineageKey,
+    ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
     practiceId,
-    ...(resolvedSimulationRuleSetId
-      ? { draftRuleSetId: resolvedSimulationRuleSetId }
-      : {}),
-    occupancyView: getOccupancyViewForBookingScope(
-      getAppointmentBookingScope(isSimulation),
-    ),
-    ...(replacesAppointmentId && {
-      excludeAppointmentIds: [replacesAppointmentId],
-    }),
+    requestedAt: asInstantString(Temporal.Now.instant().toString()),
+    ruleSetId: activeAppointmentType.ruleSetId,
+    scope: getAppointmentBookingScope(isSimulation),
+    ...(resolvedSimulationRuleSetId === undefined
+      ? {}
+      : { simulationRuleSetId: resolvedSimulationRuleSetId }),
   });
 
-  if (conflictingOccupancy) {
-    throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
+  if (candidateDecision.status === "unavailable") {
+    throw new Error(
+      candidateDecision.reason ?? "Der Termin ist nicht planbar.",
+    );
   }
 
   const insertData = {
@@ -4923,28 +4969,80 @@ async function updateAppointmentByMode(
     persistedAppointmentUpdateData(filteredUpdateData);
 
   if (hasSchedulingChange) {
-    const appointmentBookingScope =
-      getAppointmentBookingScope(resolvedIsSimulation);
-    const conflictingOccupancy = await findConflictingCalendarOccupancy(
-      ctx.db,
+    const plannerRuleSetId =
+      resolvedSimulationRuleSetId ??
+      editingRuleSetId ??
+      (await requireActiveRuleSetIdForPractice(
+        ctx.db,
+        existingAppointment.practiceId,
+      ));
+    const appointmentTypeIdForPlanner =
+      filteredUpdateData.appointmentTypeId ??
+      (await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
+        lineageKey: resolvedAppointmentTypeLineageKey,
+        ruleSetId: plannerRuleSetId,
+      }));
+    const appointmentTypeForPlanner = requireEntityUsableForNewAppointment({
+      entity: await ctx.db.get("appointmentTypes", appointmentTypeIdForPlanner),
+      entityId: appointmentTypeIdForPlanner,
+      entityLabel: "Terminart",
+    });
+    const locationIdForPlanner =
+      filteredUpdateData.locationId ??
+      (await resolveLocationIdForRuleSetByLineage(ctx.db, {
+        lineageKey: resolvedLocationLineageKey,
+        ruleSetId: plannerRuleSetId,
+      }));
+    const resolvedPatientId =
+      filteredUpdateData.patientId ?? existingAppointment.patientId;
+    const patientDateOfBirth =
+      await resolvePreferredAppointmentPatientDateOfBirth(ctx.db, {
+        ...(resolvedPatientId === undefined
+          ? {}
+          : { patientId: resolvedPatientId }),
+      });
+    const durationMinutes = calculateDurationMinutes(
+      asZonedDateTimeString(resolvedEnd),
+      asZonedDateTimeString(resolvedStart),
+    );
+    const calendarResourceColumnForCandidate =
+      getAppointmentCalendarResourceColumn(resolvedOccupancyScope);
+    const practitionerLineageKeyForCandidate =
+      getAppointmentPractitionerLineageKey(resolvedOccupancyScope);
+    const candidateDecision = await evaluateSingleAppointmentCandidateSlot(
+      ctx,
       {
+        appointmentType: appointmentTypeForPlanner,
         candidate: {
-          end: resolvedEnd,
+          ...(calendarResourceColumnForCandidate === undefined
+            ? {}
+            : { calendarResourceColumn: calendarResourceColumnForCandidate }),
+          duration: durationMinutes,
           locationLineageKey: resolvedLocationLineageKey,
-          occupancyScope: resolvedOccupancyScope,
-          start: resolvedStart,
+          ...(practitionerLineageKeyForCandidate === undefined
+            ? {}
+            : { practitionerLineageKey: practitionerLineageKeyForCandidate }),
+          startTime: asZonedDateTimeString(resolvedStart),
         },
+        durationMinutes,
+        excludedAppointmentIds: [existingAppointment._id],
+        locationId: locationIdForPlanner,
+        locationLineageKey: resolvedLocationLineageKey,
+        ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
         practiceId: existingAppointment.practiceId,
-        ...(resolvedIsSimulation === true && resolvedSimulationRuleSetId
-          ? { draftRuleSetId: resolvedSimulationRuleSetId }
-          : {}),
-        excludeAppointmentIds: [existingAppointment._id],
-        occupancyView: getOccupancyViewForBookingScope(appointmentBookingScope),
+        requestedAt: asInstantString(Temporal.Now.instant().toString()),
+        ruleSetId: plannerRuleSetId,
+        scope: getAppointmentBookingScope(resolvedIsSimulation),
+        ...(resolvedSimulationRuleSetId === undefined
+          ? {}
+          : { simulationRuleSetId: resolvedSimulationRuleSetId }),
       },
     );
 
-    if (conflictingOccupancy) {
-      throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
+    if (candidateDecision.status === "unavailable") {
+      throw new Error(
+        candidateDecision.reason ?? "Der Termin ist nicht planbar.",
+      );
     }
   }
 
