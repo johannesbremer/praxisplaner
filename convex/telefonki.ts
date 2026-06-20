@@ -9,7 +9,10 @@ import type { InternalSchedulingResultSlot } from "./scheduling";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
-import { hasAppointmentPlan } from "./appointmentPlans";
+import {
+  hasAppointmentPlan,
+  normalizeDefaultOccupancy,
+} from "./appointmentPlans";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
@@ -270,10 +273,6 @@ function getSearchStartDate(date: string | undefined): IsoDateString {
   return asIsoDateString(Temporal.Now.plainDateISO(SEARCH_TIMEZONE).toString());
 }
 
-function hasPlan(appointmentType: Doc<"appointmentTypes"> | null) {
-  return appointmentType !== null && hasAppointmentPlan(appointmentType);
-}
-
 function isAfternoonSlot(slot: Pick<AvailableSlot, "startTime">) {
   return (
     Temporal.ZonedDateTime.from(slot.startTime).hour >= AFTERNOON_START_HOUR
@@ -319,7 +318,9 @@ function isTelefonkiBookableAppointmentType(
     appointmentType !== null &&
     appointmentType.deleted !== true &&
     appointmentType.lineageKey !== undefined &&
-    !hasPlan(appointmentType)
+    !hasAppointmentPlan(appointmentType) &&
+    normalizeDefaultOccupancy(appointmentType.defaultOccupancy).kind !==
+      "resourceColumn"
   );
 }
 
@@ -650,8 +651,7 @@ export const getActiveConfig = query({
         .filter(
           (entry) =>
             entry.practiceId === args.practiceId &&
-            !entry.deleted &&
-            !hasAppointmentPlan(entry),
+            isTelefonkiBookableAppointmentType(entry),
         )
         .map((entry) => ({
           duration: entry.duration,
