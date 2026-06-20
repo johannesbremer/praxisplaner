@@ -4114,6 +4114,103 @@ describe("appointment series", () => {
     });
   });
 
+  test("series next-available search skips practitioners disallowed for the root type", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const baseSchedules = await ctx.db.query("baseSchedules").collect();
+      for (const baseSchedule of baseSchedules.filter(
+        (schedule) => schedule.practitionerLineageKey === practitionerId,
+      )) {
+        await ctx.db.patch("baseSchedules", baseSchedule._id, {
+          startTime: "10:00",
+        });
+      }
+
+      const disallowedPractitionerId = await insertWithLineage(
+        ctx,
+        "practitioners",
+        {
+          name: "Dr. Disallowed",
+          practiceId,
+          ruleSetId,
+        },
+      );
+      for (const dayOfWeek of [1, 2, 3, 4, 5]) {
+        await insertWithLineage(ctx, "baseSchedules", {
+          dayOfWeek,
+          endTime: "17:00",
+          locationLineageKey: locationId,
+          practiceId,
+          practitionerLineageKey: disallowedPractitionerId,
+          ruleSetId,
+          startTime: "08:00",
+        });
+      }
+
+      const followUpTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "Folgetermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", followUpTypeId, {
+        lineageKey: followUpTypeId,
+      });
+
+      const rootTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: followUpTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "Root mit Folge",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootTypeId, {
+        lineageKey: rootTypeId,
+      });
+
+      return rootTypeId;
+    });
+
+    const slot = await t.query(
+      api.appointments.getNextAvailableAppointmentSeriesRootSlot,
+      {
+        date: nextWeekday(1).toString(),
+        locationId,
+        practiceId,
+        rootAppointmentTypeId,
+        ruleSetId,
+      },
+    );
+
+    assertDefined(slot);
+    expect(slot.practitionerLineageKey).toBe(practitionerId);
+    expect(Temporal.ZonedDateTime.from(slot.startTime).hour).toBe(10);
+  });
+
   test("resource-root appointment series require scheduler availability for the root", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =

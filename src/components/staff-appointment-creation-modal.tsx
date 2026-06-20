@@ -72,7 +72,7 @@ interface StaffAppointmentCreationModalProps {
   onPatientSelected?:
     | ((patient?: PracticePatientSelection) => void)
     | undefined;
-  onPendingTitleChange?: ((title: string | undefined) => void) | undefined;
+  onPendingTitleChange?: ((title?: string) => void) | undefined;
   open: boolean;
   patient?: PatientInfo | undefined;
   practiceId: Id<"practices">;
