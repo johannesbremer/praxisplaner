@@ -579,12 +579,6 @@ export function useCalendarLogic({
         }
       : "skip",
   );
-  const appointmentSeriesRootPendingCandidates =
-    shouldQueryAppointmentSeriesRootBlockedSlots &&
-    appointmentSeriesRootBlockedSlots === undefined
-      ? appointmentSeriesRootCandidates
-      : undefined;
-
   const {
     baseAppointmentTypeUnavailableBlockedSlots,
     baseBlockedSlots,
@@ -597,7 +591,6 @@ export function useCalendarLogic({
   } = useCalendarBlockedSlotProjection({
     appointmentsData,
     appointmentSeriesRootBlockedSlots,
-    appointmentSeriesRootPendingCandidates,
     appointmentTypeSelected: placementAppointmentTypeLineageKey !== undefined,
     baseSchedulesData,
     blockedSlotsData,
