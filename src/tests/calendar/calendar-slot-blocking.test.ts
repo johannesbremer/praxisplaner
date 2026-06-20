@@ -2,7 +2,10 @@ import { describe, expect, test } from "vitest";
 
 import { asPractitionerLineageKey, toTableId } from "../../../convex/identity";
 import { calendarColumnScopeFromPractitioner } from "../../../lib/calendar-occupancy";
-import { findFirstBlockedSlotInRange } from "../../components/calendar/calendar-slot-blocking";
+import {
+  buildInsufficientCapacityBlockedSlots,
+  findFirstBlockedSlotInRange,
+} from "../../components/calendar/calendar-slot-blocking";
 
 describe("calendar slot blocking", () => {
   const practitioner = asPractitionerLineageKey(
@@ -55,5 +58,23 @@ describe("calendar slot blocking", () => {
         startSlot: 0,
       }),
     ).toBeUndefined();
+  });
+
+  test("projects start slots that cannot fit the selected duration before unavailable time", () => {
+    const blockedSlots = buildInsufficientCapacityBlockedSlots({
+      columns: [column],
+      durationMinutes: 10,
+      isRangeUnavailable: ({ startSlot }) =>
+        startSlot <= 2 && 2 < startSlot + 2,
+      reason: "Nicht genug freie Zeit",
+      slotDurationMinutes: 5,
+      totalSlots: 6,
+    });
+
+    expect(blockedSlots).toEqual([
+      { column, reason: "Nicht genug freie Zeit", slot: 1 },
+      { column, reason: "Nicht genug freie Zeit", slot: 2 },
+      { column, reason: "Nicht genug freie Zeit", slot: 5 },
+    ]);
   });
 });
