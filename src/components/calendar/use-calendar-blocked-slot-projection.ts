@@ -79,10 +79,20 @@ interface ServerAppointmentSeriesRootBlockedSlot {
   startTime: string;
 }
 
+interface ServerAppointmentSeriesRootPendingCandidate {
+  calendarResourceColumn?: "ekg" | "labor";
+  duration: number;
+  practitionerLineageKey?: Id<"practitioners">;
+  startTime: string;
+}
+
 interface UseCalendarBlockedSlotProjectionArgs {
   appointmentsData: readonly CalendarAppointmentRecord[];
   appointmentSeriesRootBlockedSlots:
     | readonly ServerAppointmentSeriesRootBlockedSlot[]
+    | undefined;
+  appointmentSeriesRootPendingCandidates:
+    | readonly ServerAppointmentSeriesRootPendingCandidate[]
     | undefined;
   appointmentTypeSelected: boolean;
   baseSchedulesData: readonly VacationSchedule[] | undefined;
@@ -125,6 +135,7 @@ interface VacationSchedule extends BlockedSlotSchedule {
 export function useCalendarBlockedSlotProjection({
   appointmentsData,
   appointmentSeriesRootBlockedSlots,
+  appointmentSeriesRootPendingCandidates,
   appointmentTypeSelected,
   baseSchedulesData,
   blockedSlotsData,
@@ -430,9 +441,17 @@ export function useCalendarBlockedSlotProjection({
     workingPractitioners,
   ]);
 
-  const serverAppointmentSeriesRootBlockedSlots = useMemo(
-    () =>
-      (appointmentSeriesRootBlockedSlots ?? []).flatMap((blockedSlot) => {
+  const projectAppointmentSeriesRootSlots = useCallback(
+    (
+      slots:
+        | readonly (
+            | ServerAppointmentSeriesRootBlockedSlot
+            | ServerAppointmentSeriesRootPendingCandidate
+          )[]
+        | undefined,
+      defaultReason: string,
+    ) =>
+      (slots ?? []).flatMap((blockedSlot) => {
         const column =
           blockedSlot.calendarResourceColumn === undefined
             ? blockedSlot.practitionerLineageKey === undefined
@@ -456,19 +475,42 @@ export function useCalendarBlockedSlotProjection({
           Math.ceil(blockedSlot.duration / SLOT_DURATION),
         );
 
+        const blockedByRuleId =
+          "blockingRuleIds" in blockedSlot
+            ? blockedSlot.blockingRuleIds.at(0)
+            : undefined;
+        const failureKind =
+          "failureKind" in blockedSlot ? blockedSlot.failureKind : undefined;
+        const reason =
+          "reason" in blockedSlot
+            ? (blockedSlot.reason ?? defaultReason)
+            : defaultReason;
+
         return Array.from({ length: slotCount }, (_, offset) => ({
-          ...(blockedSlot.blockingRuleIds?.[0] === undefined
-            ? {}
-            : { blockedByRuleId: blockedSlot.blockingRuleIds[0] }),
+          ...(blockedByRuleId === undefined ? {} : { blockedByRuleId }),
           column,
-          ...(blockedSlot.failureKind === undefined
-            ? {}
-            : { failureKind: blockedSlot.failureKind }),
-          reason: blockedSlot.reason ?? "Kettentermin nicht planbar",
+          ...(failureKind === undefined ? {} : { failureKind }),
+          reason,
           slot: startSlot + offset,
         }));
       }),
-    [appointmentSeriesRootBlockedSlots, timeToSlot],
+    [timeToSlot],
+  );
+
+  const serverAppointmentSeriesRootBlockedSlots = useMemo(
+    () =>
+      projectAppointmentSeriesRootSlots(
+        appointmentSeriesRootPendingCandidates ??
+          appointmentSeriesRootBlockedSlots,
+        appointmentSeriesRootPendingCandidates === undefined
+          ? "Kettentermin nicht planbar"
+          : "Kettentermine werden geprüft",
+      ),
+    [
+      appointmentSeriesRootBlockedSlots,
+      appointmentSeriesRootPendingCandidates,
+      projectAppointmentSeriesRootSlots,
+    ],
   );
 
   return {
