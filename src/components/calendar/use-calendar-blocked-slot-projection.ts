@@ -71,13 +71,6 @@ interface SchedulingSlot {
   status: string;
 }
 
-interface ServerAppointmentSeriesRootPendingCandidate {
-  calendarResourceColumn?: "ekg" | "labor";
-  duration: number;
-  practitionerLineageKey?: Id<"practitioners">;
-  startTime: string;
-}
-
 interface ServerCandidateSlotDecision {
   blockingRuleIds?: Id<"ruleConditions">[];
   calendarResourceColumn?: "ekg" | "labor";
@@ -94,9 +87,6 @@ interface UseCalendarBlockedSlotProjectionArgs {
   appointmentsData: readonly CalendarAppointmentRecord[];
   appointmentSeriesRootBlockedSlots:
     | readonly ServerCandidateSlotDecision[]
-    | undefined;
-  appointmentSeriesRootPendingCandidates:
-    | readonly ServerAppointmentSeriesRootPendingCandidate[]
     | undefined;
   appointmentTypeSelected: boolean;
   baseSchedulesData: readonly VacationSchedule[] | undefined;
@@ -139,7 +129,6 @@ interface VacationSchedule extends BlockedSlotSchedule {
 export function useCalendarBlockedSlotProjection({
   appointmentsData,
   appointmentSeriesRootBlockedSlots,
-  appointmentSeriesRootPendingCandidates,
   appointmentTypeSelected,
   baseSchedulesData,
   blockedSlotsData,
@@ -447,12 +436,7 @@ export function useCalendarBlockedSlotProjection({
 
   const projectAppointmentSeriesRootSlots = useCallback(
     (
-      slots:
-        | readonly (
-            | ServerAppointmentSeriesRootPendingCandidate
-            | ServerCandidateSlotDecision
-          )[]
-        | undefined,
+      slots: readonly ServerCandidateSlotDecision[] | undefined,
       defaultReason: string,
     ) =>
       (slots ?? []).flatMap((blockedSlot) => {
@@ -509,17 +493,10 @@ export function useCalendarBlockedSlotProjection({
   const serverAppointmentSeriesRootBlockedSlots = useMemo(
     () =>
       projectAppointmentSeriesRootSlots(
-        appointmentSeriesRootPendingCandidates ??
-          appointmentSeriesRootBlockedSlots,
-        appointmentSeriesRootPendingCandidates === undefined
-          ? "Kettentermin nicht planbar"
-          : "Kettentermine werden geprüft",
+        appointmentSeriesRootBlockedSlots,
+        "Kettentermin nicht planbar",
       ),
-    [
-      appointmentSeriesRootBlockedSlots,
-      appointmentSeriesRootPendingCandidates,
-      projectAppointmentSeriesRootSlots,
-    ],
+    [appointmentSeriesRootBlockedSlots, projectAppointmentSeriesRootSlots],
   );
 
   return {

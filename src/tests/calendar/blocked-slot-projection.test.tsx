@@ -48,11 +48,6 @@ describe("useCalendarBlockedSlotProjection", () => {
       startTime: string;
       status: "available" | "unavailable";
     }[];
-    appointmentSeriesRootPendingCandidates?: {
-      duration: number;
-      practitionerLineageKey?: typeof rawPractitionerLineageId;
-      startTime: string;
-    }[];
     appointmentTypeSelected: boolean;
     blockedSlotsWithoutAppointmentTypeSlots?: {
       practitionerLineageKey?: typeof practitionerLineageKey;
@@ -66,8 +61,6 @@ describe("useCalendarBlockedSlotProjection", () => {
         appointmentsData: [],
         appointmentSeriesRootBlockedSlots:
           args.appointmentSeriesRootBlockedSlots,
-        appointmentSeriesRootPendingCandidates:
-          args.appointmentSeriesRootPendingCandidates,
         appointmentTypeSelected: args.appointmentTypeSelected,
         baseSchedulesData: undefined,
         blockedSlotsData: [],
@@ -182,26 +175,12 @@ describe("useCalendarBlockedSlotProjection", () => {
     ]);
   });
 
-  it("blocks Kettentermin root candidates while planner results are loading", () => {
+  it("does not block candidate slots while planner results are loading", () => {
     const { result } = renderProjection({
-      appointmentSeriesRootPendingCandidates: [
-        {
-          duration: 10,
-          practitionerLineageKey: rawPractitionerLineageId,
-          startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
-        },
-      ],
       appointmentTypeSelected: true,
     });
 
-    expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
-      {
-        blocksPlacementStartOnly: true,
-        column: practitionerColumn,
-        reason: "Kettentermine werden geprüft",
-        slot: 12,
-      },
-    ]);
+    expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([]);
   });
 
   it("uses server planner blocks instead of pending candidates after results arrive", () => {
