@@ -23,6 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
+import { asPractitionerLineageKey } from "@/convex/identity";
 import { createCalendarPlacement } from "@/lib/calendar-occupancy";
 
 import type { PatientInfo, PracticePatientSelection } from "../types";
@@ -457,11 +458,13 @@ export function StaffAppointmentCreationModal({
     }
     const occupancyScope =
       resourceDefaultOccupancy === null
-        ? nextAvailableSlot === undefined || nextAvailableSlot === null
+        ? nextAvailablePractitionerLineageKey === undefined
           ? null
           : {
               kind: "practitioner" as const,
-              practitionerLineageKey: nextAvailableSlot.practitionerLineageKey,
+              practitionerLineageKey: asPractitionerLineageKey(
+                nextAvailablePractitionerLineageKey,
+              ),
             }
         : {
             calendarResourceColumn:
