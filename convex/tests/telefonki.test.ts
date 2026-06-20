@@ -673,6 +673,52 @@ describe("TelefonKI availability", () => {
       ),
     ).rejects.toThrow("Appointment type is not available.");
   });
+
+  test("hides resource-default appointment types from TelefonKI config and queries", async () => {
+    const t = createTestContext();
+    const fixture = await createTelefonkiFixture(t);
+    const resourceAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      return await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
+        allowedPractitionerLineageKeys: [fixture.practitionerId],
+        createdAt: now,
+        defaultOccupancy: {
+          calendarResourceColumn: "ekg",
+          kind: "resourceColumn",
+        },
+        duration: 30,
+        lastModified: now,
+        name: "EKG",
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      });
+    });
+
+    const config = await t.query(
+      api.telefonki.getActiveConfig,
+      withTelefonkiSecret({
+        practiceId: fixture.practiceId,
+      }),
+    );
+    expect(
+      config.appointmentTypes.some(
+        (appointmentType) =>
+          appointmentType.lineageKey === resourceAppointmentTypeId,
+      ),
+    ).toBe(false);
+    await expect(
+      t.query(
+        api.telefonki.nextAvailableSlot,
+        withTelefonkiSecret({
+          practiceId: fixture.practiceId,
+          simulatedContext: simulatedContext({
+            appointmentTypeId: resourceAppointmentTypeId,
+            locationId: fixture.locationId,
+          }),
+        }),
+      ),
+    ).rejects.toThrow("Appointment type is not available.");
+  });
 });
 
 describe("TelefonKI booking ownership", () => {

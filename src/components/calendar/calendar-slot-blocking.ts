@@ -10,6 +10,45 @@ export interface CalendarSlotBlock {
   title?: string | undefined;
 }
 
+export function buildInsufficientCapacityBlockedSlots(args: {
+  columns: readonly CalendarColumnId[];
+  durationMinutes: number;
+  isRangeUnavailable: (input: {
+    column: CalendarColumnId;
+    startSlot: number;
+  }) => boolean;
+  reason: string;
+  slotDurationMinutes: number;
+  totalSlots: number;
+}): { column: CalendarColumnId; reason: string; slot: number }[] {
+  const slotCount = Math.max(
+    1,
+    Math.ceil(args.durationMinutes / args.slotDurationMinutes),
+  );
+  const blockedSlots: {
+    column: CalendarColumnId;
+    reason: string;
+    slot: number;
+  }[] = [];
+
+  for (const column of args.columns) {
+    for (let slot = 0; slot < args.totalSlots; slot += 1) {
+      if (
+        slot + slotCount > args.totalSlots ||
+        args.isRangeUnavailable({ column, startSlot: slot })
+      ) {
+        blockedSlots.push({
+          column,
+          reason: args.reason,
+          slot,
+        });
+      }
+    }
+  }
+
+  return blockedSlots;
+}
+
 export function findFirstBlockedSlotInRange(args: {
   blockedSlots: readonly CalendarSlotBlock[];
   column: CalendarColumnId;

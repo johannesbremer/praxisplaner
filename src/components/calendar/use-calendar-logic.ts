@@ -32,7 +32,10 @@ import {
   temporalDayToLegacy,
   zonedDateTimeStringResult,
 } from "../../utils/time-calculations";
-import { findFirstBlockedSlotInRange } from "./calendar-slot-blocking";
+import {
+  buildInsufficientCapacityBlockedSlots,
+  findFirstBlockedSlotInRange,
+} from "./calendar-slot-blocking";
 import {
   buildCalendarAppointmentLayouts,
   buildCalendarAppointmentViews,
@@ -779,8 +782,8 @@ export function useCalendarLogic({
     [appointments, draggedAppointment],
   );
 
-  const allBlockedSlots = useMemo(() => {
-    const combined = [
+  const basePlacementBlockedSlots = useMemo(
+    () => [
       ...baseBlockedSlots,
       ...baseBreakSlots,
       ...serverAppointmentSeriesRootBlockedSlots,
@@ -789,6 +792,62 @@ export function useCalendarLogic({
       ...manualBlockedSlots,
       ...baseUnavailablePractitionerBlockedSlots,
       ...baseVacationBlockedSlots,
+    ],
+    [
+      baseAppointmentTypeUnavailableBlockedSlots,
+      serverAppointmentSeriesRootBlockedSlots,
+      baseBlockedSlots,
+      baseBreakSlots,
+      baseDragDisabledPractitionerBlockedSlots,
+      baseUnavailablePractitionerBlockedSlots,
+      baseVacationBlockedSlots,
+      manualBlockedSlots,
+    ],
+  );
+
+  const placementCapacityBlockedSlots = useMemo(() => {
+    const appointmentTypeInfo =
+      placementAppointmentTypeLineageKey === undefined
+        ? undefined
+        : appointmentTypeInfoByLineageKey.get(
+            placementAppointmentTypeLineageKey,
+          );
+    if (
+      appointmentTypeInfo === undefined ||
+      appointmentTypeInfo.hasAppointmentPlan
+    ) {
+      return [];
+    }
+
+    return buildInsufficientCapacityBlockedSlots({
+      columns: columns.map((column) => column.id),
+      durationMinutes: appointmentTypeInfo.duration,
+      isRangeUnavailable: ({ column, startSlot }) =>
+        checkCollision(column, startSlot, appointmentTypeInfo.duration) ||
+        findFirstBlockedSlotInRange({
+          blockedSlots: basePlacementBlockedSlots,
+          column,
+          durationMinutes: appointmentTypeInfo.duration,
+          slotDurationMinutes: SLOT_DURATION,
+          startSlot,
+        }) !== undefined,
+      reason: "Nicht genug freie Zeit für diese Terminart",
+      slotDurationMinutes: SLOT_DURATION,
+      totalSlots,
+    });
+  }, [
+    appointmentTypeInfoByLineageKey,
+    basePlacementBlockedSlots,
+    checkCollision,
+    columns,
+    placementAppointmentTypeLineageKey,
+    totalSlots,
+  ]);
+
+  const allBlockedSlots = useMemo(() => {
+    const combined = [
+      ...basePlacementBlockedSlots,
+      ...placementCapacityBlockedSlots,
     ].filter((slot) => slot.slot >= 0 && slot.slot < totalSlots);
 
     const uniqueSlots = new Map<string, (typeof combined)[0]>();
@@ -805,17 +864,7 @@ export function useCalendarLogic({
     }
 
     return [...uniqueSlots.values()];
-  }, [
-    baseAppointmentTypeUnavailableBlockedSlots,
-    serverAppointmentSeriesRootBlockedSlots,
-    baseBlockedSlots,
-    baseBreakSlots,
-    baseDragDisabledPractitionerBlockedSlots,
-    baseUnavailablePractitionerBlockedSlots,
-    baseVacationBlockedSlots,
-    manualBlockedSlots,
-    totalSlots,
-  ]);
+  }, [basePlacementBlockedSlots, placementCapacityBlockedSlots, totalSlots]);
 
   useCalendarDevtools({
     appointments: appointmentLayouts,
@@ -1762,10 +1811,10 @@ export function useCalendarLogic({
 
     if (!appointmentTypeInfo.hasAppointmentPlan) {
       const maxAvailableDuration = getMaxAvailableDuration(column, slot);
-      if (
-        Math.min(appointmentTypeInfo.duration, maxAvailableDuration) <
-        SLOT_DURATION
-      ) {
+      if (maxAvailableDuration < appointmentTypeInfo.duration) {
+        return;
+      }
+      if (checkCollision(column, slot, appointmentTypeInfo.duration)) {
         return;
       }
     }
