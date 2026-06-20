@@ -40,6 +40,7 @@ describe("useCalendarBlockedSlotProjection", () => {
   function renderProjection(args: {
     appointmentSeriesRootBlockedSlots?: {
       blockingRuleIds?: Id<"ruleConditions">[];
+      duration: number;
       failureKind?: "ruleBlock";
       practitionerLineageKey?: typeof rawPractitionerLineageId;
       reason?: string;
@@ -94,6 +95,7 @@ describe("useCalendarBlockedSlotProjection", () => {
     const { result } = renderProjection({
       appointmentSeriesRootBlockedSlots: [
         {
+          duration: SLOT_DURATION,
           practitionerLineageKey: rawPractitionerLineageId,
           reason: "Kettentermin nicht planbar",
           startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
@@ -111,11 +113,44 @@ describe("useCalendarBlockedSlotProjection", () => {
     ]);
   });
 
+  it("projects server-planned Kettentermin root blocks for the full root duration", () => {
+    const { result } = renderProjection({
+      appointmentSeriesRootBlockedSlots: [
+        {
+          duration: 15,
+          practitionerLineageKey: rawPractitionerLineageId,
+          reason: "Der ausgewählte Starttermin ist nicht mehr verfügbar",
+          startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+        },
+      ],
+      appointmentTypeSelected: true,
+    });
+
+    expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
+      {
+        column: practitionerColumn,
+        reason: "Der ausgewählte Starttermin ist nicht mehr verfügbar",
+        slot: 12,
+      },
+      {
+        column: practitionerColumn,
+        reason: "Der ausgewählte Starttermin ist nicht mehr verfügbar",
+        slot: 13,
+      },
+      {
+        column: practitionerColumn,
+        reason: "Der ausgewählte Starttermin ist nicht mehr verfügbar",
+        slot: 14,
+      },
+    ]);
+  });
+
   it("keeps server-planned Kettentermin rule provenance on projected slots", () => {
     const { result } = renderProjection({
       appointmentSeriesRootBlockedSlots: [
         {
           blockingRuleIds: [toTableId<"ruleConditions">("rule_condition_1")],
+          duration: SLOT_DURATION,
           failureKind: "ruleBlock",
           practitionerLineageKey: rawPractitionerLineageId,
           reason: "Regel blockiert Folgetermin",
