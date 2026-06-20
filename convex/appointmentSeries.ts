@@ -399,7 +399,7 @@ export async function hasResourceRootSchedulerAvailability(
     start: ZonedDateTimeString;
   },
 ): Promise<boolean> {
-  const rootSlots = await queryAvailableSlotsForDay(ctx, {
+  const schedulerSlots = await querySchedulingSlotsForDay(ctx, {
     ...(args.allowPlannerRuleOverride === undefined
       ? {}
       : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
@@ -426,6 +426,14 @@ export async function hasResourceRootSchedulerAvailability(
       simulationRuleSetId: args.simulationRuleSetId,
     }),
   });
+
+  const rootSlots = schedulerSlots.filter(
+    (slot) =>
+      slot.status === "AVAILABLE" ||
+      (args.allowPlannerRuleOverride === true &&
+        slot.blockedByRuleId !== undefined) ||
+      isBlockedOnlyByAppointmentOccupancy(slot),
+  );
 
   return hasAnyConsecutiveAvailablePractitionerSlots(rootSlots, {
     durationMinutes: args.rootDurationMinutes,
@@ -1621,6 +1629,19 @@ function hasPlannedStepConflict(
         start: candidate.start,
       },
     ),
+  );
+}
+
+function isBlockedOnlyByAppointmentOccupancy(
+  slot: InternalSchedulingResultSlot,
+): boolean {
+  return (
+    slot.status === "BLOCKED" &&
+    slot.blockedByBlockedSlotId === undefined &&
+    slot.blockedByRuleId === undefined &&
+    (slot.reason === undefined ||
+      slot.reason ===
+        "Dieser Zeitfenster ist bereits durch einen Termin belegt.")
   );
 }
 

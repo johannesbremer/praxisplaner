@@ -66,6 +66,18 @@ async function createAppointmentBaseData(t: TestContext) {
       },
     );
 
+    for (const dayOfWeek of [0, 1, 2, 3, 4, 5, 6]) {
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+        dayOfWeek,
+        endTime: "23:59",
+        locationLineageKey: locationId,
+        practiceId,
+        practitionerLineageKey: practitionerId,
+        ruleSetId,
+        startTime: "08:00",
+      });
+    }
+
     return {
       appointmentTypeId,
       locationId,
@@ -1236,6 +1248,18 @@ describe("appointments self-service cancellation", () => {
         },
       );
 
+      for (const dayOfWeek of [0, 1, 2, 3, 4, 5, 6]) {
+        await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+          dayOfWeek,
+          endTime: "23:59",
+          locationLineageKey: locationId,
+          practiceId,
+          practitionerLineageKey: practitionerId,
+          ruleSetId,
+          startTime: "08:00",
+        });
+      }
+
       return {
         appointmentTypeId,
         locationId,
@@ -1267,7 +1291,7 @@ describe("appointments self-service cancellation", () => {
         title: "Simulationskollision",
         userId,
       }),
-    ).rejects.toThrow("bereits belegt");
+    ).rejects.toThrow("bereits durch einen Termin belegt");
   });
 
   test("createAppointment derives the booked duration from the appointment type", async () => {
@@ -1323,6 +1347,18 @@ describe("appointments self-service cancellation", () => {
           ruleSetId,
         },
       );
+
+      for (const dayOfWeek of [0, 1, 2, 3, 4, 5, 6]) {
+        await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+          dayOfWeek,
+          endTime: "23:59",
+          locationLineageKey: locationId,
+          practiceId,
+          practitionerLineageKey: practitionerId,
+          ruleSetId,
+          startTime: "08:00",
+        });
+      }
 
       return {
         appointmentTypeId,
@@ -1469,7 +1505,7 @@ describe("appointments self-service cancellation", () => {
         temporaryPatientPhoneNumber: "+491700000103",
         title: "Labor conflict",
       }),
-    ).rejects.toThrow("bereits belegt");
+    ).rejects.toThrow("bereits durch einen Termin belegt");
   });
 
   test("createAppointment rejects resource ids from another practice", async () => {
@@ -1788,7 +1824,7 @@ describe("appointments update safety", () => {
         id: appointmentToMove,
         practitionerId: otherPractitionerId,
       }),
-    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+    ).rejects.toThrow("bereits durch einen Termin belegt");
   });
 
   test("updateAppointment preserves resource scope when resizing resource appointments", async () => {
@@ -2019,7 +2055,7 @@ describe("appointments update safety", () => {
         title: "Termin kollidiert mit Sperrung",
         userId,
       }),
-    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+    ).rejects.toThrow("Sperrung");
   });
 
   test("createAppointment rejects creating an appointment on a location-wide blocked slot", async () => {
@@ -2063,7 +2099,7 @@ describe("appointments update safety", () => {
         title: "Termin kollidiert mit standortweiter Sperrung",
         userId,
       }),
-    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+    ).rejects.toThrow("Standortweite Sperrung");
   });
 
   test("updateAppointment rejects moving an appointment onto an occupied blocked slot", async () => {
@@ -2109,7 +2145,7 @@ describe("appointments update safety", () => {
         id: appointmentToMove,
         start: blockedWindow.start,
       }),
-    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+    ).rejects.toThrow("Sperrung");
   });
 
   test("updateAppointment rejects moving an appointment onto a location-wide blocked slot", async () => {
@@ -2154,7 +2190,7 @@ describe("appointments update safety", () => {
         id: appointmentToMove,
         start: blockedWindow.start,
       }),
-    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+    ).rejects.toThrow("Standortweite Sperrung");
   });
 
   test("updateBlockedSlot keeps stored lineage references for time-only updates", async () => {
