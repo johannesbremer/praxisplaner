@@ -107,6 +107,7 @@ export function useCalendarData(args: {
   );
   const appointmentScope = args.simulatedContext ? "simulation" : "real";
   const activeRuleSetId = activeRuleSetData?._id;
+  const effectiveRuleSetId = args.ruleSetId ?? activeRuleSetId;
   const effectiveLocationId =
     args.simulatedContext?.locationLineageKey === undefined
       ? args.selectedLocationId
@@ -172,10 +173,10 @@ export function useCalendarData(args: {
   );
   const vacationsData = useQuery(
     api.vacations.getVacationsInRange,
-    args.practiceId && args.ruleSetId
+    args.practiceId && effectiveRuleSetId
       ? {
           endDateExclusive: args.selectedDate.add({ days: 1 }).toString(),
-          ruleSetId: args.ruleSetId,
+          ruleSetId: effectiveRuleSetId,
           startDate: args.selectedDate.toString(),
         }
       : "skip",
@@ -567,7 +568,7 @@ export function useCalendarData(args: {
     args.simulatedContext?.appointmentTypeLineageKey &&
       args.simulatedContext.locationLineageKey &&
       args.practiceId &&
-      args.ruleSetId
+      effectiveRuleSetId
       ? {
           date: args.selectedDate.toString(),
           ...(args.excludedAppointmentIdsForAvailability === undefined ||
@@ -579,7 +580,7 @@ export function useCalendarData(args: {
                 ],
               }),
           practiceId: args.practiceId,
-          ruleSetId: args.ruleSetId,
+          ruleSetId: effectiveRuleSetId,
           scope: "simulation",
           simulatedContext: args.simulatedContext,
         }
@@ -587,7 +588,7 @@ export function useCalendarData(args: {
             args.selectedAppointmentTypeId) &&
           args.selectedLocationId &&
           args.practiceId &&
-          args.ruleSetId
+          effectiveRuleSetId
         ? (() => {
             const patientDateOfBirth = args.patient?.dateOfBirth;
             const appointmentTypeLineageKey =
@@ -610,7 +611,7 @@ export function useCalendarData(args: {
                     ],
                   }),
               practiceId: args.practiceId,
-              ruleSetId: args.ruleSetId,
+              ruleSetId: effectiveRuleSetId,
               scope: "real" as const,
               simulatedContext: createSimulatedContext({
                 ...(appointmentTypeLineageKey === undefined
@@ -642,12 +643,12 @@ export function useCalendarData(args: {
       : args.simulatedContext.clientType;
   const blockedSlotsWithoutAppointmentTypeResult = useQuery(
     api.scheduling.getBlockedSlotsWithoutAppointmentType,
-    args.practiceId && args.ruleSetId && blockedSlotsClientType
+    args.practiceId && effectiveRuleSetId && blockedSlotsClientType
       ? {
           clientType: blockedSlotsClientType,
           date: args.selectedDate.toString(),
           practiceId: args.practiceId,
-          ruleSetId: args.ruleSetId,
+          ruleSetId: effectiveRuleSetId,
           ...(effectiveLocationId && { locationId: effectiveLocationId }),
         }
       : "skip",
@@ -705,6 +706,7 @@ export function useCalendarData(args: {
     blockedSlotsData,
     blockedSlotsWithoutAppointmentTypeResult,
     calendarDayQueryArgs,
+    effectiveRuleSetId,
     getRequiredAppointmentTypeInfo,
     locationIdByLineageKey,
     locationLineageKeyById,
