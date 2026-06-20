@@ -186,10 +186,6 @@ export function StaffAppointmentCreationModal({
   const location = locations?.find((entry) => entry._id === locationId);
   const hasAppointmentPlan =
     (appointmentType?.appointmentPlan?.steps.length ?? 0) > 0;
-  const resourceDefaultOccupancy =
-    appointmentType?.defaultOccupancy?.kind === "resourceColumn"
-      ? appointmentType.defaultOccupancy
-      : null;
   const bookingScope = isSimulation
     ? ("simulation" as const)
     : ("real" as const);
@@ -199,43 +195,11 @@ export function StaffAppointmentCreationModal({
       ? selectedFallbackPatient.id
       : selectedPatientId;
 
-  // Query for next available slot - only query when modal is open
-  const [requestedAt] = useState(() => Temporal.Now.instant().toString());
-
-  const nextAvailableSlot = useQuery(
-    api.scheduling.getNextAvailableSlot,
-    open &&
-      !hasAppointmentPlan &&
-      appointmentType?.lineageKey &&
-      location?.lineageKey &&
-      resourceDefaultOccupancy === null
+  const effectiveNextAvailableSlot = useQuery(
+    api.appointments.getNextAvailableCandidateSlotForStaffPlacement,
+    open && location !== undefined && appointmentType !== undefined
       ? {
-          date: selectedDate,
-          practiceId,
-          ruleSetId,
-          scope: isSimulation ? "simulation" : "real",
-          simulatedContext: {
-            appointmentTypeLineageKey: appointmentType.lineageKey,
-            clientType: "MFA",
-            locationLineageKey: location.lineageKey,
-            patient: {
-              ...(effectivePatient?.dateOfBirth && {
-                dateOfBirth: effectivePatient.dateOfBirth,
-              }),
-              isNew: false,
-            },
-            requestedAt,
-          },
-        }
-      : "skip",
-  );
-  const nextAvailableResourceSlot = useQuery(
-    api.appointments.getNextAvailableResourceSeriesRootSlot,
-    open &&
-      !hasAppointmentPlan &&
-      resourceDefaultOccupancy !== null &&
-      location !== undefined
-      ? {
+          appointmentTypeId,
           date: selectedDate,
           ...(effectivePatient?.dateOfBirth && {
             patientDateOfBirth: effectivePatient.dateOfBirth,
@@ -246,52 +210,19 @@ export function StaffAppointmentCreationModal({
           isNewPatient,
           locationId,
           practiceId,
-          rootAppointmentTypeId: appointmentTypeId,
           ruleSetId,
           scope: bookingScope,
           ...(effectivePatient?.userId && { userId: effectivePatient.userId }),
         }
       : "skip",
   );
-  const nextAvailableSeriesRootSlot = useQuery(
-    api.appointments.getNextAvailableAppointmentSeriesRootSlot,
-    open && hasAppointmentPlan && location !== undefined
-      ? {
-          date: selectedDate,
-          ...(effectivePatient?.dateOfBirth && {
-            patientDateOfBirth: effectivePatient.dateOfBirth,
-          }),
-          ...(effectivePatient?.convexPatientId && {
-            patientId: effectivePatient.convexPatientId,
-          }),
-          isNewPatient,
-          locationId,
-          practiceId,
-          rootAppointmentTypeId: appointmentTypeId,
-          ruleSetId,
-          scope: bookingScope,
-          ...(effectivePatient?.userId && { userId: effectivePatient.userId }),
-        }
-      : "skip",
-  );
-  const effectiveNextAvailableSlot = hasAppointmentPlan
-    ? nextAvailableSeriesRootSlot
-    : resourceDefaultOccupancy === null
-      ? nextAvailableSlot
-      : nextAvailableResourceSlot;
   const nextAvailablePractitionerLineageKey =
     effectiveNextAvailableSlot !== undefined &&
     effectiveNextAvailableSlot !== null &&
     "practitionerLineageKey" in effectiveNextAvailableSlot
       ? effectiveNextAvailableSlot.practitionerLineageKey
       : undefined;
-  const nextAvailablePractitionerId =
-    nextAvailablePractitionerLineageKey === undefined
-      ? undefined
-      : practitioners?.find(
-          (practitioner) =>
-            practitioner.lineageKey === nextAvailablePractitionerLineageKey,
-        )?._id;
+  const availableSeriesBlueprint = effectiveNextAvailableSlot?.seriesBlueprint;
 
   // Determine if we have a patient (from GDT or user-linked booking)
   const hasPersistedPatient = effectivePatient?.convexPatientId !== undefined;
@@ -303,53 +234,6 @@ export function StaffAppointmentCreationModal({
     effectivePatient.phoneNumber.trim().length > 0;
   const hasAnyPatient =
     hasPersistedPatient || hasUserLinkedPatient || hasTemporaryPatientDraft;
-  const seriesPreviewArgs = (() => {
-    if (
-      !open ||
-      mode !== "next" ||
-      !hasAppointmentPlan ||
-      !effectiveNextAvailableSlot
-    ) {
-      return "skip" as const;
-    }
-
-    const baseArgs = {
-      locationId,
-      ...(effectivePatient?.dateOfBirth && {
-        patientDateOfBirth: effectivePatient.dateOfBirth,
-      }),
-      ...(effectivePatient?.convexPatientId && {
-        patientId: effectivePatient.convexPatientId,
-      }),
-      isNewPatient,
-      practiceId,
-      rootAppointmentTypeId: appointmentTypeId,
-      ruleSetId,
-      scope: bookingScope,
-      start: effectiveNextAvailableSlot.startTime,
-      ...(effectivePatient?.userId && { userId: effectivePatient.userId }),
-    };
-
-    if (resourceDefaultOccupancy !== null) {
-      return {
-        ...baseArgs,
-        calendarResourceColumn: resourceDefaultOccupancy.calendarResourceColumn,
-      };
-    }
-
-    if (nextAvailablePractitionerId === undefined) {
-      return "skip" as const;
-    }
-
-    return {
-      ...baseArgs,
-      practitionerId: nextAvailablePractitionerId,
-    };
-  })();
-  const seriesPreview = useQuery(
-    api.appointments.previewAppointmentSeries,
-    seriesPreviewArgs,
-  );
 
   // Get display name for patient
   const getPatientDisplayName = (): string => {
@@ -457,7 +341,7 @@ export function StaffAppointmentCreationModal({
       return;
     }
     const occupancyScope =
-      resourceDefaultOccupancy === null
+      slot.calendarResourceColumn === undefined
         ? nextAvailablePractitionerLineageKey === undefined
           ? null
           : {
@@ -467,8 +351,7 @@ export function StaffAppointmentCreationModal({
               ),
             }
         : {
-            calendarResourceColumn:
-              resourceDefaultOccupancy.calendarResourceColumn,
+            calendarResourceColumn: slot.calendarResourceColumn,
             kind: "resource" as const,
           };
     const placement = resultFromNullable(
@@ -612,15 +495,6 @@ export function StaffAppointmentCreationModal({
     }
   };
 
-  const canRunSeriesPreview =
-    open &&
-    mode === "next" &&
-    hasAppointmentPlan &&
-    effectiveNextAvailableSlot !== undefined &&
-    effectiveNextAvailableSlot !== null;
-  const isSeriesPreviewLoading =
-    canRunSeriesPreview && seriesPreview === undefined;
-  const isSeriesPreviewBlocked = seriesPreview?.status === "blocked";
   const isNextAvailableSlotLoading =
     open && effectiveNextAvailableSlot === undefined;
   const hasNoNextAvailableSlot = effectiveNextAvailableSlot === null;
@@ -629,17 +503,15 @@ export function StaffAppointmentCreationModal({
     isNextAvailableSlotLoading ||
     hasNoNextAvailableSlot ||
     !hasAnyPatient ||
-    (hasAppointmentPlan && (isSeriesPreviewLoading || isSeriesPreviewBlocked));
+    (hasAppointmentPlan &&
+      (availableSeriesBlueprint === undefined ||
+        availableSeriesBlueprint.length === 0));
   const submitButtonLabel = isNextAvailableSlotLoading
     ? "Termin wird gesucht..."
     : hasNoNextAvailableSlot
       ? "Kein Termin verfügbar"
       : hasAppointmentPlan
-        ? isSeriesPreviewLoading
-          ? "Kettentermine werden geprüft..."
-          : isSeriesPreviewBlocked
-            ? "Kettentermine nicht planbar"
-            : "Termin erstellen"
+        ? "Termin erstellen"
         : "Termin erstellen";
 
   return (
@@ -732,18 +604,14 @@ export function StaffAppointmentCreationModal({
                         Ohne freien Starttermin können keine Kettentermine
                         geplant werden.
                       </div>
-                    ) : seriesPreview === undefined ? (
+                    ) : availableSeriesBlueprint === undefined ? (
                       <div className="text-sm text-muted-foreground">
-                        Prüfe verfügbare Folgetermine...
-                      </div>
-                    ) : seriesPreview.status === "blocked" ? (
-                      <div className="text-sm text-destructive">
-                        {seriesPreview.failureMessage ||
-                          "Die Kettentermine konnten nicht geplant werden."}
+                        Es wurde kein vollständig planbarer Kettentermin
+                        gefunden.
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {seriesPreview.steps.map((step) => (
+                        {availableSeriesBlueprint.map((step) => (
                           <div
                             className="flex items-start justify-between gap-4 text-sm"
                             key={step.stepId}
@@ -785,11 +653,12 @@ export function StaffAppointmentCreationModal({
 
               <DialogFooter className="shrink-0 border-t pt-4">
                 {hasAppointmentPlan &&
-                  (isSeriesPreviewLoading || isSeriesPreviewBlocked) && (
+                  availableSeriesBlueprint === undefined &&
+                  !isNextAvailableSlotLoading &&
+                  !hasNoNextAvailableSlot && (
                     <div className="mr-auto text-sm text-muted-foreground">
-                      {isSeriesPreviewLoading
-                        ? "Die Kettentermine werden noch geprüft."
-                        : "Der Termin kann erst erstellt werden, wenn alle Kettentermine planbar sind."}
+                      Der Termin kann erst erstellt werden, wenn alle
+                      Kettentermine planbar sind.
                     </div>
                   )}
                 {!hasAppointmentPlan && isNextAvailableSlotLoading && (
@@ -887,7 +756,7 @@ export function StaffAppointmentCreationModal({
                   )}
                 </Button>
 
-                {nextAvailableSlot === null && (
+                {hasNoNextAvailableSlot && (
                   <div className="text-sm text-muted-foreground">
                     Es konnte kein freier Termin gefunden werden.
                   </div>
