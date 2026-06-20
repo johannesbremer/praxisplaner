@@ -305,7 +305,6 @@ export function CalendarGrid({
         key={`placement-start-blocked-${calendarColumnScopeKey(column)}-${slot.slot}`}
         slot={slot.slot}
         slotCount={1}
-        variant="start"
       />
     ));
 
