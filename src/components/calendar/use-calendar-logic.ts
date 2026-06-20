@@ -522,12 +522,14 @@ export function useCalendarLogic({
     placementAppointmentTypeLineageKey === undefined
       ? undefined
       : appointmentTypeIdByLineageKey.get(placementAppointmentTypeLineageKey);
+  const shouldQueryAppointmentSeriesRootBlockedSlots =
+    appointmentSeriesRootCandidates.length > 0 &&
+    appointmentSeriesRootAppointmentTypeId !== undefined &&
+    selectedLocationId !== undefined &&
+    ruleSetId !== undefined;
   const appointmentSeriesRootBlockedSlots = useQuery(
     api.appointments.getBlockedAppointmentSeriesRootSlotsForCandidates,
-    appointmentSeriesRootCandidates.length > 0 &&
-      appointmentSeriesRootAppointmentTypeId !== undefined &&
-      selectedLocationId !== undefined &&
-      ruleSetId !== undefined
+    shouldQueryAppointmentSeriesRootBlockedSlots
       ? {
           candidates: appointmentSeriesRootCandidates,
           ...(dragExcludedAppointmentIds.length === 0
@@ -551,6 +553,11 @@ export function useCalendarLogic({
         }
       : "skip",
   );
+  const appointmentSeriesRootPendingCandidates =
+    shouldQueryAppointmentSeriesRootBlockedSlots &&
+    appointmentSeriesRootBlockedSlots === undefined
+      ? appointmentSeriesRootCandidates
+      : undefined;
 
   const {
     baseAppointmentTypeUnavailableBlockedSlots,
@@ -564,6 +571,7 @@ export function useCalendarLogic({
   } = useCalendarBlockedSlotProjection({
     appointmentsData,
     appointmentSeriesRootBlockedSlots,
+    appointmentSeriesRootPendingCandidates,
     appointmentTypeSelected: placementAppointmentTypeLineageKey !== undefined,
     baseSchedulesData,
     blockedSlotsData,
