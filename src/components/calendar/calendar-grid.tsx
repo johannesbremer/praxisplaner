@@ -22,6 +22,15 @@ import { findFirstBlockedSlotInRange } from "./calendar-slot-blocking";
 
 type BlockedSlot =
   | {
+      blocksPlacementStartOnly?: boolean | undefined;
+      column: CalendarColumnId;
+      id?: undefined;
+      isManual?: false | undefined;
+      reason?: string;
+      slot: number;
+      title?: string;
+    }
+  | {
       column: CalendarColumnId;
       duration: number;
       id: string;
@@ -29,14 +38,6 @@ type BlockedSlot =
       reason?: string;
       slot: number;
       startSlot: number;
-      title?: string;
-    }
-  | {
-      column: CalendarColumnId;
-      id?: undefined;
-      isManual?: false | undefined;
-      reason?: string;
-      slot: number;
       title?: string;
     };
 interface CalendarGridProps {
@@ -275,13 +276,22 @@ export function CalendarGrid({
         sameCalendarColumnScope(slot.column, column) &&
         isManualBlockedSlot(slot),
     );
-    const ruleBasedBlocked = blockedSlots.filter(
-      (slot) => sameCalendarColumnScope(slot.column, column) && !slot.isManual,
+    const rangeBlocked = blockedSlots.filter(
+      (slot) =>
+        sameCalendarColumnScope(slot.column, column) &&
+        !slot.isManual &&
+        slot.blocksPlacementStartOnly !== true,
+    );
+    const placementStartBlocked = blockedSlots.filter(
+      (slot) =>
+        sameCalendarColumnScope(slot.column, column) &&
+        !slot.isManual &&
+        slot.blocksPlacementStartOnly === true,
     );
 
-    // Group consecutive rule-based blocked slots together for overlay rendering
+    // Group real time-range blocks together for overlay rendering.
     const groupedSlots: { count: number; start: number }[] = [];
-    const sortedSlots = ruleBasedBlocked.toSorted((a, b) => a.slot - b.slot);
+    const sortedSlots = rangeBlocked.toSorted((a, b) => a.slot - b.slot);
 
     for (const slot of sortedSlots) {
       const lastGroup = groupedSlots[groupedSlots.length - 1];
@@ -294,12 +304,19 @@ export function CalendarGrid({
       }
     }
 
-    // Render rule-based blocked slots as overlays
-    const ruleBasedOverlays = groupedSlots.map((group) => (
+    const rangeOverlays = groupedSlots.map((group) => (
       <BlockedSlotOverlay
         key={`blocked-${calendarColumnScopeKey(column)}-${group.start}`}
         slot={group.start}
         slotCount={group.count}
+      />
+    ));
+    const placementStartOverlays = placementStartBlocked.map((slot) => (
+      <BlockedSlotOverlay
+        key={`placement-start-blocked-${calendarColumnScopeKey(column)}-${slot.slot}`}
+        slot={slot.slot}
+        slotCount={1}
+        variant="start"
       />
     ));
 
@@ -366,7 +383,8 @@ export function CalendarGrid({
 
     return (
       <>
-        {ruleBasedOverlays}
+        {rangeOverlays}
+        {placementStartOverlays}
         {manualBlockComponents}
       </>
     );
