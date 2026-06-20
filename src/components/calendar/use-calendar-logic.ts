@@ -187,6 +187,7 @@ export function useCalendarLogic({
     blockedSlotsData,
     blockedSlotsWithoutAppointmentTypeResult,
     calendarDayQueryArgs,
+    effectiveRuleSetId,
     getRequiredAppointmentTypeInfo,
     locationIdByLineageKey,
     locationLineageKeyById,
@@ -552,7 +553,7 @@ export function useCalendarLogic({
     appointmentSeriesRootCandidates.length > 0 &&
     appointmentSeriesRootAppointmentTypeId !== undefined &&
     placementLocationId !== undefined &&
-    ruleSetId !== undefined;
+    effectiveRuleSetId !== undefined;
   const appointmentSeriesRootBlockedSlots = useQuery(
     api.appointments.getCandidateSlotDecisionsForStaffPlacement,
     shouldQueryAppointmentSeriesRootBlockedSlots
@@ -573,7 +574,7 @@ export function useCalendarLogic({
             : {}),
           locationId: placementLocationId,
           practiceId,
-          ruleSetId,
+          ruleSetId: effectiveRuleSetId,
           scope: simulatedContext === undefined ? "real" : "simulation",
           ...(patient?.userId === undefined ? {} : { userId: patient.userId }),
         }
