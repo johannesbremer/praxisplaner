@@ -222,7 +222,7 @@ describe("CalendarGrid", () => {
       }
     });
 
-    test("renders placement-start blocks separately from real blocked ranges", () => {
+    test("renders placement-start blocks with the same overlay UI as real blocked ranges", () => {
       const { container } = render(
         <CalendarGrid
           {...defaultProps}
@@ -246,12 +246,7 @@ describe("CalendarGrid", () => {
         container.querySelectorAll(
           '[data-calendar-blocked-slot-overlay="range"]',
         ),
-      ).toHaveLength(1);
-      expect(
-        container.querySelectorAll(
-          '[data-calendar-blocked-slot-overlay="start"]',
-        ),
-      ).toHaveLength(1);
+      ).toHaveLength(2);
     });
   });
 
