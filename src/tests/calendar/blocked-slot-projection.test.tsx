@@ -52,6 +52,11 @@ describe("useCalendarBlockedSlotProjection", () => {
       reason?: string;
       startTime: string;
     }[];
+    appointmentSeriesRootPendingCandidates?: {
+      duration: number;
+      practitionerLineageKey?: typeof rawPractitionerLineageId;
+      startTime: string;
+    }[];
     appointmentTypeSelected: boolean;
     blockedSlotsWithoutAppointmentTypeSlots?: {
       practitionerLineageKey?: typeof practitionerLineageKey;
@@ -65,6 +70,8 @@ describe("useCalendarBlockedSlotProjection", () => {
         appointmentsData: [],
         appointmentSeriesRootBlockedSlots:
           args.appointmentSeriesRootBlockedSlots,
+        appointmentSeriesRootPendingCandidates:
+          args.appointmentSeriesRootPendingCandidates,
         appointmentTypeSelected: args.appointmentTypeSelected,
         baseSchedulesData: undefined,
         blockedSlotsData: [],
@@ -254,6 +261,54 @@ describe("useCalendarBlockedSlotProjection", () => {
         failureKind: "ruleBlock",
         reason: "Regel blockiert Folgetermin",
         slot: 12,
+      },
+    ]);
+  });
+
+  it("blocks Kettentermin root candidates while planner results are loading", () => {
+    const { result } = renderProjection({
+      appointmentSeriesRootPendingCandidates: [
+        {
+          duration: 10,
+          practitionerLineageKey: rawPractitionerLineageId,
+          startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+        },
+      ],
+      appointmentTypeSelected: true,
+    });
+
+    expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
+      {
+        column: practitionerColumn,
+        reason: "Kettentermine werden geprüft",
+        slot: 12,
+      },
+      {
+        column: practitionerColumn,
+        reason: "Kettentermine werden geprüft",
+        slot: 13,
+      },
+    ]);
+  });
+
+  it("uses server planner blocks instead of pending candidates after results arrive", () => {
+    const { result } = renderProjection({
+      appointmentSeriesRootBlockedSlots: [
+        {
+          duration: SLOT_DURATION,
+          practitionerLineageKey: rawPractitionerLineageId,
+          reason: "Kettentermin nicht planbar",
+          startTime: "2026-04-25T09:05:00+02:00[Europe/Berlin]",
+        },
+      ],
+      appointmentTypeSelected: true,
+    });
+
+    expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
+      {
+        column: practitionerColumn,
+        reason: "Kettentermin nicht planbar",
+        slot: 13,
       },
     ]);
   });
