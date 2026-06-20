@@ -46,6 +46,7 @@ describe("useCalendarBlockedSlotProjection", () => {
     appointmentSeriesRootBlockedSlots?: {
       calendarResourceColumn?: "ekg" | "labor";
       blockingRuleIds?: Id<"ruleConditions">[];
+      duration: number;
       failureKind?: "ruleBlock";
       practitionerLineageKey?: typeof rawPractitionerLineageId;
       reason?: string;
@@ -158,6 +159,7 @@ describe("useCalendarBlockedSlotProjection", () => {
     const { result } = renderProjection({
       appointmentSeriesRootBlockedSlots: [
         {
+          duration: SLOT_DURATION,
           practitionerLineageKey: rawPractitionerLineageId,
           reason: "Kettentermin nicht planbar",
           startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
@@ -181,6 +183,7 @@ describe("useCalendarBlockedSlotProjection", () => {
       appointmentSeriesRootBlockedSlots: [
         {
           calendarResourceColumn: "ekg",
+          duration: SLOT_DURATION,
           reason: "Kettentermin nicht planbar",
           startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
         },
@@ -188,11 +191,43 @@ describe("useCalendarBlockedSlotProjection", () => {
       appointmentTypeSelected: true,
     });
 
-    expect(result.current.baseAppointmentSeriesRootBlockedSlots).toEqual([
+    expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
       {
         column: ekgColumn,
         reason: "Kettentermin nicht planbar",
         slot: 12,
+      },
+    ]);
+  });
+
+  it("projects server-planned Kettentermin root blocks for the full root duration", () => {
+    const { result } = renderProjection({
+      appointmentSeriesRootBlockedSlots: [
+        {
+          duration: 15,
+          practitionerLineageKey: rawPractitionerLineageId,
+          reason: "Der ausgewählte Starttermin ist nicht mehr verfügbar",
+          startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+        },
+      ],
+      appointmentTypeSelected: true,
+    });
+
+    expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([
+      {
+        column: practitionerColumn,
+        reason: "Der ausgewählte Starttermin ist nicht mehr verfügbar",
+        slot: 12,
+      },
+      {
+        column: practitionerColumn,
+        reason: "Der ausgewählte Starttermin ist nicht mehr verfügbar",
+        slot: 13,
+      },
+      {
+        column: practitionerColumn,
+        reason: "Der ausgewählte Starttermin ist nicht mehr verfügbar",
+        slot: 14,
       },
     ]);
   });
@@ -202,6 +237,7 @@ describe("useCalendarBlockedSlotProjection", () => {
       appointmentSeriesRootBlockedSlots: [
         {
           blockingRuleIds: [toTableId<"ruleConditions">("rule_condition_1")],
+          duration: SLOT_DURATION,
           failureKind: "ruleBlock",
           practitionerLineageKey: rawPractitionerLineageId,
           reason: "Regel blockiert Folgetermin",

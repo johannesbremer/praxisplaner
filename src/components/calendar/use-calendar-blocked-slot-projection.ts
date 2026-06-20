@@ -73,6 +73,7 @@ interface SchedulingSlot {
 interface ServerAppointmentSeriesRootBlockedSlot {
   blockingRuleIds?: Id<"ruleConditions">[];
   calendarResourceColumn?: "ekg" | "labor";
+  duration: number;
   failureKind?: AppointmentSeriesPlanningFailureKind;
   practitionerLineageKey?: Id<"practitioners">;
   reason?: string;
@@ -479,19 +480,23 @@ export function useCalendarBlockedSlotProjection({
         const startTime = Temporal.ZonedDateTime.from(
           blockedSlot.startTime,
         ).toPlainTime();
-        return [
-          {
-            ...(blockedSlot.blockingRuleIds?.[0] === undefined
-              ? {}
-              : { blockedByRuleId: blockedSlot.blockingRuleIds[0] }),
-            column,
-            ...(blockedSlot.failureKind === undefined
-              ? {}
-              : { failureKind: blockedSlot.failureKind }),
-            reason: blockedSlot.reason ?? "Kettentermin nicht planbar",
-            slot: timeToSlot(startTime.toString().slice(0, 5)),
-          },
-        ];
+        const startSlot = timeToSlot(startTime.toString().slice(0, 5));
+        const slotCount = Math.max(
+          1,
+          Math.ceil(blockedSlot.duration / SLOT_DURATION),
+        );
+
+        return Array.from({ length: slotCount }, (_, offset) => ({
+          ...(blockedSlot.blockingRuleIds?.[0] === undefined
+            ? {}
+            : { blockedByRuleId: blockedSlot.blockingRuleIds[0] }),
+          column,
+          ...(blockedSlot.failureKind === undefined
+            ? {}
+            : { failureKind: blockedSlot.failureKind }),
+          reason: blockedSlot.reason ?? "Kettentermin nicht planbar",
+          slot: startSlot + offset,
+        }));
       }),
     [appointmentSeriesRootBlockedSlots, timeToSlot],
   );
