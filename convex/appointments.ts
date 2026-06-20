@@ -1,7 +1,7 @@
 import { ConvexError, type Infer, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
-import type { IsoDateString } from "../lib/typed-regex";
+import type { InstantString, IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type {
   DatabaseReader,
@@ -54,6 +54,7 @@ import {
 import {
   appointmentSeriesPlanningFailureKindValidator,
   appointmentSeriesPreviewResultValidator,
+  appointmentSeriesPreviewStepValidator,
 } from "./appointmentSeriesPlanner";
 import { appointmentSeriesRestoreSnapshotValidator } from "./appointmentSeriesRestoreSnapshots";
 import {
@@ -2664,20 +2665,6 @@ export const getNextAvailableAppointmentSeriesRootSlot = query({
   returns: v.union(v.null(), appointmentSeriesRootAvailableSlotValidator),
 });
 
-const appointmentSeriesBlockedRootSlotValidator = v.object({
-  blockingBlockedSlotId: v.optional(v.id("blockedSlots")),
-  blockingRuleIds: v.optional(v.array(v.id("ruleConditions"))),
-  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
-  duration: v.number(),
-  failureKind: v.optional(appointmentSeriesPlanningFailureKindValidator),
-  locationLineageKey: v.id("locations"),
-  practitionerLineageKey: v.optional(v.id("practitioners")),
-  practitionerName: v.optional(v.string()),
-  reason: v.optional(v.string()),
-  startTime: v.string(),
-  status: v.literal("BLOCKED"),
-});
-
 const appointmentSeriesRootSlotCandidateValidator = v.object({
   calendarResourceColumn: v.optional(calendarResourceColumnValidator),
   duration: v.number(),
@@ -2687,47 +2674,392 @@ const appointmentSeriesRootSlotCandidateValidator = v.object({
   startTime: v.string(),
 });
 
-type AppointmentSeriesBlockedRootSlot = Infer<
-  typeof appointmentSeriesBlockedRootSlotValidator
->;
+const candidateSlotUnavailableProvenanceValidator = v.union(
+  appointmentSeriesPlanningFailureKindValidator,
+  v.literal("insufficientDuration"),
+);
 
-function calculateBlockedSeriesRootProjectionDuration(args: {
-  preview: Awaited<ReturnType<typeof previewAppointmentSeriesHelper>>;
-  rootDurationMinutes: number;
-  rootStart: string;
-}): number {
-  const rootStart = Temporal.ZonedDateTime.from(args.rootStart);
-  let projectionEnd = rootStart.add({ minutes: args.rootDurationMinutes });
+const candidateSlotDecisionValidator = v.object({
+  blockingBlockedSlotId: v.optional(v.id("blockedSlots")),
+  blockingRuleIds: v.optional(v.array(v.id("ruleConditions"))),
+  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
+  canOverride: v.boolean(),
+  duration: v.number(),
+  locationLineageKey: v.id("locations"),
+  practitionerLineageKey: v.optional(v.id("practitioners")),
+  practitionerName: v.optional(v.string()),
+  provenance: v.optional(candidateSlotUnavailableProvenanceValidator),
+  reason: v.optional(v.string()),
+  seriesBlueprint: v.optional(v.array(appointmentSeriesPreviewStepValidator)),
+  startTime: v.string(),
+  status: v.union(v.literal("available"), v.literal("unavailable")),
+});
 
-  for (const step of args.preview.steps) {
-    const stepEnd = Temporal.ZonedDateTime.from(step.end);
-    if (Temporal.ZonedDateTime.compare(stepEnd, projectionEnd) > 0) {
-      projectionEnd = stepEnd;
-    }
-  }
+type CandidateSlotDecision = Infer<typeof candidateSlotDecisionValidator>;
 
-  if (
-    args.preview.status === "blocked" &&
-    args.preview.blockedStepEnd !== undefined
-  ) {
-    const blockedStepEnd = Temporal.ZonedDateTime.from(
-      args.preview.blockedStepEnd,
-    );
-    if (Temporal.ZonedDateTime.compare(blockedStepEnd, projectionEnd) > 0) {
-      projectionEnd = blockedStepEnd;
-    }
-  }
-
-  return Math.max(
-    args.rootDurationMinutes,
-    Math.ceil(
-      (projectionEnd.epochMilliseconds - rootStart.epochMilliseconds) / 60_000,
-    ),
-  );
+function availableCandidateSlotDecision(args: {
+  candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+  locationLineageKey: LocationLineageKey;
+  seriesBlueprint?: CandidateSlotDecision["seriesBlueprint"];
+}): CandidateSlotDecision {
+  return {
+    ...candidateSlotDecisionBase(args),
+    canOverride: false,
+    ...(args.seriesBlueprint === undefined
+      ? {}
+      : { seriesBlueprint: args.seriesBlueprint }),
+    status: "available",
+  };
 }
 
-export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
+function candidateSlotDecisionBase(args: {
+  candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+  locationLineageKey: LocationLineageKey;
+}): Omit<CandidateSlotDecision, "canOverride" | "status"> {
+  return {
+    ...(args.candidate.calendarResourceColumn === undefined
+      ? {}
+      : { calendarResourceColumn: args.candidate.calendarResourceColumn }),
+    duration: args.candidate.duration,
+    locationLineageKey: args.locationLineageKey,
+    ...(args.candidate.practitionerLineageKey === undefined
+      ? {}
+      : {
+          practitionerLineageKey: asPractitionerLineageKey(
+            args.candidate.practitionerLineageKey,
+          ),
+        }),
+    ...(args.candidate.practitionerName === undefined
+      ? {}
+      : { practitionerName: args.candidate.practitionerName }),
+    startTime: args.candidate.startTime,
+  };
+}
+
+async function evaluateSingleAppointmentCandidateSlot(
+  ctx: MutationCtx | QueryCtx,
   args: {
+    allowPlannerRuleOverride?: boolean;
+    appointmentType: Doc<"appointmentTypes">;
+    candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+    excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
+    locationId: Id<"locations">;
+    locationLineageKey: LocationLineageKey;
+    patientDateOfBirth?: IsoDateString;
+    practiceId: Id<"practices">;
+    requestedAt: InstantString;
+    ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
+  },
+): Promise<CandidateSlotDecision> {
+  const practitionerLineageKey =
+    args.candidate.practitionerLineageKey === undefined
+      ? undefined
+      : asPractitionerLineageKey(args.candidate.practitionerLineageKey);
+  const practitionerId =
+    practitionerLineageKey === undefined
+      ? undefined
+      : await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+          lineageKey: practitionerLineageKey,
+          ruleSetId: args.ruleSetId,
+        });
+  const storedReferences = await resolveStoredAppointmentReferencesForWrite(
+    ctx.db,
+    {
+      appointmentTypeId: asAppointmentTypeId(args.appointmentType._id),
+      locationId: asLocationId(args.locationId),
+      ...(practitionerId === undefined
+        ? {}
+        : { practitionerId: asPractitionerId(practitionerId) }),
+    },
+  );
+  const occupancyScope = resolveSingleAppointmentOccupancy({
+    appointmentType: args.appointmentType,
+    ...(args.candidate.calendarResourceColumn === undefined
+      ? {}
+      : { calendarResourceColumn: args.candidate.calendarResourceColumn }),
+    storedReferences,
+  });
+  const candidateEnd = calculateEndFromDuration(
+    asZonedDateTimeString(args.candidate.startTime),
+    args.appointmentType.duration,
+  );
+
+  if (practitionerId === undefined) {
+    const hasResourceAvailability = await hasResourceRootSchedulerAvailability(
+      ctx,
+      {
+        ...(args.allowPlannerRuleOverride === undefined
+          ? {}
+          : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
+        appointmentType: args.appointmentType,
+        ...(args.excludedAppointmentIds === undefined
+          ? {}
+          : { excludedAppointmentIds: args.excludedAppointmentIds }),
+        ...(args.isNewPatient === undefined
+          ? {}
+          : { isNewPatient: args.isNewPatient }),
+        locationId: args.locationId,
+        planningState: createSeriesPlanningState(),
+        ...(args.patientDateOfBirth === undefined
+          ? {}
+          : { patientDateOfBirth: args.patientDateOfBirth }),
+        practiceId: args.practiceId,
+        requestedAt: args.requestedAt,
+        rootDurationMinutes: args.appointmentType.duration,
+        ruleSetId: args.ruleSetId,
+        ...(args.scope === undefined ? {} : { scope: args.scope }),
+        ...(args.simulationRuleSetId === undefined
+          ? {}
+          : { simulationRuleSetId: args.simulationRuleSetId }),
+        start: asZonedDateTimeString(args.candidate.startTime),
+      },
+    );
+    if (!hasResourceAvailability) {
+      return unavailableCandidateSlotDecision({
+        candidate: args.candidate,
+        locationLineageKey: args.locationLineageKey,
+        provenance: "schedulerUnavailable",
+        reason: "Der ausgewählte Starttermin ist nicht verfügbar.",
+      });
+    }
+  } else {
+    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      requireLineageKey({
+        entityId: args.appointmentType._id,
+        entityType: "appointment type",
+        lineageKey: args.appointmentType.lineageKey,
+        ruleSetId: args.appointmentType.ruleSetId,
+      }),
+    );
+    const slotsResult: {
+      slots: {
+        blockedByBlockedSlotId?: Id<"blockedSlots">;
+        blockedByRuleId?: Id<"ruleConditions">;
+        duration: number;
+        locationLineageKey: Id<"locations">;
+        practitionerLineageKey: Id<"practitioners">;
+        reason?: string;
+        startTime: string;
+        status: string;
+      }[];
+    } = await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
+      date: asIsoDateString(
+        Temporal.ZonedDateTime.from(args.candidate.startTime)
+          .toPlainDate()
+          .toString(),
+      ),
+      ...(args.excludedAppointmentIds === undefined
+        ? {}
+        : { excludedAppointmentIds: args.excludedAppointmentIds }),
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+      ...(args.scope === undefined ? {} : { scope: args.scope }),
+      simulatedContext: {
+        appointmentTypeLineageKey,
+        clientType: STAFF_PLANNER_CLIENT_TYPE,
+        locationLineageKey: args.locationLineageKey,
+        patient: {
+          ...(args.patientDateOfBirth === undefined
+            ? {}
+            : { dateOfBirth: args.patientDateOfBirth }),
+          isNew: args.isNewPatient ?? false,
+        },
+        requestedAt: args.requestedAt,
+      },
+    });
+    const practitionerSlots = slotsResult.slots.filter(
+      (slot) =>
+        slot.locationLineageKey === args.locationLineageKey &&
+        slot.practitionerLineageKey === practitionerLineageKey,
+    );
+    const selectedSlot = practitionerSlots.find(
+      (slot) => slot.startTime === args.candidate.startTime,
+    );
+    const selectedSlotCanStart =
+      selectedSlot?.status === "AVAILABLE" ||
+      (args.allowPlannerRuleOverride === true &&
+        selectedSlot?.blockedByRuleId !== undefined);
+    if (!selectedSlotCanStart) {
+      const failure = schedulingProvenanceForSlot(selectedSlot);
+      return unavailableCandidateSlotDecision({
+        ...(failure.blockingBlockedSlotId === undefined
+          ? {}
+          : { blockingBlockedSlotId: failure.blockingBlockedSlotId }),
+        ...(failure.blockingRuleIds === undefined
+          ? {}
+          : { blockingRuleIds: failure.blockingRuleIds }),
+        candidate: args.candidate,
+        canOverride: failure.canOverride,
+        locationLineageKey: args.locationLineageKey,
+        provenance: failure.provenance,
+        reason: failure.reason,
+      });
+    }
+    if (
+      !hasSchedulerCoverageForCandidate({
+        ...(args.allowPlannerRuleOverride === undefined
+          ? {}
+          : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
+        durationMinutes: args.appointmentType.duration,
+        slots: practitionerSlots,
+        start: args.candidate.startTime,
+      })
+    ) {
+      return unavailableCandidateSlotDecision({
+        candidate: args.candidate,
+        locationLineageKey: args.locationLineageKey,
+        provenance: "insufficientDuration",
+        reason: "Nicht genug freie Zeit für diese Terminart",
+      });
+    }
+  }
+
+  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
+    candidate: {
+      end: candidateEnd,
+      locationLineageKey: storedReferences.locationLineageKey,
+      occupancyScope,
+      start: args.candidate.startTime,
+    },
+    ...(args.simulationRuleSetId === undefined
+      ? {}
+      : { draftRuleSetId: args.simulationRuleSetId }),
+    ...(args.excludedAppointmentIds === undefined
+      ? {}
+      : { excludeAppointmentIds: args.excludedAppointmentIds }),
+    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
+    practiceId: args.practiceId,
+  });
+
+  if (conflictingOccupancy) {
+    return unavailableCandidateSlotDecision({
+      ...(conflictingOccupancy.kind === "blockedSlot"
+        ? { blockingBlockedSlotId: conflictingOccupancy.record._id }
+        : {}),
+      candidate: args.candidate,
+      locationLineageKey: args.locationLineageKey,
+      provenance:
+        conflictingOccupancy.kind === "blockedSlot"
+          ? "blockedSlot"
+          : "appointmentOccupancy",
+      reason:
+        conflictingOccupancy.kind === "blockedSlot"
+          ? conflictingOccupancy.record.title
+          : "Der ausgewählte Zeitraum ist bereits durch einen Termin belegt.",
+    });
+  }
+
+  return availableCandidateSlotDecision({
+    candidate: args.candidate,
+    locationLineageKey: args.locationLineageKey,
+  });
+}
+
+function hasSchedulerCoverageForCandidate(args: {
+  allowPlannerRuleOverride?: boolean;
+  durationMinutes: number;
+  slots: {
+    blockedByRuleId?: Id<"ruleConditions">;
+    duration: number;
+    startTime: string;
+    status: string;
+  }[];
+  start: string;
+}): boolean {
+  const slotsByStartTime = new Map(
+    args.slots.map((slot) => [slot.startTime, slot]),
+  );
+  const requestedStart = Temporal.ZonedDateTime.from(args.start);
+  const requestedEnd = requestedStart.add({ minutes: args.durationMinutes });
+  let cursor = requestedStart;
+
+  while (Temporal.ZonedDateTime.compare(cursor, requestedEnd) < 0) {
+    const slot = slotsByStartTime.get(cursor.toString());
+    const isRuleOverrideSlot =
+      args.allowPlannerRuleOverride === true &&
+      slot?.blockedByRuleId !== undefined;
+    if (
+      slot === undefined ||
+      slot.duration <= 0 ||
+      (slot.status !== "AVAILABLE" && !isRuleOverrideSlot)
+    ) {
+      return false;
+    }
+    cursor = cursor.add({ minutes: slot.duration });
+  }
+
+  return true;
+}
+
+function schedulingProvenanceForSlot(
+  slot:
+    | undefined
+    | {
+        blockedByBlockedSlotId?: Id<"blockedSlots">;
+        blockedByRuleId?: Id<"ruleConditions">;
+        reason?: string;
+      },
+): {
+  blockingBlockedSlotId?: Id<"blockedSlots">;
+  blockingRuleIds?: Id<"ruleConditions">[];
+  canOverride: boolean;
+  provenance: Exclude<CandidateSlotDecision["provenance"], undefined>;
+  reason: string;
+} {
+  if (slot?.blockedByRuleId !== undefined) {
+    return {
+      blockingRuleIds: [slot.blockedByRuleId],
+      canOverride: true,
+      provenance: "ruleBlock",
+      reason:
+        slot.reason ?? "Dieser Zeitfenster ist durch eine Regel blockiert.",
+    };
+  }
+  if (slot?.blockedByBlockedSlotId !== undefined) {
+    return {
+      blockingBlockedSlotId: slot.blockedByBlockedSlotId,
+      canOverride: false,
+      provenance: "blockedSlot",
+      reason: slot.reason ?? "Manuell blockierter Zeitraum",
+    };
+  }
+  return {
+    canOverride: false,
+    provenance: "schedulerUnavailable",
+    reason: slot?.reason ?? "Der ausgewählte Starttermin ist nicht verfügbar.",
+  };
+}
+
+function unavailableCandidateSlotDecision(args: {
+  blockingBlockedSlotId?: Id<"blockedSlots">;
+  blockingRuleIds?: Id<"ruleConditions">[];
+  candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+  canOverride?: boolean;
+  locationLineageKey: LocationLineageKey;
+  provenance: Exclude<CandidateSlotDecision["provenance"], undefined>;
+  reason: string;
+}): CandidateSlotDecision {
+  return {
+    ...candidateSlotDecisionBase(args),
+    ...(args.blockingBlockedSlotId === undefined
+      ? {}
+      : { blockingBlockedSlotId: args.blockingBlockedSlotId }),
+    ...(args.blockingRuleIds === undefined
+      ? {}
+      : { blockingRuleIds: args.blockingRuleIds }),
+    canOverride: args.canOverride === true,
+    provenance: args.provenance,
+    reason: args.reason,
+    status: "unavailable",
+  };
+}
+
+export const getCandidateSlotDecisionsForStaffPlacement = query({
+  args: {
+    appointmentTypeId: v.id("appointmentTypes"),
     candidates: v.array(appointmentSeriesRootSlotCandidateValidator),
     excludedAppointmentIds: v.optional(v.array(v.id("appointments"))),
     isNewPatient: v.optional(v.boolean()),
@@ -2735,7 +3067,6 @@ export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
     patientDateOfBirth: v.optional(v.string()),
     patientId: v.optional(v.id("patients")),
     practiceId: v.id("practices"),
-    rootAppointmentTypeId: v.id("appointmentTypes"),
     ruleSetId: v.id("ruleSets"),
     scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
     userId: v.optional(v.id("users")),
@@ -2749,14 +3080,13 @@ export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
       ...(args.userId === undefined ? {} : { userId: args.userId }),
     });
 
-    const rootAppointmentType = await ctx.db.get(
+    const appointmentType = await ctx.db.get(
       "appointmentTypes",
-      args.rootAppointmentTypeId,
+      args.appointmentTypeId,
     );
     if (
-      rootAppointmentType?.practiceId !== args.practiceId ||
-      rootAppointmentType.ruleSetId !== args.ruleSetId ||
-      !hasAppointmentPlan(rootAppointmentType)
+      appointmentType?.practiceId !== args.practiceId ||
+      appointmentType.ruleSetId !== args.ruleSetId
     ) {
       return [];
     }
@@ -2774,7 +3104,9 @@ export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
             })
         : asOptionalIsoDateString(args.patientDateOfBirth);
 
-    const blockedRootSlots: AppointmentSeriesBlockedRootSlot[] = [];
+    const requestedAt = asInstantString(Temporal.Now.instant().toString());
+    const planningState = createSeriesPlanningState();
+    const decisions: CandidateSlotDecision[] = [];
     const practitionerIdsByLineageKey = new Map<
       PractitionerLineageKey,
       Id<"practitioners">
@@ -2807,62 +3139,85 @@ export const getBlockedAppointmentSeriesRootSlotsForCandidates = query({
         practitionerIdsByLineageKey.set(practitionerLineageKey, practitionerId);
       }
 
-      const preview = await previewAppointmentSeriesHelper(ctx, {
-        ...(args.excludedAppointmentIds === undefined
-          ? {}
-          : { excludedAppointmentIds: args.excludedAppointmentIds }),
-        ...(args.isNewPatient === undefined
-          ? {}
-          : { isNewPatient: args.isNewPatient }),
-        locationId: args.locationId,
-        ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
-        ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
-        practiceId: args.practiceId,
-        ...(candidate.calendarResourceColumn === undefined
-          ? {}
-          : { calendarResourceColumn: candidate.calendarResourceColumn }),
-        ...(practitionerId === undefined ? {} : { practitionerId }),
-        rootAppointmentTypeId: args.rootAppointmentTypeId,
-        ruleSetId: args.ruleSetId,
-        ...(args.scope === undefined ? {} : { scope: args.scope }),
-        start: asZonedDateTimeString(candidate.startTime),
-        ...(args.userId === undefined ? {} : { userId: args.userId }),
-      });
-
-      if (preview.status === "blocked") {
-        blockedRootSlots.push({
-          ...(preview.blockingBlockedSlotId === undefined
-            ? {}
-            : { blockingBlockedSlotId: preview.blockingBlockedSlotId }),
-          ...(preview.blockingRuleIds === undefined
-            ? {}
-            : { blockingRuleIds: preview.blockingRuleIds }),
-          ...(candidate.calendarResourceColumn === undefined
-            ? {}
-            : { calendarResourceColumn: candidate.calendarResourceColumn }),
-          duration: calculateBlockedSeriesRootProjectionDuration({
-            preview,
-            rootDurationMinutes: candidate.duration,
-            rootStart: candidate.startTime,
+      if (hasAppointmentPlan(appointmentType)) {
+        const preview = await previewAppointmentSeriesHelper(
+          ctx,
+          {
+            ...(args.excludedAppointmentIds === undefined
+              ? {}
+              : { excludedAppointmentIds: args.excludedAppointmentIds }),
+            ...(args.isNewPatient === undefined
+              ? {}
+              : { isNewPatient: args.isNewPatient }),
+            locationId: args.locationId,
+            ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+            ...(args.patientId === undefined
+              ? {}
+              : { patientId: args.patientId }),
+            practiceId: args.practiceId,
+            ...(candidate.calendarResourceColumn === undefined
+              ? {}
+              : { calendarResourceColumn: candidate.calendarResourceColumn }),
+            ...(practitionerId === undefined ? {} : { practitionerId }),
+            rootAppointmentTypeId: args.appointmentTypeId,
+            ruleSetId: args.ruleSetId,
+            ...(args.scope === undefined ? {} : { scope: args.scope }),
+            start: asZonedDateTimeString(candidate.startTime),
+            ...(args.userId === undefined ? {} : { userId: args.userId }),
+          },
+          planningState,
+        );
+        if (preview.status === "ready") {
+          decisions.push(
+            availableCandidateSlotDecision({
+              candidate,
+              locationLineageKey,
+              seriesBlueprint: preview.steps,
+            }),
+          );
+        } else {
+          decisions.push(
+            unavailableCandidateSlotDecision({
+              ...(preview.blockingBlockedSlotId === undefined
+                ? {}
+                : { blockingBlockedSlotId: preview.blockingBlockedSlotId }),
+              ...(preview.blockingRuleIds === undefined
+                ? {}
+                : { blockingRuleIds: preview.blockingRuleIds }),
+              candidate,
+              canOverride: preview.failureKind === "ruleBlock",
+              locationLineageKey,
+              provenance: preview.failureKind,
+              reason: preview.failureMessage,
+            }),
+          );
+        }
+      } else {
+        decisions.push(
+          await evaluateSingleAppointmentCandidateSlot(ctx, {
+            ...(args.excludedAppointmentIds === undefined
+              ? {}
+              : { excludedAppointmentIds: args.excludedAppointmentIds }),
+            appointmentType,
+            candidate,
+            ...(args.isNewPatient === undefined
+              ? {}
+              : { isNewPatient: args.isNewPatient }),
+            locationId: args.locationId,
+            locationLineageKey,
+            ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+            practiceId: args.practiceId,
+            requestedAt,
+            ruleSetId: args.ruleSetId,
+            ...(args.scope === undefined ? {} : { scope: args.scope }),
           }),
-          failureKind: preview.failureKind,
-          locationLineageKey,
-          ...(practitionerLineageKey === undefined
-            ? {}
-            : { practitionerLineageKey }),
-          ...(candidate.practitionerName === undefined
-            ? {}
-            : { practitionerName: candidate.practitionerName }),
-          reason: preview.failureMessage,
-          startTime: candidate.startTime,
-          status: "BLOCKED" as const,
-        });
+        );
       }
     }
 
-    return blockedRootSlots;
+    return decisions;
   },
-  returns: v.array(appointmentSeriesBlockedRootSlotValidator),
+  returns: v.array(candidateSlotDecisionValidator),
 });
 
 export const createAppointmentSeries = mutation({

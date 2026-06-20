@@ -3,6 +3,7 @@ import type { CalendarColumnId } from "./types";
 import { sameCalendarColumnScope } from "../../../lib/calendar-occupancy";
 
 export interface CalendarSlotBlock {
+  blocksPlacementStartOnly?: boolean | undefined;
   column: CalendarColumnId;
   id?: string | undefined;
   reason?: string | undefined;
@@ -73,7 +74,9 @@ export function findFirstBlockedSlotInRange(args: {
 
     return (
       sameCalendarColumnScope(blockedSlot.column, args.column) &&
-      blockedSlot.slot >= args.startSlot &&
+      (blockedSlot.blocksPlacementStartOnly === true
+        ? blockedSlot.slot === args.startSlot
+        : blockedSlot.slot >= args.startSlot) &&
       blockedSlot.slot < endSlot
     );
   });

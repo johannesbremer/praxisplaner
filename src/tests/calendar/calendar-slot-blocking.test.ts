@@ -60,6 +60,28 @@ describe("calendar slot blocking", () => {
     ).toBeUndefined();
   });
 
+  test("treats Candidate Slot start blocks as exact starts, not occupied ranges", () => {
+    expect(
+      findFirstBlockedSlotInRange({
+        blockedSlots: [{ blocksPlacementStartOnly: true, column, slot: 1 }],
+        column,
+        durationMinutes: 10,
+        slotDurationMinutes: 5,
+        startSlot: 0,
+      }),
+    ).toBeUndefined();
+
+    expect(
+      findFirstBlockedSlotInRange({
+        blockedSlots: [{ blocksPlacementStartOnly: true, column, slot: 1 }],
+        column,
+        durationMinutes: 10,
+        slotDurationMinutes: 5,
+        startSlot: 1,
+      }),
+    ).toEqual({ blocksPlacementStartOnly: true, column, slot: 1 });
+  });
+
   test("projects start slots that cannot fit the selected duration before unavailable time", () => {
     const blockedSlots = buildInsufficientCapacityBlockedSlots({
       columns: [column],
