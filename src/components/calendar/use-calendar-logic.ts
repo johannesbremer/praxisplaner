@@ -294,6 +294,16 @@ export function useCalendarLogic({
     (selectedAppointmentTypeId === undefined
       ? undefined
       : appointmentTypeLineageKeyById.get(selectedAppointmentTypeId));
+  const placementLocationLineageKey =
+    simulatedContext?.locationLineageKey ??
+    (selectedLocationId === undefined
+      ? undefined
+      : locationLineageKeyById.get(selectedLocationId));
+  const placementLocationId =
+    simulatedContext?.locationLineageKey === undefined
+      ? selectedLocationId
+      : (getLocationIdForLineageKey(simulatedContext.locationLineageKey) ??
+        selectedLocationId);
   const getUnsupportedPractitionerIdsForAppointmentType = useCallback(
     (
       appointmentTypeLineageKey: AppointmentTypeLineageKey | undefined,
@@ -463,7 +473,7 @@ export function useCalendarLogic({
   const appointmentSeriesRootCandidates = useMemo(() => {
     if (
       placementAppointmentTypeLineageKey === undefined ||
-      selectedLocationId === undefined
+      placementLocationLineageKey === undefined
     ) {
       return [];
     }
@@ -471,8 +481,7 @@ export function useCalendarLogic({
     const rootAppointmentType = appointmentTypeInfoByLineageKey.get(
       placementAppointmentTypeLineageKey,
     );
-    const locationLineageKey = locationLineageKeyById.get(selectedLocationId);
-    if (rootAppointmentType === undefined || locationLineageKey === undefined) {
+    if (rootAppointmentType === undefined) {
       return [];
     }
 
@@ -498,7 +507,7 @@ export function useCalendarLogic({
       return Array.from({ length: totalSlots }, (_, slot) => ({
         calendarResourceColumn: rootDefaultOccupancy.calendarResourceColumn,
         duration: rootAppointmentType.duration,
-        locationLineageKey,
+        locationLineageKey: placementLocationLineageKey,
         startTime: startForSlot(slot),
       }));
     }
@@ -518,7 +527,7 @@ export function useCalendarLogic({
 
       return Array.from({ length: totalSlots }, (_, slot) => ({
         duration: rootAppointmentType.duration,
-        locationLineageKey,
+        locationLineageKey: placementLocationLineageKey,
         practitionerLineageKey,
         practitionerName,
         startTime: startForSlot(slot),
@@ -527,10 +536,9 @@ export function useCalendarLogic({
   }, [
     appointmentTypeInfoByLineageKey,
     columns,
-    locationLineageKeyById,
     placementAppointmentTypeLineageKey,
+    placementLocationLineageKey,
     selectedDate,
-    selectedLocationId,
     slotToTime,
     totalSlots,
     workingPractitioners,
@@ -543,7 +551,7 @@ export function useCalendarLogic({
   const shouldQueryAppointmentSeriesRootBlockedSlots =
     appointmentSeriesRootCandidates.length > 0 &&
     appointmentSeriesRootAppointmentTypeId !== undefined &&
-    selectedLocationId !== undefined &&
+    placementLocationId !== undefined &&
     ruleSetId !== undefined;
   const appointmentSeriesRootBlockedSlots = useQuery(
     api.appointments.getCandidateSlotDecisionsForStaffPlacement,
@@ -563,7 +571,7 @@ export function useCalendarLogic({
           ...(patient?.recordType === "pvs"
             ? { patientId: patient.convexPatientId }
             : {}),
-          locationId: selectedLocationId,
+          locationId: placementLocationId,
           practiceId,
           ruleSetId,
           scope: simulatedContext === undefined ? "real" : "simulation",
