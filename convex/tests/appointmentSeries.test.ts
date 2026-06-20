@@ -1065,6 +1065,111 @@ describe("appointment series", () => {
     ).toBe("2026-03-09");
   });
 
+  test("previewAppointmentSeries continues date-based resource step search after occupied candidates", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_series_resource_occupied_candidate_user",
+      "series-resource-occupied-candidate@example.com",
+    );
+
+    const { ekgAppointmentTypeId, rootAppointmentTypeId } = await t.run(
+      async (ctx) => {
+        const now = BigInt(Date.now());
+        const ekgTypeId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          createdAt: now,
+          duration: 20,
+          lastModified: now,
+          name: "EKG",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", ekgTypeId, {
+          lineageKey: ekgTypeId,
+        });
+
+        const rootId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: ekgTypeId,
+                occupancy: {
+                  calendarResourceColumn: "ekg",
+                  kind: "resourceColumn",
+                },
+                required: true,
+                stepId: "ekg-step",
+                timing: {
+                  kind: "afterPreviousEnd",
+                  offsetUnit: "days",
+                  offsetValue: 1,
+                },
+              },
+            ],
+          },
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          name: "Ersttermin",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", rootId, {
+          lineageKey: rootId,
+        });
+
+        return {
+          ekgAppointmentTypeId: ekgTypeId,
+          rootAppointmentTypeId: rootId,
+        };
+      },
+    );
+
+    const fridayRootStart = Temporal.PlainDate.from("2026-03-06")
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const occupiedResourceStart = Temporal.PlainDate.from("2026-03-09")
+      .toZonedDateTime({
+        plainTime: { hour: 8, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    await t.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: ekgAppointmentTypeId,
+      calendarResourceColumn: "ekg",
+      locationId,
+      practiceId,
+      start: occupiedResourceStart,
+      title: "Existing EKG",
+      userId,
+    });
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      ruleSetId,
+      start: fridayRootStart,
+    });
+
+    expect(preview.status).toBe("ready");
+    expect(preview.steps[1]?.calendarResourceColumn).toBe("ekg");
+    expect(preview.steps[1]?.start).toBe(
+      Temporal.ZonedDateTime.from(occupiedResourceStart)
+        .add({ minutes: 20 })
+        .toString(),
+    );
+  });
+
   test("previewAppointmentSeries skips public holidays for day-based appointment-plan steps and uses the next working day", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =

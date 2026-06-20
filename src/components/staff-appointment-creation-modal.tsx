@@ -204,6 +204,7 @@ export function StaffAppointmentCreationModal({
   const nextAvailableSlot = useQuery(
     api.scheduling.getNextAvailableSlot,
     open &&
+      !hasAppointmentPlan &&
       appointmentType?.lineageKey &&
       location?.lineageKey &&
       resourceDefaultOccupancy === null
@@ -229,7 +230,10 @@ export function StaffAppointmentCreationModal({
   );
   const nextAvailableResourceSlot = useQuery(
     api.appointments.getNextAvailableResourceSeriesRootSlot,
-    open && resourceDefaultOccupancy !== null && location !== undefined
+    open &&
+      !hasAppointmentPlan &&
+      resourceDefaultOccupancy !== null &&
+      location !== undefined
       ? {
           date: selectedDate,
           ...(effectivePatient?.dateOfBirth && {
@@ -248,17 +252,44 @@ export function StaffAppointmentCreationModal({
         }
       : "skip",
   );
-  const effectiveNextAvailableSlot =
-    resourceDefaultOccupancy === null
+  const nextAvailableSeriesRootSlot = useQuery(
+    api.appointments.getNextAvailableAppointmentSeriesRootSlot,
+    open && hasAppointmentPlan && location !== undefined
+      ? {
+          date: selectedDate,
+          ...(effectivePatient?.dateOfBirth && {
+            patientDateOfBirth: effectivePatient.dateOfBirth,
+          }),
+          ...(effectivePatient?.convexPatientId && {
+            patientId: effectivePatient.convexPatientId,
+          }),
+          isNewPatient,
+          locationId,
+          practiceId,
+          rootAppointmentTypeId: appointmentTypeId,
+          ruleSetId,
+          scope: bookingScope,
+          ...(effectivePatient?.userId && { userId: effectivePatient.userId }),
+        }
+      : "skip",
+  );
+  const effectiveNextAvailableSlot = hasAppointmentPlan
+    ? nextAvailableSeriesRootSlot
+    : resourceDefaultOccupancy === null
       ? nextAvailableSlot
       : nextAvailableResourceSlot;
+  const nextAvailablePractitionerLineageKey =
+    effectiveNextAvailableSlot !== undefined &&
+    effectiveNextAvailableSlot !== null &&
+    "practitionerLineageKey" in effectiveNextAvailableSlot
+      ? effectiveNextAvailableSlot.practitionerLineageKey
+      : undefined;
   const nextAvailablePractitionerId =
-    nextAvailableSlot === undefined || nextAvailableSlot === null
+    nextAvailablePractitionerLineageKey === undefined
       ? undefined
       : practitioners?.find(
           (practitioner) =>
-            practitioner.lineageKey ===
-            nextAvailableSlot.practitionerLineageKey,
+            practitioner.lineageKey === nextAvailablePractitionerLineageKey,
         )?._id;
 
   // Determine if we have a patient (from GDT or user-linked booking)

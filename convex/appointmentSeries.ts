@@ -1009,6 +1009,7 @@ async function findFirstAvailableStepStart(
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
     simulationRuleSetId?: Id<"ruleSets">;
+    step: AppointmentPlanStep;
     targetAppointmentType: Doc<"appointmentTypes">;
     timing: AppointmentPlanTiming;
   },
@@ -1047,9 +1048,11 @@ async function findFirstAvailableStepStartOnOrAfter(
     practiceId: Id<"practices">;
     requestedAt: InstantString;
     respectEarliestStartTime: boolean;
+    rootStep: PlannedSeriesStep;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
     simulationRuleSetId?: Id<"ruleSets">;
+    step: AppointmentPlanStep;
     targetAppointmentType: Doc<"appointmentTypes">;
   },
 ): Promise<null | ZonedDateTimeString> {
@@ -1092,7 +1095,7 @@ async function findFirstAvailableStepStartOnOrAfter(
           simulationRuleSetId: args.simulationRuleSetId,
         }),
       });
-      const matchingSlot = slots.find((slot) => {
+      const matchingSlots = slots.filter((slot) => {
         if (
           args.respectEarliestStartTime &&
           Temporal.ZonedDateTime.compare(
@@ -1111,8 +1114,28 @@ async function findFirstAvailableStepStartOnOrAfter(
           start: asZonedDateTimeString(slot.startTime),
         });
       });
-      if (matchingSlot) {
-        return asZonedDateTimeString(matchingSlot.startTime);
+      for (const slot of matchingSlots) {
+        const start = asZonedDateTimeString(slot.startTime);
+        const plannedStep = await buildPlannedStepIfAvailable(ctx, {
+          ...(args.excludedAppointmentIds && {
+            excludedAppointmentIds: args.excludedAppointmentIds,
+          }),
+          locationId: args.locationId,
+          occupancy: args.occupancy,
+          plannedSteps: args.plannedSteps,
+          practiceId: args.practiceId,
+          rootStep: args.rootStep,
+          ...(args.scope && { scope: args.scope }),
+          ...(args.simulationRuleSetId && {
+            simulationRuleSetId: args.simulationRuleSetId,
+          }),
+          start,
+          step: args.step,
+          targetAppointmentType: args.targetAppointmentType,
+        });
+        if (plannedStep !== null && !("status" in plannedStep)) {
+          return start;
+        }
       }
     }
 

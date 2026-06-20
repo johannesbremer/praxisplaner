@@ -10,6 +10,7 @@ import type {
 } from "./_generated/server";
 import type { TypedDateTimeRange, ZonedDateTimeString } from "./typedDtos";
 
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import {
   DEFAULT_APPOINTMENT_COLOR,
@@ -2143,6 +2144,43 @@ type AppointmentSeriesResourceRootSlot = Infer<
   typeof appointmentSeriesResourceRootSlotValidator
 >;
 
+const appointmentSeriesRootAvailableSlotValidator = v.object({
+  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
+  duration: v.number(),
+  locationLineageKey: v.id("locations"),
+  practitionerLineageKey: v.optional(v.id("practitioners")),
+  practitionerName: v.optional(v.string()),
+  startTime: v.string(),
+  status: v.literal("AVAILABLE"),
+});
+
+type AppointmentSeriesRootAvailableSlot = Infer<
+  typeof appointmentSeriesRootAvailableSlotValidator
+>;
+
+function hasSchedulerCoverageForDuration(args: {
+  durationMinutes: number;
+  slots: { duration: number; startTime: string; status: string }[];
+  start: string;
+}): boolean {
+  const slotsByStartTime = new Map(
+    args.slots.map((slot) => [slot.startTime, slot]),
+  );
+  const requestedStart = Temporal.ZonedDateTime.from(args.start);
+  const requestedEnd = requestedStart.add({ minutes: args.durationMinutes });
+  let cursor = requestedStart;
+
+  while (Temporal.ZonedDateTime.compare(cursor, requestedEnd) < 0) {
+    const slot = slotsByStartTime.get(cursor.toString());
+    if (slot?.status !== "AVAILABLE" || slot.duration <= 0) {
+      return false;
+    }
+    cursor = cursor.add({ minutes: slot.duration });
+  }
+
+  return true;
+}
+
 export const getNextAvailableResourceSeriesRootSlot = query({
   args: {
     date: v.string(),
@@ -2344,6 +2382,290 @@ export const getNextAvailableResourceSeriesRootSlot = query({
     return null;
   },
   returns: v.union(v.null(), appointmentSeriesResourceRootSlotValidator),
+});
+
+export const getNextAvailableAppointmentSeriesRootSlot = query({
+  args: {
+    date: v.string(),
+    isNewPatient: v.optional(v.boolean()),
+    locationId: v.id("locations"),
+    patientDateOfBirth: v.optional(v.string()),
+    patientId: v.optional(v.id("patients")),
+    practiceId: v.id("practices"),
+    rootAppointmentTypeId: v.id("appointmentTypes"),
+    ruleSetId: v.id("ruleSets"),
+    scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
+    userId: v.optional(v.id("users")),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<AppointmentSeriesRootAvailableSlot | null> => {
+    await ensureAuthenticatedIdentity(ctx);
+    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await validateAppointmentSeriesOwnerRefs(ctx, {
+      practiceId: args.practiceId,
+      ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+      ...(args.userId === undefined ? {} : { userId: args.userId }),
+    });
+
+    const rootAppointmentType = await ctx.db.get(
+      "appointmentTypes",
+      args.rootAppointmentTypeId,
+    );
+    if (
+      rootAppointmentType?.practiceId !== args.practiceId ||
+      rootAppointmentType.ruleSetId !== args.ruleSetId ||
+      !hasAppointmentPlan(rootAppointmentType)
+    ) {
+      return null;
+    }
+    const rootAppointmentTypeLineageKey = requireLineageKey({
+      entityId: rootAppointmentType._id,
+      entityType: "appointment type",
+      lineageKey: rootAppointmentType.lineageKey,
+      ruleSetId: rootAppointmentType.ruleSetId,
+    });
+
+    const locationLineageKey = await resolveLocationLineageKey(
+      ctx.db,
+      asLocationId(args.locationId),
+    );
+    const patientDateOfBirth =
+      args.patientDateOfBirth === undefined
+        ? args.patientId === undefined
+          ? undefined
+          : await resolvePreferredAppointmentPatientDateOfBirth(ctx.db, {
+              patientId: args.patientId,
+            })
+        : asOptionalIsoDateString(args.patientDateOfBirth);
+    const startDate = Temporal.PlainDate.from(asIsoDateString(args.date));
+    const now = Temporal.Now.zonedDateTimeISO(APPOINTMENT_TIMEZONE);
+    const requestedAt = asInstantString(Temporal.Now.instant().toString());
+    const planningState = createSeriesPlanningState();
+    const maxSearchDays = 90;
+    const rootDefaultOccupancy = normalizeDefaultOccupancy(
+      rootAppointmentType.defaultOccupancy,
+    );
+
+    if (rootDefaultOccupancy.kind === "resourceColumn") {
+      for (let offset = 0; offset <= maxSearchDays; offset += 1) {
+        const day = startDate.add({ days: offset });
+        const slotsResult: {
+          slots: {
+            duration: number;
+            locationLineageKey: Id<"locations">;
+            practitionerLineageKey: Id<"practitioners">;
+            startTime: string;
+            status: string;
+          }[];
+        } = await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
+          date: asIsoDateString(day.toString()),
+          practiceId: args.practiceId,
+          ruleSetId: args.ruleSetId,
+          ...(args.scope === undefined ? {} : { scope: args.scope }),
+          simulatedContext: {
+            appointmentTypeLineageKey: rootAppointmentTypeLineageKey,
+            clientType: "MFA",
+            locationLineageKey,
+            patient: {
+              ...(patientDateOfBirth === undefined
+                ? {}
+                : { dateOfBirth: patientDateOfBirth }),
+              isNew: args.isNewPatient ?? false,
+            },
+            requestedAt,
+          },
+        });
+        const candidateStarts = [
+          ...new Set(
+            slotsResult.slots
+              .filter((slot) => slot.locationLineageKey === locationLineageKey)
+              .filter((slot) => {
+                const start = Temporal.ZonedDateTime.from(slot.startTime);
+                return Temporal.ZonedDateTime.compare(start, now) > 0;
+              })
+              .filter((slot) =>
+                hasSchedulerCoverageForDuration({
+                  durationMinutes: rootAppointmentType.duration,
+                  slots: slotsResult.slots.filter(
+                    (candidate) =>
+                      candidate.practitionerLineageKey ===
+                      slot.practitionerLineageKey,
+                  ),
+                  start: slot.startTime,
+                }),
+              )
+              .map((slot) => slot.startTime),
+          ),
+        ].toSorted();
+
+        for (const startTime of candidateStarts) {
+          const preview = await previewAppointmentSeriesHelper(
+            ctx,
+            {
+              calendarResourceColumn:
+                rootDefaultOccupancy.calendarResourceColumn,
+              ...(args.isNewPatient === undefined
+                ? {}
+                : { isNewPatient: args.isNewPatient }),
+              locationId: args.locationId,
+              ...(patientDateOfBirth === undefined
+                ? {}
+                : { patientDateOfBirth }),
+              ...(args.patientId === undefined
+                ? {}
+                : { patientId: args.patientId }),
+              practiceId: args.practiceId,
+              rootAppointmentTypeId: args.rootAppointmentTypeId,
+              ruleSetId: args.ruleSetId,
+              ...(args.scope === undefined ? {} : { scope: args.scope }),
+              start: asZonedDateTimeString(startTime),
+              ...(args.userId === undefined ? {} : { userId: args.userId }),
+            },
+            planningState,
+          );
+          if (preview.status === "ready") {
+            return {
+              calendarResourceColumn:
+                rootDefaultOccupancy.calendarResourceColumn,
+              duration: rootAppointmentType.duration,
+              locationLineageKey,
+              startTime,
+              status: "AVAILABLE",
+            };
+          }
+        }
+      }
+      return null;
+    }
+
+    const practitionerIdsByLineageKey = new Map<
+      PractitionerLineageKey,
+      Id<"practitioners">
+    >();
+    const practitionerNamesByLineageKey = new Map<
+      PractitionerLineageKey,
+      string
+    >();
+
+    for (let offset = 0; offset <= maxSearchDays; offset += 1) {
+      const day = startDate.add({ days: offset });
+      const slotsResult: {
+        slots: {
+          duration: number;
+          locationLineageKey: Id<"locations">;
+          practitionerLineageKey: Id<"practitioners">;
+          startTime: string;
+          status: string;
+        }[];
+      } = await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
+        date: asIsoDateString(day.toString()),
+        practiceId: args.practiceId,
+        ruleSetId: args.ruleSetId,
+        ...(args.scope === undefined ? {} : { scope: args.scope }),
+        simulatedContext: {
+          appointmentTypeLineageKey: rootAppointmentTypeLineageKey,
+          clientType: "MFA",
+          locationLineageKey,
+          patient: {
+            ...(patientDateOfBirth === undefined
+              ? {}
+              : { dateOfBirth: patientDateOfBirth }),
+            isNew: args.isNewPatient ?? false,
+          },
+          requestedAt,
+        },
+      });
+      const candidateSlots = slotsResult.slots
+        .filter((slot) => slot.status === "AVAILABLE")
+        .filter((slot) => slot.locationLineageKey === locationLineageKey)
+        .filter((slot) => {
+          const start = Temporal.ZonedDateTime.from(slot.startTime);
+          return Temporal.ZonedDateTime.compare(start, now) > 0;
+        })
+        .filter((slot) =>
+          hasSchedulerCoverageForDuration({
+            durationMinutes: rootAppointmentType.duration,
+            slots: slotsResult.slots.filter(
+              (candidate) =>
+                candidate.practitionerLineageKey ===
+                slot.practitionerLineageKey,
+            ),
+            start: slot.startTime,
+          }),
+        )
+        .toSorted((left, right) =>
+          left.startTime.localeCompare(right.startTime),
+        );
+
+      for (const slot of candidateSlots) {
+        const practitionerLineageKey = asPractitionerLineageKey(
+          slot.practitionerLineageKey,
+        );
+        const cachedPractitionerId = practitionerIdsByLineageKey.get(
+          practitionerLineageKey,
+        );
+        const practitionerId =
+          cachedPractitionerId ??
+          (await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+            lineageKey: practitionerLineageKey,
+            ruleSetId: args.ruleSetId,
+          }));
+        practitionerIdsByLineageKey.set(practitionerLineageKey, practitionerId);
+        if (!practitionerNamesByLineageKey.has(practitionerLineageKey)) {
+          const practitioner = await ctx.db.get(
+            "practitioners",
+            practitionerId,
+          );
+          if (practitioner !== null) {
+            practitionerNamesByLineageKey.set(
+              practitionerLineageKey,
+              practitioner.name,
+            );
+          }
+        }
+
+        const preview = await previewAppointmentSeriesHelper(
+          ctx,
+          {
+            ...(args.isNewPatient === undefined
+              ? {}
+              : { isNewPatient: args.isNewPatient }),
+            locationId: args.locationId,
+            ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+            ...(args.patientId === undefined
+              ? {}
+              : { patientId: args.patientId }),
+            practiceId: args.practiceId,
+            practitionerId,
+            rootAppointmentTypeId: args.rootAppointmentTypeId,
+            ruleSetId: args.ruleSetId,
+            ...(args.scope === undefined ? {} : { scope: args.scope }),
+            start: asZonedDateTimeString(slot.startTime),
+            ...(args.userId === undefined ? {} : { userId: args.userId }),
+          },
+          planningState,
+        );
+        if (preview.status === "ready") {
+          const practitionerName = practitionerNamesByLineageKey.get(
+            practitionerLineageKey,
+          );
+          return {
+            duration: rootAppointmentType.duration,
+            locationLineageKey,
+            practitionerLineageKey,
+            ...(practitionerName === undefined ? {} : { practitionerName }),
+            startTime: slot.startTime,
+            status: "AVAILABLE",
+          };
+        }
+      }
+    }
+
+    return null;
+  },
+  returns: v.union(v.null(), appointmentSeriesRootAvailableSlotValidator),
 });
 
 const appointmentSeriesBlockedRootSlotValidator = v.object({
