@@ -6,7 +6,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
-import { hasAppointmentPlan } from "./appointmentPlans";
+import {
+  hasAppointmentPlan,
+  normalizeDefaultOccupancy,
+} from "./appointmentPlans";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
@@ -1748,7 +1751,11 @@ async function requireOfferedPatientSlot(
 function requirePatientFacingSingleAppointmentType(
   appointmentType: Doc<"appointmentTypes">,
 ): void {
-  if (hasAppointmentPlan(appointmentType)) {
+  if (
+    hasAppointmentPlan(appointmentType) ||
+    normalizeDefaultOccupancy(appointmentType.defaultOccupancy).kind ===
+      "resourceColumn"
+  ) {
     throw new Error(
       "Diese Terminart ist online nicht buchbar. Bitte wenden Sie sich telefonisch an die Praxis.",
     );
