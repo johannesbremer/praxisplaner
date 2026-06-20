@@ -198,6 +198,12 @@ export async function validateAppointmentPlan(
       ruleSetId,
       step.appointmentTypeLineageKey,
     );
+    if (hasAppointmentPlan(targetAppointmentType)) {
+      throw appointmentPlanError(
+        "APPOINTMENT_PLAN:NESTED_TARGET",
+        `Terminart ${step.appointmentTypeLineageKey} ist selbst ein Kettentermin und darf nicht als Kettentermin-Schritt verwendet werden.`,
+      );
+    }
     validateBeforeRootOccupancyOverlap(
       step,
       targetAppointmentType.duration,
