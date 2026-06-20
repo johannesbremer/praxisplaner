@@ -4095,12 +4095,12 @@ describe("appointment series", () => {
     });
 
     const slot = await t.query(
-      api.appointments.getNextAvailableResourceSeriesRootSlot,
+      api.appointments.getNextAvailableCandidateSlotForStaffPlacement,
       {
+        appointmentTypeId,
         date: nextWeekday(1).toString(),
         locationId,
         practiceId,
-        rootAppointmentTypeId: appointmentTypeId,
         ruleSetId,
       },
     );
@@ -4109,7 +4109,7 @@ describe("appointment series", () => {
       calendarResourceColumn: "ekg",
       duration: 20,
       locationLineageKey: locationId,
-      status: "AVAILABLE",
+      status: "available",
     });
   });
 
@@ -4195,12 +4195,12 @@ describe("appointment series", () => {
     });
 
     const slot = await t.query(
-      api.appointments.getNextAvailableAppointmentSeriesRootSlot,
+      api.appointments.getNextAvailableCandidateSlotForStaffPlacement,
       {
+        appointmentTypeId: rootAppointmentTypeId,
         date: nextWeekday(1).toString(),
         locationId,
         practiceId,
-        rootAppointmentTypeId,
         ruleSetId,
       },
     );
