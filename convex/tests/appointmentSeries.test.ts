@@ -541,7 +541,7 @@ describe("appointment series", () => {
       const targetId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
         createdAt: now,
-        duration: 10,
+        duration: 20,
         lastModified: now,
         name: "EKG",
         practiceId,
@@ -1463,6 +1463,150 @@ describe("appointment series", () => {
       throw new Error("Expected preview to be blocked.");
     }
     expect(preview.blockedStepId).toBe("step-1");
+  });
+
+  test("blocked root candidates include immediate follow-up occupancy conflicts", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_series_follow_up_candidate_conflict_user",
+      "series-follow-up-candidate-conflict@example.com",
+    );
+
+    const { blockingAppointmentTypeId, rootAppointmentTypeId } = await t.run(
+      async (ctx) => {
+        const now = BigInt(Date.now());
+        const followUpTypeId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          createdAt: now,
+          duration: 10,
+          lastModified: now,
+          name: "Folgetermin",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", followUpTypeId, {
+          lineageKey: followUpTypeId,
+        });
+        const blockingTypeId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          createdAt: now,
+          duration: 10,
+          lastModified: now,
+          name: "Blocker",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", blockingTypeId, {
+          lineageKey: blockingTypeId,
+        });
+        const rootTypeId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: followUpTypeId,
+                occupancy: { kind: "inheritRootPractitioner" },
+                required: true,
+                stepId: "follow-up",
+                timing: {
+                  kind: "afterPreviousEnd",
+                  offsetUnit: "minutes",
+                  offsetValue: 0,
+                },
+              },
+            ],
+          },
+          createdAt: now,
+          duration: 10,
+          lastModified: now,
+          name: "Root",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", rootTypeId, {
+          lineageKey: rootTypeId,
+        });
+
+        return {
+          blockingAppointmentTypeId: blockingTypeId,
+          rootAppointmentTypeId: rootTypeId,
+        };
+      },
+    );
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const followUpStart = Temporal.ZonedDateTime.from(rootStart)
+      .add({ minutes: 10 })
+      .toString();
+
+    await t.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: blockingAppointmentTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      start: followUpStart,
+      title: "Blocking appointment",
+      userId,
+    });
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      ruleSetId,
+      start: rootStart,
+      userId,
+    });
+
+    expect(preview.status).toBe("blocked");
+    if (preview.status !== "blocked") {
+      throw new Error("Expected preview to be blocked.");
+    }
+    expect(preview.blockedStepId).toBe("follow-up");
+    expect(preview.failureKind).toBe("schedulerUnavailable");
+
+    const blockedRootSlots = await t.query(
+      api.appointments.getBlockedAppointmentSeriesRootSlotsForCandidates,
+      {
+        candidates: [
+          {
+            duration: 10,
+            locationLineageKey: locationId,
+            practitionerLineageKey: practitionerId,
+            practitionerName: "Dr. Chain",
+            startTime: rootStart,
+          },
+        ],
+        locationId,
+        practiceId,
+        rootAppointmentTypeId,
+        ruleSetId,
+        userId,
+      },
+    );
+
+    expect(blockedRootSlots).toEqual([
+      expect.objectContaining({
+        duration: 20,
+        failureKind: "schedulerUnavailable",
+        locationLineageKey: locationId,
+        practitionerLineageKey: practitionerId,
+        reason:
+          "Der ausgewählte Starttermin ist nicht mehr verfügbar oder liegt außerhalb der Verfügbarkeit.",
+        startTime: rootStart,
+        status: "BLOCKED",
+      }),
+    ]);
   });
 
   test("previewAppointmentSeries rejects roots that do not have full-duration availability", async () => {
