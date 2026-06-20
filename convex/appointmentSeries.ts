@@ -1427,6 +1427,84 @@ async function getExactPractitionerSlotAvailability(
       };
 }
 
+async function getExactResourceSlotAvailability(
+  ctx: SeriesPlannerCtx,
+  args: {
+    allowPlannerRuleOverride?: boolean;
+    excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
+    locationId: Id<"locations">;
+    patientDateOfBirth?: IsoDateString;
+    planningState: SeriesPlanningState;
+    practiceId: Id<"practices">;
+    requestedAt: InstantString;
+    ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
+    start: ZonedDateTimeString;
+    targetAppointmentType: Doc<"appointmentTypes">;
+  },
+): Promise<
+  | {
+      available: false;
+      failure: ReturnType<typeof schedulerFailureForSlot>;
+    }
+  | { available: true }
+> {
+  const schedulerSlots = await querySchedulingSlotsForDay(ctx, {
+    ...(args.allowPlannerRuleOverride === undefined
+      ? {}
+      : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
+    appointmentType: args.targetAppointmentType,
+    date: asIsoDateString(
+      Temporal.ZonedDateTime.from(args.start).toPlainDate().toString(),
+    ),
+    ...(args.excludedAppointmentIds && {
+      excludedAppointmentIds: args.excludedAppointmentIds,
+    }),
+    ...(args.isNewPatient !== undefined && {
+      isNewPatient: args.isNewPatient,
+    }),
+    locationId: args.locationId,
+    planningState: args.planningState,
+    ...(args.patientDateOfBirth && {
+      patientDateOfBirth: args.patientDateOfBirth,
+    }),
+    practiceId: args.practiceId,
+    requestedAt: args.requestedAt,
+    ruleSetId: args.ruleSetId,
+    ...(args.scope && { scope: args.scope }),
+    ...(args.simulationRuleSetId && {
+      simulationRuleSetId: args.simulationRuleSetId,
+    }),
+  });
+
+  const slots = schedulerSlots.filter(
+    (slot) =>
+      slot.status === "AVAILABLE" ||
+      (args.allowPlannerRuleOverride === true &&
+        slot.blockedByRuleId !== undefined),
+  );
+
+  return hasAnyConsecutiveAvailablePractitionerSlots(slots, {
+    durationMinutes: args.targetAppointmentType.duration,
+    start: args.start,
+  })
+    ? { available: true }
+    : {
+        available: false,
+        failure: schedulerFailureForSlot(
+          findFirstUnavailableSchedulerSlotInRange(schedulerSlots, {
+            ...(args.allowPlannerRuleOverride === undefined
+              ? {}
+              : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
+            durationMinutes: args.targetAppointmentType.duration,
+            start: args.start,
+          }),
+        ),
+      };
+}
+
 async function getSearchDatesOnOrAfter(
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
   args: {
@@ -1663,6 +1741,23 @@ async function planAppointmentPlanStep(
         start: exactStart,
       },
     );
+    if (!exactSlotAvailability.available) {
+      return {
+        blockedStepEnd: calculateEndTime(
+          exactStart,
+          args.targetAppointmentType.duration,
+        ),
+        blockedStepStart: exactStart,
+        ...exactSlotAvailability.failure,
+        status: "blocked",
+      };
+    }
+  }
+  if (exactStart && occupancy.calendarResourceColumn) {
+    const exactSlotAvailability = await getExactResourceSlotAvailability(ctx, {
+      ...args,
+      start: exactStart,
+    });
     if (!exactSlotAvailability.available) {
       return {
         blockedStepEnd: calculateEndTime(
