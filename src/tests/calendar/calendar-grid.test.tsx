@@ -215,6 +215,38 @@ describe("CalendarGrid", () => {
         expect(screen.getByText(col.title)).toBeInTheDocument();
       }
     });
+
+    test("renders placement-start blocks separately from real blocked ranges", () => {
+      const { container } = render(
+        <CalendarGrid
+          {...defaultProps}
+          blockedSlots={[
+            {
+              column: practitionerColumn1,
+              reason: "Echter Regelblock",
+              slot: 12,
+            },
+            {
+              blocksPlacementStartOnly: true,
+              column: practitionerColumn1,
+              reason: "Start nicht planbar",
+              slot: 13,
+            },
+          ]}
+        />,
+      );
+
+      expect(
+        container.querySelectorAll(
+          '[data-calendar-blocked-slot-overlay="range"]',
+        ),
+      ).toHaveLength(1);
+      expect(
+        container.querySelectorAll(
+          '[data-calendar-blocked-slot-overlay="start"]',
+        ),
+      ).toHaveLength(1);
+    });
   });
 
   describe("Interactions", () => {

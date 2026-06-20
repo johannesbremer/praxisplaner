@@ -2933,6 +2933,142 @@ async function insertBaseSchedule(
 }
 
 describe("E2E: Slot Generation with Rules", () => {
+  test("CONCURRENT_COUNT at location blocks only slots with real overlapping appointments in other columns", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const drLeftId = await createPractitioner(t, practiceId, ruleSetId, "JW");
+    const drRightId = await createPractitioner(t, practiceId, ruleSetId, "MT");
+    const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+
+    const akutTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Akut-2",
+      [drLeftId, drRightId],
+      5,
+    );
+    const speedTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Speed",
+      [drLeftId, drRightId],
+      5,
+    );
+
+    await insertBaseSchedule(
+      t,
+      practiceId,
+      ruleSetId,
+      drLeftId,
+      locationId,
+      1,
+      "09:00",
+      "10:00",
+    );
+    await insertBaseSchedule(
+      t,
+      practiceId,
+      ruleSetId,
+      drRightId,
+      locationId,
+      1,
+      "09:00",
+      "10:00",
+    );
+
+    await createAppointment(
+      t,
+      practiceId,
+      drLeftId,
+      locationId,
+      akutTypeId,
+      "2025-10-27T09:05:00+01:00[Europe/Berlin]",
+      5,
+    );
+
+    const ruleId = await createRule(t, practiceId, ruleSetId, {
+      conditionType: "CONCURRENT_COUNT",
+      nodeType: "CONDITION",
+      operator: "GREATER_THAN_OR_EQUAL",
+      scope: "location",
+      valueIds: [akutTypeId, speedTypeId],
+      valueNumber: 1,
+    });
+
+    const slotsResult = await t.query(
+      internal.scheduling.getSlotsForDayInternal,
+      {
+        date: "2025-10-27",
+        practiceId,
+        ruleSetId,
+        simulatedContext: {
+          appointmentTypeLineageKey: speedTypeId,
+          clientType: "MFA",
+          locationLineageKey: locationId,
+          patient: { isNew: false },
+        },
+      },
+    );
+
+    const rightColumnSlots = slotsResult.slots.filter(
+      (slot) => slot.practitionerLineageKey === drRightId,
+    );
+    const slotAt = (time: string) =>
+      rightColumnSlots.find((slot) => slot.startTime.includes(`T${time}:00`));
+
+    expect(slotAt("09:00")).toMatchObject({ status: "AVAILABLE" });
+    expect(slotAt("09:05")).toMatchObject({
+      blockedByRuleId: ruleId,
+      status: "BLOCKED",
+    });
+    expect(slotAt("09:10")).toMatchObject({ status: "AVAILABLE" });
+
+    const candidateDecisions = await t.query(
+      api.appointments.getCandidateSlotDecisionsForStaffPlacement,
+      {
+        appointmentTypeId: speedTypeId,
+        candidates: [
+          {
+            duration: 5,
+            locationLineageKey: locationId,
+            practitionerLineageKey: drRightId,
+            practitionerName: "MT",
+            startTime: "2025-10-27T09:05:00+01:00[Europe/Berlin]",
+          },
+          {
+            duration: 5,
+            locationLineageKey: locationId,
+            practitionerLineageKey: drRightId,
+            practitionerName: "MT",
+            startTime: "2025-10-27T09:10:00+01:00[Europe/Berlin]",
+          },
+        ],
+        locationId,
+        practiceId,
+        ruleSetId,
+      },
+    );
+
+    expect(candidateDecisions).toEqual([
+      expect.objectContaining({
+        blockingRuleIds: [ruleId],
+        practitionerLineageKey: drRightId,
+        provenance: "ruleBlock",
+        startTime: "2025-10-27T09:05:00+01:00[Europe/Berlin]",
+        status: "unavailable",
+      }),
+      expect.objectContaining({
+        practitionerLineageKey: drRightId,
+        startTime: "2025-10-27T09:10:00+01:00[Europe/Berlin]",
+        status: "available",
+      }),
+    ]);
+  });
+
   test("DAY_OF_WEEK rule blocks all slots on Monday", async () => {
     const t = createTestContext();
 
