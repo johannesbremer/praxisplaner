@@ -2933,6 +2933,98 @@ async function insertBaseSchedule(
 }
 
 describe("E2E: Slot Generation with Rules", () => {
+  test("staff candidate decisions block normal appointment starts that do not have enough free duration", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const practitionerId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "JW",
+    );
+    const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+
+    const shortTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Kurz",
+      [practitionerId],
+      5,
+    );
+    const longTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Lang",
+      [practitionerId],
+      10,
+    );
+
+    await insertBaseSchedule(
+      t,
+      practiceId,
+      ruleSetId,
+      practitionerId,
+      locationId,
+      1,
+      "09:00",
+      "10:00",
+    );
+
+    await createAppointment(
+      t,
+      practiceId,
+      practitionerId,
+      locationId,
+      shortTypeId,
+      "2025-10-27T09:10:00+01:00[Europe/Berlin]",
+      5,
+    );
+
+    const candidateDecisions = await t.query(
+      api.appointments.getCandidateSlotDecisionsForStaffPlacement,
+      {
+        appointmentTypeId: longTypeId,
+        candidates: [
+          {
+            duration: 10,
+            locationLineageKey: locationId,
+            practitionerLineageKey: practitionerId,
+            practitionerName: "JW",
+            startTime: "2025-10-27T09:00:00+01:00[Europe/Berlin]",
+          },
+          {
+            duration: 10,
+            locationLineageKey: locationId,
+            practitionerLineageKey: practitionerId,
+            practitionerName: "JW",
+            startTime: "2025-10-27T09:05:00+01:00[Europe/Berlin]",
+          },
+        ],
+        locationId,
+        practiceId,
+        ruleSetId,
+      },
+    );
+
+    expect(candidateDecisions).toEqual([
+      expect.objectContaining({
+        practitionerLineageKey: practitionerId,
+        startTime: "2025-10-27T09:00:00+01:00[Europe/Berlin]",
+        status: "available",
+      }),
+      expect.objectContaining({
+        practitionerLineageKey: practitionerId,
+        provenance: "appointmentOccupancy",
+        startTime: "2025-10-27T09:05:00+01:00[Europe/Berlin]",
+        status: "unavailable",
+      }),
+    ]);
+  });
+
   test("CONCURRENT_COUNT at location blocks only slots with real overlapping appointments in other columns", async () => {
     const t = createTestContext();
 
