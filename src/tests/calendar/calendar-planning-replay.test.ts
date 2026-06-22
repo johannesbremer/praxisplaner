@@ -1233,6 +1233,8 @@ describe("calendar planning replay", () => {
   it("restores appointment-plan creates from the stored series snapshot", async () => {
     const originalRootAppointmentId = toTableId<"appointments">("root_old");
     const originalStepAppointmentId = toTableId<"appointments">("step_old");
+    const replacedRootAppointmentId =
+      toTableId<"appointments">("root_replaced");
     const restoredRootAppointmentId = toTableId<"appointments">("root_new");
     const restoredStepAppointmentId = toTableId<"appointments">("step_new");
     const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
@@ -1260,6 +1262,7 @@ describe("calendar planning replay", () => {
           },
           originalAppointmentId: originalRootAppointmentId,
           practiceId,
+          replacesAppointmentId: replacedRootAppointmentId,
           seriesStepIndex: 0n,
           start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
           title: "Check-up",
@@ -1325,10 +1328,13 @@ describe("calendar planning replay", () => {
     );
     const hasAppointmentConflict = vi.fn<
       CalendarPlanningCommandExecutorContext["hasAppointmentConflict"]
-    >(
-      (candidate) =>
-        candidate.start === "2026-04-25T09:10:00+02:00[Europe/Berlin]",
-    );
+    >((candidate) => {
+      if (candidate.start === "2026-04-25T09:10:00+02:00[Europe/Berlin]") {
+        return true;
+      }
+
+      return candidate.replacesAppointmentId !== replacedRootAppointmentId;
+    });
 
     const result = await executeCalendarPlanningCommand(
       {
@@ -1383,6 +1389,7 @@ describe("calendar planning replay", () => {
     expect(hasAppointmentConflict).toHaveBeenCalledTimes(1);
     expect(hasAppointmentConflict).toHaveBeenCalledWith(
       expect.objectContaining({
+        replacesAppointmentId: replacedRootAppointmentId,
         start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
       }),
     );
@@ -1405,8 +1412,152 @@ describe("calendar planning replay", () => {
       expect.objectContaining({
         _id: restoredStepAppointmentId,
         appointmentTypeLineageKey,
+        cancelledAt: 2n,
         start: "2026-04-25T09:10:00+02:00[Europe/Berlin]",
       }),
+    );
+  });
+
+  it("forgets current alias ids for every series appointment when deleting a restored series", async () => {
+    const originalRootAppointmentId = toTableId<"appointments">("root_old");
+    const originalStepAppointmentId = toTableId<"appointments">("step_old");
+    const restoredRootAppointmentId = toTableId<"appointments">("root_new");
+    const restoredStepAppointmentId = toTableId<"appointments">("step_new");
+    const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
+    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("type_lineage_1"),
+    );
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const ruleSetId = toTableId<"ruleSets">("rule_set_1");
+    const snapshot = {
+      appointments: [
+        {
+          appointmentTypeLineageKey,
+          appointmentTypeTitle: "Check-up",
+          createdAt: 1n,
+          end: "2026-04-25T09:10:00+02:00[Europe/Berlin]",
+          isSimulation: false,
+          lastModified: 1n,
+          locationLineageKey,
+          occupancyScope: {
+            calendarResourceColumn: "ekg" as const,
+            kind: "resource" as const,
+          },
+          originalAppointmentId: originalRootAppointmentId,
+          practiceId,
+          seriesStepIndex: 0n,
+          start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+          title: "Check-up",
+        },
+        {
+          appointmentTypeLineageKey,
+          appointmentTypeTitle: "BE",
+          createdAt: 1n,
+          end: "2026-04-25T09:20:00+02:00[Europe/Berlin]",
+          isSimulation: false,
+          lastModified: 1n,
+          locationLineageKey,
+          occupancyScope: {
+            calendarResourceColumn: "labor" as const,
+            kind: "resource" as const,
+          },
+          originalAppointmentId: originalStepAppointmentId,
+          practiceId,
+          seriesStepId: "step-1",
+          seriesStepIndex: 1n,
+          start: "2026-04-25T09:10:00+02:00[Europe/Berlin]",
+          title: "BE",
+        },
+      ],
+      series: {
+        appointmentPlanSnapshot: [],
+        createdAt: 1n,
+        lastModified: 1n,
+        practiceId,
+        rootAppointmentId: originalRootAppointmentId,
+        rootAppointmentTypeId: appointmentTypeId,
+        rootAppointmentTypeLineageKey: appointmentTypeLineageKey,
+        rootDurationMinutes: 10,
+        ruleSetIdAtBooking: ruleSetId,
+        scope: "real" as const,
+        seriesId: "series_1",
+      },
+    };
+    const forgetAppointmentHistoryDoc =
+      vi.fn<
+        CalendarPlanningCommandExecutorContext["forgetAppointmentHistoryDoc"]
+      >();
+    const runDeleteAppointmentInternal = vi.fn(() => Promise.resolve());
+
+    const result = await executeCalendarPlanningCommand(
+      {
+        kind: "appointmentSeries.delete",
+        label: "Kettentermine gelöscht",
+        payload: {
+          currentRootAppointmentId: originalRootAppointmentId,
+          snapshot,
+        },
+      },
+      "redo",
+      {
+        ensureLatestConflictData: vi.fn(() => Promise.resolve()),
+        forgetAppointmentHistoryDoc,
+        forgetBlockedSlotHistoryDoc: vi.fn(),
+        getCurrentAppointmentDoc: vi.fn(),
+        getCurrentBlockedSlotDoc: vi.fn(),
+        hasAppointmentConflict: () => false,
+        hasBlockedSlotConflict: () => false,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map(),
+          appointmentTypeLineageKeyById: new Map(),
+          locationIdByLineageKey: new Map(),
+          locationLineageKeyById: new Map(),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        rememberAppointmentHistoryDoc: vi.fn(),
+        rememberBlockedSlotHistoryDoc: vi.fn(),
+        rememberCreatedAppointmentFromStrings: vi.fn(),
+        rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
+        rememberRecreatedAppointmentId: vi.fn(),
+        rememberRecreatedBlockedSlotId: vi.fn(),
+        resolveAppointmentReferenceDisplayIds: vi.fn(),
+        resolveCurrentAppointmentId: (id) => {
+          if (id === originalRootAppointmentId) {
+            return restoredRootAppointmentId;
+          }
+          if (id === originalStepAppointmentId) {
+            return restoredStepAppointmentId;
+          }
+          return id;
+        },
+        resolveCurrentBlockedSlotId: (id) => id,
+        runCreateAppointmentInternal: vi.fn(),
+        runCreateBlockedSlotInternal: vi.fn(),
+        runDeleteAppointmentInternal,
+        runDeleteBlockedSlotInternal: vi.fn(),
+        runRestoreAppointmentSeriesSnapshotInternal: vi.fn(),
+        runRestoreDeletedAppointmentInternal: vi.fn(),
+        runUpdateAppointmentInternal: vi.fn(),
+        runUpdateBlockedSlotInternal: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({ status: "applied" });
+    expect(runDeleteAppointmentInternal).toHaveBeenCalledWith({
+      id: restoredRootAppointmentId,
+    });
+    expect(forgetAppointmentHistoryDoc).toHaveBeenCalledWith(
+      restoredRootAppointmentId,
+    );
+    expect(forgetAppointmentHistoryDoc).toHaveBeenCalledWith(
+      restoredStepAppointmentId,
+    );
+    expect(forgetAppointmentHistoryDoc).not.toHaveBeenCalledWith(
+      originalStepAppointmentId,
     );
   });
 });

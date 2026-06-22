@@ -2290,11 +2290,16 @@ async function evaluateSingleAppointmentCandidateSlot(
     locationId: Id<"locations">;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth?: IsoDateString;
+    planningState: ReturnType<typeof createSeriesPlanningState>;
     practiceId: Id<"practices">;
     requestedAt: InstantString;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
     simulationRuleSetId?: Id<"ruleSets">;
+    staffPlannerSlotsByDate: Map<
+      IsoDateString,
+      Promise<InternalSchedulingResultSlot[]>
+    >;
   },
 ): Promise<CandidateSlotDecision> {
   const practitionerLineageKey =
@@ -2381,7 +2386,7 @@ async function evaluateSingleAppointmentCandidateSlot(
           ? {}
           : { isNewPatient: args.isNewPatient }),
         locationId: args.locationId,
-        planningState: createSeriesPlanningState(),
+        planningState: args.planningState,
         ...(args.patientDateOfBirth === undefined
           ? {}
           : { patientDateOfBirth: args.patientDateOfBirth }),
@@ -2405,54 +2410,37 @@ async function evaluateSingleAppointmentCandidateSlot(
       });
     }
   } else {
-    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
-      requireLineageKey({
-        entityId: args.appointmentType._id,
-        entityType: "appointment type",
-        lineageKey: args.appointmentType.lineageKey,
-        ruleSetId: args.appointmentType.ruleSetId,
-      }),
+    const candidateDate = asIsoDateString(
+      Temporal.ZonedDateTime.from(args.candidate.startTime)
+        .toPlainDate()
+        .toString(),
     );
-    const slotsResult: {
-      slots: {
-        blockedByBlockedSlotId?: Id<"blockedSlots">;
-        blockedByRuleId?: Id<"ruleConditions">;
-        duration: number;
-        locationLineageKey: Id<"locations">;
-        practitionerLineageKey: Id<"practitioners">;
-        reason?: string;
-        startTime: string;
-        status: string;
-      }[];
-    } = await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
-      date: asIsoDateString(
-        Temporal.ZonedDateTime.from(args.candidate.startTime)
-          .toPlainDate()
-          .toString(),
-      ),
-      ...(args.excludedAppointmentIds === undefined
-        ? {}
-        : { excludedAppointmentIds: args.excludedAppointmentIds }),
-      practiceId: args.practiceId,
-      ruleSetId: args.ruleSetId,
-      ...(args.scope === undefined ? {} : { scope: args.scope }),
-      simulatedContext: {
-        appointmentTypeLineageKey,
-        clientType: STAFF_PLANNER_CLIENT_TYPE,
+    let staffPlannerSlotsPromise =
+      args.staffPlannerSlotsByDate.get(candidateDate);
+    if (staffPlannerSlotsPromise === undefined) {
+      staffPlannerSlotsPromise = getStaffPlannerSlotsForDate(ctx, {
+        ...(args.excludedAppointmentIds === undefined
+          ? {}
+          : { excludedAppointmentIds: args.excludedAppointmentIds }),
+        appointmentType: args.appointmentType,
+        ...(args.isNewPatient === undefined
+          ? {}
+          : { isNewPatient: args.isNewPatient }),
         locationLineageKey: args.locationLineageKey,
-        patient: {
-          ...(args.patientDateOfBirth === undefined
-            ? {}
-            : { dateOfBirth: args.patientDateOfBirth }),
-          isNew: args.isNewPatient ?? false,
-        },
+        ...(args.patientDateOfBirth === undefined
+          ? {}
+          : { patientDateOfBirth: args.patientDateOfBirth }),
+        practiceId: args.practiceId,
         requestedAt: args.requestedAt,
-      },
-    });
-    const practitionerSlots = slotsResult.slots.filter(
-      (slot) =>
-        slot.locationLineageKey === args.locationLineageKey &&
-        slot.practitionerLineageKey === practitionerLineageKey,
+        ruleSetId: args.ruleSetId,
+        ...(args.scope === undefined ? {} : { scope: args.scope }),
+        targetDate: candidateDate,
+      });
+      args.staffPlannerSlotsByDate.set(candidateDate, staffPlannerSlotsPromise);
+    }
+    const staffPlannerSlots = await staffPlannerSlotsPromise;
+    const practitionerSlots = staffPlannerSlots.filter(
+      (slot) => slot.practitionerLineageKey === practitionerLineageKey,
     );
     const selectedSlot = practitionerSlots.find(
       (slot) => slot.startTime === args.candidate.startTime,
@@ -2629,6 +2617,10 @@ async function resolveCandidateSlotDecisionForStaffPlacement(
     requestedAt: InstantString;
     ruleSetId: Id<"ruleSets">;
     scope?: AppointmentBookingScope;
+    staffPlannerSlotsByDate: Map<
+      IsoDateString,
+      Promise<InternalSchedulingResultSlot[]>
+    >;
     userId?: Id<"users">;
   },
 ): Promise<CandidateSlotDecision | null> {
@@ -2723,10 +2715,12 @@ async function resolveCandidateSlotDecisionForStaffPlacement(
     ...(args.patientDateOfBirth === undefined
       ? {}
       : { patientDateOfBirth: args.patientDateOfBirth }),
+    planningState: args.planningState,
     practiceId: args.practiceId,
     requestedAt: args.requestedAt,
     ruleSetId: args.ruleSetId,
     ...(args.scope === undefined ? {} : { scope: args.scope }),
+    staffPlannerSlotsByDate: args.staffPlannerSlotsByDate,
   });
 }
 
@@ -2842,6 +2836,10 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
 
     const requestedAt = asInstantString(Temporal.Now.instant().toString());
     const planningState = createSeriesPlanningState();
+    const staffPlannerSlotsByDate = new Map<
+      IsoDateString,
+      Promise<InternalSchedulingResultSlot[]>
+    >();
     const decisions: CandidateSlotDecision[] = [];
     const practitionerIdsByLineageKey = new Map<
       PractitionerLineageKey,
@@ -2875,6 +2873,7 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
           requestedAt,
           ruleSetId: args.ruleSetId,
           ...(args.scope === undefined ? {} : { scope: args.scope }),
+          staffPlannerSlotsByDate,
           ...(args.userId === undefined ? {} : { userId: args.userId }),
         },
       );
@@ -2947,6 +2946,10 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
         ? defaultOccupancy.calendarResourceColumn
         : undefined;
     const planningState = createSeriesPlanningState();
+    const staffPlannerSlotsByDate = new Map<
+      IsoDateString,
+      Promise<InternalSchedulingResultSlot[]>
+    >();
     const practitionerIdsByLineageKey = new Map<
       PractitionerLineageKey,
       Id<"practitioners">
@@ -2976,6 +2979,7 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
         ...(args.scope === undefined ? {} : { scope: args.scope }),
         targetDate,
       });
+      staffPlannerSlotsByDate.set(targetDate, Promise.resolve(slots));
       const candidates = buildNextAvailableCandidateSlots({
         appointmentType,
         ...(resourceColumn === undefined
@@ -3010,6 +3014,7 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
             requestedAt,
             ruleSetId: args.ruleSetId,
             ...(args.scope === undefined ? {} : { scope: args.scope }),
+            staffPlannerSlotsByDate,
             ...(args.userId === undefined ? {} : { userId: args.userId }),
           },
         );
@@ -3302,6 +3307,11 @@ export async function createAppointmentFromTrustedSource(
     getAppointmentCalendarResourceColumn(occupancyScope);
   const practitionerLineageKeyForCandidate =
     getAppointmentPractitionerLineageKey(occupancyScope);
+  const candidatePlanningState = createSeriesPlanningState();
+  const candidateStaffPlannerSlotsByDate = new Map<
+    IsoDateString,
+    Promise<InternalSchedulingResultSlot[]>
+  >();
   const candidateDecision = await evaluateSingleAppointmentCandidateSlot(ctx, {
     ...(allowPlannerRuleOverride === undefined
       ? {}
@@ -3326,6 +3336,7 @@ export async function createAppointmentFromTrustedSource(
     locationId,
     locationLineageKey: storedReferences.locationLineageKey,
     ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+    planningState: candidatePlanningState,
     practiceId,
     requestedAt: asInstantString(Temporal.Now.instant().toString()),
     ruleSetId: activeAppointmentType.ruleSetId,
@@ -3333,6 +3344,7 @@ export async function createAppointmentFromTrustedSource(
     ...(resolvedSimulationRuleSetId === undefined
       ? {}
       : { simulationRuleSetId: resolvedSimulationRuleSetId }),
+    staffPlannerSlotsByDate: candidateStaffPlannerSlotsByDate,
   });
 
   if (candidateDecision.status === "unavailable") {
@@ -5115,6 +5127,11 @@ async function updateAppointmentByMode(
       getAppointmentCalendarResourceColumn(resolvedOccupancyScope);
     const practitionerLineageKeyForCandidate =
       getAppointmentPractitionerLineageKey(resolvedOccupancyScope);
+    const candidatePlanningState = createSeriesPlanningState();
+    const candidateStaffPlannerSlotsByDate = new Map<
+      IsoDateString,
+      Promise<InternalSchedulingResultSlot[]>
+    >();
     const candidateDecision = await evaluateSingleAppointmentCandidateSlot(
       ctx,
       {
@@ -5135,6 +5152,7 @@ async function updateAppointmentByMode(
         locationId: locationIdForPlanner,
         locationLineageKey: resolvedLocationLineageKey,
         ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+        planningState: candidatePlanningState,
         practiceId: existingAppointment.practiceId,
         requestedAt: asInstantString(Temporal.Now.instant().toString()),
         ruleSetId: plannerRuleSetId,
@@ -5142,6 +5160,7 @@ async function updateAppointmentByMode(
         ...(resolvedSimulationRuleSetId === undefined
           ? {}
           : { simulationRuleSetId: resolvedSimulationRuleSetId }),
+        staffPlannerSlotsByDate: candidateStaffPlannerSlotsByDate,
       },
     );
 

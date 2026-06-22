@@ -218,10 +218,12 @@ export async function validateAppointmentPlan(
         `Terminart ${step.appointmentTypeLineageKey} ist selbst ein Kettentermin und darf nicht als Kettentermin-Schritt verwendet werden.`,
       );
     }
+    const targetDuration =
+      targetDurationOverrides?.get(step.appointmentTypeLineageKey) ??
+      targetAppointmentType.duration;
     validateBeforeRootOccupancyOverlap(
       step,
-      targetDurationOverrides?.get(step.appointmentTypeLineageKey) ??
-        targetAppointmentType.duration,
+      targetDuration,
       previousBeforeRootRanges,
     );
     previousStepOccupancies.set(step.stepId, step.occupancy);
@@ -231,7 +233,7 @@ export async function validateAppointmentPlan(
         (step.timing.anchorStepId === "root" ||
           previousStepStartsAtRoot.get(step.timing.anchorStepId) === true),
     );
-    addBeforeRootRange(step, targetAppointmentType.duration, {
+    addBeforeRootRange(step, targetDuration, {
       previousBeforeRootRanges,
     });
   }
