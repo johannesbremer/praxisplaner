@@ -572,6 +572,9 @@ export async function planSeriesFromRootCandidate(
     ...(args.rootCandidate.patientDateOfBirth && {
       patientDateOfBirth: args.rootCandidate.patientDateOfBirth,
     }),
+    ...(args.rootCandidate.isNewPatient !== undefined && {
+      isNewPatient: args.rootCandidate.isNewPatient,
+    }),
     planningState: args.planningState,
     practiceId: args.rootCandidate.practiceId,
     requestedAt: args.requestedAt,

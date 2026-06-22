@@ -1783,7 +1783,6 @@ export function useCalendarPlanningWorkbench(args: {
           await runUpdateAppointmentInternal(mutationArgs);
         } else if (before?.seriesId) {
           await getAppointmentUpdateMutation(before)(mutationArgs);
-          return;
         } else {
           await runUpdateAppointmentInternal(mutationArgs);
         }
