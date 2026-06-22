@@ -3256,6 +3256,78 @@ describe("appointment series", () => {
     expect(updatedAppointmentType?.appointmentPlan).toEqual({ steps: [] });
   });
 
+  test("updateAppointmentType rejects target duration changes that invalidate referencing plans", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const { firstStepTypeId, secondStepTypeId } = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const firstTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 5,
+        lastModified: now,
+        name: "BE",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", firstTypeId, {
+        lineageKey: firstTypeId,
+      });
+      const secondTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 5,
+        lastModified: now,
+        name: "Diagnostik",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", secondTypeId, {
+        lineageKey: secondTypeId,
+      });
+      return { firstStepTypeId: firstTypeId, secondStepTypeId: secondTypeId };
+    });
+
+    const createdRoot = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: {
+        steps: [
+          {
+            appointmentTypeLineageKey: firstStepTypeId,
+            occupancy: { kind: "inheritRootPractitioner" },
+            required: true,
+            stepId: "be-before",
+            timing: { kind: "beforeRootStart", offsetMinutes: 5 },
+          },
+          {
+            appointmentTypeLineageKey: secondStepTypeId,
+            occupancy: { kind: "inheritRootPractitioner" },
+            required: true,
+            stepId: "diagnostik-before",
+            timing: { kind: "beforeRootStart", offsetMinutes: 0 },
+          },
+        ],
+      },
+      duration: 30,
+      expectedDraftRevision: null,
+      name: "Root",
+      practiceId,
+      practitionerIds: [practitionerId],
+      selectedRuleSetId: ruleSetId,
+    });
+
+    await expect(
+      t.mutation(api.entities.updateAppointmentType, {
+        appointmentTypeId: secondStepTypeId,
+        duration: 10,
+        expectedDraftRevision: createdRoot.draftRevision,
+        practiceId,
+        selectedRuleSetId: createdRoot.ruleSetId,
+      }),
+    ).rejects.toThrow("APPOINTMENT_PLAN:BEFORE_ROOT_OCCUPANCY_OVERLAP");
+  });
+
   test("createAppointmentType rejects appointment-plan steps that target another appointment plan", async () => {
     const t = createAuthedTestContext();
     const { practiceId, practitionerId, ruleSetId } =
