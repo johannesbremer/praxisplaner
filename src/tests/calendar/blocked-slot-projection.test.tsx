@@ -61,6 +61,12 @@ describe("useCalendarBlockedSlotProjection", () => {
       startTime: string;
       status: string;
     }[];
+    slots?: {
+      practitionerLineageKey?: typeof practitionerLineageKey;
+      reason?: string;
+      startTime: string;
+      status: string;
+    }[];
   }) {
     return renderHook(() =>
       useCalendarBlockedSlotProjection({
@@ -87,7 +93,7 @@ describe("useCalendarBlockedSlotProjection", () => {
         selectedDate,
         selectedLocationId: locationId,
         simulatedContext: undefined,
-        slots: undefined,
+        slots: args.slots,
         timeToSlot,
         totalSlots: 108,
         vacationsData: undefined,
@@ -308,6 +314,22 @@ describe("useCalendarBlockedSlotProjection", () => {
         {
           practitionerLineageKey,
           reason: "Generic rule block",
+          startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+          status: "BLOCKED",
+        },
+      ],
+    });
+
+    expect(result.current.baseBlockedSlots).toEqual([]);
+  });
+
+  it("does not hard-block selected appointment placement with raw scheduler blocks", () => {
+    const { result } = renderProjection({
+      appointmentTypeSelected: true,
+      slots: [
+        {
+          practitionerLineageKey,
+          reason: "Raw scheduler block",
           startTime: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
           status: "BLOCKED",
         },
