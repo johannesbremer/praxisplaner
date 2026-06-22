@@ -26,6 +26,7 @@ import {
   appointmentOccupancyScopeValidator,
   type CalendarResourceColumn,
   calendarResourceColumnValidator,
+  getAppointmentCalendarResourceColumn,
   getAppointmentPractitionerLineageKey,
 } from "./appointmentOccupancy";
 import {
@@ -204,11 +205,10 @@ export async function createAppointmentSeries(
     rootAppointmentTypeId: args.rootAppointmentTypeId,
     ruleSetId: args.ruleSetId,
   });
-  const replacementExcludedAppointmentIds =
-    await resolveReplacementExcludedAppointmentIds(
-      ctx.db,
-      args.rootReplacesAppointmentId,
-    );
+  const replacementContext = await resolveReplacementContext(
+    ctx.db,
+    args.rootReplacesAppointmentId,
+  );
   const planningState = createSeriesPlanningState();
   const preview = await previewAppointmentSeries(
     ctx,
@@ -216,8 +216,8 @@ export async function createAppointmentSeries(
       ...(args.allowPlannerRuleOverride === undefined
         ? {}
         : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
-      ...(replacementExcludedAppointmentIds && {
-        excludedAppointmentIds: replacementExcludedAppointmentIds,
+      ...(replacementContext && {
+        excludedAppointmentIds: replacementContext.excludedAppointmentIds,
       }),
       ...args,
       rootAppointmentTypeId: rootAppointmentType._id,
@@ -275,8 +275,8 @@ export async function createAppointmentSeries(
         ...(simulationRuleSetId && { draftRuleSetId: simulationRuleSetId }),
         occupancyView: getOccupancyViewForBookingScope(scope),
         practiceId: args.practiceId,
-        ...(replacementExcludedAppointmentIds && {
-          excludeAppointmentIds: replacementExcludedAppointmentIds,
+        ...(replacementContext && {
+          excludeAppointmentIds: replacementContext.excludedAppointmentIds,
         }),
       },
     );
@@ -299,6 +299,10 @@ export async function createAppointmentSeries(
       );
     }
 
+    const replacedAppointmentId =
+      replacementContext?.replacedAppointmentIdByStepKey.get(
+        replacementStepKeyForPlannedStep(step),
+      );
     const appointmentId = await ctx.db.insert("appointments", {
       appointmentTypeLineageKey: step.appointmentTypeLineageKey,
       appointmentTypeTitle: step.appointmentTypeTitle,
@@ -322,10 +326,9 @@ export async function createAppointmentSeries(
       occupancyScope: step.occupancyScope,
       ...(args.patientId && { patientId: args.patientId }),
       practiceId: args.practiceId,
-      ...(index === 0 &&
-        args.rootReplacesAppointmentId && {
-          replacesAppointmentId: args.rootReplacesAppointmentId,
-        }),
+      ...(replacedAppointmentId && {
+        replacesAppointmentId: replacedAppointmentId,
+      }),
       seriesId,
       seriesStepId: step.stepId,
       seriesStepIndex: toStoredSeriesStepIndex(step.seriesStepIndex),
@@ -395,6 +398,82 @@ export function createSeriesPlanningState(): SeriesPlanningState {
     eligibleWeekdays: new Map(),
     slotCache: new Map(),
   };
+}
+
+export async function hasExactSeriesStepSchedulerAvailability(
+  ctx: SeriesPlannerCtx,
+  args: {
+    allowPlannerRuleOverride?: boolean;
+    appointmentType: Doc<"appointmentTypes">;
+    durationMinutes: number;
+    excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
+    locationId: Id<"locations">;
+    occupancyScope: AppointmentOccupancyScope;
+    patientDateOfBirth?: IsoDateString;
+    planningState: SeriesPlanningState;
+    practiceId: Id<"practices">;
+    requestedAt: InstantString;
+    ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
+    start: ZonedDateTimeString;
+  },
+): Promise<boolean> {
+  const practitionerId = getAppointmentPractitionerLineageKey(
+    args.occupancyScope,
+  );
+  const allowsAppointmentOnlyBlocks =
+    getAppointmentCalendarResourceColumn(args.occupancyScope) !== undefined;
+  const schedulerSlots = await querySchedulingSlotsForDay(ctx, {
+    ...(args.allowPlannerRuleOverride === undefined
+      ? {}
+      : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
+    appointmentType: args.appointmentType,
+    date: asIsoDateString(
+      Temporal.ZonedDateTime.from(args.start).toPlainDate().toString(),
+    ),
+    ...(args.excludedAppointmentIds && {
+      excludedAppointmentIds: args.excludedAppointmentIds,
+    }),
+    ...(args.isNewPatient !== undefined && {
+      isNewPatient: args.isNewPatient,
+    }),
+    locationId: args.locationId,
+    planningState: args.planningState,
+    ...(args.patientDateOfBirth && {
+      patientDateOfBirth: args.patientDateOfBirth,
+    }),
+    practiceId: args.practiceId,
+    ...(practitionerId === undefined
+      ? {}
+      : { practitionerId: asPractitionerId(practitionerId) }),
+    requestedAt: args.requestedAt,
+    ruleSetId: args.ruleSetId,
+    ...(args.scope && { scope: args.scope }),
+    ...(args.simulationRuleSetId && {
+      simulationRuleSetId: args.simulationRuleSetId,
+    }),
+  });
+
+  const usableSlots = schedulerSlots.filter(
+    (slot) =>
+      slot.status === "AVAILABLE" ||
+      (args.allowPlannerRuleOverride === true &&
+        slot.blockedByRuleId !== undefined) ||
+      (allowsAppointmentOnlyBlocks &&
+        isBlockedOnlyByAppointmentOccupancy(slot)),
+  );
+
+  return practitionerId === undefined
+    ? hasAnyConsecutiveAvailablePractitionerSlots(usableSlots, {
+        durationMinutes: args.durationMinutes,
+        start: args.start,
+      })
+    : hasConsecutiveAvailablePractitionerSlots(usableSlots, {
+        durationMinutes: args.durationMinutes,
+        start: args.start,
+      });
 }
 
 export async function hasResourceRootSchedulerAvailability(
@@ -1122,6 +1201,7 @@ async function findFirstAvailableStepStartOnOrAfter(
         ...(args.simulationRuleSetId && {
           simulationRuleSetId: args.simulationRuleSetId,
         }),
+        includeAppointmentOnlyBlocks: true,
       });
       const matchingSlots = slots.filter((slot) => {
         if (
@@ -1232,6 +1312,7 @@ async function findFirstAvailableStepStartOnOrAfter(
 function findFirstUnavailableSchedulerSlotInRange(
   slots: InternalSchedulingResultSlot[],
   args: {
+    allowAppointmentOnlyBlocks?: boolean;
     allowPlannerRuleOverride?: boolean;
     durationMinutes: number;
     start: ZonedDateTimeString;
@@ -1251,6 +1332,10 @@ function findFirstUnavailableSchedulerSlotInRange(
     }
     if (
       slot.status !== "AVAILABLE" &&
+      !(
+        args.allowAppointmentOnlyBlocks === true &&
+        isBlockedOnlyByAppointmentOccupancy(slot)
+      ) &&
       !(
         args.allowPlannerRuleOverride === true &&
         slot.blockedByRuleId !== undefined
@@ -1430,7 +1515,8 @@ async function getExactPractitionerSlotAvailability(
     (slot) =>
       slot.status === "AVAILABLE" ||
       (args.allowPlannerRuleOverride === true &&
-        slot.blockedByRuleId !== undefined),
+        slot.blockedByRuleId !== undefined) ||
+      isBlockedOnlyByAppointmentOccupancy(slot),
   );
 
   return hasConsecutiveAvailablePractitionerSlots(slots, {
@@ -1442,6 +1528,7 @@ async function getExactPractitionerSlotAvailability(
         available: false,
         failure: schedulerFailureForSlot(
           findFirstUnavailableSchedulerSlotInRange(schedulerSlots, {
+            allowAppointmentOnlyBlocks: true,
             ...(args.allowPlannerRuleOverride === undefined
               ? {}
               : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
@@ -1823,6 +1910,7 @@ async function queryAvailableSlotsForDay(
     appointmentType: Doc<"appointmentTypes">;
     date: IsoDateString;
     excludedAppointmentIds?: Id<"appointments">[];
+    includeAppointmentOnlyBlocks?: boolean;
     isNewPatient?: boolean;
     locationId?: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
@@ -1840,7 +1928,9 @@ async function queryAvailableSlotsForDay(
     (slot) =>
       slot.status === "AVAILABLE" ||
       (args.allowPlannerRuleOverride === true &&
-        slot.blockedByRuleId !== undefined),
+        slot.blockedByRuleId !== undefined) ||
+      (args.includeAppointmentOnlyBlocks === true &&
+        isBlockedOnlyByAppointmentOccupancy(slot)),
   );
 }
 
@@ -1958,6 +2048,17 @@ async function querySchedulingSlotsForDay(
     .toSorted((left, right) => left.startTime.localeCompare(right.startTime));
   args.planningState.slotCache.set(cacheKey, slots);
   return slots;
+}
+
+function replacementStepKey(args: {
+  seriesStepId?: string;
+  seriesStepIndex?: bigint;
+}): string {
+  return args.seriesStepId ?? `index:${Number(args.seriesStepIndex ?? 0n)}`;
+}
+
+function replacementStepKeyForPlannedStep(step: PlannedSeriesStep): string {
+  return step.stepId;
 }
 
 function requireResolvedPractitionerOccupancy(
@@ -2081,10 +2182,16 @@ async function resolvePractitionerOccupancy(
   };
 }
 
-async function resolveReplacementExcludedAppointmentIds(
+async function resolveReplacementContext(
   db: DatabaseReader,
   rootReplacesAppointmentId: Id<"appointments"> | undefined,
-): Promise<Id<"appointments">[] | undefined> {
+): Promise<
+  | undefined
+  | {
+      excludedAppointmentIds: Id<"appointments">[];
+      replacedAppointmentIdByStepKey: Map<string, Id<"appointments">>;
+    }
+> {
   if (rootReplacesAppointmentId === undefined) {
     return undefined;
   }
@@ -2094,7 +2201,15 @@ async function resolveReplacementExcludedAppointmentIds(
     rootReplacesAppointmentId,
   );
   if (replacedAppointment?.seriesId === undefined) {
-    return [rootReplacesAppointmentId];
+    return {
+      excludedAppointmentIds: [rootReplacesAppointmentId],
+      replacedAppointmentIdByStepKey: new Map([
+        [
+          replacementStepKey({ seriesStepId: "root", seriesStepIndex: 0n }),
+          rootReplacesAppointmentId,
+        ],
+      ]),
+    };
   }
 
   const replacedSeriesAppointments = await db
@@ -2104,7 +2219,17 @@ async function resolveReplacementExcludedAppointmentIds(
     )
     .collect();
 
-  return replacedSeriesAppointments.map((appointment) => appointment._id);
+  return {
+    excludedAppointmentIds: replacedSeriesAppointments.map(
+      (appointment) => appointment._id,
+    ),
+    replacedAppointmentIdByStepKey: new Map(
+      replacedSeriesAppointments.map((appointment) => [
+        replacementStepKey(appointment),
+        appointment._id,
+      ]),
+    ),
+  };
 }
 
 async function resolveRootOccupancy(
