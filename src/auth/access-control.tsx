@@ -125,12 +125,25 @@ export function AuthenticatedGate({
     return convexAuth.isAuthenticated ? <>{children}</> : <AuthLoadingScreen />;
   }
 
-  if (!user || (shouldWaitForConvexAuth && !convexAuth.isAuthenticated)) {
+  if (!user) {
     return (
       <SignInScreen
         error={signInError}
         onRetry={() => {
           setSignInError(null);
+          startSignIn();
+        }}
+      />
+    );
+  }
+
+  if (shouldWaitForConvexAuth && !convexAuth.isAuthenticated) {
+    return (
+      <SignInScreen
+        error="Die Anmeldung ist abgelaufen. Bitte starten Sie die Anmeldung erneut."
+        onRetry={() => {
+          setSignInError(null);
+          signInRequestedRef.current = false;
           startSignIn();
         }}
       />
