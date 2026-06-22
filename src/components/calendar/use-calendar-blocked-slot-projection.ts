@@ -171,13 +171,13 @@ export function useCalendarBlockedSlotProjection({
     }
 
     const blocked: BlockedSlotProjection[] = [];
-    appendSchedulingSlots({
-      blocked,
-      slots,
-      timeToSlot,
-      workingPractitioners,
-    });
     if (!appointmentTypeSelected) {
+      appendSchedulingSlots({
+        blocked,
+        slots,
+        timeToSlot,
+        workingPractitioners,
+      });
       appendSchedulingSlots({
         blocked,
         skipExisting: true,
