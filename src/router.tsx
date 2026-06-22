@@ -423,6 +423,8 @@ function useConvexAuthFromWorkOS(pathname: string) {
   const [accessTokenReadyUserId, setAccessTokenReadyUserId] = useState<
     null | string
   >(null);
+  const [accessTokenUnavailableUserId, setAccessTokenUnavailableUserId] =
+    useState<null | string>(null);
   const [devAuthToken, setDevAuthToken] = useState<DevAuthTokenState | null>(
     null,
   );
@@ -465,12 +467,14 @@ function useConvexAuthFromWorkOS(pathname: string) {
       (token) => {
         if (active) {
           setAccessTokenReadyUserId(token ? userId : null);
+          setAccessTokenUnavailableUserId(token ? null : userId);
         }
       },
       (error: unknown) => {
         if (active) {
           console.error("Error preparing access token:", error);
           setAccessTokenReadyUserId(null);
+          setAccessTokenUnavailableUserId(userId);
         }
       },
     );
@@ -501,9 +505,13 @@ function useConvexAuthFromWorkOS(pathname: string) {
     }
     try {
       const token = await getAccessToken();
+      setAccessTokenReadyUserId(token ? user.id : null);
+      setAccessTokenUnavailableUserId(token ? null : user.id);
       return token || null;
     } catch (error) {
       console.error("Error fetching access token:", error);
+      setAccessTokenReadyUserId(null);
+      setAccessTokenUnavailableUserId(user.id);
       return null;
     }
   }, [
@@ -518,6 +526,8 @@ function useConvexAuthFromWorkOS(pathname: string) {
   const devAuthReady =
     authBypassEnabled && devAuthToken?.persona === devPersona;
   const accessTokenReady = userId !== null && accessTokenReadyUserId === userId;
+  const accessTokenUnavailable =
+    userId !== null && accessTokenUnavailableUserId === userId;
 
   return useMemo(
     () => ({
@@ -525,10 +535,12 @@ function useConvexAuthFromWorkOS(pathname: string) {
       isAuthenticated: authBypassEnabled ? devAuthReady : accessTokenReady,
       isLoading: authBypassEnabled
         ? !devAuthReady
-        : isLoading || (userId !== null && !accessTokenReady),
+        : isLoading ||
+          (userId !== null && !accessTokenReady && !accessTokenUnavailable),
     }),
     [
       accessTokenReady,
+      accessTokenUnavailable,
       authBypassEnabled,
       devAuthReady,
       fetchAccessToken,

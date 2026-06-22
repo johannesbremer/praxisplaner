@@ -113,15 +113,19 @@ export function AuthenticatedGate({
     startSignIn();
   }, [isLoading, startSignIn, user]);
 
-  if (isAuthBypassEnabled() && isDevPersonaActive(devPersona)) {
-    return convexAuth.isAuthenticated ? <>{children}</> : <AuthLoadingScreen />;
-  }
+  const authBypassEnabled = isAuthBypassEnabled();
+  const activeDevPersona = authBypassEnabled && isDevPersonaActive(devPersona);
+  const shouldWaitForConvexAuth = authBypassEnabled ? activeDevPersona : true;
 
-  if (isLoading) {
+  if (isLoading || (shouldWaitForConvexAuth && convexAuth.isLoading)) {
     return <AuthLoadingScreen />;
   }
 
-  if (!user) {
+  if (activeDevPersona) {
+    return convexAuth.isAuthenticated ? <>{children}</> : <AuthLoadingScreen />;
+  }
+
+  if (!user || (shouldWaitForConvexAuth && !convexAuth.isAuthenticated)) {
     return (
       <SignInScreen
         error={signInError}

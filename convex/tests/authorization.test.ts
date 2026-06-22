@@ -931,7 +931,7 @@ describe("Convex query authorization", () => {
       });
       await ctx.db.insert("blockedSlots", {
         createdAt: now,
-        end: "2026-06-22T09:05:00+02:00[Europe/Berlin]",
+        end: "2027-06-07T09:05:00+02:00[Europe/Berlin]",
         isSimulation: true,
         lastModified: now,
         locationLineageKey: locationId,
@@ -940,7 +940,7 @@ describe("Convex query authorization", () => {
           practitionerLineageKey: practitionerId,
         },
         practiceId: practice.practiceId,
-        start: "2026-06-22T09:00:00+02:00[Europe/Berlin]",
+        start: "2027-06-07T09:00:00+02:00[Europe/Berlin]",
         title: "Draft-only block",
       });
 
@@ -948,7 +948,7 @@ describe("Convex query authorization", () => {
     });
 
     const queryArgs = {
-      date: "2026-06-22",
+      date: "2027-06-07",
       enforceFutureOnly: false,
       practiceId: practice.practiceId,
       ruleSetId: practice.ruleSetId,
@@ -998,14 +998,14 @@ describe("Convex query authorization", () => {
         nextSlotQueryArgs,
       ),
     ).resolves.toMatchObject({
-      startTime: "2026-06-29T09:00:00+02:00[Europe/Berlin]",
+      startTime: "2027-06-14T09:00:00+02:00[Europe/Berlin]",
       status: "AVAILABLE",
     });
     await expect(
       patient.query(api.scheduling.getNextAvailableSlot, nextSlotQueryArgs),
     ).resolves.toMatchObject({
       practitionerLineageKey: schedulingRefs.practitionerId,
-      startTime: "2026-06-22T09:00:00+02:00[Europe/Berlin]",
+      startTime: "2027-06-07T09:00:00+02:00[Europe/Berlin]",
       status: "AVAILABLE",
     });
   });
