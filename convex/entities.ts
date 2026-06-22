@@ -467,6 +467,54 @@ async function resolveBaseScheduleDisplayReferences(params: {
   };
 }
 
+async function validateAppointmentPlansReferencingTargetDuration(
+  db: GenericDatabaseReader<DataModel>,
+  args: {
+    currentAppointmentTypeId: Id<"appointmentTypes">;
+    currentAppointmentTypeLineageKey: AppointmentTypeLineageKey;
+    nextDuration: number;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const appointmentTypes = await db
+    .query("appointmentTypes")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+    .collect();
+  const targetDurationOverrides = new Map<AppointmentTypeLineageKey, number>([
+    [args.currentAppointmentTypeLineageKey, args.nextDuration],
+  ]);
+
+  for (const appointmentType of appointmentTypes) {
+    if (
+      appointmentType._id === args.currentAppointmentTypeId ||
+      isDeletedRuleSetEntity(appointmentType) ||
+      !hasAppointmentPlan(appointmentType)
+    ) {
+      continue;
+    }
+
+    const referencesUpdatedType = (
+      appointmentType.appointmentPlan?.steps ?? []
+    ).some(
+      (step) =>
+        step.appointmentTypeLineageKey ===
+        args.currentAppointmentTypeLineageKey,
+    );
+    if (!referencesUpdatedType) {
+      continue;
+    }
+
+    await validateAppointmentPlan(
+      db,
+      args.ruleSetId,
+      appointmentType.appointmentPlan,
+      requireAppointmentTypeLineageKey(appointmentType),
+      validateDefaultOccupancy(appointmentType.defaultOccupancy),
+      targetDurationOverrides,
+    );
+  }
+}
+
 /**
  * Resolve a base schedule ID into the current unsaved rule set.
  * Returns null when neither the original nor a CoW copy exists.
@@ -1137,6 +1185,18 @@ export const updateAppointmentType = mutation({
         effectiveDefaultOccupancy,
       );
       updates.defaultOccupancy = effectiveDefaultOccupancy;
+    }
+    if (
+      args.duration !== undefined &&
+      args.duration !== appointmentType.duration
+    ) {
+      await validateAppointmentPlansReferencingTargetDuration(ctx.db, {
+        currentAppointmentTypeId: appointmentType._id,
+        currentAppointmentTypeLineageKey:
+          requireAppointmentTypeLineageKey(appointmentType),
+        nextDuration: args.duration,
+        ruleSetId,
+      });
     }
     // SAFETY: Verify entity belongs to unsaved rule set before patching
     await verifyEntityInUnsavedRuleSet(

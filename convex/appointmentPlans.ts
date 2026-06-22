@@ -168,6 +168,7 @@ export async function validateAppointmentPlan(
   appointmentPlan: AppointmentPlan | RawAppointmentPlan,
   currentAppointmentTypeLineageKey?: AppointmentTypeLineageKey,
   rootDefaultOccupancy?: AppointmentTypeDefaultOccupancy,
+  targetDurationOverrides?: ReadonlyMap<AppointmentTypeLineageKey, number>,
 ): Promise<AppointmentPlan | undefined> {
   const normalizedPlan = normalizeAppointmentPlan(appointmentPlan);
 
@@ -219,7 +220,8 @@ export async function validateAppointmentPlan(
     }
     validateBeforeRootOccupancyOverlap(
       step,
-      targetAppointmentType.duration,
+      targetDurationOverrides?.get(step.appointmentTypeLineageKey) ??
+        targetAppointmentType.duration,
       previousBeforeRootRanges,
     );
     previousStepOccupancies.set(step.stepId, step.occupancy);
