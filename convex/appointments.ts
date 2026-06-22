@@ -47,6 +47,7 @@ import {
   appointmentSeriesCreateResultValidator,
   createAppointmentSeries as createAppointmentSeriesHelper,
   createSeriesPlanningState,
+  hasExactSeriesStepSchedulerAvailability,
   hasResourceRootSchedulerAvailability,
   previewAppointmentSeries as previewAppointmentSeriesHelper,
   replanAppointmentSeries,
@@ -3636,6 +3637,7 @@ export const restoreAppointmentSeriesSnapshot = mutation({
     }
 
     const originalAppointmentIds = new Set<Id<"appointments">>();
+    const replacedAppointmentIds = new Set<Id<"appointments">>();
     for (const appointment of appointments) {
       if (appointment.practiceId !== series.practiceId) {
         throw appointmentChainError(
@@ -3650,7 +3652,11 @@ export const restoreAppointmentSeriesSnapshot = mutation({
         );
       }
       originalAppointmentIds.add(appointment.originalAppointmentId);
+      if (appointment.replacesAppointmentId !== undefined) {
+        replacedAppointmentIds.add(appointment.replacesAppointmentId);
+      }
     }
+    const replacementConflictExclusions = [...replacedAppointmentIds];
 
     for (let index = 0; index < appointments.length; index += 1) {
       const appointment = appointments[index];
@@ -3688,6 +3694,9 @@ export const restoreAppointmentSeriesSnapshot = mutation({
           ...(appointment.simulationRuleSetId === undefined
             ? {}
             : { draftRuleSetId: appointment.simulationRuleSetId }),
+          ...(replacementConflictExclusions.length === 0
+            ? {}
+            : { excludeAppointmentIds: replacementConflictExclusions }),
           occupancyView: getOccupancyViewForBookingScope(series.scope),
           practiceId: series.practiceId,
         },
@@ -4651,6 +4660,56 @@ async function updateAppointmentByMode(
           throw appointmentChainError(
             "CHAIN_NOT_FOUND",
             "Die gespeicherte Kettentermin-Serie wurde nicht gefunden.",
+          );
+        }
+        const stepAppointmentTypeId =
+          await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
+            lineageKey: asAppointmentTypeLineageKey(
+              existingAppointment.appointmentTypeLineageKey,
+            ),
+            ruleSetId: seriesRecord.ruleSetIdAtBooking,
+          });
+        const stepAppointmentType = await ctx.db.get(
+          "appointmentTypes",
+          stepAppointmentTypeId,
+        );
+        const activeStepAppointmentType = requireEntityUsableForNewAppointment({
+          entity: stepAppointmentType,
+          entityId: stepAppointmentTypeId,
+          entityLabel: "Terminart",
+        });
+        const stepLocationId = await resolveLocationIdForRuleSetByLineage(
+          ctx.db,
+          {
+            lineageKey: asLocationLineageKey(
+              existingAppointment.locationLineageKey,
+            ),
+            ruleSetId: seriesRecord.ruleSetIdAtBooking,
+          },
+        );
+        const schedulerAvailable =
+          await hasExactSeriesStepSchedulerAvailability(ctx, {
+            appointmentType: activeStepAppointmentType,
+            durationMinutes: calculateDurationMinutes(
+              resizedEnd,
+              asZonedDateTimeString(existingAppointment.start),
+            ),
+            excludedAppointmentIds: [existingAppointment._id],
+            locationId: stepLocationId,
+            occupancyScope: resolvedOccupancyScope,
+            planningState: createSeriesPlanningState(),
+            practiceId: existingAppointment.practiceId,
+            requestedAt: asInstantString(new Date().toISOString()),
+            ruleSetId: seriesRecord.ruleSetIdAtBooking,
+            scope: getAppointmentBookingScope(resolvedIsSimulation),
+            ...(resolvedIsSimulation === true && resolvedSimulationRuleSetId
+              ? { simulationRuleSetId: resolvedSimulationRuleSetId }
+              : {}),
+            start: asZonedDateTimeString(resolvedStart),
+          });
+        if (!schedulerAvailable) {
+          throw new Error(
+            "Der gewählte Zeitraum liegt außerhalb der Verfügbarkeit.",
           );
         }
 

@@ -167,6 +167,7 @@ export async function validateAppointmentPlan(
   ruleSetId: Id<"ruleSets">,
   appointmentPlan: AppointmentPlan | RawAppointmentPlan,
   currentAppointmentTypeLineageKey?: AppointmentTypeLineageKey,
+  rootDefaultOccupancy?: AppointmentTypeDefaultOccupancy,
 ): Promise<AppointmentPlan | undefined> {
   const normalizedPlan = normalizeAppointmentPlan(appointmentPlan);
 
@@ -176,12 +177,24 @@ export async function validateAppointmentPlan(
 
   const seenStepIds = new Set<string>();
   const previousStepOccupancies = new Map<string, AppointmentPlanOccupancy>();
+  const previousStepStartsAtRoot = new Map<string, boolean>();
   const previousBeforeRootRanges: BeforeRootPlanRange[] = [];
+  const normalizedRootDefaultOccupancy =
+    normalizeDefaultOccupancy(rootDefaultOccupancy);
   for (const step of normalizedPlan.steps) {
     validateStepId(step, seenStepIds);
     validateRequiredStep(step);
     validateTiming(step, seenStepIds);
-    validateSameStartOccupancy(step, previousStepOccupancies);
+    validateStepOccupancyAgainstRootDefault(
+      step,
+      normalizedRootDefaultOccupancy,
+    );
+    validateSameStartOccupancy(
+      step,
+      previousStepOccupancies,
+      previousStepStartsAtRoot,
+      normalizedRootDefaultOccupancy,
+    );
 
     if (
       currentAppointmentTypeLineageKey &&
@@ -210,6 +223,12 @@ export async function validateAppointmentPlan(
       previousBeforeRootRanges,
     );
     previousStepOccupancies.set(step.stepId, step.occupancy);
+    previousStepStartsAtRoot.set(
+      step.stepId,
+      step.timing.kind === "sameStartAs" &&
+        (step.timing.anchorStepId === "root" ||
+          previousStepStartsAtRoot.get(step.timing.anchorStepId) === true),
+    );
     addBeforeRootRange(step, targetAppointmentType.duration, {
       previousBeforeRootRanges,
     });
@@ -290,6 +309,26 @@ function planOccupanciesMatch(
     return left.calendarResourceColumn === right.calendarResourceColumn;
   }
   return false;
+}
+
+function planOccupancyMatchesRootDefault(
+  occupancy: AppointmentPlanOccupancy,
+  rootDefaultOccupancy: AppointmentTypeDefaultOccupancy,
+) {
+  if (
+    rootDefaultOccupancy.kind === "resourceColumn" &&
+    occupancy.kind === "resourceColumn"
+  ) {
+    return (
+      occupancy.calendarResourceColumn ===
+      rootDefaultOccupancy.calendarResourceColumn
+    );
+  }
+
+  return (
+    rootDefaultOccupancy.kind !== "resourceColumn" &&
+    occupancy.kind === "inheritRootPractitioner"
+  );
 }
 
 function validateAnchorStepId(
@@ -373,22 +412,36 @@ function validateRequiredStep(step: AppointmentPlanStep) {
 function validateSameStartOccupancy(
   step: AppointmentPlanStep,
   previousStepOccupancies: ReadonlyMap<string, AppointmentPlanOccupancy>,
+  previousStepStartsAtRoot: ReadonlyMap<string, boolean>,
+  rootDefaultOccupancy: AppointmentTypeDefaultOccupancy,
 ) {
+  if (step.timing.kind !== "sameStartAs") {
+    return;
+  }
+
+  const anchorStartsAtRoot =
+    step.timing.anchorStepId === "root" ||
+    previousStepStartsAtRoot.get(step.timing.anchorStepId) === true;
+
   if (
-    step.timing.kind === "sameStartAs" &&
-    step.timing.anchorStepId === "root" &&
-    step.occupancy.kind === "inheritRootPractitioner"
+    anchorStartsAtRoot &&
+    planOccupancyMatchesRootDefault(step.occupancy, rootDefaultOccupancy)
   ) {
+    const overlapCode =
+      rootDefaultOccupancy.kind === "resourceColumn"
+        ? "APPOINTMENT_PLAN:SAME_START_ROOT_RESOURCE_OVERLAP"
+        : "APPOINTMENT_PLAN:SAME_START_ROOT_PRACTITIONER_OVERLAP";
+    const occupancyLabel =
+      rootDefaultOccupancy.kind === "resourceColumn"
+        ? "denselben Raum"
+        : "denselben Behandler";
     throw appointmentPlanError(
-      "APPOINTMENT_PLAN:SAME_START_ROOT_PRACTITIONER_OVERLAP",
-      `Schritt "${step.stepId}" darf nicht gleichzeitig mit dem Starttermin denselben Behandler belegen.`,
+      overlapCode,
+      `Schritt "${step.stepId}" darf nicht gleichzeitig mit dem Starttermin ${occupancyLabel} belegen.`,
     );
   }
 
-  if (
-    step.timing.kind === "sameStartAs" &&
-    step.timing.anchorStepId !== "root"
-  ) {
+  if (step.timing.anchorStepId !== "root") {
     const anchorOccupancy = previousStepOccupancies.get(
       step.timing.anchorStepId,
     );
@@ -427,6 +480,21 @@ function validateStepId(step: AppointmentPlanStep, seenStepIds: Set<string>) {
     );
   }
   seenStepIds.add(trimmedStepId);
+}
+
+function validateStepOccupancyAgainstRootDefault(
+  step: AppointmentPlanStep,
+  rootDefaultOccupancy: AppointmentTypeDefaultOccupancy,
+) {
+  if (
+    rootDefaultOccupancy.kind === "resourceColumn" &&
+    step.occupancy.kind === "inheritRootPractitioner"
+  ) {
+    throw appointmentPlanError(
+      "APPOINTMENT_PLAN:RESOURCE_ROOT_INHERIT_PRACTITIONER",
+      `Schritt "${step.stepId}" kann bei einem Raum-Starttermin keinen Start-Behandler übernehmen.`,
+    );
+  }
 }
 
 function validateTiming(
