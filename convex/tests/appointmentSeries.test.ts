@@ -3328,6 +3328,78 @@ describe("appointment series", () => {
     ).rejects.toThrow("APPOINTMENT_PLAN:BEFORE_ROOT_OCCUPANCY_OVERLAP");
   });
 
+  test("updateAppointmentType uses overridden target durations for later before-root overlap checks", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const { firstStepTypeId, secondStepTypeId } = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const firstTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 5,
+        lastModified: now,
+        name: "Closer before-root step",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", firstTypeId, {
+        lineageKey: firstTypeId,
+      });
+      const secondTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 5,
+        lastModified: now,
+        name: "Earlier before-root step",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", secondTypeId, {
+        lineageKey: secondTypeId,
+      });
+      return { firstStepTypeId: firstTypeId, secondStepTypeId: secondTypeId };
+    });
+
+    const createdRoot = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: {
+        steps: [
+          {
+            appointmentTypeLineageKey: firstStepTypeId,
+            occupancy: { kind: "inheritRootPractitioner" },
+            required: true,
+            stepId: "closer-before-root",
+            timing: { kind: "beforeRootStart", offsetMinutes: 0 },
+          },
+          {
+            appointmentTypeLineageKey: secondStepTypeId,
+            occupancy: { kind: "inheritRootPractitioner" },
+            required: true,
+            stepId: "earlier-before-root",
+            timing: { kind: "beforeRootStart", offsetMinutes: 10 },
+          },
+        ],
+      },
+      duration: 30,
+      expectedDraftRevision: null,
+      name: "Root",
+      practiceId,
+      practitionerIds: [practitionerId],
+      selectedRuleSetId: ruleSetId,
+    });
+
+    await expect(
+      t.mutation(api.entities.updateAppointmentType, {
+        appointmentTypeId: firstStepTypeId,
+        duration: 15,
+        expectedDraftRevision: createdRoot.draftRevision,
+        practiceId,
+        selectedRuleSetId: createdRoot.ruleSetId,
+      }),
+    ).rejects.toThrow("APPOINTMENT_PLAN:BEFORE_ROOT_OCCUPANCY_OVERLAP");
+  });
+
   test("createAppointmentType rejects appointment-plan steps that target another appointment plan", async () => {
     const t = createAuthedTestContext();
     const { practiceId, practitionerId, ruleSetId } =
