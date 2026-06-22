@@ -436,6 +436,143 @@ describe("appointment series", () => {
     ).rejects.toThrow("APPOINTMENT_PLAN:SAME_START_ROOT_PRACTITIONER_OVERLAP");
   });
 
+  test("createAppointmentType rejects resource-root plans that overlap or inherit the root occupancy", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const targetAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "EKG",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetId, {
+        lineageKey: targetId,
+      });
+      return targetId;
+    });
+
+    await expect(
+      t.mutation(api.entities.createAppointmentType, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: {
+                calendarResourceColumn: "ekg",
+                kind: "resourceColumn",
+              },
+              required: true,
+              stepId: "ekg-same-time",
+              timing: { anchorStepId: "root", kind: "sameStartAs" },
+            },
+          ],
+        },
+        defaultOccupancy: {
+          calendarResourceColumn: "ekg",
+          kind: "resourceColumn",
+        },
+        duration: 10,
+        expectedDraftRevision: null,
+        name: "EKG Doppel",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      }),
+    ).rejects.toThrow("APPOINTMENT_PLAN:SAME_START_ROOT_RESOURCE_OVERLAP");
+
+    await expect(
+      t.mutation(api.entities.createAppointmentType, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "inherit-root",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        defaultOccupancy: {
+          calendarResourceColumn: "ekg",
+          kind: "resourceColumn",
+        },
+        duration: 10,
+        expectedDraftRevision: null,
+        name: "EKG Inherit",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      }),
+    ).rejects.toThrow("APPOINTMENT_PLAN:RESOURCE_ROOT_INHERIT_PRACTITIONER");
+  });
+
+  test("createAppointmentType rejects indirect same-start overlaps with the root", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const targetAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const targetId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "Diagnostik",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", targetId, {
+        lineageKey: targetId,
+      });
+      return targetId;
+    });
+
+    await expect(
+      t.mutation(api.entities.createAppointmentType, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: {
+                calendarResourceColumn: "ekg",
+                kind: "resourceColumn",
+              },
+              required: true,
+              stepId: "ekg-root-time",
+              timing: { anchorStepId: "root", kind: "sameStartAs" },
+            },
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "diagnostik-root-time",
+              timing: { anchorStepId: "ekg-root-time", kind: "sameStartAs" },
+            },
+          ],
+        },
+        duration: 10,
+        expectedDraftRevision: null,
+        name: "Indirekt Root",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      }),
+    ).rejects.toThrow("APPOINTMENT_PLAN:SAME_START_ROOT_PRACTITIONER_OVERLAP");
+  });
+
   test("createAppointmentType rejects same-start steps that reuse an earlier step occupancy", async () => {
     const t = createAuthedTestContext();
     const { practiceId, practitionerId, ruleSetId } =
@@ -1573,7 +1710,7 @@ describe("appointment series", () => {
       throw new Error("Expected preview to be blocked.");
     }
     expect(preview.blockedStepId).toBe("follow-up");
-    expect(preview.failureKind).toBe("schedulerUnavailable");
+    expect(preview.failureKind).toBe("appointmentOccupancy");
 
     const blockedRootSlots = await t.query(
       api.appointments.getCandidateSlotDecisionsForStaffPlacement,
@@ -1599,9 +1736,8 @@ describe("appointment series", () => {
       expect.objectContaining({
         locationLineageKey: locationId,
         practitionerLineageKey: practitionerId,
-        provenance: "schedulerUnavailable",
-        reason:
-          "Der ausgewählte Starttermin ist nicht mehr verfügbar oder liegt außerhalb der Verfügbarkeit.",
+        provenance: "appointmentOccupancy",
+        reason: "Der Kettentermin ist bereits durch einen Termin belegt.",
         startTime: rootStart,
         status: "unavailable",
       }),
@@ -2679,6 +2815,25 @@ describe("appointment series", () => {
         .collect();
     });
     expect(replacementSeriesAppointments).toHaveLength(2);
+    const originalSeriesAppointments = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) =>
+          q.eq("seriesId", originalSeries.seriesId),
+        )
+        .collect();
+    });
+    const originalIdsByStepId = new Map(
+      originalSeriesAppointments.map((appointment) => [
+        appointment.seriesStepId,
+        appointment._id,
+      ]),
+    );
+    for (const replacement of replacementSeriesAppointments) {
+      expect(replacement.replacesAppointmentId).toBe(
+        originalIdsByStepId.get(replacement.seriesStepId),
+      );
+    }
   });
 
   test("createAppointmentSeries rejects booking identities from another practice", async () => {

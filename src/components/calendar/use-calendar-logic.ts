@@ -800,6 +800,17 @@ export function useCalendarLogic({
     },
     [allBlockedSlots, placementAppointmentTypeLineageKey],
   );
+  const findBlockedSlotForAppointmentMove = useCallback(
+    (column: CalendarColumnId, slot: number, durationMinutes: number) =>
+      findFirstBlockedSlotInRange({
+        blockedSlots: allBlockedSlots,
+        column,
+        durationMinutes,
+        slotDurationMinutes: SLOT_DURATION,
+        startSlot: slot,
+      }),
+    [allBlockedSlots],
+  );
 
   useCalendarDevtools({
     appointments: appointmentLayouts,
@@ -1107,34 +1118,6 @@ export function useCalendarLogic({
     const newTime = slotToTime(finalSlot);
 
     try {
-      if (
-        checkCollision(
-          column,
-          finalSlot,
-          draggedAppointment.duration,
-          excludedAppointmentIdsForAvailability,
-        )
-      ) {
-        toast.error(
-          "Termin kann nicht auf einen belegten Zeitraum verschoben werden.",
-        );
-        return;
-      }
-
-      const blockedSlotData = findBlockedSlotForPlacementStart(
-        column,
-        finalSlot,
-        draggedAppointment.duration,
-      );
-      if (blockedSlotData) {
-        toast.error(
-          blockedSlotData.reason
-            ? `Termin kann nicht auf einen gesperrten Zeitraum verschoben werden: ${blockedSlotData.reason}`
-            : "Termin kann nicht auf einen gesperrten Zeitraum verschoben werden.",
-        );
-        return;
-      }
-
       const plainTime = Temporal.PlainTime.from(newTime);
       const startZoned = selectedDate.toZonedDateTime({
         plainTime,
@@ -1194,6 +1177,38 @@ export function useCalendarLogic({
         targetResourceColumn === undefined
           ? getPractitionerIdForColumn(moveColumn)
           : undefined;
+      const movedSlot = timeToSlot(formatTime(movedStartZoned.toPlainTime()));
+      const movedDurationMinutes =
+        (movedEndZoned.epochMilliseconds - movedStartZoned.epochMilliseconds) /
+        60_000;
+
+      if (
+        checkCollision(
+          moveColumn,
+          movedSlot,
+          movedDurationMinutes,
+          excludedAppointmentIdsForAvailability,
+        )
+      ) {
+        toast.error(
+          "Termin kann nicht auf einen belegten Zeitraum verschoben werden.",
+        );
+        return;
+      }
+
+      const blockedSlotData = findBlockedSlotForAppointmentMove(
+        moveColumn,
+        movedSlot,
+        movedDurationMinutes,
+      );
+      if (blockedSlotData) {
+        toast.error(
+          blockedSlotData.reason
+            ? `Termin kann nicht auf einen gesperrten Zeitraum verschoben werden: ${blockedSlotData.reason}`
+            : "Termin kann nicht auf einen gesperrten Zeitraum verschoben werden.",
+        );
+        return;
+      }
 
       if (simulatedContext && draggedAppointment.record.isSimulation !== true) {
         const appointmentLayoutToMove =

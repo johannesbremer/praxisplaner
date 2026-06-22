@@ -954,6 +954,7 @@ export const createAppointmentType = mutation({
             practiceId: args.practiceId,
             ruleSetId,
           });
+    const defaultOccupancy = validateDefaultOccupancy(args.defaultOccupancy);
     const appointmentPlan = await validateAppointmentPlan(
       ctx.db,
       ruleSetId,
@@ -961,8 +962,8 @@ export const createAppointmentType = mutation({
       args.lineageKey
         ? asAppointmentTypeLineageKey(args.lineageKey)
         : undefined,
+      defaultOccupancy,
     );
-    const defaultOccupancy = validateDefaultOccupancy(args.defaultOccupancy);
 
     await assertAppointmentTypeNameIsUniqueInRuleSet(ctx.db, {
       name,
@@ -1110,19 +1111,31 @@ export const updateAppointmentType = mutation({
       );
       updates.allowedPractitionerLineageKeys = resolved ?? [];
     }
+    const effectiveDefaultOccupancy =
+      args.defaultOccupancy === undefined
+        ? validateDefaultOccupancy(appointmentType.defaultOccupancy)
+        : validateDefaultOccupancy(args.defaultOccupancy);
     if (args.appointmentPlan !== undefined) {
       const validatedAppointmentPlan = await validateAppointmentPlan(
         ctx.db,
         ruleSetId,
         args.appointmentPlan,
         requireAppointmentTypeLineageKey(appointmentType),
+        effectiveDefaultOccupancy,
       );
       updates.appointmentPlan = validatedAppointmentPlan ?? { steps: [] };
     }
     if (args.defaultOccupancy !== undefined) {
-      updates.defaultOccupancy = validateDefaultOccupancy(
-        args.defaultOccupancy,
+      const planToValidate =
+        args.appointmentPlan ?? appointmentType.appointmentPlan;
+      await validateAppointmentPlan(
+        ctx.db,
+        ruleSetId,
+        planToValidate,
+        requireAppointmentTypeLineageKey(appointmentType),
+        effectiveDefaultOccupancy,
       );
+      updates.defaultOccupancy = effectiveDefaultOccupancy;
     }
     // SAFETY: Verify entity belongs to unsaved rule set before patching
     await verifyEntityInUnsavedRuleSet(
