@@ -255,6 +255,9 @@ const restoredSeriesAppointmentToHistoryDoc = (
         cancelledByPhoneBookingIdentityId:
           appointment.cancelledByPhoneBookingIdentityId,
       }),
+  ...(appointment.cancelledAt === undefined
+    ? {}
+    : { cancelledAt: appointment.cancelledAt }),
   createdAt: appointment.createdAt,
   end: asZonedDateTimeString(appointment.end),
   ...(appointment.isSimulation === undefined
@@ -382,20 +385,26 @@ async function deleteAppointmentSeriesRoot(
   },
   context: CalendarPlanningCommandExecutorContext,
 ): Promise<CalendarPlanningReplayResult> {
+  const currentRootAppointmentId = context.resolveCurrentAppointmentId(
+    payload.currentRootAppointmentId,
+  );
+  const forgetSnapshotAppointments = () => {
+    for (const appointment of payload.snapshot.appointments) {
+      context.forgetAppointmentHistoryDoc(
+        context.resolveCurrentAppointmentId(appointment.originalAppointmentId),
+      );
+    }
+    context.forgetAppointmentHistoryDoc(currentRootAppointmentId);
+  };
+
   try {
     await context.runDeleteAppointmentInternal({
-      id: payload.currentRootAppointmentId,
+      id: currentRootAppointmentId,
     });
-    for (const appointment of payload.snapshot.appointments) {
-      context.forgetAppointmentHistoryDoc(appointment.originalAppointmentId);
-    }
-    context.forgetAppointmentHistoryDoc(payload.currentRootAppointmentId);
+    forgetSnapshotAppointments();
     return { status: "applied" };
   } catch (error: unknown) {
-    for (const appointment of payload.snapshot.appointments) {
-      context.forgetAppointmentHistoryDoc(appointment.originalAppointmentId);
-    }
-    context.forgetAppointmentHistoryDoc(payload.currentRootAppointmentId);
+    forgetSnapshotAppointments();
     if (context.isMissingAppointmentError?.(error)) {
       return { status: "applied" };
     }
@@ -1072,6 +1081,9 @@ async function restoreAppointmentSeriesSnapshot(
                   ),
                 },
         },
+        ...(appointment.replacesAppointmentId === undefined
+          ? {}
+          : { replacesAppointmentId: appointment.replacesAppointmentId }),
         start: appointment.start,
       }),
   );
