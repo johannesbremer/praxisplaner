@@ -36,53 +36,37 @@ read_local_env_value() {
   printf '%s' "$value"
 }
 
-SOURCE_CONVEX_DEPLOYMENT="${CONVEX_DEPLOYMENT:-}"
-SOURCE_CONVEX_FROM_ENV=0
-if [ -n "$SOURCE_CONVEX_DEPLOYMENT" ]; then
-  SOURCE_CONVEX_FROM_ENV=1
-fi
-ENV_FILE_CONVEX_TEAM_SLUG=""
-ENV_FILE_CONVEX_PROJECT_SLUG=""
 ENV_FILE_CONVEX_DEPLOY_KEY=""
-if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -n "$SOURCE_ENV_FILE" ]; then
-  SOURCE_CONVEX_DEPLOYMENT="$(read_local_env_value CONVEX_DEPLOYMENT)"
-fi
 if [ -n "$SOURCE_ENV_FILE" ]; then
-  ENV_FILE_CONVEX_TEAM_SLUG="$(read_local_env_value CONVEX_TEAM_SLUG)"
-  ENV_FILE_CONVEX_PROJECT_SLUG="$(read_local_env_value CONVEX_PROJECT_SLUG)"
   ENV_FILE_CONVEX_DEPLOY_KEY="$(read_local_env_value CONVEX_DEPLOY_KEY)"
 fi
-case "$SOURCE_CONVEX_DEPLOYMENT" in
-  anonymous:* | local | local:*)
-    SOURCE_CONVEX_DEPLOYMENT=""
-    SOURCE_CONVEX_FROM_ENV=0
-    ;;
-esac
 CONVEX_DEPLOY_KEY="${CONVEX_DEPLOY_KEY:-$ENV_FILE_CONVEX_DEPLOY_KEY}"
 if [ -n "$CONVEX_DEPLOY_KEY" ]; then
   export CONVEX_DEPLOY_KEY
 fi
-if [ "$SOURCE_CONVEX_FROM_ENV" -eq 0 ] && [ -n "$CONVEX_DEPLOY_KEY" ]; then
-  SOURCE_CONVEX_DEPLOYMENT=""
-fi
 
-if [ "$SOURCE_CONVEX_FROM_ENV" -eq 0 ]; then
-  CONVEX_TEAM_SLUG="${CONVEX_TEAM_SLUG:-$ENV_FILE_CONVEX_TEAM_SLUG}"
-  CONVEX_PROJECT_SLUG="${CONVEX_PROJECT_SLUG:-$ENV_FILE_CONVEX_PROJECT_SLUG}"
-else
-  CONVEX_TEAM_SLUG=""
-  CONVEX_PROJECT_SLUG=""
-fi
-
-if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -z "${CONVEX_DEPLOY_KEY:-}" ] && { [ -z "$CONVEX_TEAM_SLUG" ] || [ -z "$CONVEX_PROJECT_SLUG" ]; }; then
-  MISSING_CONVEX_BOOTSTRAP=1
-else
-  MISSING_CONVEX_BOOTSTRAP=0
-fi
+case "${CONVEX_DEPLOY_KEY:-}" in
+  preview:*) MISSING_CONVEX_BOOTSTRAP=0 ;;
+  *)
+    MISSING_CONVEX_BOOTSTRAP=1
+    ;;
+esac
 
 eval "$("$FNM_BIN" env --shell bash)"
 "$FNM_BIN" use --install-if-missing --silent-if-unchanged
 corepack enable
+
+if [ "$MISSING_CONVEX_BOOTSTRAP" -eq 1 ]; then
+  cat >&2 <<'EOF'
+Missing Convex setup values.
+
+Create .env.local with:
+  CONVEX_DEPLOY_KEY=preview:...
+
+Then rerun setup.
+EOF
+  exit 1
+fi
 
 WORKTREE_NAME="$(basename "$(pwd)")"
 BRANCH_NAME="$(git branch --show-current 2>/dev/null || true)"
@@ -100,11 +84,7 @@ PREVIEW_NAME="codex-${PREVIEW_SLUG}-${PREVIEW_HASH}"
 
 POSTHOG_HOST="${VITE_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}"
 
-if [ -n "$SOURCE_ENV_FILE" ]; then
-  sed -E '/^(AUTH_BYPASS_ENABLED|AUTH_BYPASS_SUBJECT|AUTH_BYPASS_EMAIL|VITE_AUTH_BYPASS_ENABLED|VITE_VERCEL_ENV|WORKOS_CLIENT_ID|VITE_WORKOS_CLIENT_ID|VITE_PUBLIC_POSTHOG_HOST|CONVEX_DEPLOYMENT|VITE_CONVEX_URL|VITE_CONVEX_SITE_URL|CONVEX_URL|CONVEX_IMPORT_DEPLOYMENT|CONVEX_SELECTED_DEPLOYMENT|CONVEX_CLOUD_URL|CONVEX_SITE_URL)=/d' "$SOURCE_ENV_FILE" > "$ENV_NEXT"
-else
-  : > "$ENV_NEXT"
-fi
+: > "$ENV_NEXT"
 
 if [ -n "${VITE_PUBLIC_POSTHOG_KEY:-}" ]; then
   sed -E '/^VITE_PUBLIC_POSTHOG_KEY=/d' "$ENV_NEXT" > "$ENV_NEXT.posthog"
@@ -124,65 +104,10 @@ mv "$ENV_NEXT" .env.local
 chmod 600 .env.local
 
 pnpm i
-if [ "$MISSING_CONVEX_BOOTSTRAP" -eq 1 ]; then
-  cat >&2 <<'EOF'
-Missing Convex setup values.
-
-Create .env.local with either:
-  CONVEX_TEAM_SLUG=...
-  CONVEX_PROJECT_SLUG=...
-
-or an existing preview/dev source:
-  CONVEX_DEPLOYMENT=...
-
-Then rerun setup.
-EOF
-  exit 1
-fi
 pnpm seed:preview
-CONVEX_PREVIEW_REF="$PREVIEW_NAME"
-if [ -n "$CONVEX_TEAM_SLUG" ] && [ -n "$CONVEX_PROJECT_SLUG" ]; then
-  CONVEX_PREVIEW_REF="${CONVEX_TEAM_SLUG}:${CONVEX_PROJECT_SLUG}:${PREVIEW_NAME}"
-fi
-if [ -n "$SOURCE_CONVEX_DEPLOYMENT" ]; then
-  CONVEX_DEPLOYMENT="$SOURCE_CONVEX_DEPLOYMENT" pnpm exec convex deployment create "$CONVEX_PREVIEW_REF" --type preview --select --expiration "in 5 days" ||
-    CONVEX_DEPLOYMENT="$SOURCE_CONVEX_DEPLOYMENT" pnpm exec convex deployment select "$CONVEX_PREVIEW_REF"
-else
-  pnpm exec convex deployment create "$CONVEX_PREVIEW_REF" --type preview --select --expiration "in 5 days" ||
-    pnpm exec convex deployment select "$CONVEX_PREVIEW_REF"
-fi
-SOURCE_ENV_FILE=".env.local"
-CONVEX_SELECTED_DEPLOYMENT="$(read_local_env_value CONVEX_DEPLOYMENT)"
-case "$CONVEX_SELECTED_DEPLOYMENT" in
-  preview:*) ;;
-  *)
-    echo "Expected preview CONVEX_DEPLOYMENT after selecting $CONVEX_PREVIEW_REF, got ${CONVEX_SELECTED_DEPLOYMENT:-<missing>}"
-    exit 1
-    ;;
-esac
-CONVEX_IMPORT_DEPLOYMENT="$(printf '%s' "$CONVEX_SELECTED_DEPLOYMENT" | sed -n 's/^preview:\([^ #]*\).*/\1/p')"
-[ -n "$CONVEX_IMPORT_DEPLOYMENT" ] || { echo "Missing preview CONVEX_DEPLOYMENT in .env.local"; exit 1; }
-if [ "$CONVEX_SELECTED_DEPLOYMENT" != "preview:$CONVEX_IMPORT_DEPLOYMENT" ]; then
-  echo "Refusing destructive import: CONVEX_SELECTED_DEPLOYMENT does not match CONVEX_IMPORT_DEPLOYMENT"
-  exit 1
-fi
-case "$CONVEX_IMPORT_DEPLOYMENT" in
-  *[!a-zA-Z0-9-]* | "")
-    echo "Refusing destructive import: target is not an explicit preview deployment: ${CONVEX_IMPORT_DEPLOYMENT:-<missing>}"
-    exit 1
-    ;;
-esac
-sed -E '/^CONVEX_DEPLOYMENT=/d' .env.local > "$ENV_NEXT"
-{
-  printf 'CONVEX_DEPLOYMENT=%s\n' "$CONVEX_SELECTED_DEPLOYMENT"
-} >> "$ENV_NEXT"
-mv "$ENV_NEXT" .env.local
-chmod 600 .env.local
-pnpm exec convex env set AUTH_BYPASS_ENABLED true --deployment "$CONVEX_IMPORT_DEPLOYMENT"
 CONVEX_DEPLOY_URL_FILE="$(mktemp)"
 CONVEX_DEPLOY_URL_FILE="$CONVEX_DEPLOY_URL_FILE" AUTH_BYPASS_ENABLED=true pnpm exec convex deploy \
   --preview-name "$PREVIEW_NAME" \
-  --env-file .env.local \
   --cmd 'printf "%s\n" "$VITE_CONVEX_URL" > "$CONVEX_DEPLOY_URL_FILE"' \
   --cmd-url-env-var-name VITE_CONVEX_URL \
   --yes
@@ -191,7 +116,16 @@ rm -f "$CONVEX_DEPLOY_URL_FILE"
 case "$GENERATED_CONVEX_URL" in
   https://*.convex.cloud) ;;
   *)
-    echo "Convex deploy did not report a valid cloud URL for $CONVEX_IMPORT_DEPLOYMENT"
+    echo "Convex deploy did not report a valid cloud URL for $PREVIEW_NAME"
+    exit 1
+    ;;
+esac
+CONVEX_IMPORT_DEPLOYMENT="$(printf '%s' "$GENERATED_CONVEX_URL" | sed -n 's#^https://\([^.]*\).*\.convex\.cloud$#\1#p')"
+CONVEX_SELECTED_DEPLOYMENT="preview:$CONVEX_IMPORT_DEPLOYMENT"
+[ -n "$CONVEX_IMPORT_DEPLOYMENT" ] || { echo "Missing preview deployment name from $GENERATED_CONVEX_URL"; exit 1; }
+case "$CONVEX_IMPORT_DEPLOYMENT" in
+  *[!a-zA-Z0-9-]* | "")
+    echo "Refusing destructive import: target is not an explicit preview deployment: ${CONVEX_IMPORT_DEPLOYMENT:-<missing>}"
     exit 1
     ;;
 esac
@@ -212,9 +146,6 @@ rm -f "$CONVEX_RUNTIME_ENV_FILE"
 printf 'Running destructive preview seed import against Convex deployment: %s\n' "$CONVEX_IMPORT_DEPLOYMENT"
 pnpm exec convex import --deployment "$CONVEX_IMPORT_DEPLOYMENT" --replace-all --yes .cache/seed/preview.zip
 pnpm exec convex run devAuth:ensurePreviewAuthPersonas --deployment "$CONVEX_IMPORT_DEPLOYMENT"
-sed -E '/^CONVEX_DEPLOY_KEY=/d' .env.local > "$ENV_NEXT"
-mv "$ENV_NEXT" .env.local
-chmod 600 .env.local
 env -u CONVEX_DEPLOY_KEY pnpm gen
 '''
 

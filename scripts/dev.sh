@@ -8,19 +8,13 @@ if [ "$AUTH_BYPASS_ENABLED" = "true" ]; then
   export WORKOS_WEBHOOK_SECRET="${WORKOS_WEBHOOK_SECRET:-whsec_local_preview_placeholder}"
 fi
 
-env_backup_file=""
-env_filtered_file=""
 backend_log_file=""
 backend_log_tail_pid=""
 
-hide_convex_deploy_key() {
+reject_convex_deploy_key() {
   if [ -f .env.local ] && grep -q '^CONVEX_DEPLOY_KEY=' .env.local; then
-    env_backup_file="$(mktemp)"
-    env_filtered_file="$(mktemp)"
-    cp .env.local "$env_backup_file"
-    sed -E '/^CONVEX_DEPLOY_KEY=/d' "$env_backup_file" > "$env_filtered_file"
-    mv "$env_filtered_file" .env.local
-    chmod 600 .env.local
+    printf 'Remove CONVEX_DEPLOY_KEY from .env.local before running pnpm dev.\n' >&2
+    exit 1
   fi
 }
 
@@ -42,15 +36,6 @@ read_local_env_value() {
   printf '%s\n' "$value"
 }
 
-restore_env_file() {
-  if [ -n "$env_backup_file" ] && [ -f "$env_backup_file" ]; then
-    mv "$env_backup_file" .env.local
-  fi
-  if [ -n "$env_filtered_file" ] && [ -f "$env_filtered_file" ]; then
-    rm -f "$env_filtered_file"
-  fi
-}
-
 cleanup() {
   if [ -n "${frontend_pid:-}" ]; then
     kill "$frontend_pid" 2> /dev/null || true
@@ -67,11 +52,10 @@ cleanup() {
   if [ -n "$backend_log_file" ] && [ -f "$backend_log_file" ]; then
     rm -f "$backend_log_file"
   fi
-  restore_env_file
 }
 trap cleanup EXIT INT TERM
 
-hide_convex_deploy_key
+reject_convex_deploy_key
 
 selected_convex_deployment="$(read_local_env_value CONVEX_DEPLOYMENT || true)"
 case "$selected_convex_deployment" in
