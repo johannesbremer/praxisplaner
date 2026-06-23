@@ -15,16 +15,6 @@ trap 'rm -f "$ENV_NEXT"' EXIT
 SOURCE_ENV_FILE=""
 if [ -f .env.local ]; then
   SOURCE_ENV_FILE=".env.local"
-else
-  CURRENT_WORKTREE="$(pwd)"
-  while IFS= read -r worktree_path; do
-    if [ "$worktree_path" != "$CURRENT_WORKTREE" ] && [ -f "$worktree_path/.env.local" ]; then
-      SOURCE_ENV_FILE="$worktree_path/.env.local"
-      break
-    fi
-  done <<ENV_WORKTREES
-$(git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
-ENV_WORKTREES
 fi
 
 read_local_env_value() {
