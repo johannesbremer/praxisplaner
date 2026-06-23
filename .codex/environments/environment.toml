@@ -12,6 +12,17 @@ trap 'rm -f "$ENV_NEXT"' EXIT
 
 [ -n "$FNM_BIN" ] || { echo "Missing fnm on PATH"; exit 1; }
 
+if [ -f .env.local ]; then
+  set -a
+  . ./.env.local
+  set +a
+fi
+
+[ -n "${CONVEX_IMPORT_DEPLOYMENT:-}" ] || { echo "Missing CONVEX_IMPORT_DEPLOYMENT in .env.local"; exit 1; }
+[ -n "${CONVEX_SELECTED_DEPLOYMENT:-}" ] || { echo "Missing CONVEX_SELECTED_DEPLOYMENT in .env.local"; exit 1; }
+[ -n "${CONVEX_CLOUD_URL:-}" ] || { echo "Missing CONVEX_CLOUD_URL in .env.local"; exit 1; }
+[ -n "${CONVEX_SITE_URL:-}" ] || { echo "Missing CONVEX_SITE_URL in .env.local"; exit 1; }
+
 SOURCE_CONVEX_DEPLOYMENT="${CONVEX_DEPLOYMENT:-}"
 SOURCE_CONVEX_FROM_ENV=0
 if [ -n "$SOURCE_CONVEX_DEPLOYMENT" ]; then
@@ -64,7 +75,7 @@ PREVIEW_NAME="codex-${PREVIEW_SLUG}-${PREVIEW_HASH}"
 POSTHOG_HOST="${VITE_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}"
 
 if [ -f .env.local ]; then
-  sed -E '/^(AUTH_BYPASS_ENABLED|AUTH_BYPASS_SUBJECT|AUTH_BYPASS_EMAIL|VITE_AUTH_BYPASS_ENABLED|VITE_VERCEL_ENV|WORKOS_CLIENT_ID|VITE_WORKOS_CLIENT_ID|VITE_PUBLIC_POSTHOG_HOST)=/d' .env.local > "$ENV_NEXT"
+  sed -E '/^(AUTH_BYPASS_ENABLED|AUTH_BYPASS_SUBJECT|AUTH_BYPASS_EMAIL|VITE_AUTH_BYPASS_ENABLED|VITE_VERCEL_ENV|WORKOS_CLIENT_ID|VITE_WORKOS_CLIENT_ID|VITE_PUBLIC_POSTHOG_HOST|CONVEX_DEPLOYMENT|VITE_CONVEX_URL|VITE_CONVEX_SITE_URL)=/d' .env.local > "$ENV_NEXT"
 else
   : > "$ENV_NEXT"
 fi
@@ -82,35 +93,18 @@ fi
   if [ -n "${VITE_PUBLIC_POSTHOG_KEY:-}" ]; then
     printf 'VITE_PUBLIC_POSTHOG_KEY=%s\n' "$VITE_PUBLIC_POSTHOG_KEY"
   fi
+  printf '\n# Deployment used by `npx convex dev`\n'
+  printf 'CONVEX_DEPLOYMENT=%s # team: jb-5af98, project: praxisplaner\n' "$CONVEX_SELECTED_DEPLOYMENT"
+  printf '\nVITE_CONVEX_URL=%s\n' "$CONVEX_CLOUD_URL"
+  printf '\nVITE_CONVEX_SITE_URL=%s\n' "$CONVEX_SITE_URL"
 } >> "$ENV_NEXT"
 mv "$ENV_NEXT" .env.local
 chmod 600 .env.local
 
 pnpm i
 pnpm seed:preview
-CONVEX_PREVIEW_REF="$PREVIEW_NAME"
-if [ -n "$CONVEX_TEAM_SLUG" ] && [ -n "$CONVEX_PROJECT_SLUG" ]; then
-  CONVEX_PREVIEW_REF="${CONVEX_TEAM_SLUG}:${CONVEX_PROJECT_SLUG}:${PREVIEW_NAME}"
-fi
-if [ -n "$SOURCE_CONVEX_DEPLOYMENT" ]; then
-  CONVEX_DEPLOYMENT="$SOURCE_CONVEX_DEPLOYMENT" pnpm exec convex deployment create "$CONVEX_PREVIEW_REF" --type preview --select --expiration "in 5 days" ||
-    CONVEX_DEPLOYMENT="$SOURCE_CONVEX_DEPLOYMENT" pnpm exec convex deployment select "$CONVEX_PREVIEW_REF"
-else
-  pnpm exec convex deployment create "$CONVEX_PREVIEW_REF" --type preview --select --expiration "in 5 days" ||
-    pnpm exec convex deployment select "$CONVEX_PREVIEW_REF"
-fi
-CONVEX_SELECTED_DEPLOYMENT="$(sed -n 's/^CONVEX_DEPLOYMENT=//p' .env.local | head -n 1 | sed -E 's/[[:space:]]*#.*$//')"
-case "$CONVEX_SELECTED_DEPLOYMENT" in
-  preview:*) ;;
-  *)
-    echo "Expected preview CONVEX_DEPLOYMENT after selecting $CONVEX_PREVIEW_REF, got ${CONVEX_SELECTED_DEPLOYMENT:-<missing>}"
-    exit 1
-    ;;
-esac
-CONVEX_IMPORT_DEPLOYMENT="$(sed -n 's/^CONVEX_DEPLOYMENT=preview:\([^ #]*\).*/\1/p' .env.local)"
-[ -n "$CONVEX_IMPORT_DEPLOYMENT" ] || { echo "Missing preview CONVEX_DEPLOYMENT in .env.local"; exit 1; }
 pnpm exec convex env set AUTH_BYPASS_ENABLED true --deployment "$CONVEX_IMPORT_DEPLOYMENT"
-AUTH_BYPASS_ENABLED=true pnpm exec convex deploy --preview-name "$PREVIEW_NAME" --env-file .env.local --yes
+AUTH_BYPASS_ENABLED=true pnpm exec convex deploy --env-file .env.local --yes
 pnpm exec convex env set --deployment "$CONVEX_IMPORT_DEPLOYMENT" --from-file .env.local --force
 pnpm exec convex import --deployment "$CONVEX_IMPORT_DEPLOYMENT" --replace-all --yes .cache/seed/preview.zip
 pnpm exec convex run devAuth:ensurePreviewAuthPersonas --deployment "$CONVEX_IMPORT_DEPLOYMENT"
