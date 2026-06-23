@@ -62,6 +62,12 @@ if [ -n "$SOURCE_ENV_FILE" ]; then
   ENV_FILE_CONVEX_PROJECT_SLUG="$(read_local_env_value CONVEX_PROJECT_SLUG)"
   ENV_FILE_CONVEX_DEPLOY_KEY="$(read_local_env_value CONVEX_DEPLOY_KEY)"
 fi
+case "$SOURCE_CONVEX_DEPLOYMENT" in
+  anonymous:* | local | local:*)
+    SOURCE_CONVEX_DEPLOYMENT=""
+    SOURCE_CONVEX_FROM_ENV=0
+    ;;
+esac
 CONVEX_DEPLOY_KEY="${CONVEX_DEPLOY_KEY:-$ENV_FILE_CONVEX_DEPLOY_KEY}"
 if [ -n "$CONVEX_DEPLOY_KEY" ]; then
   export CONVEX_DEPLOY_KEY
@@ -176,19 +182,39 @@ case "$CONVEX_IMPORT_DEPLOYMENT" in
     exit 1
     ;;
 esac
-CONVEX_CLOUD_URL="https://$CONVEX_IMPORT_DEPLOYMENT.convex.cloud"
-CONVEX_SITE_URL="https://$CONVEX_IMPORT_DEPLOYMENT.convex.site"
-sed -E '/^(CONVEX_DEPLOYMENT|VITE_CONVEX_URL|VITE_CONVEX_SITE_URL|CONVEX_URL)=/d' .env.local > "$ENV_NEXT"
+sed -E '/^CONVEX_DEPLOYMENT=/d' .env.local > "$ENV_NEXT"
 {
   printf 'CONVEX_DEPLOYMENT=%s\n' "$CONVEX_SELECTED_DEPLOYMENT"
-  printf 'VITE_CONVEX_URL=%s\n' "$CONVEX_CLOUD_URL"
-  printf 'VITE_CONVEX_SITE_URL=%s\n' "$CONVEX_SITE_URL"
-  printf 'CONVEX_URL=%s\n' "$CONVEX_CLOUD_URL"
 } >> "$ENV_NEXT"
 mv "$ENV_NEXT" .env.local
 chmod 600 .env.local
 pnpm exec convex env set AUTH_BYPASS_ENABLED true --deployment "$CONVEX_IMPORT_DEPLOYMENT"
-AUTH_BYPASS_ENABLED=true pnpm exec convex deploy --preview-name "$PREVIEW_NAME" --env-file .env.local --yes
+CONVEX_DEPLOY_URL_FILE="$(mktemp)"
+CONVEX_DEPLOY_URL_FILE="$CONVEX_DEPLOY_URL_FILE" AUTH_BYPASS_ENABLED=true pnpm exec convex deploy \
+  --preview-name "$PREVIEW_NAME" \
+  --env-file .env.local \
+  --cmd 'printf "%s\n" "$VITE_CONVEX_URL" > "$CONVEX_DEPLOY_URL_FILE"' \
+  --cmd-url-env-var-name VITE_CONVEX_URL \
+  --yes
+GENERATED_CONVEX_URL="$(sed -n '1p' "$CONVEX_DEPLOY_URL_FILE")"
+rm -f "$CONVEX_DEPLOY_URL_FILE"
+case "$GENERATED_CONVEX_URL" in
+  https://*.convex.cloud) ;;
+  *)
+    echo "Convex deploy did not report a valid cloud URL for $CONVEX_IMPORT_DEPLOYMENT"
+    exit 1
+    ;;
+esac
+GENERATED_CONVEX_SITE_URL="$(printf '%s' "$GENERATED_CONVEX_URL" | sed 's/\.convex\.cloud$/.convex.site/')"
+sed -E '/^(CONVEX_DEPLOYMENT|VITE_CONVEX_URL|VITE_CONVEX_SITE_URL|CONVEX_URL)=/d' .env.local > "$ENV_NEXT"
+{
+  printf 'CONVEX_DEPLOYMENT=%s\n' "$CONVEX_SELECTED_DEPLOYMENT"
+  printf 'VITE_CONVEX_URL=%s\n' "$GENERATED_CONVEX_URL"
+  printf 'VITE_CONVEX_SITE_URL=%s\n' "$GENERATED_CONVEX_SITE_URL"
+  printf 'CONVEX_URL=%s\n' "$GENERATED_CONVEX_URL"
+} >> "$ENV_NEXT"
+mv "$ENV_NEXT" .env.local
+chmod 600 .env.local
 CONVEX_RUNTIME_ENV_FILE="$(mktemp)"
 sed -E '/^(CONVEX_DEPLOY_KEY|CONVEX_IMPORT_DEPLOYMENT|CONVEX_SELECTED_DEPLOYMENT|CONVEX_CLOUD_URL|CONVEX_SITE_URL)=/d' .env.local > "$CONVEX_RUNTIME_ENV_FILE"
 pnpm exec convex env set --deployment "$CONVEX_IMPORT_DEPLOYMENT" --from-file "$CONVEX_RUNTIME_ENV_FILE" --force

@@ -24,6 +24,24 @@ hide_convex_deploy_key() {
   fi
 }
 
+read_local_env_value() {
+  if [ ! -f .env.local ]; then
+    return 1
+  fi
+
+  value="$(sed -n -E "s/^$1=//p" .env.local | tail -n 1)"
+  value="${value#\"}"
+  value="${value%\"}"
+  value="${value#\'}"
+  value="${value%\'}"
+
+  if [ -z "$value" ]; then
+    return 1
+  fi
+
+  printf '%s\n' "$value"
+}
+
 restore_env_file() {
   if [ -n "$env_backup_file" ] && [ -f "$env_backup_file" ]; then
     mv "$env_backup_file" .env.local
@@ -51,6 +69,14 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 hide_convex_deploy_key
+
+selected_convex_deployment="$(read_local_env_value CONVEX_DEPLOYMENT || true)"
+case "$selected_convex_deployment" in
+  preview:*)
+    printf 'Using Convex preview deployment from .env.local; no local Convex backend is started.\n'
+    exit 0
+    ;;
+esac
 
 wait_for_owned_backend_ready() {
   if [ "$backend_owned" != "true" ]; then
