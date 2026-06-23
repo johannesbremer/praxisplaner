@@ -93,6 +93,10 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
   export_vite_auth_config_env
 
   pnpm seed:preview
+  pnpm exec convex env set \
+    --deployment "$preview_deployment_ref" \
+    --from-file "$runtime_env_file" \
+    --force
   AUTH_BYPASS_ENABLED=true pnpm exec convex deploy \
     --env-file "$deploy_env_file" \
     --cmd "VITE_AUTH_BYPASS_ENABLED=true VITE_VERCEL_ENV=preview pnpm run build" \
