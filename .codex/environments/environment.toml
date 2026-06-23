@@ -151,7 +151,7 @@ if [ "$CONVEX_SELECTED_DEPLOYMENT" != "preview:$CONVEX_IMPORT_DEPLOYMENT" ]; the
   exit 1
 fi
 case "$CONVEX_IMPORT_DEPLOYMENT" in
-  *[!a-zA-Z0-9-]* | "" | prod | production | prod-* | production-* | *-prod | *-production | *-prod-* | *-production-*)
+  *[!a-zA-Z0-9-]* | "")
     echo "Refusing destructive import: target is not an explicit preview deployment: ${CONVEX_IMPORT_DEPLOYMENT:-<missing>}"
     exit 1
     ;;
