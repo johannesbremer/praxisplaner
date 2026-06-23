@@ -12,10 +12,26 @@ trap 'rm -f "$ENV_NEXT"' EXIT
 
 [ -n "$FNM_BIN" ] || { echo "Missing fnm on PATH"; exit 1; }
 
+SOURCE_ENV_FILE=""
+if [ -f .env.local ]; then
+  SOURCE_ENV_FILE=".env.local"
+else
+  CURRENT_WORKTREE="$(pwd)"
+  while IFS= read -r worktree_path; do
+    if [ "$worktree_path" != "$CURRENT_WORKTREE" ] && [ -f "$worktree_path/.env.local" ]; then
+      SOURCE_ENV_FILE="$worktree_path/.env.local"
+      break
+    fi
+  done <<ENV_WORKTREES
+$(git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
+ENV_WORKTREES
+fi
+
 read_local_env_value() {
   name="$1"
-  [ -f .env.local ] || return 0
-  value="$(sed -n "s/^${name}=//p" .env.local | head -n 1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  [ -n "$SOURCE_ENV_FILE" ] || return 0
+  [ -f "$SOURCE_ENV_FILE" ] || return 0
+  value="$(sed -n "s/^${name}=//p" "$SOURCE_ENV_FILE" | head -n 1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
   case "$value" in
     \"*\")
       value="$(printf '%s' "$value" | sed -E 's/^"//; s/"[[:space:]]*(#.*)?$//')"
@@ -38,10 +54,10 @@ fi
 ENV_FILE_CONVEX_TEAM_SLUG=""
 ENV_FILE_CONVEX_PROJECT_SLUG=""
 ENV_FILE_CONVEX_DEPLOY_KEY=""
-if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -f .env.local ]; then
+if [ -z "$SOURCE_CONVEX_DEPLOYMENT" ] && [ -n "$SOURCE_ENV_FILE" ]; then
   SOURCE_CONVEX_DEPLOYMENT="$(read_local_env_value CONVEX_DEPLOYMENT)"
 fi
-if [ -f .env.local ]; then
+if [ -n "$SOURCE_ENV_FILE" ]; then
   ENV_FILE_CONVEX_TEAM_SLUG="$(read_local_env_value CONVEX_TEAM_SLUG)"
   ENV_FILE_CONVEX_PROJECT_SLUG="$(read_local_env_value CONVEX_PROJECT_SLUG)"
   ENV_FILE_CONVEX_DEPLOY_KEY="$(read_local_env_value CONVEX_DEPLOY_KEY)"
@@ -49,6 +65,9 @@ fi
 CONVEX_DEPLOY_KEY="${CONVEX_DEPLOY_KEY:-$ENV_FILE_CONVEX_DEPLOY_KEY}"
 if [ -n "$CONVEX_DEPLOY_KEY" ]; then
   export CONVEX_DEPLOY_KEY
+fi
+if [ "$SOURCE_CONVEX_FROM_ENV" -eq 0 ] && [ -n "$CONVEX_DEPLOY_KEY" ]; then
+  SOURCE_CONVEX_DEPLOYMENT=""
 fi
 
 if [ "$SOURCE_CONVEX_FROM_ENV" -eq 0 ]; then
@@ -85,8 +104,8 @@ PREVIEW_NAME="codex-${PREVIEW_SLUG}-${PREVIEW_HASH}"
 
 POSTHOG_HOST="${VITE_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}"
 
-if [ -f .env.local ]; then
-  sed -E '/^(AUTH_BYPASS_ENABLED|AUTH_BYPASS_SUBJECT|AUTH_BYPASS_EMAIL|VITE_AUTH_BYPASS_ENABLED|VITE_VERCEL_ENV|WORKOS_CLIENT_ID|VITE_WORKOS_CLIENT_ID|VITE_PUBLIC_POSTHOG_HOST|CONVEX_DEPLOYMENT|VITE_CONVEX_URL|VITE_CONVEX_SITE_URL|CONVEX_URL|CONVEX_IMPORT_DEPLOYMENT|CONVEX_SELECTED_DEPLOYMENT|CONVEX_CLOUD_URL|CONVEX_SITE_URL)=/d' .env.local > "$ENV_NEXT"
+if [ -n "$SOURCE_ENV_FILE" ]; then
+  sed -E '/^(AUTH_BYPASS_ENABLED|AUTH_BYPASS_SUBJECT|AUTH_BYPASS_EMAIL|VITE_AUTH_BYPASS_ENABLED|VITE_VERCEL_ENV|WORKOS_CLIENT_ID|VITE_WORKOS_CLIENT_ID|VITE_PUBLIC_POSTHOG_HOST|CONVEX_DEPLOYMENT|VITE_CONVEX_URL|VITE_CONVEX_SITE_URL|CONVEX_URL|CONVEX_IMPORT_DEPLOYMENT|CONVEX_SELECTED_DEPLOYMENT|CONVEX_CLOUD_URL|CONVEX_SITE_URL)=/d' "$SOURCE_ENV_FILE" > "$ENV_NEXT"
 else
   : > "$ENV_NEXT"
 fi
@@ -136,6 +155,7 @@ else
   pnpm exec convex deployment create "$CONVEX_PREVIEW_REF" --type preview --select --expiration "in 5 days" ||
     pnpm exec convex deployment select "$CONVEX_PREVIEW_REF"
 fi
+SOURCE_ENV_FILE=".env.local"
 CONVEX_SELECTED_DEPLOYMENT="$(read_local_env_value CONVEX_DEPLOYMENT)"
 case "$CONVEX_SELECTED_DEPLOYMENT" in
   preview:*) ;;
