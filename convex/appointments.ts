@@ -1578,13 +1578,6 @@ async function getSimulationBlockedSlotReplacements(
   );
 }
 
-function getSimulationScopeRuleSetId(args: {
-  activeRuleSetId?: Id<"ruleSets">;
-  selectedRuleSetId?: Id<"ruleSets">;
-}) {
-  return args.selectedRuleSetId ?? args.activeRuleSetId;
-}
-
 function isAppointmentInCalendarDayRange(
   appointment: Pick<AppointmentDoc, "start">,
   args: { dayEnd: string; dayStart: string },
@@ -1603,8 +1596,8 @@ function isAppointmentInSelectedLocation(
 }
 
 function isAppointmentVisibleInScope(
-  appointment: Pick<AppointmentDoc, "isSimulation" | "simulationRuleSetId">,
-  args: {
+  appointment: Pick<AppointmentDoc, "isSimulation">,
+  _args: {
     activeRuleSetId?: Id<"ruleSets">;
     selectedRuleSetId?: Id<"ruleSets">;
   },
@@ -1614,10 +1607,7 @@ function isAppointmentVisibleInScope(
     return appointment.isSimulation !== true;
   }
 
-  return (
-    appointment.isSimulation !== true ||
-    appointment.simulationRuleSetId === getSimulationScopeRuleSetId(args)
-  );
+  return true;
 }
 
 function isCalendarDayRangeMatch(
