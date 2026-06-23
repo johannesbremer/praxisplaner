@@ -170,7 +170,7 @@ chmod 600 .env.local
 pnpm exec convex env set AUTH_BYPASS_ENABLED true --deployment "$CONVEX_IMPORT_DEPLOYMENT"
 AUTH_BYPASS_ENABLED=true pnpm exec convex deploy --preview-name "$PREVIEW_NAME" --env-file .env.local --yes
 CONVEX_RUNTIME_ENV_FILE="$(mktemp)"
-sed -E '/^(CONVEX_IMPORT_DEPLOYMENT|CONVEX_SELECTED_DEPLOYMENT|CONVEX_CLOUD_URL|CONVEX_SITE_URL)=/d' .env.local > "$CONVEX_RUNTIME_ENV_FILE"
+sed -E '/^(CONVEX_DEPLOY_KEY|CONVEX_IMPORT_DEPLOYMENT|CONVEX_SELECTED_DEPLOYMENT|CONVEX_CLOUD_URL|CONVEX_SITE_URL)=/d' .env.local > "$CONVEX_RUNTIME_ENV_FILE"
 pnpm exec convex env set --deployment "$CONVEX_IMPORT_DEPLOYMENT" --from-file "$CONVEX_RUNTIME_ENV_FILE" --force
 rm -f "$CONVEX_RUNTIME_ENV_FILE"
 printf 'Running destructive preview seed import against Convex deployment: %s\n' "$CONVEX_IMPORT_DEPLOYMENT"
