@@ -17,7 +17,6 @@ import type * as appointmentSimulation from "../appointmentSimulation.js";
 import type * as appointments from "../appointments.js";
 import type * as auth from "../auth.js";
 import type * as authBypass from "../authBypass.js";
-import type * as authBypassConfig from "../authBypassConfig.js";
 import type * as bookingIdentities from "../bookingIdentities.js";
 import type * as bookingSessions from "../bookingSessions.js";
 import type * as bookingValidators from "../bookingValidators.js";
@@ -81,7 +80,6 @@ declare const fullApi: ApiFromModules<{
   appointments: typeof appointments;
   auth: typeof auth;
   authBypass: typeof authBypass;
-  authBypassConfig: typeof authBypassConfig;
   bookingIdentities: typeof bookingIdentities;
   bookingSessions: typeof bookingSessions;
   bookingValidators: typeof bookingValidators;
