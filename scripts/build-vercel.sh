@@ -77,19 +77,6 @@ require_real_auth_env() {
   fi
 }
 
-ensure_preview_deployment() {
-  deployment_ref="$1"
-  team_slug="${CONVEX_TEAM_SLUG:-jb-5af98}"
-  project_slug="${CONVEX_PROJECT_SLUG:-hausarzt-cloud}"
-  create_ref="${team_slug}:${project_slug}:${deployment_ref}"
-
-  pnpm exec convex deployment create "$create_ref" \
-    --type preview \
-    --select \
-    --expiration "in 5 days" \
-    || pnpm exec convex deployment select "$create_ref"
-}
-
 if [ "${VERCEL_ENV:-}" = "preview" ]; then
   preview_name="$(printf '%s' "${VERCEL_GIT_COMMIT_REF:-preview}" | tr '/' '-')"
   preview_deployment_ref="preview/$preview_name"
@@ -106,11 +93,6 @@ if [ "${VERCEL_ENV:-}" = "preview" ]; then
   export_vite_auth_config_env
 
   pnpm seed:preview
-  ensure_preview_deployment "$preview_deployment_ref"
-  pnpm exec convex env set \
-    --deployment "$preview_deployment_ref" \
-    --from-file "$runtime_env_file" \
-    --force
   AUTH_BYPASS_ENABLED=true pnpm exec convex deploy \
     --env-file "$deploy_env_file" \
     --cmd "VITE_AUTH_BYPASS_ENABLED=true VITE_VERCEL_ENV=preview pnpm run build" \
