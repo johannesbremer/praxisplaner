@@ -4,6 +4,7 @@ import { type AuthFunctions, AuthKit } from "@convex-dev/workos-authkit";
 import type { DataModel } from "./_generated/dataModel";
 
 import { components, internal } from "./_generated/api";
+import { isAuthBypassAllowed } from "./authBypassConfig";
 import { findUserByAuthId } from "./userIdentity";
 import {
   getWorkOSOrganizationMembershipRoleSlugs,
@@ -12,17 +13,17 @@ import {
 
 // Get a typed object of internal Convex functions exported by this file
 const authFunctions: AuthFunctions = internal.auth;
-const authBypassEnabled = process.env["AUTH_BYPASS_ENABLED"] === "true";
+const authBypassAllowed = isAuthBypassAllowed();
 
 const workOSClientId =
   process.env["WORKOS_CLIENT_ID"] ??
-  (authBypassEnabled ? "client_local_preview_placeholder" : undefined);
+  (authBypassAllowed ? "client_local_preview_placeholder" : undefined);
 const workOSApiKey =
   process.env["WORKOS_API_KEY"] ??
-  (authBypassEnabled ? "sk_test_local_preview_placeholder" : undefined);
+  (authBypassAllowed ? "sk_test_local_preview_placeholder" : undefined);
 const workOSWebhookSecret =
   process.env["WORKOS_WEBHOOK_SECRET"] ??
-  (authBypassEnabled ? "whsec_local_preview_placeholder" : undefined);
+  (authBypassAllowed ? "whsec_local_preview_placeholder" : undefined);
 
 export const authKit = new AuthKit<DataModel>(components.workOSAuthKit, {
   additionalEventTypes: [

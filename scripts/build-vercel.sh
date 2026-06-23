@@ -83,6 +83,7 @@ append_preview_auth_bypass_env() {
   printf 'WORKOS_API_KEY=sk_test_local_preview_placeholder\n' >> "$file"
   printf 'WORKOS_WEBHOOK_SECRET=whsec_local_preview_placeholder\n' >> "$file"
   printf 'AUTH_BYPASS_ENABLED=true\n' >> "$file"
+  printf 'VERCEL_ENV=preview\n' >> "$file"
   printf 'VITE_AUTH_BYPASS_ENABLED=true\n' >> "$file"
   printf 'VITE_VERCEL_ENV=preview\n' >> "$file"
 }
