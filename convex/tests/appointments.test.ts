@@ -3778,6 +3778,126 @@ describe("calendar day appointment queries", () => {
     ]);
   });
 
+  test("getCalendarDayAppointments keeps simulation appointments when the displayed rule set changes", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_query_persistent_simulation",
+      "day-query-persistent-simulation@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-query-persistent-simulation@example.com",
+      subject: "workos_day_query_persistent_simulation",
+    });
+    const targetRange = makeDayRange(5);
+
+    const displayedRuleSetRefs = await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const displayedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Displayed Draft",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+      const displayedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          lineageKey: baseData.locationId,
+          name: "Main Location Draft",
+          practiceId: baseData.practiceId,
+          ruleSetId: displayedRuleSetId,
+        },
+      );
+      const displayedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: baseData.practitionerId,
+          name: "Dr. Appointments Draft",
+          practiceId: baseData.practiceId,
+          ruleSetId: displayedRuleSetId,
+        },
+      );
+      const now = BigInt(Date.now());
+      const displayedAppointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [baseData.practitionerId],
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          lineageKey: baseData.appointmentTypeId,
+          name: "Checkup Draft",
+          practiceId: baseData.practiceId,
+          ruleSetId: displayedRuleSetId,
+        },
+      );
+
+      return {
+        displayedAppointmentTypeId,
+        displayedLocationId,
+        displayedPractitionerId,
+        displayedRuleSetId,
+      };
+    });
+
+    const simulationAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      isSimulation: true,
+      simulationKind: "draft",
+      simulationRuleSetId: baseData.ruleSetId,
+      simulationValidatedAt: BigInt(Date.now()),
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: displayedRuleSetRefs.displayedLocationId,
+        practiceId: baseData.practiceId,
+        scope: "simulation",
+        selectedRuleSetId: displayedRuleSetRefs.displayedRuleSetId,
+      }),
+    ).resolves.toMatchObject([
+      {
+        _id: simulationAppointmentId,
+        appointmentTypeId: displayedRuleSetRefs.displayedAppointmentTypeId,
+        isSimulation: true,
+        locationId: displayedRuleSetRefs.displayedLocationId,
+        practitionerId: displayedRuleSetRefs.displayedPractitionerId,
+        simulationRuleSetId: baseData.ruleSetId,
+      },
+    ]);
+  });
+
   test("getCalendarDayAppointments hides an in-range real appointment when its simulation replacement moved to another day", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
