@@ -47,8 +47,8 @@ import { captureErrorGlobal } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
 import {
   getPostHogApiKey,
-  getPostHogProviderOptions,
   identifyPostHogUser,
+  initializePostHogClient,
   isPostHogEnabled,
   registerPostHogClient,
   resetPostHogIdentity,
@@ -84,12 +84,10 @@ function BrowserPostHogProvider({ children }: { children: React.ReactNode }) {
   if (!postHogApiKey) {
     return <>{children}</>;
   }
+  const posthog = initializePostHogClient(postHogApiKey);
 
   return (
-    <PostHogProvider
-      apiKey={postHogApiKey}
-      options={getPostHogProviderOptions()}
-    >
+    <PostHogProvider client={posthog}>
       <PostHogClientRegistrar />
       <PostHogIdentitySync />
       {children}

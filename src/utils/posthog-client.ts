@@ -1,5 +1,7 @@
 import type { PostHog, PostHogConfig, Properties } from "posthog-js";
 
+import posthog from "posthog-js";
+
 export const POSTHOG_PROXY_PATH = "/fluss";
 
 interface AuthUserForPostHog {
@@ -15,6 +17,7 @@ const pendingExceptions: {
 }[] = [];
 
 let registeredPostHogClient: null | PostHog = null;
+let initializedPostHogClient: null | PostHog = null;
 
 interface PostHogCaptureClient {
   captureException: PostHog["captureException"];
@@ -61,6 +64,15 @@ export function identifyPostHogUser(
   user: AuthUserForPostHog,
 ) {
   posthog.identify(user.id, buildPostHogUserProperties(user));
+}
+
+export function initializePostHogClient(apiKey: string) {
+  if (initializedPostHogClient) {
+    return initializedPostHogClient;
+  }
+
+  initializedPostHogClient = posthog.init(apiKey, getPostHogProviderOptions());
+  return initializedPostHogClient;
 }
 
 export function isPostHogEnabled() {
