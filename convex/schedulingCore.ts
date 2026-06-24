@@ -92,12 +92,34 @@ export interface EvaluatedCandidateSlot extends CandidateSlot {
   displayReferences: CandidateSlotDisplayReferences;
 }
 
+export type SlotDurationCoverageSlot = Pick<
+  CandidateSlot,
+  | "duration"
+  | "locationLineageKey"
+  | "practitionerLineageKey"
+  | "startTime"
+  | "status"
+>;
+
 interface CandidateSlotDisplayReferenceMaps {
   locationByLineageKey: Map<LocationLineageKey, LocationId>;
   practitionerByLineageKey: Map<
     PractitionerLineageKey,
     { practitionerId: PractitionerId; practitionerName: string }
   >;
+}
+
+export function buildSlotDurationCoverageKey(
+  slot: Pick<
+    SlotDurationCoverageSlot,
+    "locationLineageKey" | "practitionerLineageKey" | "startTime"
+  >,
+): string {
+  return [
+    slot.startTime,
+    slot.locationLineageKey,
+    slot.practitionerLineageKey,
+  ].join("::");
 }
 
 export async function evaluateCandidateSlotsForDay(
@@ -425,6 +447,38 @@ export async function generateCandidateSlotsForDay(
   }
 
   return candidateSlots;
+}
+
+export function isSlotAvailableForAppointmentDuration(args: {
+  requiredDurationMinutes: number;
+  slot: SlotDurationCoverageSlot;
+  slotByCoverageKey: ReadonlyMap<string, SlotDurationCoverageSlot>;
+}): boolean {
+  let coveredDurationMinutes = 0;
+  let currentStartTime = Temporal.ZonedDateTime.from(args.slot.startTime);
+
+  while (coveredDurationMinutes < args.requiredDurationMinutes) {
+    const currentSlot = args.slotByCoverageKey.get(
+      buildSlotDurationCoverageKey({
+        locationLineageKey: args.slot.locationLineageKey,
+        practitionerLineageKey: args.slot.practitionerLineageKey,
+        startTime: currentStartTime.toString(),
+      }),
+    );
+    if (currentSlot?.status !== "AVAILABLE") {
+      return false;
+    }
+    if (currentSlot.duration <= 0) {
+      return false;
+    }
+
+    coveredDurationMinutes += currentSlot.duration;
+    currentStartTime = currentStartTime.add({
+      minutes: currentSlot.duration,
+    });
+  }
+
+  return true;
 }
 
 export function isSlotStartInFuture(

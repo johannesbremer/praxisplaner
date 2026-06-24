@@ -142,6 +142,7 @@ export function PatientView({
       ? {
           dateRange: calendarDateRange,
           practiceId,
+          ruleSetId,
           simulatedContext: effectiveSimulatedContext,
         }
       : "skip",

@@ -38,6 +38,10 @@ import {
 } from "./practiceAccess";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
+  buildSlotDurationCoverageKey,
+  isSlotAvailableForAppointmentDuration,
+} from "./schedulingCore";
+import {
   beihilfeStatusValidator,
   bookingSessionStepValidator,
   dataSharingContactInputValidator,
@@ -1656,6 +1660,7 @@ async function requireCurrentUserCanStartBooking(
 async function requireOfferedNewPatientSlot(
   ctx: MutationCtx,
   args: {
+    appointmentTypeDuration: number;
     appointmentTypeLineageKey: Id<"appointmentTypes">;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth: string;
@@ -1667,6 +1672,7 @@ async function requireOfferedNewPatientSlot(
   },
 ): Promise<void> {
   await requireOfferedPatientSlot(ctx, {
+    appointmentTypeDuration: args.appointmentTypeDuration,
     appointmentTypeLineageKey: args.appointmentTypeLineageKey,
     isNewPatient: true,
     locationLineageKey: args.locationLineageKey,
@@ -1682,6 +1688,7 @@ async function requireOfferedNewPatientSlot(
 async function requireOfferedPatientSlot(
   ctx: MutationCtx,
   args: {
+    appointmentTypeDuration: number;
     appointmentTypeLineageKey: Id<"appointmentTypes">;
     isNewPatient: boolean;
     locationLineageKey: LocationLineageKey;
@@ -1713,14 +1720,24 @@ async function requireOfferedPatientSlot(
       },
     },
   );
-  const matchingSlot = slotsResult.slots.some(
+  const matchingSlot = slotsResult.slots.find(
     (slot) =>
       slot.status === "AVAILABLE" &&
       slot.startTime === args.startTime &&
       slot.locationLineageKey === args.locationLineageKey &&
       slot.practitionerLineageKey === args.practitionerLineageKey,
   );
-  if (!matchingSlot) {
+  const slotByCoverageKey = new Map(
+    slotsResult.slots.map((slot) => [buildSlotDurationCoverageKey(slot), slot]),
+  );
+  if (
+    !matchingSlot ||
+    !isSlotAvailableForAppointmentDuration({
+      requiredDurationMinutes: args.appointmentTypeDuration,
+      slot: matchingSlot,
+      slotByCoverageKey,
+    })
+  ) {
     throw new Error("Selected slot is no longer available");
   }
 }
@@ -2615,6 +2632,7 @@ export const selectNewPatientSlot = mutation({
       startTime: selectedSlot.startTime,
     });
     await requireOfferedNewPatientSlot(ctx, {
+      appointmentTypeDuration: appointmentType.duration,
       appointmentTypeLineageKey: args.appointmentTypeLineageKey,
       locationLineageKey: asLocationLineageKey(
         rows.location.locationLineageKey,
@@ -2718,6 +2736,7 @@ export const selectExistingPatientSlot = mutation({
       startTime: selectedSlot.startTime,
     });
     await requireOfferedPatientSlot(ctx, {
+      appointmentTypeDuration: appointmentType.duration,
       appointmentTypeLineageKey: args.appointmentTypeLineageKey,
       isNewPatient: false,
       locationLineageKey: asLocationLineageKey(

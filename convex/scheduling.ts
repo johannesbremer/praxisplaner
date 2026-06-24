@@ -12,10 +12,7 @@ import type {
 } from "./identity";
 import type { AppointmentContext } from "./ruleEngine";
 
-import {
-  getPractitionerVacationRangesForDate,
-  getPractitionerWorkingRangesForDate,
-} from "../lib/vacation-utils";
+import { getPractitionerAvailabilityRangesForDate } from "../lib/vacation-utils";
 import { internal } from "./_generated/api";
 import { internalQuery, query } from "./_generated/server";
 import { type AppointmentBookingScope } from "./appointmentConflicts";
@@ -39,9 +36,11 @@ import {
 import { buildPreloadedDayData, evaluateLoadedRulesHelper } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import {
+  buildSlotDurationCoverageKey,
   type CandidateSlot,
   evaluateCandidateSlotsForDay,
   generateCandidateSlotsForDay,
+  isSlotAvailableForAppointmentDuration,
   SCHEDULING_TIMEZONE,
 } from "./schedulingCore";
 import {
@@ -293,6 +292,7 @@ export const getAvailableDates = query({
   args: {
     dateRange: dateRangeValidator,
     practiceId: v.id("practices"),
+    ruleSetId: v.optional(v.id("ruleSets")),
     simulatedContext: simulatedContextValidator,
   },
   handler: async (ctx, args) => {
@@ -302,11 +302,39 @@ export const getAvailableDates = query({
     const simulatedContext = asSimulatedContextInput(args.simulatedContext);
     const availableDates = new Set<string>();
     const practice = await ctx.db.get("practices", args.practiceId);
-    const ruleSetId = practice?.currentActiveRuleSetId;
+    const ruleSetId = args.ruleSetId ?? practice?.currentActiveRuleSetId;
 
     if (!ruleSetId) {
       return { dates: [] };
     }
+    await requireRuleSetBelongsToPractice(ctx, ruleSetId, args.practiceId);
+
+    const appointmentTypeLineageKey =
+      simulatedContext.appointmentTypeLineageKey;
+    const selectedAppointmentType =
+      appointmentTypeLineageKey === undefined
+        ? null
+        : requireSchedulableAppointmentType(
+            await ctx.db.get(
+              "appointmentTypes",
+              await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
+                lineageKey: asAppointmentTypeLineageKey(
+                  appointmentTypeLineageKey,
+                ),
+                ruleSetId,
+              }),
+            ),
+            appointmentTypeLineageKey,
+          );
+    const allowedPractitionerLineageKeys =
+      selectedAppointmentType === null
+        ? null
+        : new Set(
+            selectedAppointmentType.allowedPractitionerLineageKeys.map(
+              (practitionerLineageKey) =>
+                asPractitionerLineageKey(practitionerLineageKey),
+            ),
+          );
 
     const [practitioners, baseSchedules, vacations] = await Promise.all([
       ctx.db
@@ -348,6 +376,12 @@ export const getAvailableDates = query({
           ruleSetId: practitioner.ruleSetId,
         }),
       );
+      if (
+        allowedPractitionerLineageKeys !== null &&
+        !allowedPractitionerLineageKeys.has(practitionerLineageKey)
+      ) {
+        continue;
+      }
 
       // Check each day in the range
       for (
@@ -360,32 +394,17 @@ export const getAvailableDates = query({
           month: currentDate.getUTCMonth() + 1,
           year: currentDate.getUTCFullYear(),
         });
-        const workingRanges = getPractitionerWorkingRangesForDate(
-          plainDate,
-          practitionerLineageKey,
-          baseSchedules,
-          selectedLocationLineageKey,
-        );
-        if (workingRanges.length === 0) {
-          continue;
-        }
-
-        const vacationRanges = getPractitionerVacationRangesForDate(
+        const availabilityRanges = getPractitionerAvailabilityRangesForDate(
           plainDate,
           practitionerLineageKey,
           baseSchedules,
           vacations,
           selectedLocationLineageKey,
         );
-
-        const hasAvailableMinutes = workingRanges.some(
+        const hasAvailableMinutes = availabilityRanges.some(
           (range) =>
-            range.startMinutes < range.endMinutes &&
-            !vacationRanges.some(
-              (vacationRange) =>
-                vacationRange.startMinutes <= range.startMinutes &&
-                vacationRange.endMinutes >= range.endMinutes,
-            ),
+            range.endMinutes - range.startMinutes >=
+            (selectedAppointmentType?.duration ?? 1),
         );
 
         if (hasAvailableMinutes) {
@@ -428,6 +447,7 @@ async function getSlotsForDayImpl(
   ctx: QueryCtx,
   args: {
     date: IsoDateString;
+    enforceAppointmentDurationCoverage?: boolean;
     enforceFutureOnly?: boolean;
     excludedAppointmentIds?: Id<"appointments">[];
     practiceId: Id<"practices">;
@@ -478,7 +498,7 @@ async function getSlotsForDayImpl(
       ),
       ruleSetId,
     });
-  requireSchedulableAppointmentType(
+  const selectedAppointmentType = requireSchedulableAppointmentType(
     await ctx.db.get("appointmentTypes", selectedAppointmentTypeId),
     selectedAppointmentTypeId,
   );
@@ -582,6 +602,13 @@ async function getSlotsForDayImpl(
     },
   );
 
+  if (args.enforceAppointmentDurationCoverage === true) {
+    invalidateSlotsWithoutAppointmentDurationCoverage({
+      requiredDurationMinutes: selectedAppointmentType.duration,
+      slots: finalSlots,
+    });
+  }
+
   // Generate natural language reasons for blocked slots
   // PERFORMANCE FIX: Collect unique rule IDs and fetch descriptions once per rule
   // instead of once per slot (which was causing ~25k+ document reads)
@@ -653,7 +680,44 @@ async function getSlotsForDayImpl(
   return { log, slots: finalSlots };
 }
 
-function requireSchedulableAppointmentType<T extends { deleted?: boolean }>(
+function invalidateSlotsWithoutAppointmentDurationCoverage(args: {
+  requiredDurationMinutes: number;
+  slots: InternalSchedulingResultSlot[];
+}): void {
+  const slotSnapshots = args.slots.map((slot) => ({ ...slot }));
+  const slotByCoverageKey = new Map(
+    slotSnapshots.map((slot) => [buildSlotDurationCoverageKey(slot), slot]),
+  );
+  const slotsToInvalidate: InternalSchedulingResultSlot[] = [];
+
+  for (const [index, slot] of args.slots.entries()) {
+    const slotSnapshot = slotSnapshots[index];
+    if (slotSnapshot?.status !== "AVAILABLE") {
+      continue;
+    }
+    if (
+      isSlotAvailableForAppointmentDuration({
+        requiredDurationMinutes: args.requiredDurationMinutes,
+        slot: slotSnapshot,
+        slotByCoverageKey,
+      })
+    ) {
+      continue;
+    }
+
+    slotsToInvalidate.push(slot);
+  }
+
+  for (const slot of slotsToInvalidate) {
+    slot.status = "BLOCKED";
+    slot.reason =
+      "Die Terminart passt nicht vollständig in dieses Zeitfenster.";
+  }
+}
+
+function requireSchedulableAppointmentType<
+  T extends { deleted?: boolean; duration: number },
+>(
   appointmentType: null | T | undefined,
   appointmentTypeId: Id<"appointmentTypes">,
 ): T {
@@ -708,6 +772,7 @@ export const getSlotsForDay = query({
     const result = await getSlotsForDayImpl(ctx, {
       ...args,
       date: asIsoDateString(args.date),
+      enforceAppointmentDurationCoverage: true,
       ruleSetId: effectiveRuleSetId,
       ...(scope === undefined ? {} : { scope }),
       simulatedContext: asSimulatedContextInput(args.simulatedContext),
@@ -832,9 +897,10 @@ export const getNextAvailableSlot = query({
       }
 
       const dayResult: Awaited<ReturnType<typeof getSlotsForDayImpl>> =
-        await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
+        await getSlotsForDayImpl(ctx, {
           ...args,
-          date: day.toString(),
+          date: asIsoDateString(day.toString()),
+          enforceAppointmentDurationCoverage: true,
           enforceFutureOnly: true,
           ruleSetId: effectiveRuleSetId,
           ...(scope === undefined ? {} : { scope }),
