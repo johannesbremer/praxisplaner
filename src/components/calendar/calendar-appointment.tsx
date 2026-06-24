@@ -11,11 +11,10 @@ interface CalendarAppointmentProps {
   isRelatedToSelectedPatient?: boolean | undefined;
   isSelected?: boolean | undefined;
   onDelete: (appointmentId: string) => void;
-  onDragEnd?: (() => void) | undefined;
-  onDragStart?:
-    | ((e: React.DragEvent, appointmentId: string) => void)
-    | undefined;
   onEdit: (appointmentId: string) => void;
+  onPointerDragStart?:
+    | ((e: React.PointerEvent, appointmentId: string) => void)
+    | undefined;
   onResizeStart?:
     | ((
         e: React.MouseEvent,
@@ -35,9 +34,8 @@ export function CalendarAppointment({
   isRelatedToSelectedPatient = false,
   isSelected = false,
   onDelete,
-  onDragEnd,
-  onDragStart,
   onEdit,
+  onPointerDragStart,
   onResizeStart,
   onSelect,
   slotDuration,
@@ -68,7 +66,6 @@ export function CalendarAppointment({
       className={`pointer-events-auto absolute left-1 right-1 ${appointment.color} border-0 p-0 text-left text-white text-xs rounded shadow-sm hover:shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background transition-[opacity,box-shadow] z-10 ${canDrag ? "cursor-move" : "cursor-pointer"} ${
         isDragging ? "opacity-0" : "opacity-100"
       } ${borderClass} h-(--calendar-appointment-height) min-h-4 before:absolute before:inset-x-0 before:top-1/2 before:min-h-6 before:-translate-y-1/2 before:content-[''] top-(--calendar-appointment-top)`}
-      draggable={canDrag}
       onClick={() => {
         onSelect?.(appointment);
         onEdit(appointment.layout.id);
@@ -76,13 +73,6 @@ export function CalendarAppointment({
       onContextMenu={(e) => {
         e.preventDefault();
         onDelete(appointment.layout.id);
-      }}
-      onDragEnd={canDrag ? onDragEnd : undefined}
-      onDragStart={(e) => {
-        if (!canDrag || onDragStart === undefined) {
-          return;
-        }
-        onDragStart(e, appointment.layout.id);
       }}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -93,6 +83,12 @@ export function CalendarAppointment({
           e.preventDefault();
           onDelete(appointment.layout.id);
         }
+      }}
+      onPointerDown={(e) => {
+        if (!canDrag || onPointerDragStart === undefined) {
+          return;
+        }
+        onPointerDragStart(e, appointment.layout.id);
       }}
       style={
         {
@@ -121,6 +117,9 @@ export function CalendarAppointment({
               appointment.layout.id,
               appointment.layout.duration,
             );
+          }}
+          onPointerDown={(e) => {
+            e.stopPropagation();
           }}
         >
           <div className="w-8 h-0.5 bg-white/60 rounded" />

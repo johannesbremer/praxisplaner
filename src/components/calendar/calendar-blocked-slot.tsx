@@ -20,9 +20,10 @@ interface CalendarBlockedSlotProps {
   canDrag?: boolean | undefined;
   isDragging: boolean;
   onDelete: (id: string) => void;
-  onDragEnd?: (() => void) | undefined;
-  onDragStart?: ((e: React.DragEvent, id: string) => void) | undefined;
   onEdit: (id: string) => void;
+  onPointerDragStart?:
+    | ((e: React.PointerEvent, id: string) => void)
+    | undefined;
   onResizeStart?:
     | ((e: React.MouseEvent, id: string, currentDuration: number) => void)
     | undefined;
@@ -35,9 +36,8 @@ export function CalendarBlockedSlot({
   canDrag = true,
   isDragging,
   onDelete,
-  onDragEnd,
-  onDragStart,
   onEdit,
+  onPointerDragStart,
   onResizeStart,
   slotCount,
   slotToTime,
@@ -52,20 +52,12 @@ export function CalendarBlockedSlot({
       className={`pointer-events-auto absolute left-1 right-1 bg-muted-foreground text-background border-0 p-0 text-left text-xs rounded shadow-sm hover:shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background transition-[opacity,box-shadow] z-10 ${canDrag ? "cursor-move" : "cursor-pointer"} ${
         isDragging ? "opacity-0" : "opacity-100"
       } h-(--blocked-height) min-h-4 before:absolute before:inset-x-0 before:top-1/2 before:min-h-6 before:-translate-y-1/2 before:content-[''] top-(--blocked-top)`}
-      draggable={canDrag}
       onClick={() => {
         onEdit(blockedSlot.id);
       }}
       onContextMenu={(e) => {
         e.preventDefault();
         onDelete(blockedSlot.id);
-      }}
-      onDragEnd={canDrag ? onDragEnd : undefined}
-      onDragStart={(e) => {
-        if (!canDrag || onDragStart === undefined) {
-          return;
-        }
-        onDragStart(e, blockedSlot.id);
       }}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -75,6 +67,12 @@ export function CalendarBlockedSlot({
           e.preventDefault();
           onDelete(blockedSlot.id);
         }
+      }}
+      onPointerDown={(e) => {
+        if (!canDrag || onPointerDragStart === undefined) {
+          return;
+        }
+        onPointerDragStart(e, blockedSlot.id);
       }}
       style={
         {
@@ -96,6 +94,9 @@ export function CalendarBlockedSlot({
           onMouseDown={(e) => {
             e.stopPropagation();
             onResizeStart(e, blockedSlot.id, blockedSlot.duration);
+          }}
+          onPointerDown={(e) => {
+            e.stopPropagation();
           }}
         >
           <div className="w-8 h-0.5 bg-white/60 rounded" />

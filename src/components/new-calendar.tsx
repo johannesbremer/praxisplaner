@@ -319,15 +319,11 @@ export function NewCalendar({
     dragPreview,
     getBlockedSlotEditorData,
     getPractitionerIdForColumn,
-    handleBlockedSlotDragEnd,
     handleBlockedSlotDragStart,
     handleBlockedSlotResizeStart,
     handleDateChange,
     handleDeleteAppointment,
-    handleDragEnd,
-    handleDragOver,
     handleDragStart,
-    handleDrop,
     handleEditAppointment,
     handleEditBlockedSlot: handleEditBlockedSlotInternal,
     handleLocationSelect,
@@ -902,11 +898,6 @@ export function NewCalendar({
                         canManageCalendarPlanning && isBlockingModeActive
                       }
                       onAddAppointment={addAppointment}
-                      onBlockedSlotDragEnd={
-                        canManageCalendarPlanning
-                          ? handleBlockedSlotDragEnd
-                          : undefined
-                      }
                       onBlockSlot={
                         canManageCalendarPlanning ? handleBlockSlot : undefined
                       }
@@ -916,27 +907,18 @@ export function NewCalendar({
                           ? handleEditBlockedSlot
                           : undefined
                       }
-                      onDragEnd={
-                        canManageCalendarPlanning ? handleDragEnd : undefined
-                      }
-                      onDragOver={
-                        canManageCalendarPlanning ? handleDragOver : undefined
-                      }
-                      onDragStart={
-                        canManageCalendarPlanning ? handleDragStart : undefined
-                      }
-                      onDragStartBlockedSlot={
-                        canManageCalendarPlanning
-                          ? handleBlockedSlotDragStart
-                          : undefined
-                      }
-                      onDrop={
-                        canManageCalendarPlanning ? handleDrop : undefined
-                      }
                       onEditAppointment={handleEditAppointment}
                       onEditBlockedSlot={
                         canManageCalendarPlanning
                           ? handleEditBlockedSlot
+                          : undefined
+                      }
+                      onPointerDragStart={
+                        canManageCalendarPlanning ? handleDragStart : undefined
+                      }
+                      onPointerDragStartBlockedSlot={
+                        canManageCalendarPlanning
+                          ? handleBlockedSlotDragStart
                           : undefined
                       }
                       onResizeStart={

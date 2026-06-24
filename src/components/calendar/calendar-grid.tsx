@@ -52,25 +52,17 @@ interface CalendarGridProps {
   };
   isBlockingModeActive?: boolean;
   onAddAppointment: (column: CalendarColumnId, slot: number) => void;
-  onBlockedSlotDragEnd?: (() => void) | undefined;
   onBlockSlot?: ((column: CalendarColumnId, slot: number) => void) | undefined;
   onDeleteAppointment: (appointmentId: string) => void;
   onDeleteBlockedSlot?: ((id: string) => void) | undefined;
-  onDragEnd?: (() => void) | undefined;
-  onDragOver?:
-    | ((e: React.DragEvent, column: CalendarColumnId) => void)
-    | undefined;
-  onDragStart?:
-    | ((e: React.DragEvent, appointmentId: string) => void)
-    | undefined;
-  onDragStartBlockedSlot?:
-    | ((e: React.DragEvent, id: string) => void)
-    | undefined;
-  onDrop?:
-    | ((e: React.DragEvent, column: CalendarColumnId) => Promise<void>)
-    | undefined;
   onEditAppointment: (appointmentId: string) => void;
   onEditBlockedSlot?: ((id: string) => void) | undefined;
+  onPointerDragStart?:
+    | ((e: React.PointerEvent, appointmentId: string) => void)
+    | undefined;
+  onPointerDragStartBlockedSlot?:
+    | ((e: React.PointerEvent, id: string) => void)
+    | undefined;
   onResizeStart?:
     | ((
         e: React.MouseEvent,
@@ -112,17 +104,13 @@ export function CalendarGrid({
   dragPreview,
   isBlockingModeActive = false,
   onAddAppointment,
-  onBlockedSlotDragEnd,
   onBlockSlot,
   onDeleteAppointment,
   onDeleteBlockedSlot,
-  onDragEnd,
-  onDragOver,
-  onDragStart,
-  onDragStartBlockedSlot,
-  onDrop,
   onEditAppointment,
   onEditBlockedSlot,
+  onPointerDragStart,
+  onPointerDragStartBlockedSlot,
   onResizeStart,
   onResizeStartBlockedSlot,
   onSelectAppointment,
@@ -143,8 +131,6 @@ export function CalendarGrid({
     column.isUnavailable === true ||
     column.isAppointmentTypeUnavailable === true ||
     (draggedAppointment !== null && column.isDragDisabled === true);
-  const canUseDragAndDrop =
-    canDragCalendarItems && onDragOver !== undefined && onDrop !== undefined;
 
   const renderAppointments = (column: CalendarColumnId) => {
     return appointments
@@ -169,15 +155,14 @@ export function CalendarGrid({
         return (
           <CalendarAppointment
             appointment={appointment}
-            canDrag={canDragCalendarItems && onDragStart !== undefined}
+            canDrag={canDragCalendarItems && onPointerDragStart !== undefined}
             isDragging={isDragging}
             isRelatedToSelectedPatient={isRelatedToSelectedPatient}
             isSelected={isSelected}
             key={appointment.layout.id}
             onDelete={onDeleteAppointment}
-            onDragEnd={onDragEnd}
-            onDragStart={onDragStart}
             onEdit={onEditAppointment}
+            onPointerDragStart={onPointerDragStart}
             onResizeStart={onResizeStart}
             onSelect={onSelectAppointment}
             slotDuration={slotDuration}
@@ -317,7 +302,8 @@ export function CalendarGrid({
           <CalendarBlockedSlot
             blockedSlot={firstSlot}
             canDrag={
-              canDragCalendarItems && onDragStartBlockedSlot !== undefined
+              canDragCalendarItems &&
+              onPointerDragStartBlockedSlot !== undefined
             }
             isDragging={isDragging}
             key={`manual-blocked-${id}`}
@@ -326,19 +312,14 @@ export function CalendarGrid({
                 onDeleteBlockedSlot(blockId);
               }
             }}
-            onDragEnd={() => {
-              if (onBlockedSlotDragEnd) {
-                onBlockedSlotDragEnd();
-              }
-            }}
-            onDragStart={(e, blockId) => {
-              if (onDragStartBlockedSlot) {
-                onDragStartBlockedSlot(e, blockId);
-              }
-            }}
             onEdit={(blockId) => {
               if (onEditBlockedSlot) {
                 onEditBlockedSlot(blockId);
+              }
+            }}
+            onPointerDragStart={(e, blockId) => {
+              if (onPointerDragStartBlockedSlot) {
+                onPointerDragStartBlockedSlot(e, blockId);
               }
             }}
             onResizeStart={(e, blockId, duration) => {
@@ -598,29 +579,10 @@ export function CalendarGrid({
             aria-hidden="true"
             className={`relative z-10 ${isInteractionDisabled ? "cursor-not-allowed" : "cursor-pointer hover:bg-muted/20"}`}
             data-calendar-column-hit-target="deterministic"
+            data-calendar-column-key={calendarColumnScopeKey(column.id)}
             key={`hit-target-${calendarColumnScopeKey(column.id)}`}
             onClick={(e) => {
               handleColumnPointerClick(e, column);
-            }}
-            onDragLeave={() => {
-              if (
-                dragPreview.column !== null &&
-                sameCalendarColumnScope(dragPreview.column, column.id)
-              ) {
-                // User left this column while dragging.
-              }
-            }}
-            onDragOver={(e) => {
-              if (isInteractionDisabled || !canUseDragAndDrop) {
-                return;
-              }
-              onDragOver(e, column.id);
-            }}
-            onDrop={(e) => {
-              if (isInteractionDisabled || !canUseDragAndDrop) {
-                return;
-              }
-              void onDrop(e, column.id);
             }}
             role="presentation"
             style={{
@@ -654,32 +616,12 @@ export function CalendarGrid({
       )}
 
       {columns.map((column, columnIndex) => {
-        const isInteractionDisabled = isColumnInteractionDisabled(column);
         return (
           <div
             className="pointer-events-none relative z-20"
+            data-calendar-column-key={calendarColumnScopeKey(column.id)}
             data-calendar-column-overlay-target="occupied-ranges"
             key={`overlay-${calendarColumnScopeKey(column.id)}`}
-            onDragLeave={() => {
-              if (
-                dragPreview.column !== null &&
-                sameCalendarColumnScope(dragPreview.column, column.id)
-              ) {
-                // User left this occupied overlay while dragging.
-              }
-            }}
-            onDragOver={(e) => {
-              if (isInteractionDisabled || !canUseDragAndDrop) {
-                return;
-              }
-              onDragOver(e, column.id);
-            }}
-            onDrop={(e) => {
-              if (isInteractionDisabled || !canUseDragAndDrop) {
-                return;
-              }
-              void onDrop(e, column.id);
-            }}
             role="presentation"
             style={{
               gridColumn: columnIndex + 2,

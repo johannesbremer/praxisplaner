@@ -1,6 +1,4 @@
-import type { DragEvent } from "react";
-
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { regex } from "@/lib/arkregex";
@@ -104,11 +102,8 @@ describe("CalendarGrid", () => {
   const mockHandlers = {
     onAddAppointment: vi.fn(),
     onDeleteAppointment: vi.fn(),
-    onDragEnd: vi.fn(),
-    onDragOver: vi.fn(),
-    onDragStart: vi.fn(),
-    onDrop: vi.fn(),
     onEditAppointment: vi.fn(),
+    onPointerDragStart: vi.fn(),
     onResizeStart: vi.fn(),
   };
 
@@ -159,9 +154,8 @@ describe("CalendarGrid", () => {
 
     test("renders all appointments", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
-      // Check that both appointments are rendered as draggable elements
-      const draggableElements = container.querySelectorAll("[draggable=true]");
-      expect(draggableElements.length).toBe(mockAppointments.length);
+      const movableElements = container.querySelectorAll(".cursor-move");
+      expect(movableElements.length).toBe(mockAppointments.length);
     });
 
     test("renders appointments in correct columns", () => {
@@ -192,8 +186,8 @@ describe("CalendarGrid", () => {
       );
       expect(container).toBeTruthy();
       // Verify no appointment times are rendered
-      const draggableElements = container.querySelectorAll("[draggable=true]");
-      expect(draggableElements.length).toBe(0);
+      const movableElements = container.querySelectorAll(".cursor-move");
+      expect(movableElements.length).toBe(0);
     });
 
     test("renders with single column", () => {
@@ -286,7 +280,7 @@ describe("CalendarGrid", () => {
     test("calls onEditAppointment when appointment is clicked", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const appointment = container.querySelector("[draggable=true]");
+      const appointment = container.querySelector(".cursor-move");
       assertElement(appointment);
       fireEvent.click(appointment);
       expect(mockHandlers.onEditAppointment).toHaveBeenCalledExactlyOnceWith(
@@ -297,7 +291,7 @@ describe("CalendarGrid", () => {
     test("calls onDeleteAppointment on appointment right-click", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const appointment = container.querySelector("[draggable=true]");
+      const appointment = container.querySelector(".cursor-move");
       assertElement(appointment);
       fireEvent.contextMenu(appointment);
       expect(mockHandlers.onDeleteAppointment).toHaveBeenCalledExactlyOnceWith(
@@ -306,99 +300,57 @@ describe("CalendarGrid", () => {
     });
   });
 
-  describe("Drag and Drop", () => {
-    test("calls onDragStart when appointment is dragged", () => {
+  describe("Pointer dragging", () => {
+    test("calls onPointerDragStart when appointment dragging starts", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const appointment = container.querySelector("[draggable=true]");
+      const appointment = container.querySelector(".cursor-move");
       assertElement(appointment);
-      fireEvent.dragStart(appointment);
-      expect(mockHandlers.onDragStart).toHaveBeenCalled();
+      fireEvent.pointerDown(appointment, { button: 0, pointerId: 1 });
+      expect(mockHandlers.onPointerDragStart).toHaveBeenCalled();
     });
 
-    test("calls onDragOver when dragging over column", () => {
+    test("marks each column hit target with a stable calendar column key", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
       const columnHitTarget = container.querySelector(
         '[data-calendar-column-hit-target="deterministic"]',
       );
       assertElement(columnHitTarget);
-      fireEvent.dragOver(columnHitTarget);
-      expect(mockHandlers.onDragOver).toHaveBeenCalled();
-    });
-
-    test("calls onDrop when appointment is dropped", async () => {
-      const { container } = render(<CalendarGrid {...defaultProps} />);
-
-      const columnHitTarget = container.querySelector(
-        '[data-calendar-column-hit-target="deterministic"]',
+      expect(columnHitTarget).toHaveAttribute(
+        "data-calendar-column-key",
+        "practitioner:practitioner_1",
       );
-      assertElement(columnHitTarget);
-      fireEvent.drop(columnHitTarget);
-
-      await waitFor(() => {
-        expect(mockHandlers.onDrop).toHaveBeenCalled();
-      });
     });
 
-    test("keeps drag and drop handlers on the full column target instead of gridcells", async () => {
+    test("keeps pointer target metadata off gridcells and on full column targets", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
       const gridCell = container.querySelector("[role='gridcell']");
       assertElement(gridCell);
-      fireEvent.dragOver(gridCell);
-      fireEvent.drop(gridCell);
-
-      expect(mockHandlers.onDragOver).not.toHaveBeenCalled();
-      expect(mockHandlers.onDrop).not.toHaveBeenCalled();
+      expect(gridCell).not.toHaveAttribute("data-calendar-column-key");
 
       const columnHitTarget = container.querySelector(
         '[data-calendar-column-hit-target="deterministic"]',
       );
       assertElement(columnHitTarget);
-      fireEvent.dragOver(columnHitTarget);
-      fireEvent.drop(columnHitTarget);
-
-      await waitFor(() => {
-        expect(mockHandlers.onDragOver).toHaveBeenCalled();
-        expect(mockHandlers.onDrop).toHaveBeenCalled();
-      });
+      expect(columnHitTarget).toHaveAttribute("data-calendar-column-key");
     });
 
-    test("keeps column drag handlers reachable while dragging over occupied appointments", async () => {
-      let dragCurrentTarget: HTMLElement | null = null;
-      mockHandlers.onDragOver.mockImplementationOnce(
-        (event: DragEvent<HTMLElement>) => {
-          dragCurrentTarget = event.currentTarget;
-        },
-      );
-
+    test("keeps column pointer metadata reachable while dragging over occupied appointments", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
       const overlayTarget = container.querySelector(
         '[data-calendar-column-overlay-target="occupied-ranges"]',
       );
       assertElement(overlayTarget);
-      const appointment = container.querySelector("[draggable=true]");
-      assertElement(appointment);
-      fireEvent.dragOver(appointment);
-      fireEvent.drop(appointment);
-
-      await waitFor(() => {
-        expect(mockHandlers.onDragOver).toHaveBeenCalled();
-        expect(mockHandlers.onDrop).toHaveBeenCalled();
-      });
-      expect(dragCurrentTarget).toHaveAttribute(
-        "data-calendar-column-overlay-target",
-        "occupied-ranges",
-      );
-      expect(dragCurrentTarget).toBe(overlayTarget);
+      expect(overlayTarget).toHaveAttribute("data-calendar-column-key");
       expect(
         overlayTarget.querySelector('[data-calendar-slot-row="true"]'),
       ).toBeInTheDocument();
     });
 
-    test("does not allow dropping an appointment onto a drag-disabled column", async () => {
+    test("marks drag-disabled columns for pointer target resolution", () => {
       const draggedApt = mockAppointments[0];
       if (!draggedApt) {
         return;
@@ -426,13 +378,11 @@ describe("CalendarGrid", () => {
       const blockedColumnTarget = columnHitTargets[1];
       assertElement(blockedColumnTarget);
 
-      fireEvent.dragOver(blockedColumnTarget);
-      fireEvent.drop(blockedColumnTarget);
-
-      await waitFor(() => {
-        expect(mockHandlers.onDragOver).not.toHaveBeenCalled();
-        expect(mockHandlers.onDrop).not.toHaveBeenCalled();
-      });
+      expect(blockedColumnTarget).toHaveClass("cursor-not-allowed");
+      expect(blockedColumnTarget).toHaveAttribute(
+        "data-calendar-column-key",
+        "practitioner:practitioner_2",
+      );
     });
 
     test("renders drag preview when dragging", () => {
@@ -559,7 +509,7 @@ describe("CalendarGrid", () => {
         expect(indicator).toHaveClass("z-0");
       }
 
-      const appointment = container.querySelector("[draggable=true]");
+      const appointment = container.querySelector(".cursor-move");
       assertElement(appointment);
       expect(appointment).toHaveClass("z-10");
     });
@@ -639,8 +589,8 @@ describe("CalendarGrid", () => {
       );
 
       // All appointments should be rendered
-      const draggableElements = container.querySelectorAll("[draggable=true]");
-      expect(draggableElements.length).toBe(mixedAppointments.length);
+      const movableElements = container.querySelectorAll(".cursor-move");
+      expect(movableElements.length).toBe(mixedAppointments.length);
     });
 
     test("handles appointments with overlapping times", () => {
@@ -671,8 +621,8 @@ describe("CalendarGrid", () => {
       );
 
       // Both appointments should render (visual overlap is handled by CSS)
-      const draggableElements = container.querySelectorAll("[draggable=true]");
-      expect(draggableElements.length).toBe(2);
+      const movableElements = container.querySelectorAll(".cursor-move");
+      expect(movableElements.length).toBe(2);
     });
   });
 
@@ -842,7 +792,7 @@ describe("CalendarGrid", () => {
     test("appointments are keyboard accessible", () => {
       const { container } = render(<CalendarGrid {...defaultProps} />);
 
-      const appointments = container.querySelectorAll("[draggable=true]");
+      const appointments = container.querySelectorAll(".cursor-move");
       expect(appointments.length).toBe(mockAppointments.length);
     });
   });
