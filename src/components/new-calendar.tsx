@@ -538,14 +538,27 @@ export function NewCalendar({
         appointment,
         businessStartHour,
       });
+      const targetLocationName = locationsData?.find(
+        (location) => location._id === target.locationId,
+      )?.name;
+
       handleLocationSelect(target.locationId);
-      handleDateChange(target.date);
+      if (
+        targetLocationName !== undefined &&
+        onLocationResolved !== undefined
+      ) {
+        onLocationResolved(target.locationId, targetLocationName, target.date);
+      } else {
+        handleDateChange(target.date);
+      }
       scrollToSidebarAppointmentTarget(target.targetScrollTop);
     },
     [
       businessStartHour,
       handleDateChange,
       handleLocationSelect,
+      locationsData,
+      onLocationResolved,
       scrollToSidebarAppointmentTarget,
     ],
   );

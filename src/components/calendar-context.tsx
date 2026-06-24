@@ -59,7 +59,11 @@ export interface CalendarContextValue {
 
   // Location resolution
   onLocationResolved?:
-    | ((locationId: Id<"locations">, locationName: string) => void)
+    | ((
+        locationId: Id<"locations">,
+        locationName: string,
+        date?: Temporal.PlainDate,
+      ) => void)
     | undefined;
 
   // Appointment selection callback
