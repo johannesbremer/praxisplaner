@@ -40,7 +40,7 @@ export function CalendarItemContent({
     // Single line layout: time · title · type · patient (all in one line)
     const allParts = [...line1Parts, ...line2Parts];
     return (
-      <div className="h-full flex flex-row items-center px-1">
+      <div className="h-full overflow-hidden flex flex-row items-center px-1">
         <div className="text-xs truncate min-w-0">
           {allParts.map((part, index) => (
             <span key={index}>
@@ -60,7 +60,7 @@ export function CalendarItemContent({
   if (isCompact) {
     // Two line layout: time · title on line 1, type · patient on line 2
     return (
-      <div className="h-full flex flex-col justify-center px-1">
+      <div className="h-full overflow-hidden flex flex-col justify-center px-1">
         <div className="text-xs truncate min-w-0">
           {line1Parts.map((part, index) => (
             <span key={index}>
@@ -89,7 +89,7 @@ export function CalendarItemContent({
 
   // Vertical layout for taller items
   return (
-    <div className="h-full flex flex-col p-1 pb-2">
+    <div className="h-full overflow-hidden flex flex-col p-1 pb-2">
       <div className="text-xs">{startTime}</div>
       <div className="text-xs font-medium">
         {smiley ? `${smiley} ${title}` : title}
