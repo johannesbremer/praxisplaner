@@ -1240,4 +1240,118 @@ describe("booking flow without bookingSessions table", () => {
       slotStatusByStartTime.get("2027-01-02T10:05:00+01:00[Europe/Berlin]"),
     ).toBe("BLOCKED");
   });
+
+  test("available dates resolve appointment types against the viewed rule set", async () => {
+    const t = createAuthedTestContext("flow_booking_draft_dates");
+    const fixture = await createFlowFixture(t);
+
+    const draftFixture = await t.run(async (ctx) => {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_authId", (q) =>
+          q.eq("authId", "workos_flow_booking_draft_dates"),
+        )
+        .first();
+      if (!user) {
+        throw new Error("Expected booking fixture user.");
+      }
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: fixture.practiceId,
+        role: "staff",
+        userId: user._id,
+      });
+
+      const now = BigInt(Date.now());
+      const draftRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Draft Booking Flow Rule Set",
+        draftRevision: 1,
+        parentVersion: fixture.ruleSetId,
+        practiceId: fixture.practiceId,
+        saved: false,
+        version: 2,
+      });
+      const locationLineageKey = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          name: "Draft Dissen a.T.W.",
+          practiceId: fixture.practiceId,
+          ruleSetId: draftRuleSetId,
+        },
+      );
+      const practitionerLineageKey = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          name: "Dr. Draft",
+          practiceId: fixture.practiceId,
+          ruleSetId: draftRuleSetId,
+        },
+      );
+      const appointmentTypeLineageKey = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [practitionerLineageKey],
+          createdAt: now,
+          duration: 30,
+          followUpPlan: [],
+          lastModified: now,
+          name: "Draft-only appointment type",
+          practiceId: fixture.practiceId,
+          ruleSetId: draftRuleSetId,
+        },
+      );
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+        breakTimes: [],
+        dayOfWeek: 6,
+        endTime: "11:00",
+        locationLineageKey,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey,
+        ruleSetId: draftRuleSetId,
+        startTime: "10:00",
+      });
+
+      return {
+        appointmentTypeLineageKey,
+        draftRuleSetId,
+        locationLineageKey,
+      };
+    });
+
+    const simulatedContext = {
+      appointmentTypeLineageKey: draftFixture.appointmentTypeLineageKey,
+      clientType: "Online",
+      locationLineageKey: draftFixture.locationLineageKey,
+      patient: {
+        dateOfBirth: "1975-05-20",
+        isNew: false,
+      },
+    };
+
+    const datesResult = await t.query(api.scheduling.getAvailableDates, {
+      dateRange: {
+        end: "2027-01-02T00:00:00.000Z",
+        start: "2027-01-02T00:00:00.000Z",
+      },
+      practiceId: fixture.practiceId,
+      ruleSetId: draftFixture.draftRuleSetId,
+      simulatedContext,
+    });
+    expect(datesResult.dates).toEqual(["2027-01-02"]);
+
+    const slotsResult = await t.query(api.scheduling.getSlotsForDay, {
+      date: "2027-01-02",
+      practiceId: fixture.practiceId,
+      ruleSetId: draftFixture.draftRuleSetId,
+      scope: "simulation",
+      simulatedContext,
+    });
+    expect(slotsResult.slots.some((slot) => slot.status === "AVAILABLE")).toBe(
+      true,
+    );
+  });
 });

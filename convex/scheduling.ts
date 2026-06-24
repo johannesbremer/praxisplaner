@@ -292,6 +292,7 @@ export const getAvailableDates = query({
   args: {
     dateRange: dateRangeValidator,
     practiceId: v.id("practices"),
+    ruleSetId: v.optional(v.id("ruleSets")),
     simulatedContext: simulatedContextValidator,
   },
   handler: async (ctx, args) => {
@@ -301,11 +302,12 @@ export const getAvailableDates = query({
     const simulatedContext = asSimulatedContextInput(args.simulatedContext);
     const availableDates = new Set<string>();
     const practice = await ctx.db.get("practices", args.practiceId);
-    const ruleSetId = practice?.currentActiveRuleSetId;
+    const ruleSetId = args.ruleSetId ?? practice?.currentActiveRuleSetId;
 
     if (!ruleSetId) {
       return { dates: [] };
     }
+    await requireRuleSetBelongsToPractice(ctx, ruleSetId, args.practiceId);
 
     const appointmentTypeLineageKey =
       simulatedContext.appointmentTypeLineageKey;
