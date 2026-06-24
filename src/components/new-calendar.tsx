@@ -53,6 +53,7 @@ import {
   CalendarRightSidebar,
   RightSidebarProvider,
   RightSidebarTrigger,
+  type SidebarAppointment,
   useRightSidebar,
 } from "./calendar-right-sidebar";
 import { CalendarSidebar } from "./calendar-sidebar";
@@ -67,6 +68,30 @@ type SelectedPatient =
   | { id: Id<"patients">; info?: PatientInfo; type: "patient" }
   | { id: Id<"users">; type: "user" }
   | { info: PatientInfo; type: "draftTemporaryPatient" };
+
+export function getSidebarAppointmentCalendarTarget(args: {
+  appointment: Pick<SidebarAppointment, "locationId" | "start">;
+  businessStartHour: number;
+}): {
+  date: Temporal.PlainDate;
+  locationId: Id<"locations">;
+  targetScrollTop: number;
+} {
+  const appointmentDateTime = Temporal.Instant.from(
+    args.appointment.start,
+  ).toZonedDateTimeISO(TIMEZONE);
+  const slotFromBusinessStart =
+    (appointmentDateTime.hour - args.businessStartHour) * 12 +
+    Math.floor(appointmentDateTime.minute / 5);
+  const scrollTop = Math.max(0, slotFromBusinessStart * 16);
+  const headerOffset = 48 + 32;
+
+  return {
+    date: appointmentDateTime.toPlainDate(),
+    locationId: args.appointment.locationId,
+    targetScrollTop: Math.max(0, scrollTop - headerOffset),
+  };
+}
 
 // Wrapper component that enhances appointment selection with sidebar opening
 // Must be rendered inside RightSidebarProvider
@@ -462,6 +487,67 @@ export function NewCalendar({
       }
     },
     [],
+  );
+
+  const scrollToSidebarAppointmentTarget = useCallback(
+    (targetScrollTop: number) => {
+      const attemptScroll = (attempts = 0) => {
+        const container = calendarScrollContainerRef.current;
+        if (!container) {
+          return;
+        }
+
+        const expectedMinHeight = totalSlots * 16;
+        const isContentReady = container.scrollHeight >= expectedMinHeight;
+
+        if (isContentReady || attempts >= 10) {
+          container.scrollTo({
+            behavior: "smooth",
+            top: targetScrollTop,
+          });
+          return;
+        }
+
+        requestAnimationFrame(() => {
+          attemptScroll(attempts + 1);
+        });
+      };
+
+      setTimeout(() => {
+        requestAnimationFrame(() => {
+          attemptScroll(0);
+        });
+      }, 50);
+    },
+    [totalSlots],
+  );
+
+  const handleSelectSidebarAppointment = useCallback(
+    (appointment: SidebarAppointment) => {
+      setSelectedAppointmentId(appointment._id);
+      if (appointment.patientId) {
+        setSelectedPatient({
+          id: appointment.patientId,
+          type: "patient",
+        });
+      } else if (appointment.userId) {
+        setSelectedPatient({ id: appointment.userId, type: "user" });
+      }
+
+      const target = getSidebarAppointmentCalendarTarget({
+        appointment,
+        businessStartHour,
+      });
+      handleLocationSelect(target.locationId);
+      handleDateChange(target.date);
+      scrollToSidebarAppointmentTarget(target.targetScrollTop);
+    },
+    [
+      businessStartHour,
+      handleDateChange,
+      handleLocationSelect,
+      scrollToSidebarAppointmentTarget,
+    ],
   );
 
   // Temporal uses 1-7 (Monday=1), convert to 0-6 (Sunday=0) for legacy compatibility
@@ -886,72 +972,7 @@ export function NewCalendar({
             </div>
             <CalendarRightSidebar
               onPatientSelected={handleSelectPracticePatient}
-              onSelectAppointment={(appointment) => {
-                // Convert from SidebarAppointment (Doc<"appointments">) to Appointment format
-                // and select it
-                setSelectedAppointmentId(appointment._id);
-                if (appointment.patientId) {
-                  setSelectedPatient({
-                    id: appointment.patientId,
-                    type: "patient",
-                  });
-                } else if (appointment.userId) {
-                  setSelectedPatient({ id: appointment.userId, type: "user" });
-                }
-
-                // Navigate to the appointment's date
-                const appointmentDateTime = Temporal.Instant.from(
-                  appointment.start,
-                ).toZonedDateTimeISO(TIMEZONE);
-                const appointmentDate = appointmentDateTime.toPlainDate();
-                handleDateChange(appointmentDate);
-
-                // Scroll to the appointment's time after content has rendered
-                // Calculate scroll position based on the appointment's time slot
-                // Each slot is 16px high, 12 slots per hour (5-minute slots)
-                // IMPORTANT: The calendar grid starts at businessStartHour, not midnight!
-                const hour = appointmentDateTime.hour;
-                const minute = appointmentDateTime.minute;
-                // Calculate slot relative to business start hour
-                const slotFromBusinessStart =
-                  (hour - businessStartHour) * 12 + Math.floor(minute / 5);
-                const scrollTop = Math.max(0, slotFromBusinessStart * 16);
-                const headerOffset = 48 + 32; // header + some padding
-                const targetScrollTop = Math.max(0, scrollTop - headerOffset);
-
-                // Use requestAnimationFrame to wait for the DOM to update after date change
-                // We need to wait for React to re-render with the new date's data
-                const attemptScroll = (attempts = 0) => {
-                  const container = calendarScrollContainerRef.current;
-                  if (!container) {
-                    return;
-                  }
-
-                  // Check if content is ready (scrollHeight should be >= expected for full calendar)
-                  const expectedMinHeight = totalSlots * 16;
-                  const isContentReady =
-                    container.scrollHeight >= expectedMinHeight;
-
-                  if (isContentReady || attempts >= 10) {
-                    container.scrollTo({
-                      behavior: "smooth",
-                      top: targetScrollTop,
-                    });
-                  } else {
-                    // Content not ready, try again on next frame
-                    requestAnimationFrame(() => {
-                      attemptScroll(attempts + 1);
-                    });
-                  }
-                };
-
-                // Start attempting after a short delay to let React begin re-rendering
-                setTimeout(() => {
-                  requestAnimationFrame(() => {
-                    attemptScroll(0);
-                  });
-                }, 50);
-              }}
+              onSelectAppointment={handleSelectSidebarAppointment}
               onUpdateAppointmentSmiley={async ({ id, smiley }) => {
                 await runUpdateAppointment({ id, smiley });
               }}

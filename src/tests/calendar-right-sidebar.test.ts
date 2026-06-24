@@ -6,6 +6,7 @@ import {
   shouldShowAppointmentSmileyEditor,
   shouldShowAppointmentSmileyInTitle,
 } from "@/src/components/calendar-right-sidebar";
+import { getSidebarAppointmentCalendarTarget } from "@/src/components/new-calendar";
 
 describe("resolveAppointmentSmileyOptionsRuleSetId", () => {
   test("uses the selected simulation appointment rule set for smiley options", () => {
@@ -97,5 +98,25 @@ describe("shouldShowAppointmentSmileyInTitle", () => {
         smiley: undefined,
       }),
     ).toBe(false);
+  });
+});
+
+describe("getSidebarAppointmentCalendarTarget", () => {
+  test("keeps the appointment location when resolving the calendar target", () => {
+    const locationId = toTableId<"locations">("appointment-location");
+
+    expect(
+      getSidebarAppointmentCalendarTarget({
+        appointment: {
+          locationId,
+          start: "2026-06-24T09:30:00+02:00[Europe/Berlin]",
+        },
+        businessStartHour: 8,
+      }),
+    ).toEqual({
+      date: expect.objectContaining({ day: 24, month: 6, year: 2026 }),
+      locationId,
+      targetScrollTop: 208,
+    });
   });
 });
