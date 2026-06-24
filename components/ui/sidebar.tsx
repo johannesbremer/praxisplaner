@@ -125,7 +125,7 @@ function Sidebar({
 
   return (
     <div
-      className="group peer text-sidebar-foreground hidden md:block h-full relative"
+      className="group peer text-sidebar-foreground relative hidden h-full shrink-0 md:block"
       data-collapsible={state === "collapsed" ? collapsible : ""}
       data-side={side}
       data-slot="sidebar"
@@ -420,7 +420,7 @@ function SidebarProvider({
       <TooltipProvider delayDuration={0}>
         <div
           className={cn(
-            "group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full",
+            "group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full min-w-0",
             className,
           )}
           data-slot="sidebar-wrapper"

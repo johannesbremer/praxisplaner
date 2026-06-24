@@ -743,17 +743,17 @@ export function NewCalendar({
       }}
     >
       <RightSidebarProvider defaultOpen>
-        <div className="flex h-full w-full flex-col">
+        <div className="flex h-full w-full min-w-0 flex-col">
           {/* Header */}
-          <div className="border-b border-border bg-card px-6 py-4 z-20">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
+          <div className="z-20 border-b border-border bg-card px-6 py-4">
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
                 <SidebarTrigger />
-                <h2 className="text-xl font-semibold">
+                <h2 className="truncate text-xl font-semibold">
                   {formatDateFull(selectedDate)}
                 </h2>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <Button
                   onClick={() => {
                     handleDateChange(selectedDate.subtract({ days: 1 }));
@@ -833,12 +833,12 @@ export function NewCalendar({
             </div>
           </div>
 
-          <div className="flex flex-1 overflow-hidden">
+          <div className="flex min-w-0 flex-1 overflow-hidden">
             <CalendarSidebar />
 
             {/* Main Content */}
             <div
-              className="flex-1 overflow-auto"
+              className="min-w-0 flex-1 overflow-auto"
               ref={calendarScrollContainerRef}
             >
               {practiceId ? (
