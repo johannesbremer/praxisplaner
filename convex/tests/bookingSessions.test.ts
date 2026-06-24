@@ -1085,4 +1085,80 @@ describe("booking flow without bookingSessions table", () => {
     );
     expect(appointments).toHaveLength(0);
   });
+
+  test("does not advertise dates without a slot covering the appointment duration", async () => {
+    const t = createAuthedTestContext("flow_booking_date_duration_coverage");
+    const fixture = await createFlowFixture(t);
+
+    await t.run(async (ctx) => {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_authId", (q) =>
+          q.eq("authId", "workos_flow_booking_date_duration_coverage"),
+        )
+        .first();
+      if (!user) {
+        throw new Error("Expected booking fixture user.");
+      }
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: fixture.practiceId,
+        role: "staff",
+        userId: user._id,
+      });
+
+      const appointmentType = await ctx.db.get(
+        "appointmentTypes",
+        fixture.appointmentTypeLineageKey,
+      );
+      if (!appointmentType) {
+        throw new Error("Expected booking fixture appointment type.");
+      }
+      await ctx.db.patch("appointmentTypes", appointmentType._id, {
+        duration: 30,
+      });
+
+      const schedule = await ctx.db.query("baseSchedules").first();
+      if (!schedule) {
+        throw new Error("Expected booking fixture schedule.");
+      }
+      await ctx.db.patch("baseSchedules", schedule._id, {
+        breakTimes: [
+          { end: "10:30", start: "10:15" },
+          { end: "11:00", start: "10:45" },
+        ],
+      });
+    });
+
+    const simulatedContext = {
+      appointmentTypeLineageKey: fixture.appointmentTypeLineageKey,
+      clientType: "Online",
+      locationLineageKey: fixture.locationLineageKey,
+      patient: {
+        dateOfBirth: "1975-05-20",
+        isNew: false,
+      },
+    };
+
+    const datesResult = await t.query(api.scheduling.getAvailableDates, {
+      dateRange: {
+        end: "2027-01-02T00:00:00.000Z",
+        start: "2027-01-02T00:00:00.000Z",
+      },
+      practiceId: fixture.practiceId,
+      simulatedContext,
+    });
+    expect(datesResult.dates).toEqual([]);
+
+    const slotsResult = await t.query(api.scheduling.getSlotsForDay, {
+      date: "2027-01-02",
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+      scope: "real",
+      simulatedContext,
+    });
+    expect(slotsResult.slots.some((slot) => slot.status === "AVAILABLE")).toBe(
+      false,
+    );
+  });
 });
