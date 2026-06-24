@@ -686,6 +686,17 @@ export function useCalendarLogic({
     [totalSlots],
   );
 
+  const resolveDropSlot = useCallback(
+    (e: React.DragEvent, durationMinutes: number) =>
+      resolveDragPreviewSlot({
+        durationMinutes,
+        pointerSlot: getPointerSlot(e),
+        slotDurationMinutes: SLOT_DURATION,
+        totalSlots,
+      }),
+    [getPointerSlot, totalSlots],
+  );
+
   const handleDragStart = (e: React.DragEvent, appointmentId: string) => {
     const appointment = appointmentLayouts.find(
       (entry) => entry.id === appointmentId,
@@ -696,6 +707,7 @@ export function useCalendarLogic({
 
     setDraggedAppointment(appointment);
     e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", appointmentId);
     setTransparentDragImage(e.dataTransfer);
   };
 
@@ -704,12 +716,7 @@ export function useCalendarLogic({
     e.dataTransfer.dropEffect = "move";
 
     if (draggedAppointment) {
-      const targetSlot = resolveDragPreviewSlot({
-        durationMinutes: draggedAppointment.duration,
-        pointerSlot: getPointerSlot(e),
-        slotDurationMinutes: SLOT_DURATION,
-        totalSlots,
-      });
+      const targetSlot = resolveDropSlot(e, draggedAppointment.duration);
 
       setDragPreview((prev) => {
         if (
@@ -730,12 +737,7 @@ export function useCalendarLogic({
         (bs) => bs.id === draggedBlockedSlotId,
       );
       if (blockedSlot) {
-        const targetSlot = resolveDragPreviewSlot({
-          durationMinutes: blockedSlot.duration,
-          pointerSlot: getPointerSlot(e),
-          slotDurationMinutes: SLOT_DURATION,
-          totalSlots,
-        });
+        const targetSlot = resolveDropSlot(e, blockedSlot.duration);
 
         setDragPreview((prev) => {
           if (
@@ -845,7 +847,7 @@ export function useCalendarLogic({
           ? undefined
           : blockedSlotDocMapRef.current.get(resolvedBlockedSlotId);
 
-      const finalSlot = dragPreview.slot;
+      const finalSlot = resolveDropSlot(e, blockedSlot.duration);
       const newTime = slotToTime(finalSlot);
 
       try {
@@ -953,7 +955,7 @@ export function useCalendarLogic({
       return;
     }
 
-    const finalSlot = dragPreview.slot;
+    const finalSlot = resolveDropSlot(e, draggedAppointment.duration);
     const newTime = slotToTime(finalSlot);
 
     try {
@@ -1284,6 +1286,7 @@ export function useCalendarLogic({
   ) => {
     setDraggedBlockedSlotId(blockedSlotId);
     e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", blockedSlotId);
     setTransparentDragImage(e.dataTransfer);
   };
 
