@@ -211,6 +211,15 @@ describe("CalendarAppointment", () => {
     expect(style).toContain(`--calendar-appointment-top: ${expectedTop}px`);
   });
 
+  test("clips overflowing content inside the appointment height", () => {
+    render(<CalendarAppointment {...defaultProps} />);
+
+    const contentElement = screen.getByText("09:00").closest(".h-full");
+
+    assertElement(contentElement);
+    expect(contentElement).toHaveClass("overflow-hidden");
+  });
+
   test("renders resize handle", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
     const resizeHandle = container.querySelector(".cursor-ns-resize");
