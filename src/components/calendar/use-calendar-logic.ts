@@ -69,6 +69,27 @@ interface CalendarPointerTarget {
   element: HTMLElement;
 }
 
+const CALENDAR_DRAG_START_THRESHOLD_PX = 3;
+
+interface ActiveCalendarDragPointer {
+  hasMovedPastThreshold: boolean;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+}
+
+function hasMovedPastCalendarDragThreshold(
+  activePointer: ActiveCalendarDragPointer,
+  pointer: CalendarPointerCoordinates,
+): boolean {
+  return (
+    Math.hypot(
+      pointer.clientX - activePointer.startClientX,
+      pointer.clientY - activePointer.startClientY,
+    ) >= CALENDAR_DRAG_START_THRESHOLD_PX
+  );
+}
+
 /**
  * Deep comparison of appointment arrays.
  */
@@ -119,7 +140,7 @@ export function useCalendarLogic({
     visible: boolean;
   }>(emptyDragPreview);
   const autoScrollAnimationRef = useRef<null | number>(null);
-  const activeDragPointerIdRef = useRef<null | number>(null);
+  const activeDragPointerRef = useRef<ActiveCalendarDragPointer | null>(null);
   const detachPointerDragListenersRef = useRef<(() => void) | null>(null);
   const hasResolvedLocationRef = useRef(false);
 
@@ -824,7 +845,12 @@ export function useCalendarLogic({
     }
 
     e.currentTarget.setPointerCapture(e.pointerId);
-    activeDragPointerIdRef.current = e.pointerId;
+    activeDragPointerRef.current = {
+      hasMovedPastThreshold: false,
+      pointerId: e.pointerId,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+    };
     setDraggedAppointment(appointment);
   };
 
@@ -1209,7 +1235,7 @@ export function useCalendarLogic({
     stopAutoScroll();
     clearPointerDragListeners();
 
-    activeDragPointerIdRef.current = null;
+    activeDragPointerRef.current = null;
     setDraggedAppointment(null);
     setDraggedBlockedSlotId(null);
     setDragPreview(emptyDragPreview);
@@ -1242,25 +1268,40 @@ export function useCalendarLogic({
   useEffect(() => {
     if (draggedAppointment === null && draggedBlockedSlotId === null) {
       clearPointerDragListeners();
-      activeDragPointerIdRef.current = null;
+      activeDragPointerRef.current = null;
       return;
     }
 
     const handleDocumentPointerMove = (event: PointerEvent) => {
-      if (event.pointerId !== activeDragPointerIdRef.current) {
+      const activePointer = activeDragPointerRef.current;
+      if (activePointer?.pointerId !== event.pointerId) {
         return;
+      }
+      if (!activePointer.hasMovedPastThreshold) {
+        if (!hasMovedPastCalendarDragThreshold(activePointer, event)) {
+          return;
+        }
+        activePointer.hasMovedPastThreshold = true;
       }
       handleDragOver(event);
     };
     const handleDocumentPointerUp = (event: PointerEvent) => {
-      if (event.pointerId !== activeDragPointerIdRef.current) {
+      const activePointer = activeDragPointerRef.current;
+      if (activePointer?.pointerId !== event.pointerId) {
         return;
       }
-      activeDragPointerIdRef.current = null;
+      if (
+        !activePointer.hasMovedPastThreshold &&
+        !hasMovedPastCalendarDragThreshold(activePointer, event)
+      ) {
+        handleDragEnd();
+        return;
+      }
+      activeDragPointerRef.current = null;
       handlePointerUp(event);
     };
     const handleDocumentPointerCancel = (event: PointerEvent) => {
-      if (event.pointerId !== activeDragPointerIdRef.current) {
+      if (activeDragPointerRef.current?.pointerId !== event.pointerId) {
         return;
       }
       handleDragEnd();
@@ -1516,13 +1557,19 @@ export function useCalendarLogic({
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
-    activeDragPointerIdRef.current = e.pointerId;
+    activeDragPointerRef.current = {
+      hasMovedPastThreshold: false,
+      pointerId: e.pointerId,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+    };
     setDraggedBlockedSlotId(blockedSlotId);
   };
 
   const handleBlockedSlotDragEnd = () => {
     stopAutoScroll();
     clearPointerDragListeners();
+    activeDragPointerRef.current = null;
     setDraggedBlockedSlotId(null);
     setDragPreview(emptyDragPreview);
   };
