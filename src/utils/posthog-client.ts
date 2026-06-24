@@ -48,6 +48,10 @@ export function getPostHogProviderOptions(): Partial<PostHogConfig> {
     api_host: POSTHOG_PROXY_PATH,
     capture_exceptions: true,
     defaults: "2026-05-30",
+    session_recording: {
+      maskAllInputs: true,
+      maskTextSelector: "*",
+    },
     ...(postHogHost ? { ui_host: getPostHogUiHost(postHogHost) } : {}),
   };
 }
