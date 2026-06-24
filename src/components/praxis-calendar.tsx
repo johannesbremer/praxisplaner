@@ -16,7 +16,11 @@ interface PraxisCalendarProps {
   locationName?: string | undefined;
   onDateChange?: ((date: Temporal.PlainDate) => void) | undefined;
   onLocationResolved?:
-    | ((locationId: Id<"locations">, locationName: string) => void)
+    | ((
+        locationId: Id<"locations">,
+        locationName: string,
+        date?: Temporal.PlainDate,
+      ) => void)
     | undefined;
   onSlotClick?: ((slot: SchedulingSlot) => void) | undefined;
   onUpdateSimulatedContext?:

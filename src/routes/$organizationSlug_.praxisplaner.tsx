@@ -337,8 +337,12 @@ function PraxisPlanerComponent() {
 
   // Handle location selection from calendar
   const handleLocationResolved = useCallback(
-    (_locationId: Id<"locations">, locationName: string) => {
-      pushParams(selectedDate, activeTab, visibleColumnNames, locationName);
+    (
+      _locationId: Id<"locations">,
+      locationName: string,
+      date = selectedDate,
+    ) => {
+      pushParams(date, activeTab, visibleColumnNames, locationName);
     },
     [activeTab, visibleColumnNames, pushParams, selectedDate],
   );
