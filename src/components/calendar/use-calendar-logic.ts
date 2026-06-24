@@ -64,6 +64,11 @@ interface CalendarPointerCoordinates {
   clientY: number;
 }
 
+interface CalendarPointerTarget {
+  column: CalendarColumnId;
+  element: HTMLElement;
+}
+
 /**
  * Deep comparison of appointment arrays.
  */
@@ -893,8 +898,46 @@ export function useCalendarLogic({
     ],
   );
 
+  const resolveFinalDropSlot = useCallback(
+    (target: CalendarPointerTarget, pointer: CalendarPointerCoordinates) => {
+      if (draggedAppointment) {
+        return resolveDragPreviewSlot({
+          durationMinutes: draggedAppointment.duration,
+          pointerSlot: getPointerSlot(target.element, pointer.clientY),
+          slotDurationMinutes: SLOT_DURATION,
+          totalSlots,
+        });
+      }
+
+      if (draggedBlockedSlotId) {
+        const blockedSlot = manualBlockedSlots.find(
+          (bs) => bs.id === draggedBlockedSlotId,
+        );
+        if (!blockedSlot) {
+          return null;
+        }
+
+        return resolveDragPreviewSlot({
+          durationMinutes: blockedSlot.duration,
+          pointerSlot: getPointerSlot(target.element, pointer.clientY),
+          slotDurationMinutes: SLOT_DURATION,
+          totalSlots,
+        });
+      }
+
+      return null;
+    },
+    [
+      draggedAppointment,
+      draggedBlockedSlotId,
+      getPointerSlot,
+      manualBlockedSlots,
+      totalSlots,
+    ],
+  );
+
   const handleDrop = useCallback(
-    async (column: CalendarColumnId) => {
+    async (column: CalendarColumnId, finalSlot: number) => {
       stopAutoScroll();
 
       if (draggedBlockedSlotId) {
@@ -915,7 +958,6 @@ export function useCalendarLogic({
             ? undefined
             : blockedSlotDocMapRef.current.get(resolvedBlockedSlotId);
 
-        const finalSlot = dragPreview.slot;
         if (!dragPreview.visible) {
           setDraggedBlockedSlotId(null);
           setDragPreview(emptyDragPreview);
@@ -1035,7 +1077,6 @@ export function useCalendarLogic({
         return;
       }
 
-      const finalSlot = dragPreview.slot;
       const newTime = slotToTime(finalSlot);
 
       try {
@@ -1145,7 +1186,6 @@ export function useCalendarLogic({
     [
       blockedSlotDocMapRef,
       checkCollision,
-      dragPreview.slot,
       dragPreview.visible,
       draggedAppointment,
       draggedBlockedSlotId,
@@ -1179,13 +1219,19 @@ export function useCalendarLogic({
         handleDragEnd();
         return;
       }
+      const finalSlot = resolveFinalDropSlot(target, pointer);
+      if (finalSlot === null) {
+        handleDragEnd();
+        return;
+      }
       clearPointerDragListeners();
-      void handleDrop(target.column);
+      void handleDrop(target.column, finalSlot);
     },
     [
       clearPointerDragListeners,
       handleDragEnd,
       handleDrop,
+      resolveFinalDropSlot,
       resolvePointerTarget,
     ],
   );
