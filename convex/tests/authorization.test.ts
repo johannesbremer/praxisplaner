@@ -1,4 +1,5 @@
 import { convexTest } from "convex-test";
+import { Temporal } from "temporal-polyfill";
 import { describe, expect, test } from "vitest";
 
 import type { Id } from "../_generated/dataModel";
@@ -130,6 +131,12 @@ async function createUser(
   });
 }
 
+function nextFutureWeekday(weekday: number): Temporal.PlainDate {
+  const today = Temporal.Now.plainDateISO("Europe/Berlin");
+  const delta = (weekday - today.dayOfWeek + 7) % 7;
+  return today.add({ days: delta === 0 ? 7 : delta });
+}
+
 async function setMembershipRole(
   t: ReturnType<typeof createTestContext>,
   args: {
@@ -156,6 +163,19 @@ async function setMembershipRole(
     }
     await ctx.db.patch("practiceMembers", membership._id, { role: args.role });
   });
+}
+
+function zonedDateTimeAt(
+  date: Temporal.PlainDate,
+  hour: number,
+  minute: number,
+): string {
+  return date
+    .toZonedDateTime({
+      plainTime: { hour, minute },
+      timeZone: "Europe/Berlin",
+    })
+    .toString();
 }
 
 describe("Convex query authorization", () => {
@@ -889,6 +909,11 @@ describe("Convex query authorization", () => {
     const patientAuthId = "workos_authz_simulation_scope_patient";
     const patientEmail = "authz-simulation-scope-patient@example.com";
     await createUser(t, patientAuthId, patientEmail);
+    const blockDate = nextFutureWeekday(1);
+    const nextOpenDate = blockDate.add({ weeks: 1 });
+    const blockStart = zonedDateTimeAt(blockDate, 9, 0);
+    const blockEnd = zonedDateTimeAt(blockDate, 9, 5);
+    const nextOpenStart = zonedDateTimeAt(nextOpenDate, 9, 0);
 
     const schedulingRefs = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
@@ -931,7 +956,7 @@ describe("Convex query authorization", () => {
       });
       await ctx.db.insert("blockedSlots", {
         createdAt: now,
-        end: "2027-06-07T09:05:00+02:00[Europe/Berlin]",
+        end: blockEnd,
         isSimulation: true,
         lastModified: now,
         locationLineageKey: locationId,
@@ -940,7 +965,7 @@ describe("Convex query authorization", () => {
           practitionerLineageKey: practitionerId,
         },
         practiceId: practice.practiceId,
-        start: "2027-06-07T09:00:00+02:00[Europe/Berlin]",
+        start: blockStart,
         title: "Draft-only block",
       });
 
@@ -948,7 +973,7 @@ describe("Convex query authorization", () => {
     });
 
     const queryArgs = {
-      date: "2027-06-07",
+      date: blockDate.toString(),
       enforceFutureOnly: false,
       practiceId: practice.practiceId,
       ruleSetId: practice.ruleSetId,
@@ -998,14 +1023,14 @@ describe("Convex query authorization", () => {
         nextSlotQueryArgs,
       ),
     ).resolves.toMatchObject({
-      startTime: "2027-06-14T09:00:00+02:00[Europe/Berlin]",
+      startTime: nextOpenStart,
       status: "AVAILABLE",
     });
     await expect(
       patient.query(api.scheduling.getNextAvailableSlot, nextSlotQueryArgs),
     ).resolves.toMatchObject({
       practitionerLineageKey: schedulingRefs.practitionerId,
-      startTime: "2027-06-07T09:00:00+02:00[Europe/Berlin]",
+      startTime: blockStart,
       status: "AVAILABLE",
     });
   });

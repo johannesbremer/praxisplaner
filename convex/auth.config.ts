@@ -1,5 +1,8 @@
 // convex/auth.config.ts
-const clientId = process.env["WORKOS_CLIENT_ID"];
+const authBypassEnabled = process.env["AUTH_BYPASS_ENABLED"] === "true";
+const clientId =
+  process.env["WORKOS_CLIENT_ID"] ??
+  (authBypassEnabled ? "client_local_preview_placeholder" : undefined);
 
 if (!clientId) {
   throw new Error(
