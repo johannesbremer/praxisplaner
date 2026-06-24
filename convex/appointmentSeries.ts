@@ -1598,7 +1598,8 @@ async function getExactResourceSlotAvailability(
     (slot) =>
       slot.status === "AVAILABLE" ||
       (args.allowPlannerRuleOverride === true &&
-        slot.blockedByRuleId !== undefined),
+        slot.blockedByRuleId !== undefined) ||
+      isBlockedOnlyByAppointmentOccupancy(slot),
   );
 
   return hasAnyConsecutiveAvailablePractitionerSlots(slots, {
@@ -1610,6 +1611,7 @@ async function getExactResourceSlotAvailability(
         available: false,
         failure: schedulerFailureForSlot(
           findFirstUnavailableSchedulerSlotInRange(schedulerSlots, {
+            allowAppointmentOnlyBlocks: true,
             ...(args.allowPlannerRuleOverride === undefined
               ? {}
               : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
