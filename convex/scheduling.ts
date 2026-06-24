@@ -682,24 +682,31 @@ function invalidateSlotsWithoutAppointmentDurationCoverage(args: {
   requiredDurationMinutes: number;
   slots: InternalSchedulingResultSlot[];
 }): void {
+  const slotSnapshots = args.slots.map((slot) => ({ ...slot }));
   const slotByCoverageKey = new Map(
-    args.slots.map((slot) => [buildSlotDurationCoverageKey(slot), slot]),
+    slotSnapshots.map((slot) => [buildSlotDurationCoverageKey(slot), slot]),
   );
+  const slotsToInvalidate: InternalSchedulingResultSlot[] = [];
 
-  for (const slot of args.slots) {
-    if (slot.status !== "AVAILABLE") {
+  for (const [index, slot] of args.slots.entries()) {
+    const slotSnapshot = slotSnapshots[index];
+    if (slotSnapshot?.status !== "AVAILABLE") {
       continue;
     }
     if (
       isSlotAvailableForAppointmentDuration({
         requiredDurationMinutes: args.requiredDurationMinutes,
-        slot,
+        slot: slotSnapshot,
         slotByCoverageKey,
       })
     ) {
       continue;
     }
 
+    slotsToInvalidate.push(slot);
+  }
+
+  for (const slot of slotsToInvalidate) {
     slot.status = "BLOCKED";
     slot.reason =
       "Die Terminart passt nicht vollständig in dieses Zeitfenster.";

@@ -1161,4 +1161,83 @@ describe("booking flow without bookingSessions table", () => {
       false,
     );
   });
+
+  test("duration coverage invalidation does not depend on slot order", async () => {
+    const t = createAuthedTestContext("flow_booking_unordered_coverage");
+    const fixture = await createFlowFixture(t);
+
+    await t.run(async (ctx) => {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_authId", (q) =>
+          q.eq("authId", "workos_flow_booking_unordered_coverage"),
+        )
+        .first();
+      if (!user) {
+        throw new Error("Expected booking fixture user.");
+      }
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: fixture.practiceId,
+        role: "staff",
+        userId: user._id,
+      });
+
+      const appointmentType = await ctx.db.get(
+        "appointmentTypes",
+        fixture.appointmentTypeLineageKey,
+      );
+      if (!appointmentType) {
+        throw new Error("Expected booking fixture appointment type.");
+      }
+      await ctx.db.patch("appointmentTypes", appointmentType._id, {
+        duration: 10,
+      });
+
+      const schedule = await ctx.db.query("baseSchedules").first();
+      if (!schedule) {
+        throw new Error("Expected booking fixture schedule.");
+      }
+      await ctx.db.patch("baseSchedules", schedule._id, {
+        endTime: "10:10",
+        startTime: "10:05",
+      });
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+        breakTimes: [],
+        dayOfWeek: 6,
+        endTime: "10:05",
+        locationLineageKey: fixture.locationLineageKey,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: fixture.practitionerLineageKey,
+        ruleSetId: fixture.ruleSetId,
+        startTime: "10:00",
+      });
+    });
+
+    const slotsResult = await t.query(api.scheduling.getSlotsForDay, {
+      date: "2027-01-02",
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+      scope: "real",
+      simulatedContext: {
+        appointmentTypeLineageKey: fixture.appointmentTypeLineageKey,
+        clientType: "Online",
+        locationLineageKey: fixture.locationLineageKey,
+        patient: {
+          dateOfBirth: "1975-05-20",
+          isNew: false,
+        },
+      },
+    });
+
+    const slotStatusByStartTime = new Map(
+      slotsResult.slots.map((slot) => [slot.startTime, slot.status]),
+    );
+    expect(
+      slotStatusByStartTime.get("2027-01-02T10:00:00+01:00[Europe/Berlin]"),
+    ).toBe("AVAILABLE");
+    expect(
+      slotStatusByStartTime.get("2027-01-02T10:05:00+01:00[Europe/Berlin]"),
+    ).toBe("BLOCKED");
+  });
 });
