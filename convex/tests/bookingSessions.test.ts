@@ -1040,6 +1040,32 @@ describe("booking flow without bookingSessions table", () => {
       ruleSetId: fixture.ruleSetId,
     });
 
+    const slotsResult = await t.query(api.scheduling.getSlotsForDay, {
+      date: "2027-01-02",
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+      scope: "real",
+      simulatedContext: {
+        appointmentTypeLineageKey: fixture.appointmentTypeLineageKey,
+        clientType: "Online",
+        locationLineageKey: fixture.locationLineageKey,
+        patient: {
+          dateOfBirth: "1975-05-20",
+          isNew: false,
+        },
+      },
+    });
+    const availableStartTimes = slotsResult.slots
+      .filter((slot) => slot.status === "AVAILABLE")
+      .map((slot) => slot.startTime)
+      .toSorted();
+    expect(availableStartTimes).not.toContain(
+      "2027-01-02T10:00:00+01:00[Europe/Berlin]",
+    );
+    expect(availableStartTimes[0]).toBe(
+      "2027-01-02T10:15:00+01:00[Europe/Berlin]",
+    );
+
     await expect(
       t.mutation(api.bookingSessions.selectExistingPatientSlot, {
         appointmentTypeLineageKey: fixture.appointmentTypeLineageKey,
