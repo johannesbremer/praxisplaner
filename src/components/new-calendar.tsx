@@ -137,7 +137,7 @@ export function NewCalendar({
     Id<"appointmentTypes"> | undefined
   >();
 
-  // State for pending appointment title (set by sidebar modal before manual placement)
+  // State for pending appointment reason (set by sidebar modal before manual placement)
   const [pendingAppointmentTitle, setPendingAppointmentTitle] = useState<
     string | undefined
   >();

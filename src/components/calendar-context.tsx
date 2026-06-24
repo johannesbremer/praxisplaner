@@ -70,10 +70,10 @@ export interface CalendarContextValue {
       | { id: Id<"users">; type: "user" },
   ) => void;
 
-  // Pending appointment title (set by sidebar modal before manual placement)
   onPatientSelected?:
     | ((patient?: PracticePatientSelection) => void)
     | undefined;
+  // Pending appointment reason (set by sidebar modal before manual placement)
   onPendingTitleChange?: ((title: string | undefined) => void) | undefined;
   patient?: PatientInfo | undefined;
   selectedPatientId?: Id<"patients"> | undefined;

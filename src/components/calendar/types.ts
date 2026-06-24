@@ -133,7 +133,7 @@ export interface NewCalendarProps {
     | undefined;
 
   /**
-   * Pending appointment title set by the sidebar modal before manual placement.
+   * Pending appointment reason set by the sidebar modal before manual placement.
    * Used when creating appointments via calendar click.
    */
   pendingAppointmentTitle?: string | undefined;
