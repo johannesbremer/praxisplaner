@@ -4,9 +4,9 @@ import { mutation, query } from "./_generated/server";
 import { bumpDraftRevision, findUnsavedRuleSet } from "./copyOnWrite";
 import {
   requireManagerRuleSetScope,
-  requireOrganizationMember,
   requirePracticeManager,
   requirePracticeManagerForMutation,
+  requirePracticeStaff,
   requireRuleSetMember,
 } from "./practiceAccess";
 import { normalizeAppointmentSmileyOptions } from "./practices";
@@ -174,7 +174,7 @@ export const getActiveRuleSet = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await requireOrganizationMember(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
       return null;

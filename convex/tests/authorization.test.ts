@@ -503,6 +503,9 @@ describe("Convex query authorization", () => {
         userIds: [userId],
       }),
     ).rejects.toThrow("Role patient is insufficient");
+    await expect(
+      authed.query(api.ruleSets.getActiveRuleSet, { practiceId }),
+    ).rejects.toThrow("Role patient is insufficient");
   });
 
   test("staff cannot perform manager-only rule-set lifecycle mutations", async () => {
