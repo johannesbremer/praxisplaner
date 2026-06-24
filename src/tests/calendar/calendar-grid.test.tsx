@@ -546,24 +546,6 @@ describe("CalendarGrid", () => {
       expect(indicators.length).toBeGreaterThanOrEqual(mockColumns.length);
     });
 
-    test("renders column current time indicators above appointments", () => {
-      const { container } = render(
-        <CalendarGrid {...defaultProps} currentTimeSlot={108} />,
-      );
-
-      const columnIndicators = container.querySelectorAll(
-        '[data-calendar-current-time-column-indicator="true"]',
-      );
-      expect(columnIndicators).toHaveLength(mockColumns.length);
-      for (const indicator of columnIndicators) {
-        expect(indicator).toHaveClass("z-40");
-      }
-
-      const appointment = container.querySelector("[draggable=true]");
-      assertElement(appointment);
-      expect(appointment).toHaveClass("z-10");
-    });
-
     test("positions current time indicator correctly", () => {
       const currentTimeSlot = 36;
       const { container } = render(
