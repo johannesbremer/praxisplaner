@@ -1,6 +1,7 @@
 // src/routes/__root.tsx
 import type { QueryClient } from "@tanstack/react-query";
 
+import { PostHogProvider, usePostHog } from "@posthog/react";
 import { formatForDisplay, useHotkey } from "@tanstack/react-hotkeys";
 import {
   ClientOnly,
@@ -21,7 +22,6 @@ import {
   Undo2,
   UserRoundCog,
 } from "lucide-react";
-import { PostHogProvider } from "posthog-js/react";
 import * as React from "react";
 import { useEffect } from "react";
 import { Toaster } from "sonner";
@@ -45,17 +45,16 @@ import {
 import appCss from "../styles/app.css?url";
 import { captureErrorGlobal } from "../utils/error-tracking";
 import { captureFrontendError } from "../utils/frontend-errors";
+import {
+  getPostHogApiKey,
+  getPostHogProviderOptions,
+  identifyPostHogUser,
+  isPostHogEnabled,
+  registerPostHogClient,
+  resetPostHogIdentity,
+  unregisterPostHogClient,
+} from "../utils/posthog-client";
 import { seo } from "../utils/seo";
-
-const postHogApiKey = import.meta.env["VITE_PUBLIC_POSTHOG_KEY"] as
-  | string
-  | undefined;
-const postHogApiHost = import.meta.env["VITE_PUBLIC_POSTHOG_HOST"] as
-  | string
-  | undefined;
-const postHogOptions = {
-  ...(postHogApiHost && { api_host: postHogApiHost }),
-};
 
 type HomePracticeRouteState =
   | { kind: "known-empty" }
@@ -78,6 +77,24 @@ export function resolveHomePracticeRouteState({
     return { kind: "known-empty" };
   }
   return { kind: "unknown" };
+}
+
+function BrowserPostHogProvider({ children }: { children: React.ReactNode }) {
+  const postHogApiKey = getPostHogApiKey();
+  if (!postHogApiKey) {
+    return <>{children}</>;
+  }
+
+  return (
+    <PostHogProvider
+      apiKey={postHogApiKey}
+      options={getPostHogProviderOptions()}
+    >
+      <PostHogClientRegistrar />
+      <PostHogIdentitySync />
+      {children}
+    </PostHogProvider>
+  );
 }
 
 function ClientDevtools() {
@@ -123,21 +140,48 @@ function ClientDevtools() {
   return DevtoolsComponent ? <DevtoolsComponent /> : null;
 }
 
-// Client-only PostHog wrapper component
+function PostHogClientRegistrar() {
+  const posthog = usePostHog();
+
+  React.useEffect(() => {
+    registerPostHogClient(posthog);
+    return () => {
+      unregisterPostHogClient(posthog);
+    };
+  }, [posthog]);
+
+  return null;
+}
+
+function PostHogIdentitySync() {
+  const posthog = usePostHog();
+  const { user } = useAuth();
+  const identifiedUserIdRef = React.useRef<null | string>(null);
+
+  React.useEffect(() => {
+    if (!user) {
+      if (identifiedUserIdRef.current) {
+        resetPostHogIdentity();
+        identifiedUserIdRef.current = null;
+      }
+      return;
+    }
+
+    identifyPostHogUser(posthog, user);
+    identifiedUserIdRef.current = user.id;
+  }, [posthog, user]);
+
+  return null;
+}
+
 function PostHogWrapper({ children }: { children: React.ReactNode }) {
-  // Disable PostHog in development unless explicitly enabled, or if not configured
-  if (
-    !postHogApiKey ||
-    (import.meta.env.DEV && !import.meta.env["VITE_ENABLE_POSTHOG_IN_DEV"])
-  ) {
+  if (!isPostHogEnabled()) {
     return <>{children}</>;
   }
 
   return (
     <ClientOnly fallback={<>{children}</>}>
-      <PostHogProvider apiKey={postHogApiKey} options={postHogOptions}>
-        {children}
-      </PostHogProvider>
+      <BrowserPostHogProvider>{children}</BrowserPostHogProvider>
     </ClientOnly>
   );
 }
@@ -538,6 +582,7 @@ function RootLayout() {
         <div className="fixed right-4 top-4 z-[60]">
           <Button
             onClick={() => {
+              resetPostHogIdentity();
               signOut();
             }}
             size="sm"
