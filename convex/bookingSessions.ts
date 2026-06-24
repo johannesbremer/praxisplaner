@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
+import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -22,6 +23,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./bookingSessions.shared";
+import { normalizeE164PhoneNumber } from "./e164PhoneNumber";
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
@@ -66,6 +68,20 @@ const FLOW_KEY_VALIDATOR = {
 const ACTIVE_PRACTICE_FLOW_KEY_VALIDATOR = {
   practiceId: v.id("practices"),
 } as const;
+
+const BOOKING_FORM_MAX_DATA_SHARING_CONTACTS = 10;
+const BOOKING_FORM_MAX_LENGTHS = {
+  city: 120,
+  email: 254,
+  firstName: 120,
+  lastName: 120,
+  medicalNote: 2_000,
+  phoneNumber: 16,
+  postalCode: 20,
+  street: 200,
+  title: 60,
+} as const;
+const EMAIL_SCHEMA = z.email();
 
 const BOOKING_SESSION_RETURN_VALIDATOR = v.union(
   v.object({
@@ -193,6 +209,12 @@ function assertSlotStartIsInFuture(startTime: string): void {
 function assertValidDataSharingContacts(
   contacts: Parameters<typeof asDataSharingContactInput>[0][],
 ): asserts contacts is DataSharingContactInput[] {
+  if (contacts.length > BOOKING_FORM_MAX_DATA_SHARING_CONTACTS) {
+    throw new Error(
+      `Data-sharing contacts must contain at most ${BOOKING_FORM_MAX_DATA_SHARING_CONTACTS} contacts`,
+    );
+  }
+
   for (const [index, contact] of contacts.entries()) {
     const requiredTextFields: [keyof DataSharingContactInput, string][] = [
       ["city", "Ort"],
@@ -768,7 +790,6 @@ async function markCalendarReached(
     }),
   );
 }
-
 function materializeDataSharingContacts(
   rows: BookingFlowRows["dataSharingContacts"],
 ): DataSharingContactInput[] {
@@ -788,7 +809,6 @@ function materializeDataSharingContacts(
       }),
     );
 }
-
 function materializeMedicalHistory(
   row: BookingFlowRows["medicalHistoryEntry"],
 ): BookingMedicalHistory | undefined {
@@ -833,7 +853,6 @@ function materializeMedicalHistory(
       : { otherConditions: otherConditionParts.join("; ") }),
   };
 }
-
 function materializePersonalData(
   row: BookingFlowRows["personalData"],
 ): BookingPersonalData | undefined {
@@ -854,7 +873,6 @@ function materializePersonalData(
     ...(row.title === undefined ? {} : { title: row.title }),
   });
 }
-
 async function materializeState(
   ctx: MutationCtx | QueryCtx,
   flowKey: BookingFlowKey,
@@ -1088,7 +1106,6 @@ async function materializeState(
     step: "existing-calendar-selection",
   };
 }
-
 function medicalHistoryRowFromInput(
   flowKey: BookingFlowKey,
   medicalHistory: BookingMedicalHistory,
@@ -1140,6 +1157,192 @@ function medicalHistoryRowFromInput(
     takesMedication: (medicationNotes?.length ?? 0) > 0,
     userId: flowKey.userId,
   };
+}
+function normalizeBookingEmail(value: string): string {
+  const email = normalizeRequiredBookingText({
+    label: "E-Mail",
+    maxLength: BOOKING_FORM_MAX_LENGTHS.email,
+    value,
+  });
+  const parsedEmail = EMAIL_SCHEMA.safeParse(email);
+  if (!parsedEmail.success) {
+    throw new Error("E-Mail must be a valid email address");
+  }
+  return parsedEmail.data;
+}
+function normalizeBookingPhoneNumber(args: {
+  label: string;
+  value: string;
+}): string {
+  const phoneNumber = normalizeE164PhoneNumber({
+    emptyMessage: `${args.label} is required`,
+    example: "+491701234567",
+    invalidMessagePrefix: args.label,
+    rawPhoneNumber: args.value,
+  });
+  if (phoneNumber.length > BOOKING_FORM_MAX_LENGTHS.phoneNumber) {
+    throw new Error(
+      `${args.label} must be at most ${BOOKING_FORM_MAX_LENGTHS.phoneNumber} characters`,
+    );
+  }
+  return phoneNumber;
+}
+
+function normalizeDataSharingContactInput(
+  contact: Parameters<typeof asDataSharingContactInput>[0],
+  index: number,
+): DataSharingContactInput {
+  const labelPrefix = `Data-sharing contact #${index + 1}`;
+  const title = normalizeOptionalBookingText({
+    label: `${labelPrefix}: Titel`,
+    maxLength: BOOKING_FORM_MAX_LENGTHS.title,
+    value: contact.title,
+  });
+  return asDataSharingContactInput({
+    city: normalizeRequiredBookingText({
+      label: `${labelPrefix}: Ort`,
+      maxLength: BOOKING_FORM_MAX_LENGTHS.city,
+      value: contact.city,
+    }),
+    dateOfBirth: contact.dateOfBirth,
+    firstName: normalizeRequiredBookingText({
+      label: `${labelPrefix}: Vorname`,
+      maxLength: BOOKING_FORM_MAX_LENGTHS.firstName,
+      value: contact.firstName,
+    }),
+    gender: contact.gender,
+    lastName: normalizeRequiredBookingText({
+      label: `${labelPrefix}: Nachname`,
+      maxLength: BOOKING_FORM_MAX_LENGTHS.lastName,
+      value: contact.lastName,
+    }),
+    phoneNumber: normalizeBookingPhoneNumber({
+      label: `${labelPrefix}: Telefonnummer`,
+      value: contact.phoneNumber,
+    }),
+    postalCode: normalizeRequiredBookingText({
+      label: `${labelPrefix}: PLZ`,
+      maxLength: BOOKING_FORM_MAX_LENGTHS.postalCode,
+      value: contact.postalCode,
+    }),
+    street: normalizeRequiredBookingText({
+      label: `${labelPrefix}: Straße`,
+      maxLength: BOOKING_FORM_MAX_LENGTHS.street,
+      value: contact.street,
+    }),
+    ...(title === undefined ? {} : { title }),
+  });
+}
+
+function normalizeMedicalHistoryInput(
+  medicalHistory: BookingMedicalHistory,
+): BookingMedicalHistory {
+  const allergiesDescription = normalizeOptionalBookingText({
+    label: "Allergiehinweise",
+    maxLength: BOOKING_FORM_MAX_LENGTHS.medicalNote,
+    value: medicalHistory.allergiesDescription,
+  });
+  const currentMedications = normalizeOptionalBookingText({
+    label: "Medikamentenhinweise",
+    maxLength: BOOKING_FORM_MAX_LENGTHS.medicalNote,
+    value: medicalHistory.currentMedications,
+  });
+  const otherConditions = normalizeOptionalBookingText({
+    label: "Weitere Erkrankungen",
+    maxLength: BOOKING_FORM_MAX_LENGTHS.medicalNote,
+    value: medicalHistory.otherConditions,
+  });
+  return {
+    hasAllergies: medicalHistory.hasAllergies,
+    hasDiabetes: medicalHistory.hasDiabetes,
+    hasHeartCondition: medicalHistory.hasHeartCondition,
+    hasLungCondition: medicalHistory.hasLungCondition,
+    ...(allergiesDescription === undefined ? {} : { allergiesDescription }),
+    ...(currentMedications === undefined ? {} : { currentMedications }),
+    ...(otherConditions === undefined ? {} : { otherConditions }),
+  };
+}
+
+function normalizeOptionalBookingText(args: {
+  label: string;
+  maxLength: number;
+  value: string | undefined;
+}): string | undefined {
+  if (args.value === undefined) {
+    return undefined;
+  }
+  const value = args.value.trim();
+  if (value.length === 0) {
+    return undefined;
+  }
+  if (value.length > args.maxLength) {
+    throw new Error(
+      `${args.label} must be at most ${args.maxLength} characters`,
+    );
+  }
+  return value;
+}
+
+function normalizePersonalDataInput(
+  personalData: Parameters<typeof asPersonalDataInput>[0],
+): BookingPersonalData {
+  const title = normalizeOptionalBookingText({
+    label: "Titel",
+    maxLength: BOOKING_FORM_MAX_LENGTHS.title,
+    value: personalData.title,
+  });
+  return asPersonalDataInput({
+    city: normalizeRequiredBookingText({
+      label: "Ort",
+      maxLength: BOOKING_FORM_MAX_LENGTHS.city,
+      value: personalData.city,
+    }),
+    dateOfBirth: personalData.dateOfBirth,
+    email: normalizeBookingEmail(personalData.email),
+    firstName: normalizeRequiredBookingText({
+      label: "Vorname",
+      maxLength: BOOKING_FORM_MAX_LENGTHS.firstName,
+      value: personalData.firstName,
+    }),
+    gender: personalData.gender,
+    lastName: normalizeRequiredBookingText({
+      label: "Nachname",
+      maxLength: BOOKING_FORM_MAX_LENGTHS.lastName,
+      value: personalData.lastName,
+    }),
+    phoneNumber: normalizeBookingPhoneNumber({
+      label: "Telefonnummer",
+      value: personalData.phoneNumber,
+    }),
+    postalCode: normalizeRequiredBookingText({
+      label: "PLZ",
+      maxLength: BOOKING_FORM_MAX_LENGTHS.postalCode,
+      value: personalData.postalCode,
+    }),
+    street: normalizeRequiredBookingText({
+      label: "Straße",
+      maxLength: BOOKING_FORM_MAX_LENGTHS.street,
+      value: personalData.street,
+    }),
+    ...(title === undefined ? {} : { title }),
+  });
+}
+
+function normalizeRequiredBookingText(args: {
+  label: string;
+  maxLength: number;
+  value: string;
+}): string {
+  const value = args.value.trim();
+  if (value.length === 0) {
+    throw new Error(`${args.label} is required`);
+  }
+  if (value.length > args.maxLength) {
+    throw new Error(
+      `${args.label} must be at most ${args.maxLength} characters`,
+    );
+  }
+  return value;
 }
 
 async function persistDataSharingContacts(
@@ -2247,11 +2450,8 @@ export const submitNewPatientData = mutation({
       throw new Error("Personal data is not available in the current flow.");
     }
 
-    const personalData = asPersonalDataInput(args.personalData);
-    await upsertPersonalDataStep(ctx, flowKey, personalData);
-    await persistMedicalHistory(
-      ctx,
-      flowKey,
+    const personalData = normalizePersonalDataInput(args.personalData);
+    const medicalHistory = normalizeMedicalHistoryInput(
       args.medicalHistory ?? {
         hasAllergies: false,
         hasDiabetes: false,
@@ -2259,6 +2459,8 @@ export const submitNewPatientData = mutation({
         hasLungCondition: false,
       },
     );
+    await upsertPersonalDataStep(ctx, flowKey, personalData);
+    await persistMedicalHistory(ctx, flowKey, medicalHistory);
     await removeRowsAfterNewPatientData(ctx, flowKey);
     return null;
   },
@@ -2281,14 +2483,11 @@ export const submitNewDataSharing = mutation({
     );
 
     assertValidDataSharingContacts(args.dataSharingContacts);
-    await upsertNewDataSharingStep(ctx, flowKey);
-    await persistDataSharingContacts(
-      ctx,
-      flowKey,
-      args.dataSharingContacts.map((contact) =>
-        asDataSharingContactInput(contact),
-      ),
+    const dataSharingContacts = args.dataSharingContacts.map((contact, index) =>
+      normalizeDataSharingContactInput(contact, index),
     );
+    await upsertNewDataSharingStep(ctx, flowKey);
+    await persistDataSharingContacts(ctx, flowKey, dataSharingContacts);
     await markCalendarReached(ctx, flowKey);
     return null;
   },
@@ -2350,7 +2549,7 @@ export const submitExistingPatientData = mutation({
     await upsertPersonalDataStep(
       ctx,
       flowKey,
-      asPersonalDataInput(args.personalData),
+      normalizePersonalDataInput(args.personalData),
     );
     await markCalendarReached(ctx, flowKey);
     return null;
