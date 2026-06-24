@@ -143,10 +143,30 @@ export function getEffectiveAppointmentsForOccupancyView(
       .map((appointment) => appointment.replacesAppointmentId)
       .filter(Boolean),
   );
+  const appointmentsById = new Map(
+    visibleAppointments.map((appointment) => [appointment._id, appointment]),
+  );
+  const replacedSeriesIds = new Set<string>();
+  for (const simulationAppointment of simulationAppointments) {
+    const replacedAppointmentId = simulationAppointment.replacesAppointmentId;
+    if (replacedAppointmentId === undefined) {
+      continue;
+    }
+    const replacedAppointment = appointmentsById.get(replacedAppointmentId);
+    if (
+      replacedAppointment?.seriesId !== undefined &&
+      replacedAppointment.seriesStepIndex === 0n
+    ) {
+      replacedSeriesIds.add(replacedAppointment.seriesId);
+    }
+  }
 
   const realAppointments = visibleAppointments.filter(
     (appointment) =>
-      appointment.isSimulation !== true && !replacedIds.has(appointment._id),
+      appointment.isSimulation !== true &&
+      !replacedIds.has(appointment._id) &&
+      (appointment.seriesId === undefined ||
+        !replacedSeriesIds.has(appointment.seriesId)),
   );
 
   return [...realAppointments, ...simulationAppointments].toSorted((a, b) =>

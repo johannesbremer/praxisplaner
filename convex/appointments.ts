@@ -498,6 +498,16 @@ function filterCurrentAppointmentReplacementTails<T extends AppointmentDoc>(
       isSameAppointmentReplacementDay(appointment, replacedAppointment)
     ) {
       hiddenIds.add(replacedAppointmentId);
+      if (
+        replacedAppointment.seriesId !== undefined &&
+        replacedAppointment.seriesStepIndex === 0n
+      ) {
+        for (const candidate of appointments) {
+          if (candidate.seriesId === replacedAppointment.seriesId) {
+            hiddenIds.add(candidate._id);
+          }
+        }
+      }
     }
   }
 
@@ -1395,7 +1405,12 @@ function combineBlockedSlotsForSimulation(
 function combineForSimulationScope<
   T extends Pick<
     AppointmentDoc,
-    "_id" | "isSimulation" | "replacesAppointmentId" | "start"
+    | "_id"
+    | "isSimulation"
+    | "replacesAppointmentId"
+    | "seriesId"
+    | "seriesStepIndex"
+    | "start"
   >,
 >(appointments: T[]): T[] {
   const simulationAppointments = appointments.filter(
@@ -1407,10 +1422,30 @@ function combineForSimulationScope<
       .map((appointment) => appointment.replacesAppointmentId)
       .filter(Boolean),
   );
+  const appointmentsById = new Map(
+    appointments.map((appointment) => [appointment._id, appointment]),
+  );
+  const replacedSeriesIds = new Set<string>();
+  for (const simulationAppointment of simulationAppointments) {
+    const replacedAppointmentId = simulationAppointment.replacesAppointmentId;
+    if (replacedAppointmentId === undefined) {
+      continue;
+    }
+    const replacedAppointment = appointmentsById.get(replacedAppointmentId);
+    if (
+      replacedAppointment?.seriesId !== undefined &&
+      replacedAppointment.seriesStepIndex === 0n
+    ) {
+      replacedSeriesIds.add(replacedAppointment.seriesId);
+    }
+  }
 
   const realAppointments = appointments.filter(
     (appointment) =>
-      appointment.isSimulation !== true && !replacedIds.has(appointment._id),
+      appointment.isSimulation !== true &&
+      !replacedIds.has(appointment._id) &&
+      (appointment.seriesId === undefined ||
+        !replacedSeriesIds.has(appointment.seriesId)),
   );
 
   const merged = [...realAppointments, ...simulationAppointments];
@@ -4407,9 +4442,30 @@ async function updateAppointmentByMode(
               }
             : {}),
         };
+  const explicitCalendarResourceColumn =
+    filteredUpdateData.calendarResourceColumn === undefined
+      ? undefined
+      : (filteredUpdateData.calendarResourceColumn ?? undefined);
+  const fallbackCalendarResourceColumn =
+    filteredUpdateData.calendarResourceColumn === undefined &&
+    filteredUpdateData.practitionerId === undefined
+      ? getAppointmentCalendarResourceColumn(existingAppointment.occupancyScope)
+      : undefined;
+  const existingAppointmentTypeRuleSetIdForOccupancy =
+    filteredUpdateData.appointmentTypeId === undefined &&
+    (editingRuleSetId !== undefined ||
+      (filteredUpdateData.calendarResourceColumn !== undefined &&
+        existingAppointment.seriesId === undefined))
+      ? (editingRuleSetId ??
+        existingAppointment.simulationRuleSetId ??
+        (await requireActiveRuleSetIdForPractice(
+          ctx.db,
+          existingAppointment.practiceId,
+        )))
+      : undefined;
   const resolvedAppointmentTypeRecord =
     filteredUpdateData.appointmentTypeId === undefined
-      ? editingRuleSetId === undefined
+      ? existingAppointmentTypeRuleSetIdForOccupancy === undefined
         ? undefined
         : await (async () => {
             const appointmentTypeIdForWrite =
@@ -4417,7 +4473,7 @@ async function updateAppointmentByMode(
                 lineageKey: asAppointmentTypeLineageKey(
                   existingAppointment.appointmentTypeLineageKey,
                 ),
-                ruleSetId: editingRuleSetId,
+                ruleSetId: existingAppointmentTypeRuleSetIdForOccupancy,
               });
             return requireEntityUsableForNewAppointment({
               entity: await ctx.db.get(
@@ -4433,15 +4489,6 @@ async function updateAppointmentByMode(
           entityId: filteredUpdateData.appointmentTypeId,
           entityLabel: "Terminart",
         });
-  const explicitCalendarResourceColumn =
-    filteredUpdateData.calendarResourceColumn === undefined
-      ? undefined
-      : (filteredUpdateData.calendarResourceColumn ?? undefined);
-  const fallbackCalendarResourceColumn =
-    filteredUpdateData.calendarResourceColumn === undefined &&
-    filteredUpdateData.practitionerId === undefined
-      ? getAppointmentCalendarResourceColumn(existingAppointment.occupancyScope)
-      : undefined;
   const resolvedAppointmentTypeLineageKey =
     resolvedStoredReferences.appointmentTypeLineageKey;
   const resolvedLocationLineageKey =
