@@ -113,12 +113,16 @@ export function AuthenticatedGate({
     startSignIn();
   }, [isLoading, startSignIn, user]);
 
-  if (isAuthBypassEnabled() && isDevPersonaActive(devPersona)) {
-    return convexAuth.isAuthenticated ? <>{children}</> : <AuthLoadingScreen />;
+  const authBypassEnabled = isAuthBypassEnabled();
+  const activeDevPersona = authBypassEnabled && isDevPersonaActive(devPersona);
+  const shouldWaitForConvexAuth = authBypassEnabled ? activeDevPersona : true;
+
+  if (isLoading || (shouldWaitForConvexAuth && convexAuth.isLoading)) {
+    return <AuthLoadingScreen />;
   }
 
-  if (isLoading) {
-    return <AuthLoadingScreen />;
+  if (activeDevPersona) {
+    return convexAuth.isAuthenticated ? <>{children}</> : <AuthLoadingScreen />;
   }
 
   if (!user) {
@@ -127,6 +131,19 @@ export function AuthenticatedGate({
         error={signInError}
         onRetry={() => {
           setSignInError(null);
+          startSignIn();
+        }}
+      />
+    );
+  }
+
+  if (shouldWaitForConvexAuth && !convexAuth.isAuthenticated) {
+    return (
+      <SignInScreen
+        error="Die Anmeldung ist abgelaufen. Bitte starten Sie die Anmeldung erneut."
+        onRetry={() => {
+          setSignInError(null);
+          signInRequestedRef.current = false;
           startSignIn();
         }}
       />
