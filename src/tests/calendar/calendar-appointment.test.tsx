@@ -157,6 +157,28 @@ describe("CalendarAppointment", () => {
     expect(mockHandlers.onPointerDragStart).toHaveBeenCalled();
   });
 
+  test("suppresses the synthesized click after pointer dragging moves", () => {
+    const { container } = render(<CalendarAppointment {...defaultProps} />);
+    const appointmentElement = container.querySelector(".cursor-move");
+
+    assertElement(appointmentElement);
+    fireEvent.pointerDown(appointmentElement, {
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(appointmentElement, {
+      clientX: 14,
+      clientY: 10,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(appointmentElement, { pointerId: 1 });
+    fireEvent.click(appointmentElement);
+
+    expect(mockHandlers.onEdit).not.toHaveBeenCalled();
+  });
+
   test("does not start pointer dragging from the resize handle", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
     const resizeHandle = container.querySelector(".cursor-ns-resize");

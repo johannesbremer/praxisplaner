@@ -98,4 +98,27 @@ describe("CalendarBlockedSlot", () => {
 
     expect(handlers.onPointerDragStart).not.toHaveBeenCalled();
   });
+
+  test("suppresses the synthesized click after pointer dragging moves", () => {
+    render(<CalendarBlockedSlot {...defaultProps} />);
+    const blockedSlotButton = screen.getByRole("button", {
+      name: "Gesperrter Zeitraum Teammeeting, 09:00. Bearbeiten",
+    });
+
+    fireEvent.pointerDown(blockedSlotButton, {
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(blockedSlotButton, {
+      clientX: 14,
+      clientY: 10,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(blockedSlotButton, { pointerId: 1 });
+    fireEvent.click(blockedSlotButton);
+
+    expect(handlers.onEdit).not.toHaveBeenCalled();
+  });
 });

@@ -1,8 +1,12 @@
 import type React from "react";
 
+import { useRef } from "react";
+
 import type { CalendarAppointmentView } from "./types";
 
 import { CalendarItemContent } from "./calendar-item-content";
+
+const DRAG_CLICK_SUPPRESSION_THRESHOLD_PX = 3;
 
 interface CalendarAppointmentProps {
   appointment: CalendarAppointmentView;
@@ -27,6 +31,13 @@ interface CalendarAppointmentProps {
   timeToSlot: (time: string) => number;
 }
 
+interface PointerDragClickState {
+  moved: boolean;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+}
+
 export function CalendarAppointment({
   appointment,
   canDrag = true,
@@ -45,6 +56,8 @@ export function CalendarAppointment({
   const height = (appointment.layout.duration / slotDuration) * 16;
   const top = startSlot * 16;
   const slotCount = appointment.layout.duration / slotDuration;
+  const pointerDragClickStateRef = useRef<null | PointerDragClickState>(null);
+  const suppressNextClickRef = useRef(false);
   const appointmentLabel = [
     `Termin ${appointment.layout.record.title}`,
     appointment.layout.startTime,
@@ -66,7 +79,13 @@ export function CalendarAppointment({
       className={`pointer-events-auto absolute left-1 right-1 ${appointment.color} border-0 p-0 text-left text-white text-xs rounded shadow-sm hover:shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background transition-[opacity,box-shadow] z-10 ${canDrag ? "cursor-move" : "cursor-pointer"} ${
         isDragging ? "opacity-0" : "opacity-100"
       } ${borderClass} h-(--calendar-appointment-height) min-h-4 before:absolute before:inset-x-0 before:top-1/2 before:min-h-6 before:-translate-y-1/2 before:content-[''] top-(--calendar-appointment-top)`}
-      onClick={() => {
+      onClick={(e) => {
+        if (suppressNextClickRef.current) {
+          suppressNextClickRef.current = false;
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         onSelect?.(appointment);
         onEdit(appointment.layout.id);
       }}
@@ -84,11 +103,40 @@ export function CalendarAppointment({
           onDelete(appointment.layout.id);
         }
       }}
+      onPointerCancel={(e) => {
+        if (pointerDragClickStateRef.current?.pointerId === e.pointerId) {
+          pointerDragClickStateRef.current = null;
+        }
+      }}
       onPointerDown={(e) => {
         if (!canDrag || onPointerDragStart === undefined) {
+          pointerDragClickStateRef.current = null;
           return;
         }
+        pointerDragClickStateRef.current = {
+          moved: false,
+          pointerId: e.pointerId,
+          startClientX: e.clientX,
+          startClientY: e.clientY,
+        };
         onPointerDragStart(e, appointment.layout.id);
+      }}
+      onPointerMove={(e) => {
+        const state = pointerDragClickStateRef.current;
+        if (state?.pointerId !== e.pointerId || state.moved) {
+          return;
+        }
+        const deltaX = e.clientX - state.startClientX;
+        const deltaY = e.clientY - state.startClientY;
+        if (Math.hypot(deltaX, deltaY) >= DRAG_CLICK_SUPPRESSION_THRESHOLD_PX) {
+          state.moved = true;
+          suppressNextClickRef.current = true;
+        }
+      }}
+      onPointerUp={(e) => {
+        if (pointerDragClickStateRef.current?.pointerId === e.pointerId) {
+          pointerDragClickStateRef.current = null;
+        }
       }}
       style={
         {
