@@ -724,9 +724,9 @@ export function StaffAppointmentCreationModal({
 
               <div className="grid gap-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="appointment-title">Titel</Label>
+                  <Label htmlFor="appointment-reason">Termingrund</Label>
                   <Input
-                    id="appointment-title"
+                    id="appointment-reason"
                     onChange={(e) => {
                       setTitle(e.target.value);
                     }}
@@ -798,7 +798,7 @@ export function StaffAppointmentCreationModal({
                   className="w-full justify-start"
                   disabled={!title.trim() || !hasAnyPatient}
                   onClick={() => {
-                    // Pass the title to the calendar for manual placement
+                    // Pass the appointment reason to the calendar for manual placement.
                     onPendingTitleChange?.(title.trim());
                     // Close modal but keep appointment type selected for manual placement
                     handleClose(false);
