@@ -7,8 +7,17 @@ script = '''
 set -eu
 
 FNM_BIN="$(command -v fnm || true)"
-ENV_NEXT="$(mktemp)"
-trap 'rm -f "$ENV_NEXT"' EXIT
+GENERATED_ENV_FILE="$(mktemp)"
+CONVEX_DEPLOY_URL_FILE=""
+CONVEX_RUNTIME_ENV_FILE=""
+ORIGINAL_ENV_BACKUP=""
+cleanup() {
+  rm -f "$GENERATED_ENV_FILE" "$CONVEX_DEPLOY_URL_FILE" "$CONVEX_RUNTIME_ENV_FILE"
+  if [ -n "$ORIGINAL_ENV_BACKUP" ] && [ -f "$ORIGINAL_ENV_BACKUP" ]; then
+    mv "$ORIGINAL_ENV_BACKUP" .env.local
+  fi
+}
+trap cleanup EXIT HUP INT TERM
 
 [ -n "$FNM_BIN" ] || { echo "Missing fnm on PATH"; exit 1; }
 
@@ -84,13 +93,6 @@ PREVIEW_NAME="codex-${PREVIEW_SLUG}-${PREVIEW_HASH}"
 
 POSTHOG_HOST="${VITE_PUBLIC_POSTHOG_HOST:-https://eu.i.posthog.com}"
 
-: > "$ENV_NEXT"
-
-if [ -n "${VITE_PUBLIC_POSTHOG_KEY:-}" ]; then
-  sed -E '/^VITE_PUBLIC_POSTHOG_KEY=/d' "$ENV_NEXT" > "$ENV_NEXT.posthog"
-  mv "$ENV_NEXT.posthog" "$ENV_NEXT"
-fi
-
 {
   printf 'AUTH_BYPASS_ENABLED=true\n'
   printf 'VITE_AUTH_BYPASS_ENABLED=true\n'
@@ -99,9 +101,7 @@ fi
   if [ -n "${VITE_PUBLIC_POSTHOG_KEY:-}" ]; then
     printf 'VITE_PUBLIC_POSTHOG_KEY=%s\n' "$VITE_PUBLIC_POSTHOG_KEY"
   fi
-} >> "$ENV_NEXT"
-mv "$ENV_NEXT" .env.local
-chmod 600 .env.local
+} > "$GENERATED_ENV_FILE"
 
 pnpm i
 pnpm seed:preview
@@ -130,23 +130,30 @@ case "$CONVEX_IMPORT_DEPLOYMENT" in
     ;;
 esac
 GENERATED_CONVEX_SITE_URL="$(printf '%s' "$GENERATED_CONVEX_URL" | sed 's/\.convex\.cloud$/.convex.site/')"
-sed -E '/^(CONVEX_DEPLOYMENT|VITE_CONVEX_URL|VITE_CONVEX_SITE_URL|CONVEX_URL)=/d' .env.local > "$ENV_NEXT"
 {
   printf 'CONVEX_DEPLOYMENT=%s\n' "$CONVEX_SELECTED_DEPLOYMENT"
   printf 'VITE_CONVEX_URL=%s\n' "$GENERATED_CONVEX_URL"
   printf 'VITE_CONVEX_SITE_URL=%s\n' "$GENERATED_CONVEX_SITE_URL"
   printf 'CONVEX_URL=%s\n' "$GENERATED_CONVEX_URL"
-} >> "$ENV_NEXT"
-mv "$ENV_NEXT" .env.local
-chmod 600 .env.local
+} >> "$GENERATED_ENV_FILE"
 CONVEX_RUNTIME_ENV_FILE="$(mktemp)"
-sed -E '/^(CONVEX_DEPLOY_KEY|CONVEX_IMPORT_DEPLOYMENT|CONVEX_SELECTED_DEPLOYMENT|CONVEX_CLOUD_URL|CONVEX_SITE_URL)=/d' .env.local > "$CONVEX_RUNTIME_ENV_FILE"
+sed -E '/^(CONVEX_IMPORT_DEPLOYMENT|CONVEX_SELECTED_DEPLOYMENT|CONVEX_CLOUD_URL|CONVEX_SITE_URL)=/d' "$GENERATED_ENV_FILE" > "$CONVEX_RUNTIME_ENV_FILE"
 pnpm exec convex env set --deployment "$CONVEX_IMPORT_DEPLOYMENT" --from-file "$CONVEX_RUNTIME_ENV_FILE" --force
 rm -f "$CONVEX_RUNTIME_ENV_FILE"
+CONVEX_RUNTIME_ENV_FILE=""
 printf 'Running destructive preview seed import against Convex deployment: %s\n' "$CONVEX_IMPORT_DEPLOYMENT"
 pnpm exec convex import --deployment "$CONVEX_IMPORT_DEPLOYMENT" --replace-all --yes .cache/seed/preview.zip
 pnpm exec convex run devAuth:ensurePreviewAuthPersonas --deployment "$CONVEX_IMPORT_DEPLOYMENT"
+if [ -f .env.local ]; then
+  ORIGINAL_ENV_BACKUP="$(mktemp)"
+  cp .env.local "$ORIGINAL_ENV_BACKUP"
+fi
+cp "$GENERATED_ENV_FILE" .env.local
+chmod 600 .env.local
 env -u CONVEX_DEPLOY_KEY pnpm gen
+rm -f "$ORIGINAL_ENV_BACKUP"
+ORIGINAL_ENV_BACKUP=""
+GENERATED_ENV_FILE=""
 '''
 
 [[actions]]

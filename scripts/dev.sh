@@ -58,14 +58,9 @@ trap cleanup EXIT INT TERM
 reject_convex_deploy_key
 
 selected_convex_deployment="$(read_local_env_value CONVEX_DEPLOYMENT || true)"
+preview_deployment=false
 case "$selected_convex_deployment" in
-  preview:*)
-    printf 'Using Convex preview deployment from .env.local; skipping local Convex backend.\n'
-    pnpm dev:frontend &
-    frontend_pid="$!"
-    wait "$frontend_pid"
-    exit "$?"
-    ;;
+  preview:*) preview_deployment=true ;;
 esac
 
 wait_for_owned_backend_ready() {
@@ -86,7 +81,15 @@ convex_backend_port="${CONVEX_LOCAL_BACKEND_PORT:-3210}"
 backend_owned=false
 backend_pid=""
 
-if lsof -iTCP:"$convex_backend_port" -sTCP:LISTEN -n -P > /dev/null 2>&1; then
+if [ "$preview_deployment" = "true" ]; then
+  printf 'Syncing Convex preview deployment from .env.local.\n'
+  backend_log_file="$(mktemp)"
+  tail -n +1 -f "$backend_log_file" &
+  backend_log_tail_pid="$!"
+  AUTH_BYPASS_ENABLED="$AUTH_BYPASS_ENABLED" pnpm exec convex dev > "$backend_log_file" 2>&1 &
+  backend_pid="$!"
+  backend_owned=true
+elif lsof -iTCP:"$convex_backend_port" -sTCP:LISTEN -n -P > /dev/null 2>&1; then
   printf 'Reusing existing local Convex backend on port %s.\n' "$convex_backend_port"
 else
   backend_log_file="$(mktemp)"
