@@ -1003,4 +1003,60 @@ describe("booking flow without bookingSessions table", () => {
     );
     expect(afterCancellation?.state.step).toBe("existing-calendar-selection");
   });
+
+  test("rejects a selected slot that does not cover the full appointment duration", async () => {
+    const t = createAuthedTestContext("flow_booking_duration_coverage");
+    const fixture = await createFlowFixture(t);
+
+    await t.run(async (ctx) => {
+      const schedule = await ctx.db.query("baseSchedules").first();
+      if (!schedule) {
+        throw new Error("Expected booking fixture schedule.");
+      }
+      await ctx.db.patch("baseSchedules", schedule._id, {
+        breakTimes: [{ end: "10:15", start: "10:10" }],
+      });
+    });
+
+    await createFlowToPatientStatus(t, fixture);
+    await t.mutation(api.bookingSessions.selectExistingPatient, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.selectDoctor, {
+      practiceId: fixture.practiceId,
+      practitionerLineageKey: fixture.practitionerLineageKey,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.submitExistingPatientData, {
+      personalData: completePersonalData({
+        dateOfBirth: "1975-05-20",
+        email: "grace@example.com",
+        firstName: "Grace",
+        lastName: "Hopper",
+        phoneNumber: "+491709999999",
+      }),
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    await expect(
+      t.mutation(api.bookingSessions.selectExistingPatientSlot, {
+        appointmentTypeLineageKey: fixture.appointmentTypeLineageKey,
+        practiceId: fixture.practiceId,
+        reasonDescription: "Rueckenschmerzen",
+        ruleSetId: fixture.ruleSetId,
+        selectedSlot: {
+          practitionerLineageKey: fixture.practitionerLineageKey,
+          practitionerName: "Dr. Test",
+          startTime: "2027-01-02T10:00:00+01:00[Europe/Berlin]",
+        },
+      }),
+    ).rejects.toThrow("Selected slot is no longer available");
+
+    const appointments = await t.run((ctx) =>
+      ctx.db.query("appointments").collect(),
+    );
+    expect(appointments).toHaveLength(0);
+  });
 });

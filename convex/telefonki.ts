@@ -23,6 +23,10 @@ import {
 } from "./identity";
 import { requireLineageKey } from "./lineage";
 import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
+import {
+  buildSlotDurationCoverageKey,
+  isSlotAvailableForAppointmentDuration,
+} from "./schedulingCore";
 import { createTemporaryPatientRecord } from "./temporaryPatients";
 import {
   asIsoDateString,
@@ -134,18 +138,6 @@ async function assertTelefonkiPracticeAccess(
   }
 }
 
-function buildSlotCoverageKey(slot: {
-  locationLineageKey: Id<"locations">;
-  practitionerLineageKey: Id<"practitioners">;
-  startTime: string;
-}): string {
-  return [
-    slot.startTime,
-    slot.locationLineageKey,
-    slot.practitionerLineageKey,
-  ].join("::");
-}
-
 function clampLimit(limit: number | undefined): number {
   if (limit === undefined) {
     return DEFAULT_LIMIT;
@@ -217,7 +209,7 @@ async function getAvailableSlots(args: {
         simulatedContext: args.search.simulatedContext,
       });
     const slotByCoverageKey = new Map(
-      result.slots.map((slot) => [buildSlotCoverageKey(slot), slot]),
+      result.slots.map((slot) => [buildSlotDurationCoverageKey(slot), slot]),
     );
 
     for (const slot of result.slots.toSorted((left, right) =>
@@ -277,38 +269,6 @@ function isAfternoonSlot(slot: Pick<AvailableSlot, "startTime">) {
   return (
     Temporal.ZonedDateTime.from(slot.startTime).hour >= AFTERNOON_START_HOUR
   );
-}
-
-function isSlotAvailableForAppointmentDuration(args: {
-  requiredDurationMinutes: number;
-  slot: InternalSchedulingResultSlot;
-  slotByCoverageKey: ReadonlyMap<string, InternalSchedulingResultSlot>;
-}): boolean {
-  let coveredDurationMinutes = 0;
-  let currentStartTime = Temporal.ZonedDateTime.from(args.slot.startTime);
-
-  while (coveredDurationMinutes < args.requiredDurationMinutes) {
-    const currentSlot = args.slotByCoverageKey.get(
-      buildSlotCoverageKey({
-        locationLineageKey: args.slot.locationLineageKey,
-        practitionerLineageKey: args.slot.practitionerLineageKey,
-        startTime: currentStartTime.toString(),
-      }),
-    );
-    if (currentSlot?.status !== "AVAILABLE") {
-      return false;
-    }
-    if (currentSlot.duration <= 0) {
-      return false;
-    }
-
-    coveredDurationMinutes += currentSlot.duration;
-    currentStartTime = currentStartTime.add({
-      minutes: currentSlot.duration,
-    });
-  }
-
-  return true;
 }
 
 function isTelefonkiBookableAppointmentType(
@@ -395,7 +355,7 @@ async function requireAvailableSelectedSlot(
     },
   );
   const slotByCoverageKey = new Map(
-    result.slots.map((slot) => [buildSlotCoverageKey(slot), slot]),
+    result.slots.map((slot) => [buildSlotDurationCoverageKey(slot), slot]),
   );
 
   const matchingSlot = result.slots.find(
