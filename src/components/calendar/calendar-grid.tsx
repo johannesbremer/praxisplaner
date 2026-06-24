@@ -690,9 +690,13 @@ export function CalendarGrid({
               className="pointer-events-none absolute left-0 top-0 h-4 w-px"
               data-calendar-slot-row="true"
             />
+            {renderBlockedSlots(column.id)}
+            {renderDragPreview(column.id)}
+            {renderAppointments(column.id)}
             {currentTimeSlot >= 0 && (
               <div
-                className="pointer-events-none absolute left-0 right-0 z-20 h-0.5 bg-calendar-current-time top-(--calendar-current-time-top)"
+                className="pointer-events-none absolute left-0 right-0 z-40 h-0.5 bg-calendar-current-time top-(--calendar-current-time-top)"
+                data-calendar-current-time-column-indicator="true"
                 style={
                   {
                     "--calendar-current-time-top": `${currentTimeSlot * 16}px`,
@@ -702,9 +706,6 @@ export function CalendarGrid({
                 <div className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-calendar-current-time" />
               </div>
             )}
-            {renderBlockedSlots(column.id)}
-            {renderDragPreview(column.id)}
-            {renderAppointments(column.id)}
           </div>
         );
       })}
