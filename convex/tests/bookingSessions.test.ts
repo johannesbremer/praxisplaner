@@ -148,6 +148,27 @@ async function createFlowToPatientStatus(
   });
 }
 
+async function createNewPatientFlowToDataInput(
+  t: ReturnType<typeof createAuthedTestContext>,
+  fixture: Awaited<ReturnType<typeof createFlowFixture>>,
+) {
+  await createFlowToPatientStatus(t, fixture);
+  await t.mutation(api.bookingSessions.selectNewPatient, {
+    practiceId: fixture.practiceId,
+    ruleSetId: fixture.ruleSetId,
+  });
+  await t.mutation(api.bookingSessions.selectInsuranceType, {
+    insuranceType: "gkv",
+    practiceId: fixture.practiceId,
+    ruleSetId: fixture.ruleSetId,
+  });
+  await t.mutation(api.bookingSessions.confirmGkvDetails, {
+    hzvStatus: "has-contract",
+    practiceId: fixture.practiceId,
+    ruleSetId: fixture.ruleSetId,
+  });
+}
+
 async function ensureSyncedUser(
   t: ReturnType<typeof createAuthedTestContext>,
   identitySuffix = "default",
@@ -471,7 +492,7 @@ describe("booking flow without bookingSessions table", () => {
           firstName: "Grace",
           gender: "female",
           lastName: "Hopper",
-          phoneNumber: "0987654321",
+          phoneNumber: "+491709876543",
           postalCode: "49074",
           street: "Nebenweg 2",
         },
@@ -498,6 +519,139 @@ describe("booking flow without bookingSessions table", () => {
     expect(persisted.personalData).toHaveLength(1);
     expect(persisted.contacts).toHaveLength(1);
     expect(persisted.medicalHistory).toHaveLength(1);
+  });
+
+  test("new patient data rejects oversized personal fields before writing rows", async () => {
+    const t = createAuthedTestContext("new_patient_oversized_personal");
+    const fixture = await createFlowFixture(t);
+    await createNewPatientFlowToDataInput(t, fixture);
+
+    await expect(
+      t.mutation(api.bookingSessions.submitNewPatientData, {
+        personalData: completePersonalData({
+          firstName: "A".repeat(121),
+        }),
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow("Vorname must be at most 120 characters");
+
+    const persisted = await t.run(async (ctx) => ({
+      medicalHistory: await ctx.db
+        .query("bookingMedicalHistoryEntries")
+        .collect(),
+      personalData: await ctx.db.query("bookingPersonalDataSteps").collect(),
+    }));
+    expect(persisted.personalData).toHaveLength(0);
+    expect(persisted.medicalHistory).toHaveLength(0);
+  });
+
+  test("new patient data rejects oversized medical history before writing rows", async () => {
+    const t = createAuthedTestContext("new_patient_oversized_medical");
+    const fixture = await createFlowFixture(t);
+    await createNewPatientFlowToDataInput(t, fixture);
+
+    await expect(
+      t.mutation(api.bookingSessions.submitNewPatientData, {
+        medicalHistory: {
+          currentMedications: "M".repeat(2_001),
+          hasAllergies: false,
+          hasDiabetes: false,
+          hasHeartCondition: false,
+          hasLungCondition: false,
+        },
+        personalData: completePersonalData(),
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow("Medikamentenhinweise must be at most 2000 characters");
+
+    const persisted = await t.run(async (ctx) => ({
+      medicalHistory: await ctx.db
+        .query("bookingMedicalHistoryEntries")
+        .collect(),
+      personalData: await ctx.db.query("bookingPersonalDataSteps").collect(),
+    }));
+    expect(persisted.personalData).toHaveLength(0);
+    expect(persisted.medicalHistory).toHaveLength(0);
+  });
+
+  test("new data sharing rejects too many contacts before writing rows", async () => {
+    const t = createAuthedTestContext("new_patient_too_many_contacts");
+    const fixture = await createFlowFixture(t);
+    await createNewPatientFlowToDataInput(t, fixture);
+    await t.mutation(api.bookingSessions.submitNewPatientData, {
+      personalData: completePersonalData(),
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    await expect(
+      t.mutation(api.bookingSessions.submitNewDataSharing, {
+        dataSharingContacts: Array.from({ length: 11 }, () => ({
+          city: "Osnabrück",
+          dateOfBirth: "1988-02-03",
+          firstName: "Grace",
+          gender: "female" as const,
+          lastName: "Hopper",
+          phoneNumber: "+491701234567",
+          postalCode: "49074",
+          street: "Nebenweg 2",
+        })),
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow("at most 10 contacts");
+
+    const persisted = await t.run(async (ctx) => ({
+      contacts: await ctx.db
+        .query("bookingNewDataSharingContactRows")
+        .collect(),
+      dataSharing: await ctx.db.query("bookingNewDataSharingSteps").collect(),
+    }));
+    expect(persisted.contacts).toHaveLength(0);
+    expect(persisted.dataSharing).toHaveLength(0);
+  });
+
+  test("new data sharing rejects oversized contact fields before writing rows", async () => {
+    const t = createAuthedTestContext("new_patient_oversized_contact");
+    const fixture = await createFlowFixture(t);
+    await createNewPatientFlowToDataInput(t, fixture);
+    await t.mutation(api.bookingSessions.submitNewPatientData, {
+      personalData: completePersonalData(),
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    await expect(
+      t.mutation(api.bookingSessions.submitNewDataSharing, {
+        dataSharingContacts: [
+          {
+            city: "Osnabrück",
+            dateOfBirth: "1988-02-03",
+            firstName: "G".repeat(121),
+            gender: "female",
+            lastName: "Hopper",
+            phoneNumber: "+491701234567",
+            postalCode: "49074",
+            street: "Nebenweg 2",
+          },
+        ],
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      }),
+    ).rejects.toThrow(
+      "Data-sharing contact #1: Vorname must be at most 120 characters",
+    );
+
+    const persisted = await t.run(async (ctx) => ({
+      contacts: await ctx.db
+        .query("bookingNewDataSharingContactRows")
+        .collect(),
+      dataSharing: await ctx.db.query("bookingNewDataSharingSteps").collect(),
+    }));
+    expect(persisted.contacts).toHaveLength(0);
+    expect(persisted.dataSharing).toHaveLength(0);
   });
 
   test("existing patient flow stays at personal-data until required data exists", async () => {
