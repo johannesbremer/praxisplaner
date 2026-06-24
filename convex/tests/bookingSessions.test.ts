@@ -1461,7 +1461,6 @@ describe("booking flow without bookingSessions table", () => {
           allowedPractitionerLineageKeys: [practitionerLineageKey],
           createdAt: now,
           duration: 30,
-          followUpPlan: [],
           lastModified: now,
           name: "Draft-only appointment type",
           practiceId: fixture.practiceId,
