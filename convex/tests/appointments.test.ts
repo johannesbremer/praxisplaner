@@ -1949,6 +1949,79 @@ describe("appointments update safety", () => {
     });
   });
 
+  test("updateAppointment rejects resource-only moves away from the appointment type default", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_resource_default_resource_only";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-resource-default-resource-only@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-resource-default-resource-only@example.com",
+      subject: authId,
+    });
+
+    const resourceAppointmentId = await t.run(async (ctx) => {
+      await ctx.db.insert("practiceMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      const now = BigInt(Date.now());
+      const laborAppointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [baseData.practitionerId],
+          createdAt: now,
+          defaultOccupancy: {
+            calendarResourceColumn: "labor",
+            kind: "resourceColumn",
+          },
+          duration: 30,
+          lastModified: now,
+          name: "Labor",
+          practiceId: baseData.practiceId,
+          ruleSetId: baseData.ruleSetId,
+        },
+      );
+      const window = makeSlotWindow(4);
+      return await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: laborAppointmentTypeId,
+        appointmentTypeTitle: "Labor",
+        createdAt: now,
+        end: window.end,
+        lastModified: now,
+        locationLineageKey: baseData.locationId,
+        occupancyScope: { calendarResourceColumn: "labor", kind: "resource" },
+        practiceId: baseData.practiceId,
+        start: window.start,
+        title: "Labor",
+        userId,
+      });
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        calendarResourceColumn: "ekg",
+        id: resourceAppointmentId,
+      }),
+    ).rejects.toThrow(
+      "Der Termin muss in der Standard-Ressourcenspalte der Terminart liegen.",
+    );
+
+    const unchangedAppointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", resourceAppointmentId);
+    });
+    expect(unchangedAppointment?.occupancyScope).toEqual({
+      calendarResourceColumn: "labor",
+      kind: "resource",
+    });
+  });
+
   test("updateAppointment applies resource default occupancy when changing appointment type", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);

@@ -2836,6 +2836,142 @@ describe("appointment series", () => {
     }
   });
 
+  test("simulated root replacements hide old series steps when the new plan is shorter", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_simulated_shorter_series_replacement_user",
+      "simulated-shorter-series-replacement@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const planStepTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", planStepTypeId, {
+        lineageKey: planStepTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: planStepTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "removed-follow-up",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const originalSeries = await t.mutation(
+      api.appointments.createAppointmentSeries,
+      {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Ersttermin",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      },
+    );
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("appointmentTypes", rootAppointmentTypeId, {
+        appointmentPlan: undefined,
+      });
+    });
+
+    await t.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: rootAppointmentTypeId,
+      isSimulation: true,
+      locationId,
+      practiceId,
+      practitionerId,
+      replacesAppointmentId: originalSeries.rootAppointmentId,
+      simulationRuleSetId: ruleSetId,
+      start: rootStart,
+      title: "Ersatz-Ersttermin",
+      userId,
+    });
+
+    const rootDate = Temporal.ZonedDateTime.from(rootStart).toPlainDate();
+    const dayStart = rootDate
+      .toZonedDateTime({
+        plainTime: Temporal.PlainTime.from("00:00"),
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const dayEnd = rootDate
+      .add({ days: 1 })
+      .toZonedDateTime({
+        plainTime: Temporal.PlainTime.from("00:00"),
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    const visibleSimulationAppointments = await t.query(
+      api.appointments.getCalendarDayAppointments,
+      {
+        activeRuleSetId: ruleSetId,
+        dayEnd,
+        dayStart,
+        locationId,
+        practiceId,
+        scope: "simulation",
+      },
+    );
+
+    expect(
+      visibleSimulationAppointments.some(
+        (appointment) => appointment.seriesId === originalSeries.seriesId,
+      ),
+    ).toBe(false);
+    expect(
+      visibleSimulationAppointments.some(
+        (appointment) =>
+          appointment.replacesAppointmentId ===
+          originalSeries.rootAppointmentId,
+      ),
+    ).toBe(true);
+  });
+
   test("createAppointmentSeries rejects booking identities from another practice", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
