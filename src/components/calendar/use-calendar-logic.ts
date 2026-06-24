@@ -119,6 +119,7 @@ export function useCalendarLogic({
     visible: boolean;
   }>(emptyDragPreview);
   const autoScrollAnimationRef = useRef<null | number>(null);
+  const activeDragPointerIdRef = useRef<null | number>(null);
   const detachPointerDragListenersRef = useRef<(() => void) | null>(null);
   const hasResolvedLocationRef = useRef(false);
 
@@ -823,6 +824,7 @@ export function useCalendarLogic({
     }
 
     e.currentTarget.setPointerCapture(e.pointerId);
+    activeDragPointerIdRef.current = e.pointerId;
     setDraggedAppointment(appointment);
   };
 
@@ -1207,6 +1209,7 @@ export function useCalendarLogic({
     stopAutoScroll();
     clearPointerDragListeners();
 
+    activeDragPointerIdRef.current = null;
     setDraggedAppointment(null);
     setDraggedBlockedSlotId(null);
     setDragPreview(emptyDragPreview);
@@ -1239,16 +1242,27 @@ export function useCalendarLogic({
   useEffect(() => {
     if (draggedAppointment === null && draggedBlockedSlotId === null) {
       clearPointerDragListeners();
+      activeDragPointerIdRef.current = null;
       return;
     }
 
     const handleDocumentPointerMove = (event: PointerEvent) => {
+      if (event.pointerId !== activeDragPointerIdRef.current) {
+        return;
+      }
       handleDragOver(event);
     };
     const handleDocumentPointerUp = (event: PointerEvent) => {
+      if (event.pointerId !== activeDragPointerIdRef.current) {
+        return;
+      }
+      activeDragPointerIdRef.current = null;
       handlePointerUp(event);
     };
-    const handleDocumentPointerCancel = () => {
+    const handleDocumentPointerCancel = (event: PointerEvent) => {
+      if (event.pointerId !== activeDragPointerIdRef.current) {
+        return;
+      }
       handleDragEnd();
     };
 
@@ -1502,6 +1516,7 @@ export function useCalendarLogic({
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
+    activeDragPointerIdRef.current = e.pointerId;
     setDraggedBlockedSlotId(blockedSlotId);
   };
 
