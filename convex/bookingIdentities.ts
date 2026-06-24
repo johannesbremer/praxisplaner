@@ -6,8 +6,8 @@ import type { DataModel, Id } from "./_generated/dataModel";
 
 import { mutation, query } from "./_generated/server";
 import {
-  ensurePracticeAccessForMutation,
-  ensurePracticeAccessForQuery,
+  requirePracticeStaff,
+  requirePracticeStaffForMutation,
   requireTrustedPracticeScope,
 } from "./practiceAccess";
 import {
@@ -63,7 +63,7 @@ export const createBookingIdentity = mutation({
     userId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await requirePracticeStaffForMutation(ctx, args.practiceId);
     const practiceScope = await requireTrustedPracticeScope(
       ctx,
       args.practiceId,
@@ -100,7 +100,7 @@ export const associateBookingIdentityWithPvsPatient = mutation({
     pvsPatientNumber: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const membership = await ensurePracticeAccessForMutation(
+    const membership = await requirePracticeStaffForMutation(
       ctx,
       args.practiceId,
     );
@@ -216,7 +216,7 @@ export const getActivePvsPatientForBookingIdentity = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
 
     const bookingIdentity = await ctx.db.get(
       "bookingIdentities",

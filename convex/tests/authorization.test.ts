@@ -141,19 +141,19 @@ async function setMembershipRole(
   t: ReturnType<typeof createTestContext>,
   args: {
     practiceId: Id<"practices">;
-    role: "admin" | "owner" | "staff";
+    role: "admin" | "owner" | "patient" | "staff";
     userId: Id<"users">;
   },
 ) {
   await t.run(async (ctx) => {
     const membership = await ctx.db
-      .query("practiceMembers")
+      .query("organizationMembers")
       .withIndex("by_practiceId_userId", (q) =>
         q.eq("practiceId", args.practiceId).eq("userId", args.userId),
       )
       .first();
     if (!membership) {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: args.practiceId,
         role: args.role,
@@ -161,7 +161,9 @@ async function setMembershipRole(
       });
       return;
     }
-    await ctx.db.patch("practiceMembers", membership._id, { role: args.role });
+    await ctx.db.patch("organizationMembers", membership._id, {
+      role: args.role,
+    });
   });
 }
 
@@ -440,7 +442,7 @@ describe("Convex query authorization", () => {
       authed.query(api.practices.getPractice, { practiceId }),
     ).resolves.toMatchObject({ _id: practiceId });
     await expect(
-      authed.query(api.practices.getPracticeMembers, { practiceId }),
+      authed.query(api.practices.getOrganizationMembers, { practiceId }),
     ).rejects.toThrow("Role staff is insufficient");
     await expect(
       authed.query(api.ruleSets.getActiveRuleSet, { practiceId }),
@@ -456,6 +458,29 @@ describe("Convex query authorization", () => {
         id: "arrived",
         name: "Patient ist angekommen",
       },
+    ]);
+  });
+
+  test("patient organization members cannot read staff-facing practice data", async () => {
+    const t = createTestContext();
+    const authId = "workos_authz_patient_member";
+    const email = "authz-patient-member@example.com";
+    const { authed, practiceId, userId } = await createPracticeForUser(
+      t,
+      authId,
+      email,
+    );
+    await setMembershipRole(t, { practiceId, role: "patient", userId });
+
+    await expect(
+      authed.query(api.practices.getPractice, { practiceId }),
+    ).rejects.toThrow("Role patient is insufficient");
+    await expect(
+      authed.query(api.practices.getAllPractices, {}),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        _id: practiceId,
+      }),
     ]);
   });
 
@@ -668,7 +693,7 @@ describe("Convex query authorization", () => {
     await setMembershipRole(t, { practiceId, role: "admin", userId });
 
     await expect(
-      authed.query(api.practices.getPracticeMembers, { practiceId }),
+      authed.query(api.practices.getOrganizationMembers, { practiceId }),
     ).resolves.toHaveLength(1);
   });
 
@@ -689,7 +714,7 @@ describe("Convex query authorization", () => {
     );
 
     const membershipId = await authed.mutation(
-      api.practices.upsertPracticeMember,
+      api.practices.upsertOrganizationMember,
       {
         practiceId,
         role: "admin",
@@ -697,7 +722,7 @@ describe("Convex query authorization", () => {
       },
     );
     const membership = await t.run(
-      async (ctx) => await ctx.db.get("practiceMembers", membershipId),
+      async (ctx) => await ctx.db.get("organizationMembers", membershipId),
     );
 
     expect(membership).toMatchObject({
@@ -724,7 +749,7 @@ describe("Convex query authorization", () => {
     );
 
     await expect(
-      authed.mutation(api.practices.upsertPracticeMember, {
+      authed.mutation(api.practices.upsertOrganizationMember, {
         practiceId,
         role: "owner",
         userId: targetUserId,
@@ -754,7 +779,7 @@ describe("Convex query authorization", () => {
     });
 
     await expect(
-      authed.mutation(api.practices.upsertPracticeMember, {
+      authed.mutation(api.practices.upsertOrganizationMember, {
         practiceId,
         role: "admin",
         userId: targetUserId,
@@ -778,7 +803,7 @@ describe("Convex query authorization", () => {
     );
 
     const membershipId = await authed.mutation(
-      api.practices.upsertPracticeMember,
+      api.practices.upsertOrganizationMember,
       {
         practiceId,
         role: "owner",
@@ -786,7 +811,7 @@ describe("Convex query authorization", () => {
       },
     );
     const membership = await t.run(
-      async (ctx) => await ctx.db.get("practiceMembers", membershipId),
+      async (ctx) => await ctx.db.get("organizationMembers", membershipId),
     );
 
     expect(membership).toMatchObject({

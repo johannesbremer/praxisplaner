@@ -6,11 +6,12 @@ import { action, mutation, query } from "./_generated/server";
 import { isConvexAuthBypassEnabled } from "./authBypass";
 import { createInitialRuleSet } from "./copyOnWrite";
 import {
-  ensurePracticeAccessForMutation,
-  ensurePracticeAccessForQuery,
   getAccessiblePracticeIdsForQuery,
-  practiceRoleValidator,
+  organizationRoleValidator,
   requirePracticeManager,
+  requirePracticeManagerForMutation,
+  requirePracticeOwnerForMutation,
+  requirePracticeStaff,
 } from "./practiceAccess";
 import { normalizePracticePhoneNumber } from "./practicePhoneNumbers";
 import { allocateUniquePracticeSlug } from "./practiceSlugs";
@@ -201,7 +202,7 @@ export const getAllPracticesIfAuthenticated = query({
     }
 
     const memberships = await ctx.db
-      .query("practiceMembers")
+      .query("organizationMembers")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
     const practiceCandidates = await Promise.all(
@@ -220,9 +221,9 @@ export const getAllPracticesIfAuthenticated = query({
 /**
  * Get practices visible to authenticated patient booking flows.
  *
- * Patients are not practice members, so this intentionally does not use
- * practiceMembers. Booking-specific queries still validate practice/rule-set
- * relationships before exposing scheduling data.
+ * Public booking discovery is available to authenticated users before they
+ * necessarily have an organization membership. Booking-specific queries still
+ * validate practice/rule-set relationships before exposing scheduling data.
  */
 export const getBookingPractices = query({
   args: {},
@@ -242,7 +243,7 @@ export const getPractice = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     const practice = await ctx.db.get("practices", args.practiceId);
     return practice === null ? null : toPublicPractice(practice);
   },
@@ -318,7 +319,7 @@ export const getAppointmentSmileyOptions = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     const practice = await ctx.db.get("practices", args.practiceId);
     return practice?.appointmentSmileyOptions ?? [];
   },
@@ -359,7 +360,7 @@ export const upsertPracticePhoneNumber = mutation({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
 
     const normalizedPhoneNumber = normalizePracticePhoneNumber(
       args.phoneNumber,
@@ -408,10 +409,9 @@ export const removePracticePhoneNumber = mutation({
       throw new Error("Practice phone number not found.");
     }
 
-    await ensurePracticeAccessForMutation(
+    await requirePracticeManagerForMutation(
       ctx,
       practicePhoneNumber.practiceId,
-      "admin",
     );
     await ctx.db.delete("practicePhoneNumbers", args.practicePhoneNumberId);
     return args.practicePhoneNumberId;
@@ -434,7 +434,7 @@ export const initializeDefaultPractice = mutation({
 
     const userId = await ensureAuthenticatedUserId(ctx);
     const existingMemberships = await ctx.db
-      .query("practiceMembers")
+      .query("organizationMembers")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
 
@@ -449,7 +449,7 @@ export const initializeDefaultPractice = mutation({
         return membership.practiceId;
       }
 
-      await ctx.db.delete("practiceMembers", membership._id);
+      await ctx.db.delete("organizationMembers", membership._id);
     }
 
     const existingPractices = await ctx.db.query("practices").collect();
@@ -465,7 +465,7 @@ export const initializeDefaultPractice = mutation({
         });
       }
 
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: firstPractice._id,
         role: "staff",
@@ -481,7 +481,7 @@ export const initializeDefaultPractice = mutation({
       slug: await allocateUniquePracticeSlug(ctx.db, defaultPracticeName),
     });
 
-    await ctx.db.insert("practiceMembers", {
+    await ctx.db.insert("organizationMembers", {
       createdAt: BigInt(Date.now()),
       practiceId,
       role: "owner",
@@ -498,33 +498,35 @@ export const initializeDefaultPractice = mutation({
 /**
  * Add or update a member role in a practice.
  */
-export const upsertPracticeMember = mutation({
+export const upsertOrganizationMember = mutation({
   args: {
     practiceId: v.id("practices"),
-    role: practiceRoleValidator,
+    role: organizationRoleValidator,
     userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
 
     const existing = await ctx.db
-      .query("practiceMembers")
+      .query("organizationMembers")
       .withIndex("by_practiceId_userId", (q) =>
         q.eq("practiceId", args.practiceId).eq("userId", args.userId),
       )
       .first();
 
     if (args.role === "owner" || existing?.role === "owner") {
-      await ensurePracticeAccessForMutation(ctx, args.practiceId, "owner");
+      await requirePracticeOwnerForMutation(ctx, args.practiceId);
     }
 
     if (existing) {
-      await ctx.db.patch("practiceMembers", existing._id, { role: args.role });
+      await ctx.db.patch("organizationMembers", existing._id, {
+        role: args.role,
+      });
       return existing._id;
     }
 
     const existingUserMembership = await ctx.db
-      .query("practiceMembers")
+      .query("organizationMembers")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .first();
     if (
@@ -534,20 +536,20 @@ export const upsertPracticeMember = mutation({
       throw new Error("User already belongs to another practice.");
     }
 
-    return await ctx.db.insert("practiceMembers", {
+    return await ctx.db.insert("organizationMembers", {
       createdAt: BigInt(Date.now()),
       practiceId: args.practiceId,
       role: args.role,
       userId: args.userId,
     });
   },
-  returns: v.id("practiceMembers"),
+  returns: v.id("organizationMembers"),
 });
 
 /**
  * Get practice members with user profile data.
  */
-export const getPracticeMembers = query({
+export const getOrganizationMembers = query({
   args: {
     practiceId: v.id("practices"),
   },
@@ -555,7 +557,7 @@ export const getPracticeMembers = query({
     await requirePracticeManager(ctx, args.practiceId);
 
     const members = await ctx.db
-      .query("practiceMembers")
+      .query("organizationMembers")
       .withIndex("by_practiceId", (q) => q.eq("practiceId", args.practiceId))
       .collect();
 
@@ -574,10 +576,10 @@ export const getPracticeMembers = query({
   },
   returns: v.array(
     v.object({
-      _id: v.id("practiceMembers"),
+      _id: v.id("organizationMembers"),
       createdAt: v.int64(),
       practiceId: v.id("practices"),
-      role: practiceRoleValidator,
+      role: organizationRoleValidator,
       user: v.union(
         v.object({
           _creationTime: v.number(),

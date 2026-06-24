@@ -21,7 +21,10 @@ import {
   DEV_AUTH_PRACTICE_NAME,
   isDevAuthUserId,
 } from "./devAuthData";
-import { type PracticeRole, practiceRoleValidator } from "./practiceAccess";
+import {
+  type OrganizationRole,
+  organizationRoleValidator,
+} from "./practiceAccess";
 import { allocateUniquePracticeSlug } from "./practiceSlugs";
 
 const WORKOS_API_BASE = `https://${getWorkOSApiHostname()}`;
@@ -124,7 +127,7 @@ export const syncCurrentUserOrganizationMembership = action({
   args: {
     organizationId: v.string(),
   },
-  handler: async (ctx, args): Promise<Id<"practiceMembers"> | null> => {
+  handler: async (ctx, args): Promise<Id<"organizationMembers"> | null> => {
     const identity = await requireActionIdentity(ctx);
     if (shouldUseBypassOrganizations(identity.subject)) {
       return await ctx.runMutation(
@@ -142,7 +145,8 @@ export const syncCurrentUserOrganizationMembership = action({
 
     if (!membership) {
       await ctx.runMutation(
-        internal.workosOrganizations.removePracticeMemberByWorkOSOrganization,
+        internal.workosOrganizations
+          .removeOrganizationMemberByWorkOSOrganization,
         {
           organizationId: args.organizationId,
           workOSUserId: identity.subject,
@@ -152,15 +156,15 @@ export const syncCurrentUserOrganizationMembership = action({
     }
 
     return await ctx.runMutation(
-      internal.workosOrganizations.upsertPracticeMemberByWorkOSOrganization,
+      internal.workosOrganizations.upsertOrganizationMemberByWorkOSOrganization,
       {
         organizationId: args.organizationId,
-        role: mapWorkOSRoleToPracticeRole(membership),
+        role: mapWorkOSRoleToOrganizationRole(membership),
         workOSUserId: identity.subject,
       },
     );
   },
-  returns: v.union(v.id("practiceMembers"), v.null()),
+  returns: v.union(v.id("organizationMembers"), v.null()),
 });
 
 export const getUsersManagementWidgetToken = action({
@@ -240,7 +244,7 @@ export const createBypassOrganizationPractice = internalMutation({
   }> => {
     const user = await requireUserByAuthId(ctx.db, args.workOSUserId);
     const existingMemberships = await ctx.db
-      .query("practiceMembers")
+      .query("organizationMembers")
       .withIndex("by_userId", (q) => q.eq("userId", user._id))
       .collect();
     if (existingMemberships.length > 0) {
@@ -266,7 +270,7 @@ export const createBypassOrganizationPractice = internalMutation({
       slug: await allocateUniquePracticeSlug(ctx.db, args.name),
       workOSOrganizationId: organizationId,
     });
-    await upsertPracticeMembership(ctx, {
+    await upsertOrganizationMembership(ctx, {
       practiceId,
       role: "owner",
       userId: user._id,
@@ -290,7 +294,7 @@ export const listBypassUserOrganizations = internalQuery({
       return [];
     }
     const memberships = await ctx.db
-      .query("practiceMembers")
+      .query("organizationMembers")
       .withIndex("by_userId", (q) => q.eq("userId", user._id))
       .collect();
     const practices = await Promise.all(
@@ -325,7 +329,7 @@ export const syncBypassOrganizationMembership = internalMutation({
     organizationId: v.string(),
     workOSUserId: v.string(),
   },
-  handler: async (ctx, args): Promise<Id<"practiceMembers"> | null> => {
+  handler: async (ctx, args): Promise<Id<"organizationMembers"> | null> => {
     const practice = await findPracticeByWorkOSOrganizationId(
       ctx.db,
       args.organizationId,
@@ -335,21 +339,21 @@ export const syncBypassOrganizationMembership = internalMutation({
       return null;
     }
     const membership = await ctx.db
-      .query("practiceMembers")
+      .query("organizationMembers")
       .withIndex("by_practiceId_userId", (q) =>
         q.eq("practiceId", practice._id).eq("userId", user._id),
       )
       .first();
     return membership?._id ?? null;
   },
-  returns: v.union(v.id("practiceMembers"), v.null()),
+  returns: v.union(v.id("organizationMembers"), v.null()),
 });
 
 export const createPracticeForWorkOSOrganization = internalMutation({
   args: {
     name: v.string(),
     organizationId: v.string(),
-    role: practiceRoleValidator,
+    role: organizationRoleValidator,
     workOSUserId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -360,7 +364,7 @@ export const createPracticeForWorkOSOrganization = internalMutation({
     );
 
     if (existingPractice) {
-      await upsertPracticeMembership(ctx, {
+      await upsertOrganizationMembership(ctx, {
         practiceId: existingPractice._id,
         role: args.role,
         userId: user._id,
@@ -373,7 +377,7 @@ export const createPracticeForWorkOSOrganization = internalMutation({
       slug: await allocateUniquePracticeSlug(ctx.db, args.name),
       workOSOrganizationId: args.organizationId,
     });
-    await upsertPracticeMembership(ctx, {
+    await upsertOrganizationMembership(ctx, {
       practiceId,
       role: args.role,
       userId: user._id,
@@ -435,7 +439,7 @@ export const hasPracticeForWorkOSOrganization = internalQuery({
   returns: v.boolean(),
 });
 
-export const removePracticeMemberByWorkOSOrganization = internalMutation({
+export const removeOrganizationMemberByWorkOSOrganization = internalMutation({
   args: {
     organizationId: v.string(),
     workOSUserId: v.string(),
@@ -450,7 +454,7 @@ export const removePracticeMemberByWorkOSOrganization = internalMutation({
       return null;
     }
     const membership = await ctx.db
-      .query("practiceMembers")
+      .query("organizationMembers")
       .withIndex("by_practiceId_userId", (q) =>
         q.eq("practiceId", practice._id).eq("userId", user._id),
       )
@@ -458,16 +462,16 @@ export const removePracticeMemberByWorkOSOrganization = internalMutation({
     if (!membership) {
       return null;
     }
-    await ctx.db.delete("practiceMembers", membership._id);
+    await ctx.db.delete("organizationMembers", membership._id);
     return membership._id;
   },
-  returns: v.union(v.id("practiceMembers"), v.null()),
+  returns: v.union(v.id("organizationMembers"), v.null()),
 });
 
-export const upsertPracticeMemberByWorkOSOrganization = internalMutation({
+export const upsertOrganizationMemberByWorkOSOrganization = internalMutation({
   args: {
     organizationId: v.string(),
-    role: practiceRoleValidator,
+    role: organizationRoleValidator,
     workOSUserId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -479,13 +483,13 @@ export const upsertPracticeMemberByWorkOSOrganization = internalMutation({
       return null;
     }
     const user = await requireUserByAuthId(ctx.db, args.workOSUserId);
-    return await upsertPracticeMembership(ctx, {
+    return await upsertOrganizationMembership(ctx, {
       practiceId: practice._id,
       role: args.role,
       userId: user._id,
     });
   },
-  returns: v.union(v.id("practiceMembers"), v.null()),
+  returns: v.union(v.id("organizationMembers"), v.null()),
 });
 
 export function canManageWorkOSOrganizationUsers(
@@ -506,22 +510,28 @@ export function getWorkOSOrganizationMembershipRoleSlugs(
   ];
 }
 
-export function mapWorkOSRoleSlugsToPracticeRole(
+export function mapWorkOSRoleSlugsToOrganizationRole(
   roleSlugs: readonly string[],
-): PracticeRole {
+): OrganizationRole {
   if (hasWorkOSRoleSlug(roleSlugs, "owner")) {
     return "owner";
   }
   if (hasWorkOSRoleSlug(roleSlugs, "admin")) {
     return "admin";
   }
-  return "staff";
+  if (hasWorkOSRoleSlug(roleSlugs, "staff")) {
+    return "staff";
+  }
+  if (hasWorkOSRoleSlug(roleSlugs, "patient")) {
+    return "patient";
+  }
+  return "patient";
 }
 
-export function mapWorkOSRoleToPracticeRole(
+export function mapWorkOSRoleToOrganizationRole(
   membership: Pick<WorkOSOrganizationMembership, "roleSlugs">,
-): PracticeRole {
-  return mapWorkOSRoleSlugsToPracticeRole(membership.roleSlugs);
+): OrganizationRole {
+  return mapWorkOSRoleSlugsToOrganizationRole(membership.roleSlugs);
 }
 
 async function allocateBypassOrganizationId(
@@ -559,7 +569,7 @@ async function createWorkOSOrganization(name: string): Promise<{ id: string }> {
 
 async function createWorkOSOrganizationMembership(args: {
   organizationId: string;
-  roleSlug: PracticeRole;
+  roleSlug: OrganizationRole;
   userId: string;
 }): Promise<WorkOSOrganizationMembership> {
   const response = await createWorkOSOrganizationMembershipRequest(args);
@@ -573,7 +583,7 @@ async function createWorkOSOrganizationMembership(args: {
 
 async function createWorkOSOrganizationMembershipRequest(args: {
   organizationId: string;
-  roleSlug?: PracticeRole;
+  roleSlug?: OrganizationRole;
   userId: string;
 }): Promise<Response> {
   return await fetch(
@@ -679,7 +689,7 @@ function getWorkOSRoleObjectSlugs(value: unknown): string[] {
 
 function hasWorkOSRoleSlug(
   roleSlugs: readonly string[],
-  expectedSlug: PracticeRole,
+  expectedSlug: OrganizationRole,
 ): boolean {
   return roleSlugs.some(
     (slug) => slug === expectedSlug || slug === `org:${expectedSlug}`,
@@ -888,26 +898,28 @@ function shouldUseBypassOrganizations(workOSUserId: string): boolean {
   return isConvexAuthBypassEnabled() || isDevAuthUserId(workOSUserId);
 }
 
-async function upsertPracticeMembership(
+async function upsertOrganizationMembership(
   ctx: GenericMutationCtx<DataModel>,
   args: {
     practiceId: Id<"practices">;
-    role: PracticeRole;
+    role: OrganizationRole;
     userId: Id<"users">;
   },
-): Promise<Id<"practiceMembers">> {
+): Promise<Id<"organizationMembers">> {
   const existing = await ctx.db
-    .query("practiceMembers")
+    .query("organizationMembers")
     .withIndex("by_practiceId_userId", (q) =>
       q.eq("practiceId", args.practiceId).eq("userId", args.userId),
     )
     .first();
   if (existing) {
-    await ctx.db.patch("practiceMembers", existing._id, { role: args.role });
+    await ctx.db.patch("organizationMembers", existing._id, {
+      role: args.role,
+    });
     return existing._id;
   }
   const existingUserMembership = await ctx.db
-    .query("practiceMembers")
+    .query("organizationMembers")
     .withIndex("by_userId", (q) => q.eq("userId", args.userId))
     .first();
   if (
@@ -919,7 +931,7 @@ async function upsertPracticeMembership(
       message: "User already belongs to another WorkOS organization",
     });
   }
-  return await ctx.db.insert("practiceMembers", {
+  return await ctx.db.insert("organizationMembers", {
     createdAt: BigInt(Date.now()),
     practiceId: args.practiceId,
     role: args.role,

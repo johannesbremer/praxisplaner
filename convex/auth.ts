@@ -7,7 +7,7 @@ import { components, internal } from "./_generated/api";
 import { findUserByAuthId } from "./userIdentity";
 import {
   getWorkOSOrganizationMembershipRoleSlugs,
-  mapWorkOSRoleSlugsToPracticeRole,
+  mapWorkOSRoleSlugsToOrganizationRole,
 } from "./workosOrganizations";
 
 // Get a typed object of internal Convex functions exported by this file
@@ -52,10 +52,10 @@ export const { authKitEvent } = authKit.events({
       return;
     }
     await ctx.runMutation(
-      internal.workosOrganizations.upsertPracticeMemberByWorkOSOrganization,
+      internal.workosOrganizations.upsertOrganizationMemberByWorkOSOrganization,
       {
         organizationId: membership.organizationId,
-        role: mapWorkOSRoleSlugsToPracticeRole(membership.roleSlugs),
+        role: mapWorkOSRoleSlugsToOrganizationRole(membership.roleSlugs),
         workOSUserId: membership.userId,
       },
     );
@@ -63,7 +63,7 @@ export const { authKitEvent } = authKit.events({
   "organization_membership.deleted": async (ctx, event) => {
     const membership = parseWorkOSOrganizationMembershipEvent(event.data);
     await ctx.runMutation(
-      internal.workosOrganizations.removePracticeMemberByWorkOSOrganization,
+      internal.workosOrganizations.removeOrganizationMemberByWorkOSOrganization,
       {
         organizationId: membership.organizationId,
         workOSUserId: membership.userId,
@@ -74,7 +74,8 @@ export const { authKitEvent } = authKit.events({
     const membership = parseWorkOSOrganizationMembershipEvent(event.data);
     if (membership.status !== "active") {
       await ctx.runMutation(
-        internal.workosOrganizations.removePracticeMemberByWorkOSOrganization,
+        internal.workosOrganizations
+          .removeOrganizationMemberByWorkOSOrganization,
         {
           organizationId: membership.organizationId,
           workOSUserId: membership.userId,
@@ -83,10 +84,10 @@ export const { authKitEvent } = authKit.events({
       return;
     }
     await ctx.runMutation(
-      internal.workosOrganizations.upsertPracticeMemberByWorkOSOrganization,
+      internal.workosOrganizations.upsertOrganizationMemberByWorkOSOrganization,
       {
         organizationId: membership.organizationId,
-        role: mapWorkOSRoleSlugsToPracticeRole(membership.roleSlugs),
+        role: mapWorkOSRoleSlugsToOrganizationRole(membership.roleSlugs),
         workOSUserId: membership.userId,
       },
     );

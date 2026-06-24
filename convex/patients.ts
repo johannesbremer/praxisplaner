@@ -10,8 +10,8 @@ import {
   buildPatientSearchLastName,
 } from "./patientSearch";
 import {
-  ensurePracticeAccessForMutation,
-  ensurePracticeAccessForQuery,
+  requirePracticeStaff,
+  requirePracticeStaffForMutation,
 } from "./practiceAccess";
 import { createTemporaryPatientRecord } from "./temporaryPatients";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
@@ -91,7 +91,7 @@ export const createOrUpdatePatient = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await requirePracticeStaffForMutation(ctx, args.practiceId);
     const { dateOfBirth: rawDateOfBirth, ...restArgs } = args;
     const now = BigInt(Date.now());
     const dateOfBirth = normalizePatientDateOfBirth(rawDateOfBirth);
@@ -174,7 +174,7 @@ export const createTemporaryPatient = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await requirePracticeStaffForMutation(ctx, args.practiceId);
     return await createTemporaryPatientRecord(ctx, args);
   },
   returns: v.id("patients"),
@@ -192,7 +192,7 @@ export const listPatients = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     const limit = args.limit ?? 20;
     const orderBy = args.orderBy ?? "lastModified";
     const order = args.order ?? "desc";
@@ -225,7 +225,7 @@ export const getPatientById = query({
     if (!patient) {
       return null;
     }
-    await ensurePracticeAccessForQuery(ctx, patient.practiceId);
+    await requirePracticeStaff(ctx, patient.practiceId);
     return patient;
   },
   returns: v.union(patientDocumentValidator, v.null()),
@@ -236,7 +236,7 @@ export const getPatient = query({
   args: { patientId: v.number(), practiceId: v.id("practices") },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     const patient = await ctx.db
       .query("patients")
       .withIndex("by_practiceId_patientId", (q) =>
@@ -256,7 +256,7 @@ export const getPatientsByIds = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     const patients = await Promise.all(
       args.patientIds.map((id) => ctx.db.get("patients", id)),
     );
@@ -299,7 +299,7 @@ export const getPatientSidebarDetailsByIds = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     const patients = await Promise.all(
       args.patientIds.map((id) => ctx.db.get("patients", id)),
     );
@@ -352,7 +352,7 @@ export const searchPatients = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     const searchTerm = args.searchTerm.trim();
 
     if (searchTerm.length === 0) {

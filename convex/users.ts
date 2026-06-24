@@ -12,7 +12,7 @@ import {
   query,
 } from "./_generated/server";
 import { authKit } from "./auth";
-import { requirePracticeMember } from "./practiceAccess";
+import { requireOrganizationMember } from "./practiceAccess";
 import { personalDataValidator } from "./schema";
 import { asPersonalDataInput, type PersonalDataInput } from "./typedDtos";
 import { findUserByAuthId } from "./userIdentity";
@@ -266,7 +266,7 @@ export const getAuthUser = query({
 export const getById = query({
   args: { id: v.id("users"), practiceId: v.id("practices") },
   handler: async (ctx, args) => {
-    await requirePracticeMember(ctx, args.practiceId);
+    await requireOrganizationMember(ctx, args.practiceId);
     const user = await ctx.db.get("users", args.id);
     if (!user) {
       return null;
@@ -309,7 +309,7 @@ export const getById = query({
 export const getUsersByIds = query({
   args: { practiceId: v.id("practices"), userIds: v.array(v.id("users")) },
   handler: async (ctx, args) => {
-    await requirePracticeMember(ctx, args.practiceId);
+    await requireOrganizationMember(ctx, args.practiceId);
     const users = await Promise.all(
       args.userIds.map((id) => ctx.db.get("users", id)),
     );
@@ -362,7 +362,7 @@ async function canReadUserDisplayForPractice(
   practiceId: Id<"practices">,
 ): Promise<boolean> {
   const membership = await db
-    .query("practiceMembers")
+    .query("organizationMembers")
     .withIndex("by_practiceId_userId", (q) =>
       q.eq("practiceId", practiceId).eq("userId", userId),
     )

@@ -45,8 +45,8 @@ import {
 } from "./identity";
 import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
 import {
-  ensurePracticeAccessForMutation,
   ensureRuleSetAccessForQuery,
+  requirePracticeStaffForMutation,
 } from "./practiceAccess";
 import { selectDraftRuleSetForEdit } from "./ruleSetLifecycle";
 import { asOptionalIsoDateString } from "./typedDtos";
@@ -394,7 +394,7 @@ export const createVacation = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await requirePracticeStaffForMutation(ctx, args.practiceId);
 
     const { ruleSetId } = await selectDraftRuleSetForEdit(ctx.db, {
       expectedDraftRevision: args.expectedDraftRevision,
@@ -638,7 +638,7 @@ export const createVacationWithCoverageAdjustments = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await requirePracticeStaffForMutation(ctx, args.practiceId);
 
     const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
@@ -1004,7 +1004,7 @@ export const deleteVacation = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await requirePracticeStaffForMutation(ctx, args.practiceId);
 
     const { ruleSetId } = await selectDraftRuleSetForEdit(ctx.db, {
       expectedDraftRevision: args.expectedDraftRevision,

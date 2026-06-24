@@ -501,7 +501,7 @@ describe("appointments self-service cancellation", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -790,7 +790,7 @@ describe("appointments self-service cancellation", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -832,7 +832,7 @@ describe("appointments self-service cancellation", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -892,7 +892,7 @@ describe("appointments self-service cancellation", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -973,7 +973,7 @@ describe("appointments self-service cancellation", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -1366,7 +1366,7 @@ describe("appointments self-service cancellation", () => {
       subject: "workos_cross_practice_write_staff",
     });
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -1402,7 +1402,7 @@ describe("appointments self-service cancellation", () => {
       subject: "workos_cross_practice_block_staff",
     });
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -1525,7 +1525,7 @@ describe("appointments update safety", () => {
 
     const { followUpAppointmentId, rootAppointmentId } = await t.run(
       async (ctx) => {
-        await ctx.db.insert("practiceMembers", {
+        await ctx.db.insert("organizationMembers", {
           createdAt: BigInt(Date.now()),
           practiceId: baseData.practiceId,
           role: "owner",
@@ -1620,7 +1620,7 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -1686,7 +1686,7 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -1766,7 +1766,7 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -1813,7 +1813,7 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -1858,7 +1858,7 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -1902,7 +1902,7 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -1948,7 +1948,7 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -1993,7 +1993,7 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -2058,7 +2058,7 @@ describe("appointments update safety", () => {
         throw new Error("Expected active rule set for practice");
       }
 
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -2127,7 +2127,7 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -2192,7 +2192,7 @@ describe("appointments update safety", () => {
       await ctx.db.patch("practitioners", baseData.practitionerId, {
         lineageKey: baseData.practitionerId,
       });
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -2265,7 +2265,7 @@ describe("appointments update safety", () => {
       if (!parentVersion) {
         throw new Error("Expected active rule set for practice");
       }
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -2328,7 +2328,7 @@ describe("appointments update safety", () => {
       if (!parentVersion) {
         throw new Error("Expected active rule set for practice");
       }
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -2459,7 +2459,7 @@ describe("appointments update safety", () => {
       if (!parentVersion) {
         throw new Error("Expected active rule set for practice");
       }
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -2559,7 +2559,7 @@ describe("appointments update safety", () => {
       if (!parentVersion) {
         throw new Error("Expected active rule set for practice");
       }
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -2697,7 +2697,7 @@ describe("appointments update safety", () => {
       subject: "workos_lineage_display",
     });
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -2748,7 +2748,7 @@ describe("appointments update safety", () => {
     });
 
     const identityRefs = await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -2837,7 +2837,7 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -2935,7 +2935,7 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -2987,7 +2987,7 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -3059,13 +3059,13 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
         userId,
       });
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: foreignPracticeData.practiceId,
         role: "owner",
@@ -3168,7 +3168,7 @@ describe("appointments update safety", () => {
         },
       );
 
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -3230,7 +3230,7 @@ describe("appointments update safety", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -3283,7 +3283,7 @@ describe("appointments update safety", () => {
     const simulationWindow = makeSlotWindow(5);
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -3390,7 +3390,7 @@ describe("calendar day appointment queries", () => {
       subject: "workos_day_query_foreign_display",
     });
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "staff",
@@ -3426,7 +3426,7 @@ describe("calendar day appointment queries", () => {
     const targetRange = makeDayRange(3);
 
     const otherLocationId = await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -3579,7 +3579,7 @@ describe("calendar day appointment queries", () => {
     const movedRange = makeDayRange(7);
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -3665,7 +3665,7 @@ describe("calendar day appointment queries", () => {
     const targetRange = makeDayRange(8);
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -3739,7 +3739,7 @@ describe("calendar day appointment queries", () => {
     const targetRange = makeDayRange(9);
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -3831,7 +3831,7 @@ describe("calendar day appointment queries", () => {
     const targetRange = makeDayRange(9);
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -3940,7 +3940,7 @@ describe("calendar day appointment queries", () => {
     const targetRange = makeDayRange(9);
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -4030,7 +4030,7 @@ describe("calendar day appointment queries", () => {
     const targetRange = makeDayRange(10);
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -4121,7 +4121,7 @@ describe("calendar day appointment queries", () => {
         version: 2,
       });
 
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -4239,7 +4239,7 @@ describe("calendar day appointment queries", () => {
     };
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -4293,7 +4293,7 @@ describe("calendar day appointment queries", () => {
     const targetRange = makeDayRange(14);
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -4371,7 +4371,7 @@ describe("calendar day appointment queries", () => {
     const targetRange = makeDayRange(15);
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -4454,7 +4454,7 @@ describe("calendar day appointment queries", () => {
     const targetRange = makeDayRange(15);
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -4539,7 +4539,7 @@ describe("calendar day appointment queries", () => {
         version: 2,
       });
 
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -4664,7 +4664,7 @@ describe("calendar day appointment queries", () => {
       subject: "workos_day_blocked_slots_foreign_display",
     });
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "staff",
@@ -4701,7 +4701,7 @@ describe("calendar day appointment queries", () => {
     const movedRange = makeDayRange(9);
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -4790,7 +4790,7 @@ describe("calendar day appointment queries", () => {
     const targetRange = makeDayRange(11);
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -4883,7 +4883,7 @@ describe("calendar day appointment queries", () => {
         version: 2,
       });
 
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -4974,7 +4974,7 @@ describe("calendar day appointment queries", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -5045,7 +5045,7 @@ describe("calendar day appointment queries", () => {
       subject: authId,
     });
     const draftRuleSetId = await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -5099,7 +5099,7 @@ describe("calendar day appointment queries", () => {
       subject: authId,
     });
     const draftRuleSetId = await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -5167,7 +5167,7 @@ describe("calendar day appointment queries", () => {
       subject: authId,
     });
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -5216,7 +5216,7 @@ describe("calendar day appointment queries", () => {
       subject: authId,
     });
     const { draftRuleSetA, draftRuleSetB } = await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -5288,7 +5288,7 @@ describe("calendar day appointment queries", () => {
       subject: authId,
     });
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -5349,7 +5349,7 @@ describe("calendar day appointment queries", () => {
       subject: authId,
     });
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -5403,7 +5403,7 @@ describe("calendar day appointment queries", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -5485,7 +5485,7 @@ describe("calendar day appointment queries", () => {
       subject: authId,
     });
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -5545,7 +5545,7 @@ describe("calendar day appointment queries", () => {
       .toString();
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",

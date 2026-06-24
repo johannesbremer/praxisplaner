@@ -22,7 +22,10 @@ import {
   pkvTariffValidator,
 } from "./bookingValidators";
 import { insertSelfLineageEntity } from "./lineage";
-import { requirePracticeManager, requireRuleSetMember } from "./practiceAccess";
+import {
+  requireManagerRuleSetScope,
+  requirePracticeManager,
+} from "./practiceAccess";
 import {
   applyAppointmentHistoryPractitionerAssociation,
   canonicalizeBookingIdentityPractitionerAssociations,
@@ -55,7 +58,7 @@ export const replaceReferenceTables = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
-    await requireRuleSetMember(ctx, args.ruleSetId, "admin");
+    await requireManagerRuleSetScope(ctx, args.ruleSetId);
 
     const [appointmentTypes, baseSchedules, locations, practitioners] =
       await Promise.all([
@@ -241,7 +244,7 @@ export const listReferenceTableRows = query({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
-    await requireRuleSetMember(ctx, args.ruleSetId, "admin");
+    await requireManagerRuleSetScope(ctx, args.ruleSetId);
 
     const [appointmentTypes, locations, practitioners] = await Promise.all([
       ctx.db

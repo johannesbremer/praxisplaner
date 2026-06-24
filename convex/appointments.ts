@@ -69,9 +69,9 @@ import {
 } from "./legacyUnmatchedFutureBookingHolds";
 import { requireLineageKey } from "./lineage";
 import {
-  ensurePracticeAccessForMutation,
-  ensurePracticeAccessForQuery,
   requirePracticeManagerForMutation,
+  requirePracticeStaff,
+  requirePracticeStaffForMutation,
   requireRuleSetBelongsToPractice,
   requireTrustedPracticeScope,
   requireTrustedRuleSetScope,
@@ -1729,7 +1729,7 @@ export const getAppointments = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
     const scope: AppointmentScope = args.scope ?? "real";
 
@@ -1775,7 +1775,7 @@ export const getCalendarDayAppointments = query({
   args: calendarDayQueryArgsValidator,
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
 
     const scope: AppointmentScope = args.scope ?? "real";
@@ -1863,7 +1863,7 @@ export const getAppointmentsInRange = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
     const rangeOverlapBounds = getRangeOverlapBounds(args);
     const appointmentDocs = await ctx.db
@@ -1908,7 +1908,7 @@ export const previewAppointmentSeries = query({
   args: appointmentSeriesArgsValidator,
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     await validateAppointmentSeriesOwnerRefs(ctx, {
       practiceId: args.practiceId,
       ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
@@ -1933,7 +1933,7 @@ export const createAppointmentSeries = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await requirePracticeStaffForMutation(ctx, args.practiceId);
 
     if (!args.patientId && !args.userId) {
       throw new Error("Either patientId or userId must be provided.");
@@ -2411,7 +2411,7 @@ export const createAppointment = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await requirePracticeStaffForMutation(ctx, args.practiceId);
     await requireManagerForPlannerRuleOverride(ctx, args);
     return await createAppointmentFromTrustedSource(ctx, args);
   },
@@ -2436,7 +2436,7 @@ export const restoreDeletedAppointment = mutation({
         "Appointment restore snapshot not found",
       );
     }
-    await ensurePracticeAccessForMutation(ctx, snapshot.practiceId);
+    await requirePracticeStaffForMutation(ctx, snapshot.practiceId);
     await requireManagerForPlannerRuleOverride(ctx, {
       appointmentTypeId: snapshot.appointmentTypeId,
       locationId: snapshot.locationId,
@@ -2757,7 +2757,7 @@ async function updateAppointmentByMode(
   if (!existingAppointment) {
     throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
   }
-  await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
+  await requirePracticeStaffForMutation(ctx, existingAppointment.practiceId);
   const existingPracticeScope = await requireTrustedPracticeScope(
     ctx,
     existingAppointment.practiceId,
@@ -3459,7 +3459,7 @@ export const updateAppointmentSmiley = mutation({
     if (!existingAppointment) {
       throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
     }
-    await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
+    await requirePracticeStaffForMutation(ctx, existingAppointment.practiceId);
     if (args.smiley !== null) {
       await requireConfiguredAppointmentSmiley(ctx.db, {
         practiceId: existingAppointment.practiceId,
@@ -3488,7 +3488,7 @@ export const updateSimulationAppointmentSmiley = mutation({
     if (!existingAppointment) {
       throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
     }
-    await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
+    await requirePracticeStaffForMutation(ctx, existingAppointment.practiceId);
     const smileyOptions = await getConfiguredAppointmentSmileyOptions(ctx.db, {
       practiceId: existingAppointment.practiceId,
       ruleSetId: args.simulationRuleSetId,
@@ -3597,7 +3597,7 @@ export const deleteAppointment = mutation({
     if (!existingAppointment) {
       throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
     }
-    await ensurePracticeAccessForMutation(ctx, existingAppointment.practiceId);
+    await requirePracticeStaffForMutation(ctx, existingAppointment.practiceId);
 
     if (existingAppointment.seriesId !== undefined) {
       const seriesId = existingAppointment.seriesId;
@@ -3836,7 +3836,7 @@ export const getAppointmentsForPatient = query({
     const isCurrentUserSelfServiceRead =
       args.userId === currentUserId && args.patientId === undefined;
     if (!isCurrentUserSelfServiceRead) {
-      await ensurePracticeAccessForQuery(ctx, args.practiceId);
+      await requirePracticeStaff(ctx, args.practiceId);
     }
     await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
     // Need at least one patient ID
@@ -3958,7 +3958,7 @@ export const getBlockedSlots = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
     const scope: AppointmentScope = args.scope ?? "real";
 
@@ -4003,7 +4003,7 @@ export const getBlockedSlotsInRange = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
     const rangeOverlapBounds = getRangeOverlapBounds(args);
     const rangeBlockedSlots = await ctx.db
@@ -4046,7 +4046,7 @@ export const getCalendarDayBlockedSlots = query({
   args: calendarDayQueryArgsValidator,
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     await requireDisplayRuleSetArgsBelongToPractice(ctx, args);
 
     const scope: AppointmentScope = args.scope ?? "real";
@@ -4304,7 +4304,7 @@ export const deleteAllSimulatedData = mutation({
     total: number;
   }> => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId);
+    await requirePracticeStaffForMutation(ctx, args.practiceId);
     const appointmentsDeleted = await deleteAllSimulatedAppointmentsForPractice(
       ctx.db,
       args.practiceId,

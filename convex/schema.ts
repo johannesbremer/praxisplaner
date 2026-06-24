@@ -1004,13 +1004,18 @@ export default defineSchema({
     .index("by_ruleSetId_mfaLineageKey", ["ruleSetId", "mfaLineageKey"]),
 
   /**
-   * Practice membership and role assignments.
-   * Roles are ordered by privilege: owner > admin > staff.
+   * WorkOS organization membership and role assignments for a practice.
+   * Roles are ordered by privilege: owner > admin > staff > patient.
    */
-  practiceMembers: defineTable({
+  organizationMembers: defineTable({
     createdAt: v.int64(),
     practiceId: v.id("practices"),
-    role: v.union(v.literal("staff"), v.literal("admin"), v.literal("owner")),
+    role: v.union(
+      v.literal("patient"),
+      v.literal("staff"),
+      v.literal("admin"),
+      v.literal("owner"),
+    ),
     userId: v.id("users"),
   })
     .index("by_practiceId", ["practiceId"])

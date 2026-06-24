@@ -1254,7 +1254,7 @@ describe("booking flow without bookingSessions table", () => {
       if (!user) {
         throw new Error("Expected booking fixture user.");
       }
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: fixture.practiceId,
         role: "staff",
@@ -1330,7 +1330,7 @@ describe("booking flow without bookingSessions table", () => {
       if (!user) {
         throw new Error("Expected booking fixture user.");
       }
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: fixture.practiceId,
         role: "staff",
@@ -1409,7 +1409,7 @@ describe("booking flow without bookingSessions table", () => {
       if (!user) {
         throw new Error("Expected booking fixture user.");
       }
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: fixture.practiceId,
         role: "staff",

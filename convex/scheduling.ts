@@ -29,8 +29,8 @@ import {
 } from "./identity";
 import { requireLineageKey } from "./lineage";
 import {
-  ensurePracticeAccessForQuery,
-  requirePracticeMemberOrCurrentUserBookingScope,
+  requireOrganizationMemberOrCurrentUserBookingScope,
+  requirePracticeStaff,
   requireRuleSetBelongsToPractice,
 } from "./practiceAccess";
 import { buildPreloadedDayData, evaluateLoadedRulesHelper } from "./ruleEngine";
@@ -61,7 +61,7 @@ import {
 } from "./validators";
 
 type SchedulingQueryAccess = Awaited<
-  ReturnType<typeof requirePracticeMemberOrCurrentUserBookingScope>
+  ReturnType<typeof requireOrganizationMemberOrCurrentUserBookingScope>
 >;
 
 /**
@@ -297,7 +297,7 @@ export const getAvailableDates = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     const dateRange = asDateRangeInput(args.dateRange);
     const simulatedContext = asSimulatedContextInput(args.simulatedContext);
     const availableDates = new Set<string>();
@@ -749,12 +749,12 @@ export const getSlotsForDay = query({
     await ensureAuthenticatedIdentity(ctx);
     let access: SchedulingQueryAccess | undefined;
     if (args.ruleSetId) {
-      access = await requirePracticeMemberOrCurrentUserBookingScope(ctx, {
+      access = await requireOrganizationMemberOrCurrentUserBookingScope(ctx, {
         practiceId: args.practiceId,
         ruleSetId: args.ruleSetId,
       });
     } else {
-      await ensurePracticeAccessForQuery(ctx, args.practiceId);
+      await requirePracticeStaff(ctx, args.practiceId);
     }
     const effectiveRuleSetId = await resolveSchedulingRuleSetId(ctx.db, {
       practiceId: args.practiceId,
@@ -795,12 +795,12 @@ export const getNextAvailableSlot = query({
     await ensureAuthenticatedIdentity(ctx);
     let access: SchedulingQueryAccess | undefined;
     if (args.ruleSetId) {
-      access = await requirePracticeMemberOrCurrentUserBookingScope(ctx, {
+      access = await requireOrganizationMemberOrCurrentUserBookingScope(ctx, {
         practiceId: args.practiceId,
         ruleSetId: args.ruleSetId,
       });
     } else {
-      await ensurePracticeAccessForQuery(ctx, args.practiceId);
+      await requirePracticeStaff(ctx, args.practiceId);
     }
     const date = asIsoDateString(args.date);
     const simulatedContext = asSimulatedContextInput(args.simulatedContext);
@@ -972,7 +972,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     if (args.ruleSetId) {
       await requireRuleSetBelongsToPractice(
         ctx,

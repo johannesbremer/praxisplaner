@@ -9,8 +9,8 @@ import { bumpDraftRevision } from "./copyOnWrite";
 import { asMfaId, asMfaLineageKey } from "./identity";
 import { insertSelfLineageEntity, requireLineageKey } from "./lineage";
 import {
-  ensurePracticeAccessForMutation,
-  requireRuleSetMember,
+  requireManagerRuleSetScope,
+  requirePracticeManagerForMutation,
 } from "./practiceAccess";
 import { selectDraftRuleSetForEdit } from "./ruleSetLifecycle";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
@@ -72,7 +72,7 @@ export const list = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await requireRuleSetMember(ctx, args.ruleSetId, "admin");
+    await requireManagerRuleSetScope(ctx, args.ruleSetId);
     return await ctx.db
       .query("mfas")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -90,7 +90,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
 
     const name = args.name.trim();
     if (!name) {
@@ -149,7 +149,7 @@ export const remove = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
 
     const { ruleSetId } = await selectDraftRuleSetForEdit(ctx.db, {
       expectedDraftRevision: args.expectedDraftRevision,

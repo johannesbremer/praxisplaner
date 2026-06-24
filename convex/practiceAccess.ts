@@ -12,20 +12,26 @@ import {
 type MutationCtx = GenericMutationCtx<DataModel>;
 type QueryCtx = GenericQueryCtx<DataModel>;
 
-export const practiceRoleValidator = v.union(
+export const organizationRoleValidator = v.union(
+  v.literal("patient"),
   v.literal("staff"),
   v.literal("admin"),
   v.literal("owner"),
 );
 
-export type PracticeRole = Doc<"practiceMembers">["role"];
+export type ManagerOrganizationRole = Extract<
+  OrganizationRole,
+  "admin" | "owner"
+>;
+export type OrganizationRole = Doc<"organizationMembers">["role"];
+export type StaffOrganizationRole = Exclude<OrganizationRole, "patient">;
 
 interface PracticeScopedResource {
   practiceId: Id<"practices">;
 }
 
 interface RuleSetAccess {
-  membership: Doc<"practiceMembers">;
+  membership: Doc<"organizationMembers">;
   practiceId: Id<"practices">;
   ruleSet: Doc<"ruleSets">;
 }
@@ -33,12 +39,12 @@ interface RuleSetAccess {
 declare const scopeBrand: unique symbol;
 
 export type ManagerPracticeScope = ScopeBrand<"ManagerPracticeScope"> & {
-  membership: Doc<"practiceMembers">;
+  membership: Doc<"organizationMembers">;
   practiceId: Id<"practices">;
 };
 
 export type ManagerRuleSetScope = ScopeBrand<"ManagerRuleSetScope"> & {
-  membership: Doc<"practiceMembers">;
+  membership: Doc<"organizationMembers">;
   practiceId: Id<"practices">;
   ruleSet: Doc<"ruleSets">;
   ruleSetId: Id<"ruleSets">;
@@ -58,12 +64,12 @@ export type PatientBookingScope = ScopeBrand<"PatientBookingScope"> & {
 };
 
 export type StaffPracticeScope = ScopeBrand<"StaffPracticeScope"> & {
-  membership: Doc<"practiceMembers">;
+  membership: Doc<"organizationMembers">;
   practiceId: Id<"practices">;
 };
 
 export type StaffRuleSetScope = ScopeBrand<"StaffRuleSetScope"> & {
-  membership: Doc<"practiceMembers">;
+  membership: Doc<"organizationMembers">;
   practiceId: Id<"practices">;
   ruleSet: Doc<"ruleSets">;
   ruleSetId: Id<"ruleSets">;
@@ -83,58 +89,17 @@ interface ScopeBrand<Name extends string> {
   readonly [scopeBrand]: Name;
 }
 
-const ROLE_WEIGHT: Record<PracticeRole, number> = {
+const ROLE_WEIGHT: Record<OrganizationRole, number> = {
   admin: 2,
   owner: 3,
+  patient: 0,
   staff: 1,
 };
-
-export async function ensurePracticeAccessForMutation(
-  ctx: MutationCtx,
-  practiceId: Id<"practices">,
-  minimumRole: PracticeRole = "staff",
-): Promise<Doc<"practiceMembers">> {
-  const userId = await ensureAuthenticatedUserId(ctx);
-  const membership = await findPracticeMembership(ctx, practiceId, userId);
-
-  if (!membership) {
-    throw forbiddenError("No access to this practice");
-  }
-
-  if (!roleSatisfiesMinimum(membership.role, minimumRole)) {
-    throw forbiddenError(
-      `Role ${membership.role} is insufficient for this action (requires ${minimumRole})`,
-    );
-  }
-
-  return membership;
-}
-
-export async function ensurePracticeAccessForQuery(
-  ctx: QueryCtx,
-  practiceId: Id<"practices">,
-  minimumRole: PracticeRole = "staff",
-): Promise<Doc<"practiceMembers">> {
-  const userId = await getQueryUserId(ctx);
-  const membership = await findPracticeMembership(ctx, practiceId, userId);
-
-  if (!membership) {
-    throw forbiddenError("No access to this practice");
-  }
-
-  if (!roleSatisfiesMinimum(membership.role, minimumRole)) {
-    throw forbiddenError(
-      `Role ${membership.role} is insufficient for this action (requires ${minimumRole})`,
-    );
-  }
-
-  return membership;
-}
 
 export async function ensureRuleSetAccessForMutation(
   ctx: MutationCtx,
   ruleSetId: Id<"ruleSets">,
-  minimumRole: PracticeRole = "staff",
+  minimumRole: StaffOrganizationRole = "staff",
 ): Promise<Id<"practices">> {
   const ruleSet = await ctx.db.get("ruleSets", ruleSetId);
   if (!ruleSet) {
@@ -144,14 +109,18 @@ export async function ensureRuleSetAccessForMutation(
     });
   }
 
-  await ensurePracticeAccessForMutation(ctx, ruleSet.practiceId, minimumRole);
+  await ensureOrganizationAccessForMutation(
+    ctx,
+    ruleSet.practiceId,
+    minimumRole,
+  );
   return ruleSet.practiceId;
 }
 
 export async function ensureRuleSetAccessForQuery(
   ctx: QueryCtx,
   ruleSetId: Id<"ruleSets">,
-  minimumRole: PracticeRole = "staff",
+  minimumRole: StaffOrganizationRole = "staff",
 ): Promise<Id<"practices">> {
   const { practiceId } = await requireRuleSetMember(
     ctx,
@@ -166,7 +135,7 @@ export async function getAccessiblePracticeIdsForQuery(
 ): Promise<Id<"practices">[]> {
   const { _id: userId } = await requireUser(ctx);
   const memberships = await ctx.db
-    .query("practiceMembers")
+    .query("organizationMembers")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
     .collect();
 
@@ -242,7 +211,6 @@ export async function requireManagerRuleSetScope(
   const { membership, practiceId, ruleSet } = await requireRuleSetMember(
     ctx,
     ruleSetId,
-    "admin",
   );
   return brandScope({
     membership,
@@ -257,7 +225,7 @@ export async function requireManagerRuleSetScopeForMutation(
   ruleSetId: Id<"ruleSets">,
 ): Promise<ManagerRuleSetScope> {
   const ruleSet = await requireRule(ctx, ruleSetId);
-  const membership = await ensurePracticeAccessForMutation(
+  const membership = await ensureOrganizationAccessForMutation(
     ctx,
     ruleSet.practiceId,
     "admin",
@@ -268,6 +236,51 @@ export async function requireManagerRuleSetScopeForMutation(
     ruleSet,
     ruleSetId,
   } as ManagerRuleSetScope);
+}
+
+export async function requireOrganizationMember(
+  ctx: QueryCtx,
+  practiceId: Id<"practices">,
+): Promise<Doc<"organizationMembers">> {
+  return await ensureOrganizationAccessForQuery(ctx, practiceId, "patient");
+}
+
+export async function requireOrganizationMemberForMutation(
+  ctx: MutationCtx,
+  practiceId: Id<"practices">,
+): Promise<Doc<"organizationMembers">> {
+  return await ensureOrganizationAccessForMutation(ctx, practiceId, "patient");
+}
+
+export async function requireOrganizationMemberOrCurrentUserBookingScope(
+  ctx: QueryCtx,
+  args: {
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+): Promise<{
+  membership?: Doc<"organizationMembers">;
+  practiceId: Id<"practices">;
+  userId?: Id<"users">;
+}> {
+  await requireRuleSetBelongsToPractice(ctx, args.ruleSetId, args.practiceId);
+  const user = await requireUser(ctx);
+  const membership = await findOrganizationMembership(
+    ctx,
+    args.practiceId,
+    user._id,
+  );
+  if (!membership) {
+    const practice = await ctx.db.get("practices", args.practiceId);
+    if (practice?.currentActiveRuleSetId !== args.ruleSetId) {
+      throw forbiddenError("No access to this practice");
+    }
+  }
+  return {
+    ...(membership ? { membership } : {}),
+    practiceId: args.practiceId,
+    userId: user._id,
+  };
 }
 
 export async function requireOwnedUserId(
@@ -305,54 +318,36 @@ export async function requirePatientBookingScopeForMutation(
 export async function requirePracticeManager(
   ctx: QueryCtx,
   practiceId: Id<"practices">,
-): Promise<Doc<"practiceMembers">> {
-  return await ensurePracticeAccessForQuery(ctx, practiceId, "admin");
+): Promise<Doc<"organizationMembers">> {
+  return await ensureOrganizationAccessForQuery(ctx, practiceId, "admin");
 }
 
 export async function requirePracticeManagerForMutation(
   ctx: MutationCtx,
   practiceId: Id<"practices">,
-): Promise<Doc<"practiceMembers">> {
-  return await ensurePracticeAccessForMutation(ctx, practiceId, "admin");
+): Promise<Doc<"organizationMembers">> {
+  return await ensureOrganizationAccessForMutation(ctx, practiceId, "admin");
 }
 
-export async function requirePracticeMember(
+export async function requirePracticeOwnerForMutation(
+  ctx: MutationCtx,
+  practiceId: Id<"practices">,
+): Promise<Doc<"organizationMembers">> {
+  return await ensureOrganizationAccessForMutation(ctx, practiceId, "owner");
+}
+
+export async function requirePracticeStaff(
   ctx: QueryCtx,
   practiceId: Id<"practices">,
-  minimumRole: PracticeRole = "staff",
-): Promise<Doc<"practiceMembers">> {
-  return await ensurePracticeAccessForQuery(ctx, practiceId, minimumRole);
+): Promise<Doc<"organizationMembers">> {
+  return await ensureOrganizationAccessForQuery(ctx, practiceId, "staff");
 }
 
-export async function requirePracticeMemberOrCurrentUserBookingScope(
-  ctx: QueryCtx,
-  args: {
-    practiceId: Id<"practices">;
-    ruleSetId: Id<"ruleSets">;
-  },
-): Promise<{
-  membership?: Doc<"practiceMembers">;
-  practiceId: Id<"practices">;
-  userId?: Id<"users">;
-}> {
-  await requireRuleSetBelongsToPractice(ctx, args.ruleSetId, args.practiceId);
-  const user = await requireUser(ctx);
-  const membership = await findPracticeMembership(
-    ctx,
-    args.practiceId,
-    user._id,
-  );
-  if (!membership) {
-    const practice = await ctx.db.get("practices", args.practiceId);
-    if (practice?.currentActiveRuleSetId !== args.ruleSetId) {
-      throw forbiddenError("No access to this practice");
-    }
-  }
-  return {
-    ...(membership ? { membership } : {}),
-    practiceId: args.practiceId,
-    userId: user._id,
-  };
+export async function requirePracticeStaffForMutation(
+  ctx: MutationCtx,
+  practiceId: Id<"practices">,
+): Promise<Doc<"organizationMembers">> {
+  return await ensureOrganizationAccessForMutation(ctx, practiceId, "staff");
 }
 
 export async function requireRuleSetBelongsToPractice(
@@ -378,10 +373,10 @@ export async function requireRuleSetManagerForMutation(
 export async function requireRuleSetMember(
   ctx: QueryCtx,
   ruleSetId: Id<"ruleSets">,
-  minimumRole: PracticeRole = "staff",
+  minimumRole: StaffOrganizationRole = "staff",
 ): Promise<RuleSetAccess> {
   const ruleSet = await requireRule(ctx, ruleSetId);
-  const membership = await ensurePracticeAccessForQuery(
+  const membership = await ensureOrganizationAccessForQuery(
     ctx,
     ruleSet.practiceId,
     minimumRole,
@@ -393,13 +388,13 @@ export async function requireRuleSetMemberOrCurrentUserBookingScope(
   ctx: QueryCtx,
   ruleSetId: Id<"ruleSets">,
 ): Promise<{
-  membership?: Doc<"practiceMembers">;
+  membership?: Doc<"organizationMembers">;
   practiceId: Id<"practices">;
   ruleSet: Doc<"ruleSets">;
   userId?: Id<"users">;
 }> {
   const ruleSet = await requireRule(ctx, ruleSetId);
-  const scope = await requirePracticeMemberOrCurrentUserBookingScope(ctx, {
+  const scope = await requireOrganizationMemberOrCurrentUserBookingScope(ctx, {
     practiceId: ruleSet.practiceId,
     ruleSetId,
   });
@@ -424,7 +419,7 @@ export async function requireStaffPracticeScope(
   ctx: QueryCtx,
   practiceId: Id<"practices">,
 ): Promise<StaffPracticeScope> {
-  const membership = await requirePracticeMember(ctx, practiceId, "staff");
+  const membership = await requirePracticeStaff(ctx, practiceId);
   return brandScope({ membership, practiceId } as StaffPracticeScope);
 }
 
@@ -432,11 +427,7 @@ export async function requireStaffPracticeScopeForMutation(
   ctx: MutationCtx,
   practiceId: Id<"practices">,
 ): Promise<StaffPracticeScope> {
-  const membership = await ensurePracticeAccessForMutation(
-    ctx,
-    practiceId,
-    "staff",
-  );
+  const membership = await requirePracticeStaffForMutation(ctx, practiceId);
   return brandScope({ membership, practiceId } as StaffPracticeScope);
 }
 
@@ -452,6 +443,23 @@ export async function requireStaffRuleSetScope(
   return brandScope({
     membership,
     practiceId,
+    ruleSet,
+    ruleSetId,
+  } as StaffRuleSetScope);
+}
+
+export async function requireStaffRuleSetScopeForMutation(
+  ctx: MutationCtx,
+  ruleSetId: Id<"ruleSets">,
+): Promise<StaffRuleSetScope> {
+  const ruleSet = await requireRule(ctx, ruleSetId);
+  const membership = await requirePracticeStaffForMutation(
+    ctx,
+    ruleSet.practiceId,
+  );
+  return brandScope({
+    membership,
+    practiceId: ruleSet.practiceId,
     ruleSet,
     ruleSetId,
   } as StaffRuleSetScope);
@@ -501,13 +509,55 @@ function brandScope<T>(scope: T): T {
   return scope;
 }
 
-async function findPracticeMembership(
+async function ensureOrganizationAccessForMutation(
+  ctx: MutationCtx,
+  practiceId: Id<"practices">,
+  minimumRole: OrganizationRole,
+): Promise<Doc<"organizationMembers">> {
+  const userId = await ensureAuthenticatedUserId(ctx);
+  const membership = await findOrganizationMembership(ctx, practiceId, userId);
+
+  if (!membership) {
+    throw forbiddenError("No access to this practice");
+  }
+
+  if (!roleSatisfiesMinimum(membership.role, minimumRole)) {
+    throw forbiddenError(
+      `Role ${membership.role} is insufficient for this action (requires ${minimumRole})`,
+    );
+  }
+
+  return membership;
+}
+
+async function ensureOrganizationAccessForQuery(
+  ctx: QueryCtx,
+  practiceId: Id<"practices">,
+  minimumRole: OrganizationRole,
+): Promise<Doc<"organizationMembers">> {
+  const userId = await getQueryUserId(ctx);
+  const membership = await findOrganizationMembership(ctx, practiceId, userId);
+
+  if (!membership) {
+    throw forbiddenError("No access to this practice");
+  }
+
+  if (!roleSatisfiesMinimum(membership.role, minimumRole)) {
+    throw forbiddenError(
+      `Role ${membership.role} is insufficient for this action (requires ${minimumRole})`,
+    );
+  }
+
+  return membership;
+}
+
+async function findOrganizationMembership(
   ctx: MutationCtx | QueryCtx,
   practiceId: Id<"practices">,
   userId: Id<"users">,
-): Promise<Doc<"practiceMembers"> | null> {
+): Promise<Doc<"organizationMembers"> | null> {
   return await ctx.db
-    .query("practiceMembers")
+    .query("organizationMembers")
     .withIndex("by_practiceId_userId", (q) =>
       q.eq("practiceId", practiceId).eq("userId", userId),
     )
@@ -550,8 +600,8 @@ async function requireRule(
 }
 
 function roleSatisfiesMinimum(
-  actual: PracticeRole,
-  minimum: PracticeRole,
+  actual: OrganizationRole,
+  minimum: OrganizationRole,
 ): boolean {
   return ROLE_WEIGHT[actual] >= ROLE_WEIGHT[minimum];
 }

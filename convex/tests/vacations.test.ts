@@ -142,7 +142,7 @@ async function createCoverageFixture(
       .withIndex("by_authId", (q) => q.eq("authId", "workos_vacations"))
       .first();
     assertDefined(user);
-    await ctx.db.insert("practiceMembers", {
+    await ctx.db.insert("organizationMembers", {
       createdAt: BigInt(Date.now()),
       practiceId,
       role: "owner",

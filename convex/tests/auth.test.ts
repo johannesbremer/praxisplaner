@@ -7,7 +7,7 @@ import schema from "../schema";
 import {
   canManageWorkOSOrganizationUsers,
   getWorkOSOrganizationMembershipRoleSlugs,
-  mapWorkOSRoleSlugsToPracticeRole,
+  mapWorkOSRoleSlugsToOrganizationRole,
 } from "../workosOrganizations";
 import { modules } from "./test.setup";
 
@@ -61,8 +61,13 @@ describe("WorkOS AuthKit user sync", () => {
         roles: [{ slug: "owner" }, { slug: "staff" }, { slug: 123 }],
       }),
     ).toEqual(["admin", "owner", "staff"]);
-    expect(mapWorkOSRoleSlugsToPracticeRole(["org:owner"])).toBe("owner");
-    expect(mapWorkOSRoleSlugsToPracticeRole(["org:admin"])).toBe("admin");
+    expect(mapWorkOSRoleSlugsToOrganizationRole(["org:owner"])).toBe("owner");
+    expect(mapWorkOSRoleSlugsToOrganizationRole(["org:admin"])).toBe("admin");
+    expect(mapWorkOSRoleSlugsToOrganizationRole(["org:staff"])).toBe("staff");
+    expect(mapWorkOSRoleSlugsToOrganizationRole(["org:patient"])).toBe(
+      "patient",
+    );
+    expect(mapWorkOSRoleSlugsToOrganizationRole([])).toBe("patient");
   });
 
   test("limits user-management widget tokens to active WorkOS owners", () => {
@@ -208,7 +213,7 @@ describe("WorkOS AuthKit user sync", () => {
     await expect(
       t.run(async (ctx) => {
         return await ctx.db
-          .query("practiceMembers")
+          .query("organizationMembers")
           .withIndex("by_practiceId_userId", (q) =>
             q.eq("practiceId", practiceId).eq("userId", userId),
           )
@@ -231,7 +236,7 @@ describe("WorkOS AuthKit user sync", () => {
     await expect(
       t.run(async (ctx) => {
         return await ctx.db
-          .query("practiceMembers")
+          .query("organizationMembers")
           .withIndex("by_practiceId_userId", (q) =>
             q.eq("practiceId", practiceId).eq("userId", userId),
           )
@@ -254,7 +259,7 @@ describe("WorkOS AuthKit user sync", () => {
     await expect(
       t.run(async (ctx) => {
         return await ctx.db
-          .query("practiceMembers")
+          .query("organizationMembers")
           .withIndex("by_practiceId_userId", (q) =>
             q.eq("practiceId", practiceId).eq("userId", userId),
           )

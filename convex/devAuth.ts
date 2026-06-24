@@ -29,7 +29,7 @@ export const ensurePreviewAuthPersonas = mutation({
       userIds.push(userId);
 
       if ("role" in persona) {
-        await ensurePracticeMember(ctx, {
+        await ensureOrganizationMember(ctx, {
           practiceId: practice._id,
           role: persona.role,
           userId,
@@ -44,6 +44,49 @@ export const ensurePreviewAuthPersonas = mutation({
     users: v.array(v.id("users")),
   }),
 });
+
+async function ensureOrganizationMember(
+  ctx: MutationCtx,
+  args: {
+    practiceId: Id<"practices">;
+    role: Doc<"organizationMembers">["role"];
+    userId: Id<"users">;
+  },
+): Promise<void> {
+  const existing = await ctx.db
+    .query("organizationMembers")
+    .withIndex("by_practiceId_userId", (q) =>
+      q.eq("practiceId", args.practiceId).eq("userId", args.userId),
+    )
+    .first();
+
+  if (existing) {
+    if (existing.role !== args.role) {
+      await ctx.db.patch("organizationMembers", existing._id, {
+        role: args.role,
+      });
+    }
+    return;
+  }
+
+  const existingUserMembership = await ctx.db
+    .query("organizationMembers")
+    .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+    .first();
+  if (
+    existingUserMembership &&
+    existingUserMembership.practiceId !== args.practiceId
+  ) {
+    throw new Error("Preview auth user already belongs to another practice.");
+  }
+
+  await ctx.db.insert("organizationMembers", {
+    createdAt: BigInt(Date.now()),
+    practiceId: args.practiceId,
+    role: args.role,
+    userId: args.userId,
+  });
+}
 
 async function ensurePractice(ctx: MutationCtx): Promise<Doc<"practices">> {
   const existing = await ctx.db.query("practices").first();
@@ -81,47 +124,6 @@ async function ensurePractice(ctx: MutationCtx): Promise<Doc<"practices">> {
     throw new Error("Created practice was not found");
   }
   return practice;
-}
-
-async function ensurePracticeMember(
-  ctx: MutationCtx,
-  args: {
-    practiceId: Id<"practices">;
-    role: Doc<"practiceMembers">["role"];
-    userId: Id<"users">;
-  },
-): Promise<void> {
-  const existing = await ctx.db
-    .query("practiceMembers")
-    .withIndex("by_practiceId_userId", (q) =>
-      q.eq("practiceId", args.practiceId).eq("userId", args.userId),
-    )
-    .first();
-
-  if (existing) {
-    if (existing.role !== args.role) {
-      await ctx.db.patch("practiceMembers", existing._id, { role: args.role });
-    }
-    return;
-  }
-
-  const existingUserMembership = await ctx.db
-    .query("practiceMembers")
-    .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-    .first();
-  if (
-    existingUserMembership &&
-    existingUserMembership.practiceId !== args.practiceId
-  ) {
-    throw new Error("Preview auth user already belongs to another practice.");
-  }
-
-  await ctx.db.insert("practiceMembers", {
-    createdAt: BigInt(Date.now()),
-    practiceId: args.practiceId,
-    role: args.role,
-    userId: args.userId,
-  });
 }
 
 async function ensureUser(
