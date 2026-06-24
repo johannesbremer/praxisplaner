@@ -1116,7 +1116,7 @@ function PraxisPlanerComponent() {
       </div>
     ) : currentPractice ? (
       activeRuleSet ? (
-        <SidebarProvider className="flex h-full w-full">
+        <SidebarProvider className="flex h-full w-full min-w-0">
           <PraxisCalendar
             canManageCalendarPlanning={canManageCalendarPlanning}
             onDateChange={handleDateChange}

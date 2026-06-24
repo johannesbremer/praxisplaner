@@ -279,7 +279,7 @@ export function CalendarRightSidebar({
       // Desktop: render as a sidebar that pushes content
       return (
         <div
-          className="group peer text-sidebar-foreground hidden md:block h-full relative"
+          className="group peer text-sidebar-foreground relative hidden h-full shrink-0 md:block"
           data-side="right"
           data-state={open ? "expanded" : "collapsed"}
           style={
