@@ -4329,6 +4329,122 @@ describe("appointment series", () => {
     );
   });
 
+  test("appointment plans allow exact resource steps over unrelated practitioner appointments", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const { busyAppointmentTypeId, rootAppointmentTypeId } = await t.run(
+      async (ctx) => {
+        const now = BigInt(Date.now());
+        const busyTypeId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          createdAt: now,
+          duration: 10,
+          lastModified: now,
+          name: "Busy practitioner appointment",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", busyTypeId, {
+          lineageKey: busyTypeId,
+        });
+        const ekgTypeId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          createdAt: now,
+          duration: 10,
+          lastModified: now,
+          name: "EKG",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", ekgTypeId, {
+          lineageKey: ekgTypeId,
+        });
+        const rootTypeId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: ekgTypeId,
+                occupancy: {
+                  calendarResourceColumn: "ekg",
+                  kind: "resourceColumn",
+                },
+                required: true,
+                stepId: "ekg-before-root",
+                timing: { kind: "beforeRootStart", offsetMinutes: 0 },
+              },
+            ],
+          },
+          createdAt: now,
+          duration: 10,
+          lastModified: now,
+          name: "Root + EKG before",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", rootTypeId, {
+          lineageKey: rootTypeId,
+        });
+        return {
+          busyAppointmentTypeId: busyTypeId,
+          rootAppointmentTypeId: rootTypeId,
+        };
+      },
+    );
+
+    const monday = nextWeekday(1);
+    const rootStart = monday
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 10 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const resourceStepStart = Temporal.ZonedDateTime.from(rootStart)
+      .subtract({ minutes: 10 })
+      .toString();
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: busyAppointmentTypeId,
+        appointmentTypeTitle: "Busy practitioner appointment",
+        createdAt: now,
+        end: rootStart,
+        lastModified: now,
+        locationLineageKey: locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: practitionerId,
+        },
+        practiceId,
+        start: resourceStepStart,
+        title: "Unrelated practitioner appointment",
+      });
+    });
+
+    const preview = await t.query(api.appointments.previewAppointmentSeries, {
+      locationId,
+      practiceId,
+      practitionerId,
+      rootAppointmentTypeId,
+      ruleSetId,
+      start: rootStart,
+    });
+
+    expect(preview.status).toBe("ready");
+    if (preview.status !== "ready") {
+      throw new Error("Expected preview to be ready.");
+    }
+    expect(preview.steps).toMatchObject([
+      { start: rootStart },
+      {
+        occupancyScope: { calendarResourceColumn: "ekg", kind: "resource" },
+        start: resourceStepStart,
+      },
+    ]);
+  });
+
   test("resource-root appointment series can move within the same resource column", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
