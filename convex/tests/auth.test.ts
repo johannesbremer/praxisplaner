@@ -44,7 +44,14 @@ async function runUserEvent(
 }
 
 describe("WorkOS AuthKit user sync", () => {
-  test("seeds the owner dev persona used by account auth bypass", () => {
+  test("seeds dev personas used by account auth bypass", () => {
+    expect(DEV_AUTH_USERS).toContainEqual({
+      authId: "dev-patient",
+      email: "patient@preview.test",
+      firstName: "Preview",
+      lastName: "Patient",
+      role: "patient",
+    });
     expect(DEV_AUTH_USERS).toContainEqual({
       authId: "dev-owner",
       email: "owner@preview.test",
