@@ -1,6 +1,8 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
+import type { Id } from "../_generated/dataModel";
+
 import { api } from "../_generated/api";
 import { insertSelfLineageEntity } from "../lineage";
 import schema from "../schema";
@@ -47,18 +49,19 @@ async function createFlowFixture(
 ) {
   return await t.run(async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
+    let fixtureUserId: Id<"users"> | null = null;
     if (identity) {
       const existing = await ctx.db
         .query("users")
         .withIndex("by_authId", (q) => q.eq("authId", identity.subject))
         .first();
-      if (!existing) {
-        await ctx.db.insert("users", {
+      fixtureUserId =
+        existing?._id ??
+        (await ctx.db.insert("users", {
           authId: identity.subject,
           createdAt: BigInt(Date.now()),
           email: identity.email ?? `${identity.subject}@users.invalid`,
-        });
-      }
+        }));
     }
 
     const now = BigInt(Date.now());
@@ -76,6 +79,14 @@ async function createFlowFixture(
     await ctx.db.patch("practices", practiceId, {
       currentActiveRuleSetId: ruleSetId,
     });
+    if (fixtureUserId !== null) {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: now,
+        practiceId,
+        role: "patient",
+        userId: fixtureUserId,
+      });
+    }
     const locationLineageKey = await insertSelfLineageEntity(
       ctx.db,
       "locations",
@@ -275,10 +286,16 @@ describe("booking flow without bookingSessions table", () => {
     );
     const authId = "workos_active_no_flow";
     await t.run(async (ctx) => {
-      await ctx.db.insert("users", {
+      const userId = await ctx.db.insert("users", {
         authId,
         createdAt: BigInt(Date.now()),
         email: "active-no-flow@example.com",
+      });
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: fixture.practiceId,
+        role: "patient",
+        userId,
       });
     });
     const authed = t.withIdentity({
@@ -1281,24 +1298,9 @@ describe("booking flow without bookingSessions table", () => {
   test("does not advertise dates without a slot covering the appointment duration", async () => {
     const t = createAuthedTestContext("flow_booking_date_duration_coverage");
     const fixture = await createFlowFixture(t);
+    await ensureCurrentUserOrganizationMembership(t, fixture, "staff");
 
     await t.run(async (ctx) => {
-      const user = await ctx.db
-        .query("users")
-        .withIndex("by_authId", (q) =>
-          q.eq("authId", "workos_flow_booking_date_duration_coverage"),
-        )
-        .first();
-      if (!user) {
-        throw new Error("Expected booking fixture user.");
-      }
-      await ctx.db.insert("organizationMembers", {
-        createdAt: BigInt(Date.now()),
-        practiceId: fixture.practiceId,
-        role: "staff",
-        userId: user._id,
-      });
-
       const appointmentType = await ctx.db.get(
         "appointmentTypes",
         fixture.appointmentTypeLineageKey,
@@ -1357,24 +1359,9 @@ describe("booking flow without bookingSessions table", () => {
   test("duration coverage invalidation does not depend on slot order", async () => {
     const t = createAuthedTestContext("flow_booking_unordered_coverage");
     const fixture = await createFlowFixture(t);
+    await ensureCurrentUserOrganizationMembership(t, fixture, "staff");
 
     await t.run(async (ctx) => {
-      const user = await ctx.db
-        .query("users")
-        .withIndex("by_authId", (q) =>
-          q.eq("authId", "workos_flow_booking_unordered_coverage"),
-        )
-        .first();
-      if (!user) {
-        throw new Error("Expected booking fixture user.");
-      }
-      await ctx.db.insert("organizationMembers", {
-        createdAt: BigInt(Date.now()),
-        practiceId: fixture.practiceId,
-        role: "staff",
-        userId: user._id,
-      });
-
       const appointmentType = await ctx.db.get(
         "appointmentTypes",
         fixture.appointmentTypeLineageKey,
@@ -1436,24 +1423,9 @@ describe("booking flow without bookingSessions table", () => {
   test("available dates resolve appointment types against the viewed rule set", async () => {
     const t = createAuthedTestContext("flow_booking_draft_dates");
     const fixture = await createFlowFixture(t);
+    await ensureCurrentUserOrganizationMembership(t, fixture, "staff");
 
     const draftFixture = await t.run(async (ctx) => {
-      const user = await ctx.db
-        .query("users")
-        .withIndex("by_authId", (q) =>
-          q.eq("authId", "workos_flow_booking_draft_dates"),
-        )
-        .first();
-      if (!user) {
-        throw new Error("Expected booking fixture user.");
-      }
-      await ctx.db.insert("organizationMembers", {
-        createdAt: BigInt(Date.now()),
-        practiceId: fixture.practiceId,
-        role: "staff",
-        userId: user._id,
-      });
-
       const now = BigInt(Date.now());
       const draftRuleSetId = await ctx.db.insert("ruleSets", {
         createdAt: Date.now(),

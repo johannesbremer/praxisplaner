@@ -34,6 +34,8 @@ import {
 import { getFutureLegacyUnmatchedBookingHoldsForUser } from "./legacyUnmatchedFutureBookingHolds";
 import {
   type PatientBookingScope,
+  requireOrganizationMember,
+  requireOrganizationMemberForMutation,
   requirePatientBookingScopeForMutation,
 } from "./practiceAccess";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
@@ -59,10 +61,6 @@ import {
   asSelectedSlotInput,
   type ZonedDateTimeString,
 } from "./typedDtos";
-import {
-  ensureAuthenticatedUserId,
-  requireAuthenticatedUserIdForQuery,
-} from "./userIdentity";
 
 const FLOW_KEY_VALIDATOR = {
   practiceId: v.id("practices"),
@@ -449,9 +447,13 @@ async function getFlowKeyForMutation(
   args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
 ): Promise<BookingFlowKey> {
   await requireBookingRuleSetBelongsToPractice(ctx, args);
+  const membership = await requireOrganizationMemberForMutation(
+    ctx,
+    args.practiceId,
+  );
   return {
     ...args,
-    userId: await ensureAuthenticatedUserId(ctx),
+    userId: membership.userId,
   };
 }
 
@@ -459,12 +461,12 @@ async function getFlowKeyForQuery(
   ctx: QueryCtx,
   args: Pick<BookingFlowKey, "practiceId" | "ruleSetId">,
 ): Promise<BookingFlowKey> {
-  const userId = await requireAuthenticatedUserIdForQuery(ctx);
   await requireBookingRuleSetBelongsToPractice(ctx, args);
+  const membership = await requireOrganizationMember(ctx, args.practiceId);
 
   return {
     ...args,
-    userId,
+    userId: membership.userId,
   };
 }
 
