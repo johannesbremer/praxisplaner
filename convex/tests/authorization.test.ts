@@ -302,7 +302,16 @@ describe("Convex query authorization", () => {
     });
 
     const patientAuthId = "workos_public_practice_patient";
-    await createUser(t, patientAuthId, "public-practice-patient@example.com");
+    const patientUserId = await createUser(
+      t,
+      patientAuthId,
+      "public-practice-patient@example.com",
+    );
+    await setMembershipRole(t, {
+      practiceId: ownerPractice.practiceId,
+      role: "patient",
+      userId: patientUserId,
+    });
     const patient = t.withIdentity({
       email: "public-practice-patient@example.com",
       subject: patientAuthId,
@@ -459,6 +468,9 @@ describe("Convex query authorization", () => {
         name: "Patient ist angekommen",
       },
     ]);
+    await expect(
+      authed.query(api.ruleSets.getRuleSet, { ruleSetId: activeRuleSetId }),
+    ).rejects.toThrow("Role staff is insufficient");
   });
 
   test("patient organization members cannot read staff-facing practice data", async () => {
@@ -482,6 +494,15 @@ describe("Convex query authorization", () => {
         _id: practiceId,
       }),
     ]);
+    await expect(
+      authed.query(api.users.getById, { id: userId, practiceId }),
+    ).rejects.toThrow("Role patient is insufficient");
+    await expect(
+      authed.query(api.users.getUsersByIds, {
+        practiceId,
+        userIds: [userId],
+      }),
+    ).rejects.toThrow("Role patient is insufficient");
   });
 
   test("staff cannot perform manager-only rule-set lifecycle mutations", async () => {
@@ -520,7 +541,7 @@ describe("Convex query authorization", () => {
     ).rejects.toThrow("Role staff is insufficient");
   });
 
-  test("authenticated non-members can only read projected active booking reference entities", async () => {
+  test("patient members can only read projected active booking reference entities", async () => {
     const t = createTestContext();
     const patientUserId = await createUser(
       t,
@@ -576,6 +597,11 @@ describe("Convex query authorization", () => {
         ruleSetId: practice.ruleSetId,
       }),
     ).rejects.toThrow("No access to this practice");
+    await setMembershipRole(t, {
+      practiceId: practice.practiceId,
+      role: "patient",
+      userId: patientUserId,
+    });
 
     const appointmentTypes = await patient.query(
       api.entities.getBookingAppointmentTypes,
@@ -911,6 +937,31 @@ describe("Convex query authorization", () => {
       email: patientEmail,
       subject: patientAuthId,
     });
+    const patientUserId = await t.run(async (ctx) => {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_authId", (q) => q.eq("authId", patientAuthId))
+        .first();
+      if (!user) {
+        throw new Error("Expected patient user");
+      }
+      return user._id;
+    });
+    await setMembershipRole(t, {
+      practiceId: first.practiceId,
+      role: "patient",
+      userId: patientUserId,
+    });
+    const inactiveRuleSetId = await t.run(async (ctx) => {
+      return await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Patient Inactive Rule Set",
+        draftRevision: 0,
+        practiceId: first.practiceId,
+        saved: false,
+        version: 2,
+      });
+    });
 
     await expect(
       patient.query(api.scheduling.getSlotsForDay, {
@@ -922,6 +973,43 @@ describe("Convex query authorization", () => {
         },
       }),
     ).rejects.toThrow("Rule set does not belong to this practice");
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("organizationMembers")
+        .withIndex("by_practiceId_userId", (q) =>
+          q.eq("practiceId", first.practiceId).eq("userId", patientUserId),
+        )
+        .first();
+      if (!membership) {
+        throw new Error("Expected patient membership");
+      }
+      await ctx.db.delete("organizationMembers", membership._id);
+    });
+    await expect(
+      patient.query(api.scheduling.getSlotsForDay, {
+        date: "2026-01-05",
+        practiceId: first.practiceId,
+        ruleSetId: first.ruleSetId,
+        simulatedContext: {
+          patient: { isNew: true },
+        },
+      }),
+    ).rejects.toThrow("No access to this practice");
+    await setMembershipRole(t, {
+      practiceId: first.practiceId,
+      role: "patient",
+      userId: patientUserId,
+    });
+    await expect(
+      patient.query(api.scheduling.getSlotsForDay, {
+        date: "2026-01-05",
+        practiceId: first.practiceId,
+        ruleSetId: inactiveRuleSetId,
+        simulatedContext: {
+          patient: { isNew: true },
+        },
+      }),
+    ).rejects.toThrow("No access to this practice");
   });
 
   test("patient booking scope cannot request simulation scheduling occupancy", async () => {
@@ -933,7 +1021,12 @@ describe("Convex query authorization", () => {
     );
     const patientAuthId = "workos_authz_simulation_scope_patient";
     const patientEmail = "authz-simulation-scope-patient@example.com";
-    await createUser(t, patientAuthId, patientEmail);
+    const patientUserId = await createUser(t, patientAuthId, patientEmail);
+    await setMembershipRole(t, {
+      practiceId: practice.practiceId,
+      role: "patient",
+      userId: patientUserId,
+    });
     const blockDate = nextFutureWeekday(1);
     const nextOpenDate = blockDate.add({ weeks: 1 });
     const blockStart = zonedDateTimeAt(blockDate, 9, 0);
@@ -1070,7 +1163,12 @@ describe("Convex query authorization", () => {
     const fixture = await createPublicBookingSchedulingFixture(t, owner);
     const patientAuthId = "workos_authz_public_booking_patient";
     const patientEmail = "authz-public-booking-patient@example.com";
-    await createUser(t, patientAuthId, patientEmail);
+    const patientUserId = await createUser(t, patientAuthId, patientEmail);
+    await setMembershipRole(t, {
+      practiceId: owner.practiceId,
+      role: "patient",
+      userId: patientUserId,
+    });
     const patient = t.withIdentity({
       email: patientEmail,
       subject: patientAuthId,

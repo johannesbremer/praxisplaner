@@ -211,6 +211,7 @@ export async function requireManagerRuleSetScope(
   const { membership, practiceId, ruleSet } = await requireRuleSetMember(
     ctx,
     ruleSetId,
+    "admin",
   );
   return brandScope({
     membership,
@@ -271,13 +272,20 @@ export async function requireOrganizationMemberOrCurrentUserBookingScope(
     user._id,
   );
   if (!membership) {
+    throw forbiddenError("No access to this practice");
+  }
+  if (!roleSatisfiesMinimum(membership.role, "staff")) {
     const practice = await ctx.db.get("practices", args.practiceId);
     if (practice?.currentActiveRuleSetId !== args.ruleSetId) {
       throw forbiddenError("No access to this practice");
     }
+    return {
+      practiceId: args.practiceId,
+      userId: user._id,
+    };
   }
   return {
-    ...(membership ? { membership } : {}),
+    membership,
     practiceId: args.practiceId,
     userId: user._id,
   };
@@ -302,11 +310,15 @@ export async function requirePatientBookingScopeForMutation(
   },
 ): Promise<PatientBookingScope> {
   const userId = await ensureAuthenticatedUserId(ctx);
-  const ruleSet = await requireRuleSetBelongsToPractice(
+  const membership = await findOrganizationMembership(
     ctx,
-    args.ruleSetId,
     args.practiceId,
+    userId,
   );
+  if (!membership) {
+    throw forbiddenError("No access to this practice");
+  }
+  const ruleSet = await requireActiveBookingRuleSet(ctx, args);
   return brandScope({
     practiceId: args.practiceId,
     ruleSet,

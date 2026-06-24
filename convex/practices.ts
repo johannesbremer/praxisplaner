@@ -8,6 +8,7 @@ import { createInitialRuleSet } from "./copyOnWrite";
 import {
   getAccessiblePracticeIdsForQuery,
   organizationRoleValidator,
+  requireOrganizationMember,
   requirePracticeManager,
   requirePracticeManagerForMutation,
   requirePracticeOwnerForMutation,
@@ -22,7 +23,6 @@ import {
 import {
   ensureAuthenticatedUserId,
   getAuthenticatedUserIdForQueryOrNull,
-  requireAuthenticatedUserIdForQuery,
 } from "./userIdentity";
 import { createOrganizationPracticeForCurrentUser } from "./workosOrganizations";
 
@@ -221,16 +221,19 @@ export const getAllPracticesIfAuthenticated = query({
 /**
  * Get practices visible to authenticated patient booking flows.
  *
- * Public booking discovery is available to authenticated users before they
- * necessarily have an organization membership. Booking-specific queries still
- * validate practice/rule-set relationships before exposing scheduling data.
+ * Booking discovery is scoped to explicit organization membership. Patient
+ * members receive only the public booking projection.
  */
 export const getBookingPractices = query({
   args: {},
   handler: async (ctx) => {
-    await requireAuthenticatedUserIdForQuery(ctx);
-    const practices = await ctx.db.query("practices").collect();
-    return practices.map((practice) => toPublicBookingPractice(practice));
+    const practiceIds = await getAccessiblePracticeIdsForQuery(ctx);
+    const practices = await Promise.all(
+      practiceIds.map((practiceId) => ctx.db.get("practices", practiceId)),
+    );
+    return practices.flatMap((practice) =>
+      practice === null ? [] : [toPublicBookingPractice(practice)],
+    );
   },
   returns: v.array(publicBookingPracticeValidator),
 });
@@ -300,13 +303,15 @@ export const getBookingPracticeBySlug = query({
     slug: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireAuthenticatedUserIdForQuery(ctx);
     const practicesBySlug = await ctx.db
       .query("practices")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .collect();
     if (practicesBySlug.length > 0) {
       const practice = practicesBySlug.length === 1 ? practicesBySlug[0] : null;
+      if (practice) {
+        await requireOrganizationMember(ctx, practice._id);
+      }
       return practice ? toPublicBookingPractice(practice) : null;
     }
     return null;

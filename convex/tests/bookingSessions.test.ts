@@ -169,6 +169,42 @@ async function createNewPatientFlowToDataInput(
   });
 }
 
+async function ensureCurrentUserOrganizationMembership(
+  t: ReturnType<typeof createAuthedTestContext>,
+  fixture: Awaited<ReturnType<typeof createFlowFixture>>,
+  role: "admin" | "owner" | "patient" | "staff" = "patient",
+) {
+  await t.run(async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Expected authenticated test identity.");
+    }
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_authId", (q) => q.eq("authId", identity.subject))
+      .first();
+    if (!user) {
+      throw new Error("Expected booking fixture user.");
+    }
+    const existing = await ctx.db
+      .query("organizationMembers")
+      .withIndex("by_practiceId_userId", (q) =>
+        q.eq("practiceId", fixture.practiceId).eq("userId", user._id),
+      )
+      .first();
+    if (existing) {
+      await ctx.db.patch("organizationMembers", existing._id, { role });
+      return;
+    }
+    await ctx.db.insert("organizationMembers", {
+      createdAt: BigInt(Date.now()),
+      practiceId: fixture.practiceId,
+      role,
+      userId: user._id,
+    });
+  });
+}
+
 async function ensureSyncedUser(
   t: ReturnType<typeof createAuthedTestContext>,
   identitySuffix = "default",
@@ -1065,6 +1101,7 @@ describe("booking flow without bookingSessions table", () => {
   test("successful slot selection creates appointment and keeps calendar state for later rebooking", async () => {
     const t = createAuthedTestContext("flow_booking_success");
     const fixture = await createFlowFixture(t);
+    await ensureCurrentUserOrganizationMembership(t, fixture);
 
     await createFlowToPatientStatus(t, fixture);
     await t.mutation(api.bookingSessions.selectExistingPatient, {
@@ -1161,6 +1198,7 @@ describe("booking flow without bookingSessions table", () => {
   test("rejects a selected slot that does not cover the full appointment duration", async () => {
     const t = createAuthedTestContext("flow_booking_duration_coverage");
     const fixture = await createFlowFixture(t);
+    await ensureCurrentUserOrganizationMembership(t, fixture);
 
     await t.run(async (ctx) => {
       const schedule = await ctx.db.query("baseSchedules").first();

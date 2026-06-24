@@ -12,7 +12,7 @@ import {
   query,
 } from "./_generated/server";
 import { authKit } from "./auth";
-import { requireOrganizationMember } from "./practiceAccess";
+import { requirePracticeStaff } from "./practiceAccess";
 import { personalDataValidator } from "./schema";
 import { asPersonalDataInput, type PersonalDataInput } from "./typedDtos";
 import { findUserByAuthId } from "./userIdentity";
@@ -266,7 +266,7 @@ export const getAuthUser = query({
 export const getById = query({
   args: { id: v.id("users"), practiceId: v.id("practices") },
   handler: async (ctx, args) => {
-    await requireOrganizationMember(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     const user = await ctx.db.get("users", args.id);
     if (!user) {
       return null;
@@ -309,7 +309,7 @@ export const getById = query({
 export const getUsersByIds = query({
   args: { practiceId: v.id("practices"), userIds: v.array(v.id("users")) },
   handler: async (ctx, args) => {
-    await requireOrganizationMember(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     const users = await Promise.all(
       args.userIds.map((id) => ctx.db.get("users", id)),
     );
