@@ -25,6 +25,16 @@ SOURCE_ENV_FILE=""
 if [ -f .env.local ]; then
   SOURCE_ENV_FILE=".env.local"
 fi
+if [ -z "$SOURCE_ENV_FILE" ]; then
+  COMMON_GIT_DIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  PRIMARY_WORKTREE=""
+  case "$COMMON_GIT_DIR" in
+    */.git) PRIMARY_WORKTREE="${COMMON_GIT_DIR%/.git}" ;;
+  esac
+  if [ -n "$PRIMARY_WORKTREE" ] && [ "$PRIMARY_WORKTREE" != "$(pwd)" ] && [ -f "$PRIMARY_WORKTREE/.env.local" ]; then
+    SOURCE_ENV_FILE="$PRIMARY_WORKTREE/.env.local"
+  fi
+fi
 
 read_local_env_value() {
   name="$1"

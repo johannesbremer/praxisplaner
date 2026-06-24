@@ -10,13 +10,8 @@ fi
 
 backend_log_file=""
 backend_log_tail_pid=""
-
-reject_convex_deploy_key() {
-  if [ -f .env.local ] && grep -q '^CONVEX_DEPLOY_KEY=' .env.local; then
-    printf 'Remove CONVEX_DEPLOY_KEY from .env.local before running pnpm dev:backend.\n' >&2
-    exit 1
-  fi
-}
+env_backup_file=""
+env_filtered_file=""
 
 read_local_env_value() {
   if [ ! -f .env.local ]; then
@@ -49,10 +44,28 @@ cleanup() {
   if [ -n "$backend_log_file" ] && [ -f "$backend_log_file" ]; then
     rm -f "$backend_log_file"
   fi
+  if [ -n "$env_backup_file" ] && [ -f "$env_backup_file" ]; then
+    if [ -f .env.local ] && [ -f "$env_filtered_file" ] && cmp -s .env.local "$env_filtered_file"; then
+      mv "$env_backup_file" .env.local
+    else
+      rm -f "$env_backup_file"
+      printf '.env.local changed while pnpm dev:backend was running; leaving current file unchanged.\n' >&2
+    fi
+  fi
+  if [ -n "$env_filtered_file" ] && [ -f "$env_filtered_file" ]; then
+    rm -f "$env_filtered_file"
+  fi
 }
 trap cleanup EXIT INT TERM
 
-reject_convex_deploy_key
+if [ -f .env.local ] && grep -q '^CONVEX_DEPLOY_KEY=' .env.local; then
+  env_backup_file="$(mktemp)"
+  env_filtered_file="$(mktemp)"
+  cp .env.local "$env_backup_file"
+  sed -E '/^CONVEX_DEPLOY_KEY=/d' "$env_backup_file" > "$env_filtered_file"
+  cp "$env_filtered_file" .env.local
+  chmod 600 .env.local
+fi
 
 selected_convex_deployment="$(read_local_env_value CONVEX_DEPLOYMENT || true)"
 preview_deployment=false
@@ -83,7 +96,7 @@ if [ "$preview_deployment" = "true" ]; then
   backend_log_file="$(mktemp)"
   tail -n +1 -f "$backend_log_file" &
   backend_log_tail_pid="$!"
-  AUTH_BYPASS_ENABLED="$AUTH_BYPASS_ENABLED" pnpm exec convex dev > "$backend_log_file" 2>&1 &
+  AUTH_BYPASS_ENABLED="$AUTH_BYPASS_ENABLED" env -u CONVEX_DEPLOY_KEY pnpm exec convex dev > "$backend_log_file" 2>&1 &
   backend_pid="$!"
   backend_owned=true
 elif lsof -iTCP:"$convex_backend_port" -sTCP:LISTEN -n -P > /dev/null 2>&1; then
@@ -92,7 +105,7 @@ else
   backend_log_file="$(mktemp)"
   tail -n +1 -f "$backend_log_file" &
   backend_log_tail_pid="$!"
-  AUTH_BYPASS_ENABLED="$AUTH_BYPASS_ENABLED" pnpm exec convex dev > "$backend_log_file" 2>&1 &
+  AUTH_BYPASS_ENABLED="$AUTH_BYPASS_ENABLED" env -u CONVEX_DEPLOY_KEY pnpm exec convex dev > "$backend_log_file" 2>&1 &
   backend_pid="$!"
   backend_owned=true
 fi
@@ -101,15 +114,15 @@ wait_for_owned_backend_ready
 
 (
   until
-    pnpm exec convex env set AUTH_BYPASS_ENABLED "$AUTH_BYPASS_ENABLED" \
+    env -u CONVEX_DEPLOY_KEY pnpm exec convex env set AUTH_BYPASS_ENABLED "$AUTH_BYPASS_ENABLED" \
       && { [ "$AUTH_BYPASS_ENABLED" != "true" ] \
-        || pnpm exec convex env set WORKOS_API_KEY "$WORKOS_API_KEY" \
-        && pnpm exec convex env set WORKOS_CLIENT_ID "$WORKOS_CLIENT_ID" \
-        && pnpm exec convex env set WORKOS_WEBHOOK_SECRET "$WORKOS_WEBHOOK_SECRET"; }
+        || env -u CONVEX_DEPLOY_KEY pnpm exec convex env set WORKOS_API_KEY "$WORKOS_API_KEY" \
+        && env -u CONVEX_DEPLOY_KEY pnpm exec convex env set WORKOS_CLIENT_ID "$WORKOS_CLIENT_ID" \
+        && env -u CONVEX_DEPLOY_KEY pnpm exec convex env set WORKOS_WEBHOOK_SECRET "$WORKOS_WEBHOOK_SECRET"; }
   do
     sleep 1
   done
-  until pnpm exec convex run devAuth:ensurePreviewAuthPersonas; do
+  until env -u CONVEX_DEPLOY_KEY pnpm exec convex run devAuth:ensurePreviewAuthPersonas; do
     sleep 1
   done
 ) &
