@@ -111,11 +111,11 @@ export function AppointmentTypeSelector({
   }, [disableAutoDeselect, hasSelection, handleDeselect]);
 
   return (
-    <Card ref={cardRef}>
-      <CardHeader>
+    <Card className="gap-4 border-border bg-card" ref={cardRef}>
+      <CardHeader className="px-4">
         <CardTitle className="text-base">Terminart wählen</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-4">
         {appointmentTypes.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Keine Terminarten verfügbar
@@ -126,7 +126,11 @@ export function AppointmentTypeSelector({
               const isSelected = selectedType === appointmentType._id;
               return (
                 <Button
-                  className="justify-start text-left h-auto p-3"
+                  className={
+                    isSelected
+                      ? "h-auto justify-start p-3 text-left"
+                      : "h-auto justify-start border-border bg-popover p-3 text-left text-foreground hover:bg-secondary hover:text-secondary-foreground"
+                  }
                   key={appointmentType._id}
                   onClick={() => {
                     if (isSelected) {
@@ -152,7 +156,11 @@ export function AppointmentTypeSelector({
             {/* Block Slot Button */}
             {showBlockingMode && onBlockingModeChange && (
               <Button
-                className="justify-start text-left h-auto p-3"
+                className={
+                  isBlockingModeActive
+                    ? "h-auto justify-start p-3 text-left"
+                    : "h-auto justify-start border-border bg-popover p-3 text-left text-foreground hover:bg-destructive-muted hover:text-destructive"
+                }
                 onClick={() => {
                   if (isBlockingModeActive) {
                     // Toggle off if already active
