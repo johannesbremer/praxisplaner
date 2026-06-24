@@ -498,10 +498,7 @@ function filterCurrentAppointmentReplacementTails<T extends AppointmentDoc>(
       isSameAppointmentReplacementDay(appointment, replacedAppointment)
     ) {
       hiddenIds.add(replacedAppointmentId);
-      if (
-        replacedAppointment.seriesId !== undefined &&
-        replacedAppointment.seriesStepIndex === 0n
-      ) {
+      if (isWholeSeriesReplacement(appointment, replacedAppointment)) {
         for (const candidate of appointments) {
           if (candidate.seriesId === replacedAppointment.seriesId) {
             hiddenIds.add(candidate._id);
@@ -1432,10 +1429,7 @@ function combineForSimulationScope<
       continue;
     }
     const replacedAppointment = appointmentsById.get(replacedAppointmentId);
-    if (
-      replacedAppointment?.seriesId !== undefined &&
-      replacedAppointment.seriesStepIndex === 0n
-    ) {
+    if (isWholeSeriesReplacement(simulationAppointment, replacedAppointment)) {
       replacedSeriesIds.add(replacedAppointment.seriesId);
     }
   }
@@ -1560,6 +1554,29 @@ function getRangeOverlapBounds(args: { end: string; start: string }): {
   };
 }
 
+async function getSeriesRootAppointments(
+  ctx: QueryCtx,
+  seriesIds: string[],
+): Promise<AppointmentDoc[]> {
+  const uniqueSeriesIds = [...new Set(seriesIds)];
+  if (uniqueSeriesIds.length === 0) {
+    return [];
+  }
+
+  const seriesAppointmentGroups = await Promise.all(
+    uniqueSeriesIds.map(async (seriesId) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) => q.eq("seriesId", seriesId))
+        .collect();
+    }),
+  );
+
+  return seriesAppointmentGroups
+    .flat()
+    .filter((appointment) => appointment.seriesStepIndex === 0n);
+}
+
 async function getSimulationAppointmentReplacements(
   ctx: QueryCtx,
   practiceId: Id<"practices">,
@@ -1665,6 +1682,29 @@ function isTimeRangeOverlap(
   range: { end: string; start: string },
 ): boolean {
   return record.start < range.end && record.end > range.start;
+}
+
+function isWholeSeriesReplacement<
+  T extends Pick<
+    AppointmentDoc,
+    | "_id"
+    | "isSimulation"
+    | "replacesAppointmentId"
+    | "seriesId"
+    | "seriesStepIndex"
+  >,
+>(
+  simulationAppointment: T,
+  replacedAppointment: T | undefined,
+): replacedAppointment is T & { seriesId: string } {
+  return (
+    simulationAppointment.isSimulation === true &&
+    simulationAppointment.replacesAppointmentId !== undefined &&
+    simulationAppointment.seriesId !== undefined &&
+    replacedAppointment?.seriesId !== undefined &&
+    replacedAppointment.seriesStepIndex === 0n &&
+    simulationAppointment.seriesId !== replacedAppointment.seriesId
+  );
 }
 
 async function remapAppointmentIds(
@@ -2022,13 +2062,27 @@ export const getCalendarDayAppointments = query({
       args,
       scope,
     );
+    const seriesRootAppointments =
+      scope === "simulation"
+        ? await getSeriesRootAppointments(
+            ctx,
+            dayAppointments
+              .filter(
+                (appointment) =>
+                  appointment.isSimulation !== true &&
+                  appointment.seriesId !== undefined,
+              )
+              .map((appointment) => appointment.seriesId)
+              .filter((seriesId): seriesId is string => seriesId !== undefined),
+          )
+        : [];
     const simulationReplacementAppointments =
       scope === "simulation"
         ? filterAppointmentsForScope(
             await getSimulationAppointmentReplacements(
               ctx,
               args.practiceId,
-              dayAppointments
+              [...dayAppointments, ...seriesRootAppointments]
                 .filter((appointment) => appointment.isSimulation !== true)
                 .map((appointment) => appointment._id),
             ),
@@ -2038,6 +2092,7 @@ export const getCalendarDayAppointments = query({
         : [];
     const candidateAppointments = dedupeById([
       ...dayScopedAppointments,
+      ...seriesRootAppointments,
       ...simulationReplacementAppointments,
     ]);
     const scopedAppointments =

@@ -2836,7 +2836,7 @@ describe("appointment series", () => {
     }
   });
 
-  test("simulated root replacements hide old series steps when the new plan is shorter", async () => {
+  test("simulated series replacements hide old follow-ups outside the replacement root window", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
       await createBasePractice(t);
@@ -2846,7 +2846,7 @@ describe("appointment series", () => {
       "simulated-shorter-series-replacement@example.com",
     );
 
-    const rootAppointmentTypeId = await t.run(async (ctx) => {
+    const appointmentTypeIds = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       const planStepTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
@@ -2869,7 +2869,160 @@ describe("appointment series", () => {
               appointmentTypeLineageKey: planStepTypeId,
               occupancy: { kind: "inheritRootPractitioner" },
               required: true,
-              stepId: "removed-follow-up",
+              stepId: "follow-up",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "days",
+                offsetValue: 2,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return { planStepTypeId, rootAppointmentTypeId: rootId };
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const originalSeries = await t.mutation(
+      api.appointments.createAppointmentSeries,
+      {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId: appointmentTypeIds.rootAppointmentTypeId,
+        rootTitle: "Ersttermin",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      },
+    );
+
+    const replacementRootStart = Temporal.ZonedDateTime.from(rootStart)
+      .add({ days: 1 })
+      .toString();
+    await t.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: appointmentTypeIds.rootAppointmentTypeId,
+      isSimulation: true,
+      locationId,
+      practiceId,
+      practitionerId,
+      replacesAppointmentId: originalSeries.rootAppointmentId,
+      simulationRuleSetId: ruleSetId,
+      start: replacementRootStart,
+      title: "Ersatz-Ersttermin",
+      userId,
+    });
+
+    const oldFollowUpDate = Temporal.ZonedDateTime.from(rootStart)
+      .add({ days: 2 })
+      .toPlainDate();
+    const dayStart = oldFollowUpDate
+      .toZonedDateTime({
+        plainTime: Temporal.PlainTime.from("00:00"),
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const dayEnd = oldFollowUpDate
+      .add({ days: 1 })
+      .toZonedDateTime({
+        plainTime: Temporal.PlainTime.from("00:00"),
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    const visibleSimulationAppointments = await t.query(
+      api.appointments.getCalendarDayAppointments,
+      {
+        activeRuleSetId: ruleSetId,
+        dayEnd,
+        dayStart,
+        locationId,
+        practiceId,
+        scope: "simulation",
+      },
+    );
+
+    expect(
+      visibleSimulationAppointments.some(
+        (appointment) => appointment.seriesId === originalSeries.seriesId,
+      ),
+    ).toBe(false);
+
+    await expect(
+      t.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: appointmentTypeIds.planStepTypeId,
+        isSimulation: true,
+        locationId,
+        practiceId,
+        practitionerId,
+        simulationRuleSetId: ruleSetId,
+        start: Temporal.ZonedDateTime.from(rootStart)
+          .add({ days: 2 })
+          .toString(),
+        title: "Neuer Termin am alten Folgetermin",
+        userId,
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  test("smiley-only simulated root replacements keep real follow-ups visible", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_simulated_root_smiley_replacement_user",
+      "simulated-root-smiley-replacement@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.patch("ruleSets", ruleSetId, {
+        appointmentSmileyOptions: [
+          {
+            emoji: "👍",
+            id: "thumbs-up",
+            name: "Patient ist angekommen",
+          },
+        ],
+      });
+      const planStepTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", planStepTypeId, {
+        lineageKey: planStepTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: planStepTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "follow-up",
               timing: {
                 kind: "afterPreviousEnd",
                 offsetUnit: "minutes",
@@ -2912,23 +3065,10 @@ describe("appointment series", () => {
       },
     );
 
-    await t.run(async (ctx) => {
-      await ctx.db.patch("appointmentTypes", rootAppointmentTypeId, {
-        appointmentPlan: undefined,
-      });
-    });
-
-    await t.mutation(api.appointments.createAppointment, {
-      appointmentTypeId: rootAppointmentTypeId,
-      isSimulation: true,
-      locationId,
-      practiceId,
-      practitionerId,
-      replacesAppointmentId: originalSeries.rootAppointmentId,
+    await t.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+      id: originalSeries.rootAppointmentId,
       simulationRuleSetId: ruleSetId,
-      start: rootStart,
-      title: "Ersatz-Ersttermin",
-      userId,
+      smiley: "👍",
     });
 
     const rootDate = Temporal.ZonedDateTime.from(rootStart).toPlainDate();
@@ -2960,14 +3100,16 @@ describe("appointment series", () => {
 
     expect(
       visibleSimulationAppointments.some(
-        (appointment) => appointment.seriesId === originalSeries.seriesId,
-      ),
-    ).toBe(false);
-    expect(
-      visibleSimulationAppointments.some(
         (appointment) =>
           appointment.replacesAppointmentId ===
           originalSeries.rootAppointmentId,
+      ),
+    ).toBe(true);
+    expect(
+      visibleSimulationAppointments.some(
+        (appointment) =>
+          appointment.seriesId === originalSeries.seriesId &&
+          appointment.seriesStepIndex === 1n,
       ),
     ).toBe(true);
   });
