@@ -102,20 +102,22 @@ describe("shouldShowAppointmentSmileyInTitle", () => {
 });
 
 describe("getSidebarAppointmentCalendarTarget", () => {
-  test("keeps the appointment location when resolving the calendar target", () => {
-    const locationId = toTableId<"locations">("appointment-location");
+  test("keeps the appointment location lineage key when resolving the calendar target", () => {
+    const locationLineageKey = toTableId<"locations">(
+      "appointment-location-lineage",
+    );
 
     expect(
       getSidebarAppointmentCalendarTarget({
         appointment: {
-          locationId,
+          locationLineageKey,
           start: "2026-06-24T09:30:00+02:00[Europe/Berlin]",
         },
         businessStartHour: 8,
       }),
     ).toEqual({
       date: expect.objectContaining({ day: 24, month: 6, year: 2026 }),
-      locationId,
+      locationLineageKey,
       targetScrollTop: 208,
     });
   });

@@ -70,11 +70,11 @@ type SelectedPatient =
   | { info: PatientInfo; type: "draftTemporaryPatient" };
 
 export function getSidebarAppointmentCalendarTarget(args: {
-  appointment: Pick<SidebarAppointment, "locationId" | "start">;
+  appointment: Pick<SidebarAppointment, "locationLineageKey" | "start">;
   businessStartHour: number;
 }): {
   date: Temporal.PlainDate;
-  locationId: Id<"locations">;
+  locationLineageKey: Id<"locations">;
   targetScrollTop: number;
 } {
   const appointmentDateTime = Temporal.Instant.from(
@@ -88,7 +88,7 @@ export function getSidebarAppointmentCalendarTarget(args: {
 
   return {
     date: appointmentDateTime.toPlainDate(),
-    locationId: args.appointment.locationId,
+    locationLineageKey: args.appointment.locationLineageKey,
     targetScrollTop: Math.max(0, scrollTop - headerOffset),
   };
 }
@@ -538,18 +538,24 @@ export function NewCalendar({
         appointment,
         businessStartHour,
       });
-      const targetLocationName = locationsData?.find(
-        (location) => location._id === target.locationId,
-      )?.name;
+      const targetLocation = locationsData?.find(
+        (location) => location.lineageKey === target.locationLineageKey,
+      );
 
-      handleLocationSelect(target.locationId);
-      if (
-        targetLocationName !== undefined &&
-        onLocationResolved !== undefined
-      ) {
-        onLocationResolved(target.locationId, targetLocationName, target.date);
-      } else {
+      if (targetLocation === undefined) {
+        toast.error("Der Terminstandort konnte nicht aufgelöst werden.");
+        return;
+      }
+
+      handleLocationSelect(targetLocation._id);
+      if (onLocationResolved === undefined) {
         handleDateChange(target.date);
+      } else {
+        onLocationResolved(
+          targetLocation._id,
+          targetLocation.name,
+          target.date,
+        );
       }
       scrollToSidebarAppointmentTarget(target.targetScrollTop);
     },
