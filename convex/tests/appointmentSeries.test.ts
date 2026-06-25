@@ -666,6 +666,51 @@ describe("appointment series", () => {
         selectedRuleSetId: ruleSetId,
       }),
     ).rejects.toThrow("APPOINTMENT_PLAN:SAME_START_ANCHOR_OCCUPANCY_OVERLAP");
+
+    await expect(
+      t.mutation(api.entities.createAppointmentType, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: {
+                calendarResourceColumn: "ekg",
+                kind: "resourceColumn",
+              },
+              required: true,
+              stepId: "ekg-root-time",
+              timing: { anchorStepId: "root", kind: "sameStartAs" },
+            },
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: {
+                calendarResourceColumn: "labor",
+                kind: "resourceColumn",
+              },
+              required: true,
+              stepId: "labor-root-time",
+              timing: { anchorStepId: "root", kind: "sameStartAs" },
+            },
+            {
+              appointmentTypeLineageKey: targetAppointmentTypeId,
+              occupancy: {
+                calendarResourceColumn: "labor",
+                kind: "resourceColumn",
+              },
+              required: true,
+              stepId: "labor-via-ekg",
+              timing: { anchorStepId: "ekg-root-time", kind: "sameStartAs" },
+            },
+          ],
+        },
+        duration: 30,
+        expectedDraftRevision: null,
+        name: "Labor Doppelung Indirekt",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      }),
+    ).rejects.toThrow("APPOINTMENT_PLAN:SAME_START_ANCHOR_OCCUPANCY_OVERLAP");
   });
 
   test("createAppointmentType rejects overlapping before-root steps with the same occupancy", async () => {

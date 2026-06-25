@@ -343,10 +343,10 @@ export const getCurrentPracticeMembershipRole = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    const membership = await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    const membership = await requirePracticeStaff(ctx, args.practiceId);
     return membership.role;
   },
-  returns: practiceRoleValidator,
+  returns: organizationRoleValidator,
 });
 
 export const listPracticePhoneNumbers = query({

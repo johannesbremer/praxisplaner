@@ -1401,7 +1401,7 @@ describe("appointments self-service cancellation", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -1454,7 +1454,7 @@ describe("appointments self-service cancellation", () => {
     });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -1964,7 +1964,7 @@ describe("appointments update safety", () => {
     });
 
     const resourceAppointmentId = await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -2037,7 +2037,7 @@ describe("appointments update safety", () => {
     });
 
     const resourceAppointmentTypeId = await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",
@@ -3861,7 +3861,7 @@ describe("calendar day appointment queries", () => {
     const targetRange = makeDayRange(5);
 
     const displayedRuleSetRefs = await t.run(async (ctx) => {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: baseData.practiceId,
         role: "owner",

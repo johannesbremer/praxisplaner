@@ -99,6 +99,11 @@ type RawAppointmentPlan = Infer<typeof appointmentPlanValidator>;
 
 type RawAppointmentPlanStep = Infer<typeof appointmentPlanStepValidator>;
 
+interface SameStartGroupOccupancy {
+  occupancy: AppointmentPlanOccupancy;
+  stepId: string;
+}
+
 export async function getAppointmentTypeByLineageKey(
   db: DatabaseReader,
   ruleSetId: Id<"ruleSets">,
@@ -177,8 +182,11 @@ export async function validateAppointmentPlan(
   }
 
   const seenStepIds = new Set<string>();
-  const previousStepOccupancies = new Map<string, AppointmentPlanOccupancy>();
-  const previousStepStartsAtRoot = new Map<string, boolean>();
+  const previousStepStartGroups = new Map<string, string>();
+  const sameStartGroupOccupancies = new Map<
+    string,
+    SameStartGroupOccupancy[]
+  >();
   const previousBeforeRootRanges: BeforeRootPlanRange[] = [];
   const normalizedRootDefaultOccupancy =
     normalizeDefaultOccupancy(rootDefaultOccupancy);
@@ -190,10 +198,11 @@ export async function validateAppointmentPlan(
       step,
       normalizedRootDefaultOccupancy,
     );
+    const stepStartGroup = resolveStepStartGroup(step, previousStepStartGroups);
     validateSameStartOccupancy(
       step,
-      previousStepOccupancies,
-      previousStepStartsAtRoot,
+      stepStartGroup,
+      sameStartGroupOccupancies,
       normalizedRootDefaultOccupancy,
     );
 
@@ -226,13 +235,14 @@ export async function validateAppointmentPlan(
       targetDuration,
       previousBeforeRootRanges,
     );
-    previousStepOccupancies.set(step.stepId, step.occupancy);
-    previousStepStartsAtRoot.set(
-      step.stepId,
-      step.timing.kind === "sameStartAs" &&
-        (step.timing.anchorStepId === "root" ||
-          previousStepStartsAtRoot.get(step.timing.anchorStepId) === true),
-    );
+    previousStepStartGroups.set(step.stepId, stepStartGroup);
+    const groupOccupancies =
+      sameStartGroupOccupancies.get(stepStartGroup) ?? [];
+    groupOccupancies.push({
+      occupancy: step.occupancy,
+      stepId: step.stepId,
+    });
+    sameStartGroupOccupancies.set(stepStartGroup, groupOccupancies);
     addBeforeRootRange(step, targetDuration, {
       previousBeforeRootRanges,
     });
@@ -335,6 +345,21 @@ function planOccupancyMatchesRootDefault(
   );
 }
 
+function resolveStepStartGroup(
+  step: AppointmentPlanStep,
+  previousStepStartGroups: ReadonlyMap<string, string>,
+) {
+  if (step.timing.kind !== "sameStartAs") {
+    return step.stepId;
+  }
+
+  if (step.timing.anchorStepId === "root") {
+    return "root";
+  }
+
+  return previousStepStartGroups.get(step.timing.anchorStepId) ?? step.stepId;
+}
+
 function validateAnchorStepId(
   stepId: string,
   anchorStepId: string,
@@ -415,20 +440,16 @@ function validateRequiredStep(step: AppointmentPlanStep) {
 
 function validateSameStartOccupancy(
   step: AppointmentPlanStep,
-  previousStepOccupancies: ReadonlyMap<string, AppointmentPlanOccupancy>,
-  previousStepStartsAtRoot: ReadonlyMap<string, boolean>,
+  stepStartGroup: string,
+  sameStartGroupOccupancies: ReadonlyMap<string, SameStartGroupOccupancy[]>,
   rootDefaultOccupancy: AppointmentTypeDefaultOccupancy,
 ) {
   if (step.timing.kind !== "sameStartAs") {
     return;
   }
 
-  const anchorStartsAtRoot =
-    step.timing.anchorStepId === "root" ||
-    previousStepStartsAtRoot.get(step.timing.anchorStepId) === true;
-
   if (
-    anchorStartsAtRoot &&
+    stepStartGroup === "root" &&
     planOccupancyMatchesRootDefault(step.occupancy, rootDefaultOccupancy)
   ) {
     const overlapCode =
@@ -445,19 +466,16 @@ function validateSameStartOccupancy(
     );
   }
 
-  if (step.timing.anchorStepId !== "root") {
-    const anchorOccupancy = previousStepOccupancies.get(
-      step.timing.anchorStepId,
+  const overlappingOccupancy = sameStartGroupOccupancies
+    .get(stepStartGroup)
+    ?.find((groupOccupancy) =>
+      planOccupanciesMatch(step.occupancy, groupOccupancy.occupancy),
     );
-    if (
-      anchorOccupancy &&
-      planOccupanciesMatch(step.occupancy, anchorOccupancy)
-    ) {
-      throw appointmentPlanError(
-        "APPOINTMENT_PLAN:SAME_START_ANCHOR_OCCUPANCY_OVERLAP",
-        `Schritt "${step.stepId}" darf nicht gleichzeitig mit Schritt "${step.timing.anchorStepId}" dieselbe Belegung verwenden.`,
-      );
-    }
+  if (overlappingOccupancy) {
+    throw appointmentPlanError(
+      "APPOINTMENT_PLAN:SAME_START_ANCHOR_OCCUPANCY_OVERLAP",
+      `Schritt "${step.stepId}" darf nicht gleichzeitig mit Schritt "${overlappingOccupancy.stepId}" dieselbe Belegung verwenden.`,
+    );
   }
 }
 
