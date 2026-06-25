@@ -2074,13 +2074,7 @@ export function useCalendarPlanningWorkbench(args: {
         end: deleted.end,
         isSimulation: deleted.isSimulation ?? false,
         locationId: recreatedDisplayRefs.locationId,
-        occupancyScope:
-          recreatedDisplayRefs.practitionerId === undefined
-            ? { kind: "location-wide" }
-            : {
-                kind: "practitioner",
-                practitionerId: recreatedDisplayRefs.practitionerId,
-              },
+        occupancyScope: recreatedDisplayRefs.occupancyScope,
         practiceId: deleted.practiceId,
         ...(deleted.replacesBlockedSlotId && {
           replacesBlockedSlotId: deleted.replacesBlockedSlotId,
