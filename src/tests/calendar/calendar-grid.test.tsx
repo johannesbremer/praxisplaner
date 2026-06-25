@@ -21,6 +21,7 @@ import { buildCalendarAppointmentRecord } from "./test-records";
 
 describe("CalendarGrid", () => {
   const doctorHeaderRegex = regex.as(String.raw`Dr\.`);
+  const previewBlockRegex = regex.as("Preview block");
   const appointmentType1 = asAppointmentTypeLineageKey(
     toTableId<"appointmentTypes">("appointment_type_1"),
   );
@@ -552,6 +553,43 @@ describe("CalendarGrid", () => {
 
       const resizeHandles = container.querySelectorAll(".cursor-ns-resize");
       expect(resizeHandles.length).toBe(mockAppointments.length);
+    });
+
+    test("renders manual blocked-slot resize preview height from duration", () => {
+      render(
+        <CalendarGrid
+          {...defaultProps}
+          appointments={[]}
+          blockedSlots={[
+            {
+              column: practitionerColumn1,
+              duration: 30,
+              id: "blocked-slot-1",
+              isManual: true,
+              slot: 12,
+              startSlot: 12,
+              title: "Preview block",
+            },
+            {
+              column: practitionerColumn1,
+              duration: 30,
+              id: "blocked-slot-1",
+              isManual: true,
+              slot: 13,
+              startSlot: 12,
+              title: "Preview block",
+            },
+          ]}
+        />,
+      );
+
+      const blockedSlot = screen.getByRole("button", {
+        name: previewBlockRegex,
+      });
+
+      expect(blockedSlot).toHaveStyle({
+        "--blocked-height": "96px",
+      });
     });
   });
 

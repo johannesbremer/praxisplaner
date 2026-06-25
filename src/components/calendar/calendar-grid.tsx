@@ -297,6 +297,10 @@ export function CalendarGrid({
         }
 
         const isDragging = draggedBlockedSlotId === id;
+        const slotCount = Math.max(
+          1,
+          Math.ceil(firstSlot.duration / slotDuration),
+        );
 
         return (
           <CalendarBlockedSlot
@@ -327,7 +331,7 @@ export function CalendarGrid({
                 onResizeStartBlockedSlot(e, blockId, duration);
               }
             }}
-            slotCount={slots.length}
+            slotCount={slotCount}
             slotToTime={slotToTime}
           />
         );
