@@ -162,7 +162,7 @@ export async function userHasPracticeRelation(
   },
 ): Promise<boolean> {
   const membership = await db
-    .query("practiceMembers")
+    .query("organizationMembers")
     .withIndex("by_practiceId_userId", (q) =>
       q.eq("practiceId", args.scope.practiceId).eq("userId", args.userId),
     )

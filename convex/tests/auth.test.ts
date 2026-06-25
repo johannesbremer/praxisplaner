@@ -7,7 +7,7 @@ import schema from "../schema";
 import {
   canManageWorkOSOrganizationUsers,
   getWorkOSOrganizationMembershipRoleSlugs,
-  mapWorkOSRoleSlugsToPracticeRole,
+  mapWorkOSRoleSlugsToOrganizationRole,
 } from "../workosOrganizations";
 import { modules } from "./test.setup";
 
@@ -44,7 +44,14 @@ async function runUserEvent(
 }
 
 describe("WorkOS AuthKit user sync", () => {
-  test("seeds the owner dev persona used by account auth bypass", () => {
+  test("seeds dev personas used by account auth bypass", () => {
+    expect(DEV_AUTH_USERS).toContainEqual({
+      authId: "dev-patient",
+      email: "patient@preview.test",
+      firstName: "Preview",
+      lastName: "Patient",
+      role: "patient",
+    });
     expect(DEV_AUTH_USERS).toContainEqual({
       authId: "dev-owner",
       email: "owner@preview.test",
@@ -61,8 +68,21 @@ describe("WorkOS AuthKit user sync", () => {
         roles: [{ slug: "owner" }, { slug: "staff" }, { slug: 123 }],
       }),
     ).toEqual(["admin", "owner", "staff"]);
-    expect(mapWorkOSRoleSlugsToPracticeRole(["org:owner"])).toBe("owner");
-    expect(mapWorkOSRoleSlugsToPracticeRole(["org:admin"])).toBe("admin");
+    expect(mapWorkOSRoleSlugsToOrganizationRole(["org:owner"])).toBe("owner");
+    expect(mapWorkOSRoleSlugsToOrganizationRole(["org:admin"])).toBe("admin");
+    expect(mapWorkOSRoleSlugsToOrganizationRole(["org:staff"])).toBe("staff");
+    expect(mapWorkOSRoleSlugsToOrganizationRole(["org:patient"])).toBe(
+      "patient",
+    );
+    expect(() => mapWorkOSRoleSlugsToOrganizationRole([])).toThrow(
+      "WorkOS organization membership has no supported role slug",
+    );
+    expect(() => mapWorkOSRoleSlugsToOrganizationRole(["member"])).toThrow(
+      "WorkOS organization membership has no supported role slug",
+    );
+    expect(() => mapWorkOSRoleSlugsToOrganizationRole(["billing"])).toThrow(
+      "WorkOS organization membership has no supported role slug",
+    );
   });
 
   test("limits user-management widget tokens to active WorkOS owners", () => {
@@ -208,7 +228,7 @@ describe("WorkOS AuthKit user sync", () => {
     await expect(
       t.run(async (ctx) => {
         return await ctx.db
-          .query("practiceMembers")
+          .query("organizationMembers")
           .withIndex("by_practiceId_userId", (q) =>
             q.eq("practiceId", practiceId).eq("userId", userId),
           )
@@ -231,7 +251,7 @@ describe("WorkOS AuthKit user sync", () => {
     await expect(
       t.run(async (ctx) => {
         return await ctx.db
-          .query("practiceMembers")
+          .query("organizationMembers")
           .withIndex("by_practiceId_userId", (q) =>
             q.eq("practiceId", practiceId).eq("userId", userId),
           )
@@ -254,7 +274,54 @@ describe("WorkOS AuthKit user sync", () => {
     await expect(
       t.run(async (ctx) => {
         return await ctx.db
-          .query("practiceMembers")
+          .query("organizationMembers")
+          .withIndex("by_practiceId_userId", (q) =>
+            q.eq("practiceId", practiceId).eq("userId", userId),
+          )
+          .first();
+      }),
+    ).resolves.toBeNull();
+  });
+
+  test("unsupported active WorkOS roles remove stale local memberships", async () => {
+    const t = createTestContext();
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        authId: "user_org_unsupported_role",
+        createdAt: BigInt(Date.now()),
+        email: "unsupported-role@example.com",
+      });
+    });
+    const practiceId = await t.run(async (ctx) => {
+      const insertedPracticeId = await ctx.db.insert("practices", {
+        name: "Unsupported Role Practice",
+        workOSOrganizationId: "org_unsupported_role_sync",
+      });
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: insertedPracticeId,
+        role: "admin",
+        userId,
+      });
+      return insertedPracticeId;
+    });
+
+    await t.mutation(internal.auth.authKitEvent, {
+      data: {
+        id: "om_unsupported_role_sync",
+        object: "organization_membership",
+        organization_id: "org_unsupported_role_sync",
+        roles: [{ slug: "member" }],
+        status: "active",
+        user_id: "user_org_unsupported_role",
+      },
+      event: "organization_membership.updated",
+    });
+
+    await expect(
+      t.run(async (ctx) => {
+        return await ctx.db
+          .query("organizationMembers")
           .withIndex("by_practiceId_userId", (q) =>
             q.eq("practiceId", practiceId).eq("userId", userId),
           )

@@ -134,7 +134,7 @@ async function createMigrationManager(
       createdAt: now,
       email,
     });
-    await ctx.db.insert("practiceMembers", {
+    await ctx.db.insert("organizationMembers", {
       createdAt: now,
       practiceId,
       role: "admin",

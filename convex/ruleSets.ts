@@ -3,9 +3,10 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { bumpDraftRevision, findUnsavedRuleSet } from "./copyOnWrite";
 import {
-  ensurePracticeAccessForMutation,
+  requireManagerRuleSetScope,
   requirePracticeManager,
-  requirePracticeMember,
+  requirePracticeManagerForMutation,
+  requirePracticeStaff,
   requireRuleSetMember,
 } from "./practiceAccess";
 import { normalizeAppointmentSmileyOptions } from "./practices";
@@ -51,7 +52,7 @@ export const saveUnsavedRuleSet = mutation({
     setAsActive: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
     return await saveDraftRuleSet(ctx.db, args);
   },
   returns: v.id("ruleSets"),
@@ -66,7 +67,7 @@ export const discardUnsavedRuleSet = mutation({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
     await discardCurrentDraftRuleSet(ctx.db, args.practiceId);
   },
 });
@@ -146,7 +147,7 @@ export const getRuleSet = query({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await requireRuleSetMember(ctx, args.ruleSetId, "admin");
+    await requireManagerRuleSetScope(ctx, args.ruleSetId);
     return await ctx.db.get("ruleSets", args.ruleSetId);
   },
 });
@@ -160,7 +161,7 @@ export const setActiveRuleSet = mutation({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
     await activateSavedRuleSet(ctx.db, args);
   },
 });
@@ -173,7 +174,7 @@ export const getActiveRuleSet = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await requirePracticeMember(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {
       return null;
@@ -206,7 +207,7 @@ export const updateAppointmentSmileyOptionsForRuleSet = mutation({
     selectedRuleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
     const { ruleSetId } = await selectDraftRuleSetForEdit(ctx.db, args);
     const options = normalizeAppointmentSmileyOptions(args.options);
     await ctx.db.patch("ruleSets", ruleSetId, {
@@ -277,7 +278,7 @@ export const deleteUnsavedRuleSet = mutation({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
     await deleteDraftRuleSet(ctx.db, args);
   },
 });
@@ -292,7 +293,7 @@ export const discardUnsavedRuleSetIfEquivalentToParent = mutation({
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
-    await ensurePracticeAccessForMutation(ctx, args.practiceId, "admin");
+    await requirePracticeManagerForMutation(ctx, args.practiceId);
     return await discardDraftRuleSetIfEquivalentToParent(ctx.db, args);
   },
   returns: v.object({

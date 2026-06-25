@@ -7,6 +7,7 @@ export const DEV_AUTH_USERS = [
     email: "patient@preview.test",
     firstName: "Preview",
     lastName: "Patient",
+    role: "patient",
   },
   {
     authId: "dev-staff",

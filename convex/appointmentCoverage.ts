@@ -34,7 +34,7 @@ import {
   type PractitionerLineageKey,
 } from "./identity";
 import { requireLineageKey } from "./lineage";
-import { ensurePracticeAccessForQuery } from "./practiceAccess";
+import { requirePracticeStaff } from "./practiceAccess";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import { asOptionalIsoDateString } from "./typedDtos";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
@@ -429,7 +429,7 @@ export const previewPractitionerAbsenceCoverage = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
 
     const practice = await ctx.db.get("practices", args.practiceId);
     if (!practice?.currentActiveRuleSetId) {

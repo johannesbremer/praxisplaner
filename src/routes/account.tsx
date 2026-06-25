@@ -262,7 +262,9 @@ function AccountPage() {
             <div className="min-w-0 space-y-4">
               <div className="rounded-md border bg-card p-4">
                 {organization && authBypassEnabled ? (
-                  <BypassPracticeMembers practiceId={organization.practiceId} />
+                  <BypassOrganizationMembers
+                    practiceId={organization.practiceId}
+                  />
                 ) : organization && !hasMultipleOrganizations ? (
                   <UsersManagementForOrganization
                     organizationId={organization.id}
@@ -289,13 +291,13 @@ function AccountRoute() {
   );
 }
 
-function BypassPracticeMembers({
+function BypassOrganizationMembers({
   practiceId,
 }: {
   practiceId: Id<"practices"> | undefined;
 }) {
   const members = useQuery(
-    api.practices.getPracticeMembers,
+    api.practices.getOrganizationMembers,
     practiceId ? { practiceId } : "skip",
   );
 
@@ -340,7 +342,7 @@ function BypassPracticeMembers({
             </div>
           </div>
           <Badge className="shrink-0" variant="secondary">
-            {formatPracticeRole(member.role)}
+            {formatOrganizationRole(member.role)}
           </Badge>
         </div>
       ))}
@@ -348,13 +350,18 @@ function BypassPracticeMembers({
   );
 }
 
-function formatPracticeRole(role: "admin" | "owner" | "staff"): string {
+function formatOrganizationRole(
+  role: "admin" | "owner" | "patient" | "staff",
+): string {
   switch (role) {
     case "admin": {
       return "Admin";
     }
     case "owner": {
       return "Owner";
+    }
+    case "patient": {
+      return "Patient";
     }
     case "staff": {
       return "Staff";

@@ -125,7 +125,7 @@ async function createUser(
     });
     const practices = await ctx.db.query("practices").collect();
     for (const practice of practices) {
-      await ctx.db.insert("practiceMembers", {
+      await ctx.db.insert("organizationMembers", {
         createdAt: BigInt(Date.now()),
         practiceId: practice._id,
         role: "staff",
@@ -166,7 +166,7 @@ async function ensureProvisionedUserMembership(
   });
   await t.run(async (ctx) => {
     const existing = await ctx.db
-      .query("practiceMembers")
+      .query("organizationMembers")
       .withIndex("by_practiceId_userId", (q) =>
         q.eq("practiceId", practiceId).eq("userId", userId),
       )
@@ -174,7 +174,7 @@ async function ensureProvisionedUserMembership(
     if (existing) {
       return;
     }
-    await ctx.db.insert("practiceMembers", {
+    await ctx.db.insert("organizationMembers", {
       createdAt: BigInt(Date.now()),
       practiceId,
       role: "owner",
