@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  clearAuthReturnToState,
   consumeAuthReturnToPath,
   consumeAuthReturnToState,
+  readAuthReturnToState,
   setAuthReturnToPath,
   setAuthReturnToState,
 } from "../auth/auth-return-to";
@@ -64,5 +66,28 @@ describe("auth return target", () => {
       practiceSlug: "demo-praxis",
       returnTo: "/demo-praxis",
     });
+  });
+
+  test("reads return state without consuming it", () => {
+    const saved = setAuthReturnToState({
+      practiceSlug: "retry-praxis",
+      returnTo: "/retry-praxis",
+    });
+    expect(saved.isOk()).toBe(true);
+
+    const firstRead = readAuthReturnToState();
+    const secondRead = readAuthReturnToState();
+    expect(firstRead.isOk() ? firstRead.value : null).toEqual({
+      practiceSlug: "retry-praxis",
+      returnTo: "/retry-praxis",
+    });
+    expect(secondRead.isOk() ? secondRead.value : null).toEqual({
+      practiceSlug: "retry-praxis",
+      returnTo: "/retry-praxis",
+    });
+
+    clearAuthReturnToState();
+    const consumedAfterClear = consumeAuthReturnToState();
+    expect(consumedAfterClear.isErr()).toBe(true);
   });
 });

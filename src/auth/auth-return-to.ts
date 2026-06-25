@@ -14,6 +14,12 @@ export interface AuthReturnToState {
   returnTo: string;
 }
 
+export function clearAuthReturnToState(): void {
+  authReturnToError = null;
+  authReturnToPath = null;
+  authReturnToPracticeSlug = null;
+}
+
 export function consumeAuthReturnToPath(): Result<string, FrontendError> {
   return consumeAuthReturnToState().map(({ returnTo }) => returnTo);
 }
@@ -22,12 +28,20 @@ export function consumeAuthReturnToState(): Result<
   AuthReturnToState,
   FrontendError
 > {
-  const savedError = authReturnToError;
-  const returnTo = authReturnToPath;
-  const practiceSlug = authReturnToPracticeSlug;
+  const result = readAuthReturnToState();
   authReturnToError = null;
   authReturnToPath = null;
   authReturnToPracticeSlug = null;
+  return result;
+}
+
+export function readAuthReturnToState(): Result<
+  AuthReturnToState,
+  FrontendError
+> {
+  const savedError = authReturnToError;
+  const returnTo = authReturnToPath;
+  const practiceSlug = authReturnToPracticeSlug;
 
   if (savedError) {
     return err(savedError);

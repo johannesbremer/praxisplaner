@@ -6,7 +6,10 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "../../components/ui/button";
 import { api } from "../../convex/_generated/api";
-import { consumeAuthReturnToState } from "../auth/auth-return-to";
+import {
+  clearAuthReturnToState,
+  readAuthReturnToState,
+} from "../auth/auth-return-to";
 import {
   type FrontendError,
   invalidStateError,
@@ -24,13 +27,16 @@ const CALLBACK_TIMEOUT_MESSAGE =
   "Anmeldung konnte nicht innerhalb von 15 Sekunden abgeschlossen werden. Bitte prüfen Sie die WorkOS-Tokenausgabe und Convex-Authentifizierung für diese Preview.";
 
 function CallbackComponent() {
-  const { getAccessToken, isLoading, signIn, user } = useAuth();
+  const { getAccessToken, isLoading, organizationId, signIn, user } = useAuth();
   const convexAuth = useConvexAuth();
   const joinBookingPracticeBySlug = useAction(
     api.workosOrganizations.joinBookingPracticeBySlug,
   );
   const provisionCurrentUser = useAction(
     api.users.provisionCurrentUserFromAuthIdentity,
+  );
+  const syncCurrentOrganizationMembership = useAction(
+    api.workosOrganizations.syncCurrentUserOrganizationMembership,
   );
   const navigate = useNavigate();
   const accessTokenUserIdRef = useRef<null | string>(null);
@@ -198,22 +204,31 @@ function CallbackComponent() {
       convexAuthenticated: convexAuth.isAuthenticated,
     });
     provisioningUserIdRef.current = userId;
-    const returnState = consumeAuthReturnToState();
+    const returnState = readAuthReturnToState();
     returnState.match(
       ({ practiceSlug, returnTo }) => {
         const backendAction = practiceSlug
           ? joinBookingPracticeBySlug({ practiceSlug })
-          : provisionCurrentUser({});
+          : provisionCurrentUser({}).then(() =>
+              organizationId
+                ? syncCurrentOrganizationMembership({ organizationId })
+                : null,
+            );
         backendAction
           .then(() => {
             logPreviewAuthCallback(
               practiceSlug
                 ? "join-booking-practice:success"
-                : "provision:success",
+                : organizationId
+                  ? "provision-and-sync-organization:success"
+                  : "provision:success",
             );
             const result = navigateToReturnPath(navigate, returnTo);
             result.match(
-              () => true,
+              () => {
+                clearAuthReturnToState();
+                return true;
+              },
               (error) => {
                 provisioningUserIdRef.current = null;
                 setProvisioningError({
@@ -261,7 +276,9 @@ function CallbackComponent() {
     isLoading,
     joinBookingPracticeBySlug,
     navigate,
+    organizationId,
     provisionCurrentUser,
+    syncCurrentOrganizationMembership,
     user,
     userId,
   ]);
