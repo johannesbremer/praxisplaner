@@ -1050,25 +1050,14 @@ export function useCalendarLogic({
                     "Gesperrter Zeitraum",
                   ...(dropOccupancyScope.kind === "practitioner"
                     ? { practitionerId: dropOccupancyScope.practitionerId }
-                    : blockedSlotDisplayRefs.occupancyScope.kind ===
-                        "practitioner"
-                      ? {
-                          practitionerId:
-                            blockedSlotDisplayRefs.occupancyScope
-                              .practitionerId,
-                        }
-                      : {}),
+                    : {}),
                   ...(dropOccupancyScope.kind === "resource"
                     ? {
                         calendarResourceColumn:
                           dropOccupancyScope.calendarResourceColumn,
                       }
-                    : blockedSlotDisplayRefs.occupancyScope.kind === "resource"
-                      ? {
-                          calendarResourceColumn:
-                            blockedSlotDisplayRefs.occupancyScope
-                              .calendarResourceColumn,
-                        }
+                    : dropOccupancyScope.kind === "location-wide"
+                      ? { calendarResourceColumn: null }
                       : {}),
                 },
               );

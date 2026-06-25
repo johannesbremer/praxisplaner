@@ -115,6 +115,14 @@ export function getAppointmentPractitionerLineageKey(
     : undefined;
 }
 
+export function getBlockedSlotCalendarResourceColumn(
+  scope: BlockedSlotOccupancyScope | undefined,
+): CalendarResourceColumn | undefined {
+  return scope !== undefined && isResourceOccupancyScope(scope)
+    ? scope.calendarResourceColumn
+    : undefined;
+}
+
 export function getBlockedSlotPractitionerLineageKey(
   scope: BlockedSlotOccupancyScope | undefined,
 ): Id<"practitioners"> | undefined {

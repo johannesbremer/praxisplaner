@@ -511,21 +511,24 @@ export function useCalendarSimulationConversion({
         return null;
       }
 
+      const hasExplicitResourceTarget =
+        options.calendarResourceColumn !== undefined;
       const practitionerId =
-        options.calendarResourceColumn === undefined
-          ? (options.practitionerId ??
-            (original.placement.occupancyScope.kind === "practitioner"
+        hasExplicitResourceTarget && options.calendarResourceColumn !== null
+          ? undefined
+          : (options.practitionerId ??
+            (!hasExplicitResourceTarget &&
+            original.placement.occupancyScope.kind === "practitioner"
               ? getPractitionerIdForLineageKey(
                   original.placement.occupancyScope.practitionerLineageKey,
                 )
-              : undefined))
-          : undefined;
-      const calendarResourceColumn =
-        options.calendarResourceColumn ??
-        (practitionerId === undefined &&
-        original.placement.occupancyScope.kind === "resource"
+              : undefined));
+      const calendarResourceColumn = hasExplicitResourceTarget
+        ? (options.calendarResourceColumn ?? undefined)
+        : practitionerId === undefined &&
+            original.placement.occupancyScope.kind === "resource"
           ? original.placement.occupancyScope.calendarResourceColumn
-          : undefined);
+          : undefined;
       const occupancyScope =
         calendarResourceColumn === undefined
           ? practitionerId === undefined
