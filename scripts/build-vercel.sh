@@ -35,21 +35,9 @@ get_workos_client_id() {
   printf '%s' "$workos_client_id"
 }
 
-get_workos_api_hostname() {
-  workos_api_hostname="$(printenv WORKOS_API_HOSTNAME 2> /dev/null || true)"
-  if [ -z "$workos_api_hostname" ]; then
-    workos_api_hostname="$(printenv VITE_WORKOS_API_HOSTNAME 2> /dev/null || true)"
-  fi
-  printf '%s' "$workos_api_hostname"
-}
-
 append_auth_config_env() {
   file="$1"
   append_if_set WORKOS_API_KEY "$file"
-  workos_api_hostname="$(get_workos_api_hostname)"
-  if [ -n "$workos_api_hostname" ]; then
-    printf 'WORKOS_API_HOSTNAME=%s\n' "$workos_api_hostname" >> "$file"
-  fi
   workos_client_id="$(get_workos_client_id)"
   if [ -n "$workos_client_id" ]; then
     printf 'WORKOS_CLIENT_ID=%s\n' "$workos_client_id" >> "$file"
@@ -63,20 +51,12 @@ append_vite_auth_config_env() {
   if [ -n "$workos_client_id" ]; then
     printf 'VITE_WORKOS_CLIENT_ID=%s\n' "$workos_client_id" >> "$file"
   fi
-  workos_api_hostname="$(get_workos_api_hostname)"
-  if [ -n "$workos_api_hostname" ]; then
-    printf 'VITE_WORKOS_API_HOSTNAME=%s\n' "$workos_api_hostname" >> "$file"
-  fi
 }
 
 export_vite_auth_config_env() {
   workos_client_id="$(get_workos_client_id)"
   if [ -n "$workos_client_id" ]; then
     export VITE_WORKOS_CLIENT_ID="$workos_client_id"
-  fi
-  workos_api_hostname="$(get_workos_api_hostname)"
-  if [ -n "$workos_api_hostname" ]; then
-    export VITE_WORKOS_API_HOSTNAME="$workos_api_hostname"
   fi
 }
 
@@ -85,11 +65,6 @@ require_real_auth_env() {
   workos_client_id="$(get_workos_client_id)"
   if [ -z "$workos_client_id" ]; then
     printf 'Missing required environment variable: WORKOS_CLIENT_ID or VITE_WORKOS_CLIENT_ID\n' >&2
-    exit 1
-  fi
-  workos_api_hostname="$(get_workos_api_hostname)"
-  if [ -z "$workos_api_hostname" ]; then
-    printf 'Missing required environment variable: WORKOS_API_HOSTNAME or VITE_WORKOS_API_HOSTNAME\n' >&2
     exit 1
   fi
 }

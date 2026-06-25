@@ -54,6 +54,7 @@ import {
 const CALLBACK_PATH = "/callback" as const satisfies FileRouteTypes["to"];
 const DEV_WORKOS_CLIENT_ID = "client_praxisplaner_dev";
 const DEV_AUTH_TOKEN_REFRESH_AFTER_MS = 4 * 60 * 1000;
+const WORKOS_API_HOSTNAME = "api.workos.com";
 const WORKOS_REFRESH_BUFFER_INTERVAL_SECONDS = 60;
 
 interface ConvexAccessTokenFetchArgs {
@@ -123,23 +124,12 @@ function getWorkOSApiHostname(): Result<
   const apiHostname = (
     import.meta.env["VITE_WORKOS_API_HOSTNAME"] as string | undefined
   )?.trim();
-  if (apiHostname && !isInvalidWorkOSApiHostname(apiHostname)) {
-    return ok({ apiHostname });
-  }
-  if (!apiHostname) {
-    if (!isWorkOSDevModeEnabled()) {
-      return err(
-        configurationError(
-          "VITE_WORKOS_API_HOSTNAME is required outside dev/preview so AuthKit can refresh sessions through a first-party WorkOS Authentication API domain.",
-          "getWorkOSApiHostname",
-        ),
-      );
-    }
-    return ok({});
+  if (!apiHostname || apiHostname === WORKOS_API_HOSTNAME) {
+    return ok({ apiHostname: WORKOS_API_HOSTNAME });
   }
   return err(
     configurationError(
-      "VITE_WORKOS_API_HOSTNAME must be a WorkOS Authentication API hostname, not an AuthKit app URL.",
+      `This build is hard-coded to VITE_WORKOS_API_HOSTNAME=${WORKOS_API_HOSTNAME}.`,
       "getWorkOSApiHostname",
     ),
   );
@@ -161,14 +151,6 @@ function getWorkOSClientId(): Result<string, FrontendError> {
       "Missing required environment variable: VITE_WORKOS_CLIENT_ID",
       "getWorkOSClientId",
     ),
-  );
-}
-
-function isInvalidWorkOSApiHostname(apiHostname: string): boolean {
-  return (
-    apiHostname.includes("://") ||
-    apiHostname.includes("/") ||
-    apiHostname.endsWith(".authkit.app")
   );
 }
 
