@@ -1260,36 +1260,9 @@ export function useCalendarLogic({
         return;
       }
 
-      if (!dragPreview.visible) {
-        setDraggedAppointment(null);
-        setDragPreview(emptyDragPreview);
-        return;
-      }
-
-      if (isNonRootSeriesAppointment(draggedAppointment.record._id)) {
-        showNonRootSeriesEditToast();
-        setDraggedAppointment(null);
-        setDragPreview(emptyDragPreview);
-        return;
-      }
-
       const newTime = slotToTime(finalSlot);
 
       try {
-        if (
-          checkCollision(
-            column,
-            finalSlot,
-            draggedAppointment.duration,
-            draggedAppointment.id,
-          )
-        ) {
-          toast.error(
-            "Termin kann nicht auf einen belegten Zeitraum verschoben werden.",
-          );
-          return;
-        }
-
         const plainTime = Temporal.PlainTime.from(newTime);
         const startZoned = selectedDate.toZonedDateTime({
           plainTime,
@@ -1300,268 +1273,164 @@ export function useCalendarLogic({
           minutes: draggedAppointment.duration,
         });
 
+        const rootSeriesAppointment =
+          draggedAppointment.record.seriesId === undefined
+            ? undefined
+            : [...allPracticeAppointmentDocMap.values()].find(
+                (appointment) =>
+                  appointment.seriesId === draggedAppointment.record.seriesId &&
+                  appointment.seriesStepIndex === 0n,
+              );
+        const moveSeriesFromFollowUp =
+          isNonRootSeriesAppointment(draggedAppointment.record._id) &&
+          rootSeriesAppointment !== undefined;
+
+        if (
+          isNonRootSeriesAppointment(draggedAppointment.record._id) &&
+          rootSeriesAppointment === undefined
+        ) {
+          toast.error(
+            "Der Starttermin dieser Kette ist noch nicht geladen. Bitte erneut versuchen.",
+          );
+          return;
+        }
+
+        const appointmentToMove =
+          rootSeriesAppointment ?? draggedAppointment.record;
+        const appointmentToMoveStart = Temporal.ZonedDateTime.from(
+          appointmentToMove.start,
+        );
+        const appointmentToMoveEnd = Temporal.ZonedDateTime.from(
+          appointmentToMove.end,
+        );
+        const moveDeltaMilliseconds = moveSeriesFromFollowUp
+          ? startZoned.epochMilliseconds -
+            Temporal.ZonedDateTime.from(draggedAppointment.record.start)
+              .epochMilliseconds
+          : 0;
+        const movedStartZoned = moveSeriesFromFollowUp
+          ? appointmentToMoveStart.add({ milliseconds: moveDeltaMilliseconds })
+          : startZoned;
+        const movedEndZoned = moveSeriesFromFollowUp
+          ? appointmentToMoveEnd.add({ milliseconds: moveDeltaMilliseconds })
+          : endZoned;
+        const moveColumn = moveSeriesFromFollowUp
+          ? getCalendarAppointmentColumn(appointmentToMove)
+          : column;
+
         const targetResourceColumn =
-          getCalendarResourceColumnFromColumn(column);
+          getCalendarResourceColumnFromColumn(moveColumn);
         const targetPractitionerId =
           targetResourceColumn === undefined
-            ? getPractitionerIdForColumn(column)
+            ? getPractitionerIdForColumn(moveColumn)
             : undefined;
+        const movedSlot = timeToSlot(formatTime(movedStartZoned.toPlainTime()));
+        const movedDurationMinutes =
+          (movedEndZoned.epochMilliseconds -
+            movedStartZoned.epochMilliseconds) /
+          60_000;
+
+        if (
+          checkCollision(
+            moveColumn,
+            movedSlot,
+            movedDurationMinutes,
+            excludedAppointmentIdsForAvailability,
+          )
+        ) {
+          toast.error(
+            "Termin kann nicht auf einen belegten Zeitraum verschoben werden.",
+          );
+          return;
+        }
+
+        const blockedSlotData = findBlockedSlotForAppointmentMove(
+          moveColumn,
+          movedSlot,
+          movedDurationMinutes,
+        );
+        if (blockedSlotData) {
+          toast.error(
+            blockedSlotData.reason
+              ? `Termin kann nicht auf einen gesperrten Zeitraum verschoben werden: ${blockedSlotData.reason}`
+              : "Termin kann nicht auf einen gesperrten Zeitraum verschoben werden.",
+          );
+          return;
+        }
 
         if (
           simulatedContext &&
           draggedAppointment.record.isSimulation !== true
         ) {
+          const appointmentLayoutToMove =
+            appointmentLayouts.find(
+              (appointment) => appointment.record._id === appointmentToMove._id,
+            ) ??
+            ({
+              column: moveColumn,
+              duration:
+                (appointmentToMoveEnd.epochMilliseconds -
+                  appointmentToMoveStart.epochMilliseconds) /
+                60_000,
+              id: appointmentToMove._id,
+              record: appointmentToMove,
+              startTime: formatTime(appointmentToMoveStart.toPlainTime()),
+            } satisfies CalendarAppointmentLayout);
           await planningCommands.convertRealAppointmentToSimulation(
-            draggedAppointment,
+            appointmentLayoutToMove,
             {
-              columnOverride: column,
-              endISO: endZoned.toString(),
+              columnOverride: moveColumn,
+              endISO: movedEndZoned.toString(),
               ...(targetResourceColumn === undefined
                 ? { calendarResourceColumn: null }
                 : { calendarResourceColumn: targetResourceColumn }),
               ...(targetPractitionerId && {
                 practitionerId: targetPractitionerId,
               }),
-              startISO: startZoned.toString(),
+              startISO: movedStartZoned.toString(),
             },
           );
-          return;
-        }
-
-        if (simulatedContext) {
-          if (!blockedSlot.id || !blockedSlotDoc) {
-            toast.error(
-              "Gesperrter Zeitraum konnte in der Simulation nicht aktualisiert werden.",
-            );
-          } else if (blockedSlotDoc.isSimulation) {
-            await planningCommands.updateBlockedSlot({
-              end: endZoned.toString(),
-              id: blockedSlotDoc._id,
-              occupancyScope: dropOccupancyScope,
-              start: startZoned.toString(),
-            });
-          } else {
-            const blockedSlotDisplayRefs =
-              resolveBlockedSlotReferenceDisplayIds(blockedSlotDoc);
-            if (!blockedSlotDisplayRefs) {
-              toast.error(
-                "Gesperrter Zeitraum konnte in der Simulation nicht aktualisiert werden.",
-              );
-              return;
-            }
-
-            await planningCommands.convertRealBlockedSlotToSimulation(
-              blockedSlot.id,
-              {
-                endISO: endZoned.toString(),
-                locationId: blockedSlotDisplayRefs.locationId,
-                startISO: startZoned.toString(),
-                title:
-                  blockedSlotDoc.title ||
-                  blockedSlot.title ||
-                  "Gesperrter Zeitraum",
-                ...(dropOccupancyScope.kind === "practitioner" ||
-                blockedSlotDisplayRefs.practitionerId
-                  ? {
-                      practitionerId:
-                        (dropOccupancyScope.kind === "practitioner"
-                          ? dropOccupancyScope.practitionerId
-                          : undefined) || blockedSlotDisplayRefs.practitionerId,
-                    }
-                  : {}),
-              },
-            );
-          }
-        } else if (blockedSlotDoc) {
-          await planningCommands.updateBlockedSlot({
-            end: endZoned.toString(),
-            id: blockedSlotDoc._id,
-            occupancyScope: dropOccupancyScope,
-            start: startZoned.toString(),
-          });
-        }
-      } catch (error) {
-        captureErrorGlobal(error, {
-          blockedSlotId: draggedBlockedSlotId,
-          context: "Failed to update blocked slot position",
-        });
-        toast.error("Gesperrter Zeitraum konnte nicht verschoben werden");
-      } finally {
-        setDraggedBlockedSlotId(null);
-        setDragPreview(emptyDragPreview);
-      }
-      return;
-    }
-
-    if (!draggedAppointment) {
-      return;
-    }
-
-    const finalSlot = resolveDropSlot(e, draggedAppointment.duration);
-    const newTime = slotToTime(finalSlot);
-
-    try {
-      const plainTime = Temporal.PlainTime.from(newTime);
-      const startZoned = selectedDate.toZonedDateTime({
-        plainTime,
-        timeZone: TIMEZONE,
-      });
-
-      const endZoned = startZoned.add({ minutes: draggedAppointment.duration });
-
-      const rootSeriesAppointment =
-        draggedAppointment.record.seriesId === undefined
-          ? undefined
-          : [...allPracticeAppointmentDocMap.values()].find(
-              (appointment) =>
-                appointment.seriesId === draggedAppointment.record.seriesId &&
-                appointment.seriesStepIndex === 0n,
-            );
-      const moveSeriesFromFollowUp =
-        isNonRootSeriesAppointment(draggedAppointment.record._id) &&
-        rootSeriesAppointment !== undefined;
-
-      if (
-        isNonRootSeriesAppointment(draggedAppointment.record._id) &&
-        rootSeriesAppointment === undefined
-      ) {
-        toast.error(
-          "Der Starttermin dieser Kette ist noch nicht geladen. Bitte erneut versuchen.",
-        );
-        return;
-      }
-
-      const appointmentToMove =
-        rootSeriesAppointment ?? draggedAppointment.record;
-      const appointmentToMoveStart = Temporal.ZonedDateTime.from(
-        appointmentToMove.start,
-      );
-      const appointmentToMoveEnd = Temporal.ZonedDateTime.from(
-        appointmentToMove.end,
-      );
-      const moveDeltaMilliseconds = moveSeriesFromFollowUp
-        ? startZoned.epochMilliseconds -
-          Temporal.ZonedDateTime.from(draggedAppointment.record.start)
-            .epochMilliseconds
-        : 0;
-      const movedStartZoned = moveSeriesFromFollowUp
-        ? appointmentToMoveStart.add({ milliseconds: moveDeltaMilliseconds })
-        : startZoned;
-      const movedEndZoned = moveSeriesFromFollowUp
-        ? appointmentToMoveEnd.add({ milliseconds: moveDeltaMilliseconds })
-        : endZoned;
-      const moveColumn = moveSeriesFromFollowUp
-        ? getCalendarAppointmentColumn(appointmentToMove)
-        : column;
-
-      const targetResourceColumn =
-        getCalendarResourceColumnFromColumn(moveColumn);
-      const targetPractitionerId =
-        targetResourceColumn === undefined
-          ? getPractitionerIdForColumn(moveColumn)
-          : undefined;
-      const movedSlot = timeToSlot(formatTime(movedStartZoned.toPlainTime()));
-      const movedDurationMinutes =
-        (movedEndZoned.epochMilliseconds - movedStartZoned.epochMilliseconds) /
-        60_000;
-
-      if (
-        checkCollision(
-          moveColumn,
-          movedSlot,
-          movedDurationMinutes,
-          excludedAppointmentIdsForAvailability,
-        )
-      ) {
-        toast.error(
-          "Termin kann nicht auf einen belegten Zeitraum verschoben werden.",
-        );
-        return;
-      }
-
-      const blockedSlotData = findBlockedSlotForAppointmentMove(
-        moveColumn,
-        movedSlot,
-        movedDurationMinutes,
-      );
-      if (blockedSlotData) {
-        toast.error(
-          blockedSlotData.reason
-            ? `Termin kann nicht auf einen gesperrten Zeitraum verschoben werden: ${blockedSlotData.reason}`
-            : "Termin kann nicht auf einen gesperrten Zeitraum verschoben werden.",
-        );
-        return;
-      }
-
-      if (simulatedContext && draggedAppointment.record.isSimulation !== true) {
-        const appointmentLayoutToMove =
-          appointmentLayouts.find(
-            (appointment) => appointment.record._id === appointmentToMove._id,
-          ) ??
-          ({
-            column: moveColumn,
-            duration:
-              (appointmentToMoveEnd.epochMilliseconds -
-                appointmentToMoveStart.epochMilliseconds) /
-              60_000,
-            id: appointmentToMove._id,
-            record: appointmentToMove,
-            startTime: formatTime(appointmentToMoveStart.toPlainTime()),
-          } satisfies CalendarAppointmentLayout);
-        await planningCommands.convertRealAppointmentToSimulation(
-          appointmentLayoutToMove,
-          {
-            columnOverride: moveColumn,
-            endISO: movedEndZoned.toString(),
-            ...(targetResourceColumn === undefined
-              ? { calendarResourceColumn: null }
-              : { calendarResourceColumn: targetResourceColumn }),
-            ...(targetPractitionerId && {
-              practitionerId: targetPractitionerId,
-            }),
-            startISO: movedStartZoned.toString(),
-          },
-        );
-      } else {
-        try {
-          const targetPractitionerLineageKey =
-            getPractitionerLineageKeyFromColumn(moveColumn);
-          const targetPlacement =
-            targetResourceColumn === undefined
-              ? targetPractitionerLineageKey === undefined
-                ? null
+        } else {
+          try {
+            const targetPractitionerLineageKey =
+              getPractitionerLineageKeyFromColumn(moveColumn);
+            const targetPlacement =
+              targetResourceColumn === undefined
+                ? targetPractitionerLineageKey === undefined
+                  ? null
+                  : createCalendarPlacement({
+                      locationLineageKey:
+                        appointmentToMove.placement.locationLineageKey,
+                      occupancyScope: {
+                        kind: "practitioner",
+                        practitionerLineageKey: targetPractitionerLineageKey,
+                      },
+                    })
                 : createCalendarPlacement({
                     locationLineageKey:
                       appointmentToMove.placement.locationLineageKey,
                     occupancyScope: {
-                      kind: "practitioner",
-                      practitionerLineageKey: targetPractitionerLineageKey,
+                      calendarResourceColumn: targetResourceColumn,
+                      kind: "resource",
                     },
-                  })
-              : createCalendarPlacement({
-                  locationLineageKey:
-                    appointmentToMove.placement.locationLineageKey,
-                  occupancyScope: {
-                    calendarResourceColumn: targetResourceColumn,
-                    kind: "resource",
-                  },
-                });
+                  });
             if (targetPlacement === null) {
               toast.error("Ungültige Ressource");
               return;
             }
-          await planningCommands.updateAppointment({
-            end: movedEndZoned.toString(),
-            id: appointmentToMove._id,
-            placement: targetPlacement,
-            start: movedStartZoned.toString(),
-          });
-        } catch (error) {
-          captureErrorGlobal(error, {
-            appointmentId: appointmentToMove._id,
-            context: "NewCalendar - Failed to update appointment (drag)",
-          });
-          toast.error("Termin konnte nicht verschoben werden");
+            await planningCommands.updateAppointment({
+              end: movedEndZoned.toString(),
+              id: appointmentToMove._id,
+              placement: targetPlacement,
+              start: movedStartZoned.toString(),
+            });
+          } catch (error) {
+            captureErrorGlobal(error, {
+              appointmentId: appointmentToMove._id,
+              context: "NewCalendar - Failed to update appointment (drag)",
+            });
+            toast.error("Termin konnte nicht verschoben werden");
+          }
         }
       } catch (error) {
         captureErrorGlobal(error, {
@@ -1577,7 +1446,6 @@ export function useCalendarLogic({
       }
     },
     [
-      allBlockedSlots,
       blockedSlotDocMapRef,
       checkCollision,
       dragPreview.visible,
@@ -1585,18 +1453,18 @@ export function useCalendarLogic({
       draggedBlockedSlotId,
       emptyDragPreview,
       excludedAppointmentIdsForAvailability,
-      getCalendarResourceColumnFromColumn,
+      allPracticeAppointmentDocMap,
+      appointmentLayouts,
+      findBlockedSlotForAppointmentMove,
       getPractitionerIdForColumn,
-      getPractitionerLineageKeyFromColumn,
       isNonRootSeriesAppointment,
       manualBlockedSlots,
       planningCommands,
       resolveBlockedSlotReferenceDisplayIds,
-      resolveDropSlot,
       selectedDate,
-      showNonRootSeriesEditToast,
       simulatedContext,
       slotToTime,
+      timeToSlot,
       stopAutoScroll,
     ],
   );
