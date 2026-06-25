@@ -525,7 +525,9 @@ export function mapWorkOSRoleSlugsToOrganizationRole(
   if (hasWorkOSRoleSlug(roleSlugs, "patient")) {
     return "patient";
   }
-  return "patient";
+  throw new Error(
+    `WorkOS organization membership has no supported role slug: ${roleSlugs.join(", ")}`,
+  );
 }
 
 export function mapWorkOSRoleToOrganizationRole(

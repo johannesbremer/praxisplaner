@@ -74,7 +74,15 @@ describe("WorkOS AuthKit user sync", () => {
     expect(mapWorkOSRoleSlugsToOrganizationRole(["org:patient"])).toBe(
       "patient",
     );
-    expect(mapWorkOSRoleSlugsToOrganizationRole([])).toBe("patient");
+    expect(() => mapWorkOSRoleSlugsToOrganizationRole([])).toThrow(
+      "WorkOS organization membership has no supported role slug",
+    );
+    expect(() => mapWorkOSRoleSlugsToOrganizationRole(["member"])).toThrow(
+      "WorkOS organization membership has no supported role slug",
+    );
+    expect(() => mapWorkOSRoleSlugsToOrganizationRole(["billing"])).toThrow(
+      "WorkOS organization membership has no supported role slug",
+    );
   });
 
   test("limits user-management widget tokens to active WorkOS owners", () => {
