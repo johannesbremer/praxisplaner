@@ -4669,6 +4669,19 @@ async function updateAppointmentByMode(
     existingAppointment.appointmentTypeLineageKey;
 
   if (
+    existingAppointment.seriesId === undefined &&
+    hasPlannerRuleRelevantAppointmentTypeChange &&
+    filteredUpdateData.appointmentTypeId !== undefined &&
+    resolvedAppointmentTypeRecord !== undefined &&
+    hasAppointmentPlan(resolvedAppointmentTypeRecord)
+  ) {
+    throw appointmentChainError(
+      "CHAIN_TYPE_CHANGE_FORBIDDEN",
+      "Eine einzelne Terminbuchung kann nicht auf eine Kettentermin-Terminart geändert werden.",
+    );
+  }
+
+  if (
     hasPlannerRuleRelevantAppointmentTypeChange &&
     filteredUpdateData.appointmentTypeId !== undefined
   ) {

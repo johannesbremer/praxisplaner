@@ -3755,6 +3755,98 @@ describe("appointment series", () => {
     ).rejects.toThrow("ist selbst ein Kettentermin");
   });
 
+  test("updateAppointmentType rejects adding a plan when another plan already targets it", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const { childTypeId, grandchildTypeId } = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const childId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "Child",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", childId, {
+        lineageKey: childId,
+      });
+
+      const grandchildId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "Grandchild",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", grandchildId, {
+        lineageKey: grandchildId,
+      });
+
+      const parentId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: childId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "Parent",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", parentId, {
+        lineageKey: parentId,
+      });
+
+      return {
+        childTypeId: childId,
+        grandchildTypeId: grandchildId,
+      };
+    });
+
+    await expect(
+      t.mutation(api.entities.updateAppointmentType, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: grandchildTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        appointmentTypeId: childTypeId,
+        expectedDraftRevision: null,
+        practiceId,
+        selectedRuleSetId: ruleSetId,
+      }),
+    ).rejects.toThrow("wird bereits als Kettentermin-Schritt verwendet");
+  });
+
   test("createAppointmentType allows an empty practitioner allowlist", async () => {
     const t = createAuthedTestContext();
     const { practiceId, ruleSetId } = await createBasePractice(t);
@@ -4030,6 +4122,102 @@ describe("appointment series", () => {
         .collect();
     });
     expect(remainingAppointments).toHaveLength(0);
+  });
+
+  test("updateAppointment rejects changing a standalone appointment to a chain type", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_standalone_to_chain_user",
+      "standalone-to-chain@example.com",
+    );
+
+    const { chainRootTypeId, standaloneTypeId } = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const standaloneId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "Standalone",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", standaloneId, {
+        lineageKey: standaloneId,
+      });
+
+      const followUpId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "Follow-up",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", followUpId, {
+        lineageKey: followUpId,
+      });
+
+      const chainRootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: followUpId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "Chain root",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", chainRootId, {
+        lineageKey: chainRootId,
+      });
+
+      return {
+        chainRootTypeId: chainRootId,
+        standaloneTypeId: standaloneId,
+      };
+    });
+
+    const start = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const appointmentId = await t.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: standaloneTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      start,
+      title: "Standalone",
+      userId,
+    });
+
+    await expect(
+      t.mutation(api.appointments.updateAppointment, {
+        appointmentTypeId: chainRootTypeId,
+        id: appointmentId,
+      }),
+    ).rejects.toThrow("Kettentermin-Terminart");
   });
 
   test("updateAppointment replans a series when the new root overlaps an old follow-up", async () => {
