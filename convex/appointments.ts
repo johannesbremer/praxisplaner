@@ -4840,6 +4840,9 @@ async function updateAppointmentByMode(
             ruleSetId: seriesRecord.ruleSetIdAtBooking,
           },
         );
+        const seriesPatientDateOfBirth = asOptionalIsoDateString(
+          seriesRecord.patientDateOfBirth,
+        );
         const schedulerAvailable =
           await hasExactSeriesStepSchedulerAvailability(ctx, {
             appointmentType: activeStepAppointmentType,
@@ -4850,6 +4853,9 @@ async function updateAppointmentByMode(
             excludedAppointmentIds: [existingAppointment._id],
             locationId: stepLocationId,
             occupancyScope: resolvedOccupancyScope,
+            ...(seriesPatientDateOfBirth === undefined
+              ? {}
+              : { patientDateOfBirth: seriesPatientDateOfBirth }),
             planningState: createSeriesPlanningState(),
             practiceId: existingAppointment.practiceId,
             requestedAt: asInstantString(new Date().toISOString()),
