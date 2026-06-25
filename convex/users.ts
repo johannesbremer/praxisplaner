@@ -164,7 +164,20 @@ export const insertProvisionedUserFromTrustedProfile = internalMutation({
 });
 
 function getWorkOSApiHostname(): string {
-  return "api.workos.com";
+  const apiHostname = process.env["WORKOS_API_HOSTNAME"]?.trim();
+  if (!apiHostname) {
+    return "api.workos.com";
+  }
+  if (
+    apiHostname.includes("://") ||
+    apiHostname.includes("/") ||
+    apiHostname.endsWith(".authkit.app")
+  ) {
+    throw new Error(
+      "WORKOS_API_HOSTNAME must be a WorkOS Authentication API hostname, not an AuthKit app URL.",
+    );
+  }
+  return apiHostname;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
