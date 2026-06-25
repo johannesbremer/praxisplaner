@@ -30,6 +30,7 @@ export function capturePostHogException(
   const posthog =
     registeredPostHogClient ??
     initializedPostHogClient ??
+    initializePostHogClientIfEnabled() ??
     getGlobalPostHogClient();
   if (!posthog) {
     if (!canQueuePostHogException()) {
@@ -82,8 +83,18 @@ export function initializePostHogClient(apiKey: string) {
   return initializedPostHogClient;
 }
 
+export function initializePostHogClientIfEnabled() {
+  const apiKey = getPostHogApiKey();
+  if (!apiKey || !isPostHogEnabled()) {
+    return null;
+  }
+
+  return initializePostHogClient(apiKey);
+}
+
 export function isPostHogEnabled() {
   return (
+    !import.meta.env.SSR &&
     Boolean(getPostHogApiKey()) &&
     Boolean(getPostHogHost()) &&
     (!import.meta.env.DEV ||

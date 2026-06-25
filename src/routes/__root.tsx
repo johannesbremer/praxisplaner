@@ -138,6 +138,25 @@ function ClientDevtools() {
   return DevtoolsComponent ? <DevtoolsComponent /> : null;
 }
 
+function getPostHogUserIdentitySignature({
+  email,
+  firstName,
+  id,
+  lastName,
+}: {
+  email?: null | string | undefined;
+  firstName?: null | string | undefined;
+  id: string;
+  lastName?: null | string | undefined;
+}) {
+  return JSON.stringify({
+    email: email ?? null,
+    firstName: firstName ?? null,
+    id,
+    lastName: lastName ?? null,
+  });
+}
+
 function PostHogClientRegistrar() {
   const posthog = usePostHog();
 
@@ -154,20 +173,27 @@ function PostHogClientRegistrar() {
 function PostHogIdentitySync() {
   const posthog = usePostHog();
   const { user } = useAuth();
-  const identifiedUserIdRef = React.useRef<null | string>(null);
+  const identifiedUserSignatureRef = React.useRef<null | string>(null);
+  const userIdentitySignature = user
+    ? getPostHogUserIdentitySignature(user)
+    : null;
 
   React.useEffect(() => {
     if (!user) {
-      if (identifiedUserIdRef.current) {
+      if (identifiedUserSignatureRef.current) {
         resetPostHogIdentity();
-        identifiedUserIdRef.current = null;
+        identifiedUserSignatureRef.current = null;
       }
       return;
     }
 
+    if (identifiedUserSignatureRef.current === userIdentitySignature) {
+      return;
+    }
+
     identifyPostHogUser(posthog, user);
-    identifiedUserIdRef.current = user.id;
-  }, [posthog, user]);
+    identifiedUserSignatureRef.current = userIdentitySignature;
+  }, [posthog, user, userIdentitySignature]);
 
   return null;
 }
