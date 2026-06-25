@@ -6,6 +6,7 @@ import type { CalendarColumnId } from "../../../src/components/calendar/types";
 import { asPractitionerLineageKey, toTableId } from "../../../convex/identity";
 import { calendarColumnScopeFromPractitioner } from "../../../lib/calendar-occupancy";
 import { CalendarBlockedSlot } from "../../../src/components/calendar/calendar-blocked-slot";
+import { assertElement } from "../test-utils";
 
 describe("CalendarBlockedSlot", () => {
   const practitioner = asPractitionerLineageKey(
@@ -24,9 +25,8 @@ describe("CalendarBlockedSlot", () => {
   } as const;
   const handlers = {
     onDelete: vi.fn(),
-    onDragEnd: vi.fn(),
-    onDragStart: vi.fn(),
     onEdit: vi.fn(),
+    onPointerDragStart: vi.fn(),
     onResizeStart: vi.fn(),
   };
   const defaultProps = {
@@ -87,5 +87,38 @@ describe("CalendarBlockedSlot", () => {
     expect(blockedSlotButton).toHaveClass("min-h-4");
     expect(blockedSlotButton).toHaveClass("before:min-h-6");
     expect(blockedSlotButton).toHaveClass("before:content-['']");
+  });
+
+  test("does not start pointer dragging from the resize handle", () => {
+    const { container } = render(<CalendarBlockedSlot {...defaultProps} />);
+    const resizeHandle = container.querySelector(".cursor-ns-resize");
+
+    assertElement(resizeHandle);
+    fireEvent.pointerDown(resizeHandle, { button: 0, pointerId: 1 });
+
+    expect(handlers.onPointerDragStart).not.toHaveBeenCalled();
+  });
+
+  test("suppresses the synthesized click after pointer dragging moves", () => {
+    render(<CalendarBlockedSlot {...defaultProps} />);
+    const blockedSlotButton = screen.getByRole("button", {
+      name: "Gesperrter Zeitraum Teammeeting, 09:00. Bearbeiten",
+    });
+
+    fireEvent.pointerDown(blockedSlotButton, {
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(blockedSlotButton, {
+      clientX: 14,
+      clientY: 10,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(blockedSlotButton, { pointerId: 1 });
+    fireEvent.click(blockedSlotButton);
+
+    expect(handlers.onEdit).not.toHaveBeenCalled();
   });
 });

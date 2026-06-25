@@ -37,6 +37,7 @@ import {
 import {
   type CalendarAppointmentLayout,
   type CalendarAppointmentPlacement,
+  type CalendarColumn,
   type CalendarColumnId,
   type NewCalendarProps,
   SLOT_DURATION,
@@ -58,17 +59,35 @@ import { useCalendarReferenceResolver } from "./use-calendar-reference-resolver"
 import { useCalendarSimulationConversion } from "./use-calendar-simulation-conversion";
 import { useCalendarVisibleDay } from "./use-calendar-visible-day";
 
-let transparentDragElement: HTMLCanvasElement | null = null;
+interface CalendarPointerCoordinates {
+  clientX: number;
+  clientY: number;
+}
 
-function setTransparentDragImage(dataTransfer: DataTransfer): void {
-  if (transparentDragElement === null) {
-    const canvas = document.createElement("canvas");
-    canvas.height = 1;
-    canvas.width = 1;
-    transparentDragElement = canvas;
-  }
+interface CalendarPointerTarget {
+  column: CalendarColumnId;
+  element: HTMLElement;
+}
 
-  dataTransfer.setDragImage(transparentDragElement, 0, 0);
+const CALENDAR_DRAG_START_THRESHOLD_PX = 3;
+
+interface ActiveCalendarDragPointer {
+  hasMovedPastThreshold: boolean;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+}
+
+function hasMovedPastCalendarDragThreshold(
+  activePointer: ActiveCalendarDragPointer,
+  pointer: CalendarPointerCoordinates,
+): boolean {
+  return (
+    Math.hypot(
+      pointer.clientX - activePointer.startClientX,
+      pointer.clientY - activePointer.startClientY,
+    ) >= CALENDAR_DRAG_START_THRESHOLD_PX
+  );
 }
 
 /**
@@ -106,17 +125,23 @@ export function useCalendarLogic({
   const [draggedBlockedSlotId, setDraggedBlockedSlotId] = useState<
     null | string
   >(null);
-  const emptyDragPreview = {
-    column: null,
-    slot: 0,
-    visible: false,
-  } as const;
+  const emptyDragPreview = useMemo(
+    () =>
+      ({
+        column: null,
+        slot: 0,
+        visible: false,
+      }) as const,
+    [],
+  );
   const [dragPreview, setDragPreview] = useState<{
     column: CalendarColumnId | null;
     slot: number;
     visible: boolean;
   }>(emptyDragPreview);
   const autoScrollAnimationRef = useRef<null | number>(null);
+  const activeDragPointerRef = useRef<ActiveCalendarDragPointer | null>(null);
+  const detachPointerDragListenersRef = useRef<(() => void) | null>(null);
   const hasResolvedLocationRef = useRef(false);
 
   // Warning dialog state for blocked slots
@@ -668,17 +693,23 @@ export function useCalendarLogic({
     dragPreview,
   });
 
-  // Drag and drop handlers
+  const columnByKey = useMemo(() => {
+    const entries: [string, CalendarColumn][] = columns.map((column) => [
+      calendarColumnScopeKey(column.id),
+      column,
+    ]);
+    return new Map<string, CalendarColumn>(entries);
+  }, [columns]);
+
+  // Pointer-driven calendar move handlers
   const getPointerSlot = useCallback(
-    (e: React.DragEvent) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const slotRow = e.currentTarget.querySelector(
-        '[data-calendar-slot-row="true"]',
-      );
+    (element: HTMLElement, clientY: number) => {
+      const rect = element.getBoundingClientRect();
+      const slotRow = element.querySelector('[data-calendar-slot-row="true"]');
       const slotRowRect = slotRow?.getBoundingClientRect();
 
       return resolvePointerSlot({
-        pointerOffsetPx: e.clientY - rect.top,
+        pointerOffsetPx: clientY - rect.top,
         renderedSlotHeightPx: slotRowRect?.height ?? 0,
         totalSlots,
       });
@@ -686,18 +717,126 @@ export function useCalendarLogic({
     [totalSlots],
   );
 
-  const resolveDropSlot = useCallback(
-    (e: React.DragEvent, durationMinutes: number) =>
-      resolveDragPreviewSlot({
-        durationMinutes,
-        pointerSlot: getPointerSlot(e),
-        slotDurationMinutes: SLOT_DURATION,
-        totalSlots,
-      }),
-    [getPointerSlot, totalSlots],
+  const resolvePointerTarget = useCallback(
+    ({ clientX, clientY }: CalendarPointerCoordinates) => {
+      const elements = document.elementsFromPoint(clientX, clientY);
+      for (const element of elements) {
+        if (!(element instanceof HTMLElement)) {
+          continue;
+        }
+        const target = element.closest<HTMLElement>(
+          "[data-calendar-column-key]",
+        );
+        const columnKey = target?.dataset["calendarColumnKey"];
+        if (target === null || columnKey === undefined) {
+          continue;
+        }
+        const column = columnByKey.get(columnKey);
+        if (column === undefined) {
+          continue;
+        }
+        if (
+          column.isUnavailable === true ||
+          column.isAppointmentTypeUnavailable === true ||
+          (draggedAppointment !== null && column.isDragDisabled === true)
+        ) {
+          return null;
+        }
+        return {
+          column: column.id,
+          element: target,
+        };
+      }
+      return null;
+    },
+    [columnByKey, draggedAppointment],
   );
 
-  const handleDragStart = (e: React.DragEvent, appointmentId: string) => {
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollAnimationRef.current) {
+      cancelAnimationFrame(autoScrollAnimationRef.current);
+      autoScrollAnimationRef.current = null;
+    }
+  }, []);
+
+  const clearPointerDragListeners = useCallback(() => {
+    detachPointerDragListenersRef.current?.();
+    detachPointerDragListenersRef.current = null;
+  }, []);
+
+  const handleAutoScroll = useCallback(
+    (pointer: CalendarPointerCoordinates) => {
+      const scrollContainer = scrollContainerRef?.current;
+      if (!scrollContainer) {
+        return;
+      }
+
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const mouseY = pointer.clientY;
+      const scrollThreshold = 80; // Increased from 50 for easier triggering
+      const scrollSpeed = 15; // Increased from 10 for more visible scrolling
+
+      if (autoScrollAnimationRef.current) {
+        cancelAnimationFrame(autoScrollAnimationRef.current);
+        autoScrollAnimationRef.current = null;
+      }
+
+      const distanceFromTop = mouseY - containerRect.top;
+      const distanceFromBottom = containerRect.bottom - mouseY;
+      const currentScrollTop = scrollContainer.scrollTop;
+      const maxScroll =
+        scrollContainer.scrollHeight - scrollContainer.clientHeight;
+
+      // Scroll up when near the top
+      if (distanceFromTop < scrollThreshold && currentScrollTop > 0) {
+        const animateScrollUp = () => {
+          const newScrollTop = Math.max(
+            0,
+            scrollContainer.scrollTop - scrollSpeed,
+          );
+          scrollContainer.scrollTop = newScrollTop;
+
+          if (newScrollTop > 0 && autoScrollAnimationRef.current) {
+            autoScrollAnimationRef.current =
+              requestAnimationFrame(animateScrollUp);
+          } else {
+            autoScrollAnimationRef.current = null;
+          }
+        };
+        autoScrollAnimationRef.current = requestAnimationFrame(animateScrollUp);
+      }
+      // Scroll down when near the bottom
+      else if (
+        distanceFromBottom < scrollThreshold &&
+        currentScrollTop < maxScroll
+      ) {
+        const animateScrollDown = () => {
+          const currentMax =
+            scrollContainer.scrollHeight - scrollContainer.clientHeight;
+          const newScrollTop = Math.min(
+            currentMax,
+            scrollContainer.scrollTop + scrollSpeed,
+          );
+          scrollContainer.scrollTop = newScrollTop;
+
+          if (newScrollTop < currentMax && autoScrollAnimationRef.current) {
+            autoScrollAnimationRef.current =
+              requestAnimationFrame(animateScrollDown);
+          } else {
+            autoScrollAnimationRef.current = null;
+          }
+        };
+        autoScrollAnimationRef.current =
+          requestAnimationFrame(animateScrollDown);
+      }
+    },
+    [scrollContainerRef],
+  );
+
+  const handleDragStart = (e: React.PointerEvent, appointmentId: string) => {
+    if (e.button !== 0) {
+      return;
+    }
     const appointment = appointmentLayouts.find(
       (entry) => entry.id === appointmentId,
     );
@@ -705,39 +844,31 @@ export function useCalendarLogic({
       return;
     }
 
+    e.currentTarget.setPointerCapture(e.pointerId);
+    activeDragPointerRef.current = {
+      hasMovedPastThreshold: false,
+      pointerId: e.pointerId,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+    };
     setDraggedAppointment(appointment);
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", appointmentId);
-    setTransparentDragImage(e.dataTransfer);
   };
 
-  const handleDragOver = (e: React.DragEvent, column: CalendarColumnId) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+  const handleDragOver = useCallback(
+    (pointer: CalendarPointerCoordinates) => {
+      const target = resolvePointerTarget(pointer);
+      if (target === null) {
+        return;
+      }
+      const column = target.column;
 
-    if (draggedAppointment) {
-      const targetSlot = resolveDropSlot(e, draggedAppointment.duration);
-
-      setDragPreview((prev) => {
-        if (
-          prev.visible &&
-          prev.column !== null &&
-          sameCalendarColumnScope(prev.column, column) &&
-          prev.slot === targetSlot
-        ) {
-          return prev;
-        }
-        return { column, slot: targetSlot, visible: true };
-      });
-
-      handleAutoScroll(e);
-    } else if (draggedBlockedSlotId) {
-      // Handle blocked slot dragging
-      const blockedSlot = manualBlockedSlots.find(
-        (bs) => bs.id === draggedBlockedSlotId,
-      );
-      if (blockedSlot) {
-        const targetSlot = resolveDropSlot(e, blockedSlot.duration);
+      if (draggedAppointment) {
+        const targetSlot = resolveDragPreviewSlot({
+          durationMinutes: draggedAppointment.duration,
+          pointerSlot: getPointerSlot(target.element, pointer.clientY),
+          slotDurationMinutes: SLOT_DURATION,
+          totalSlots,
+        });
 
         setDragPreview((prev) => {
           if (
@@ -751,109 +882,242 @@ export function useCalendarLogic({
           return { column, slot: targetSlot, visible: true };
         });
 
-        handleAutoScroll(e);
-      }
-    }
-  };
-
-  const handleAutoScroll = (e: React.DragEvent) => {
-    const scrollContainer = scrollContainerRef?.current;
-    if (!scrollContainer) {
-      return;
-    }
-
-    const containerRect = scrollContainer.getBoundingClientRect();
-    const mouseY = e.clientY;
-    const scrollThreshold = 80; // Increased from 50 for easier triggering
-    const scrollSpeed = 15; // Increased from 10 for more visible scrolling
-
-    if (autoScrollAnimationRef.current) {
-      cancelAnimationFrame(autoScrollAnimationRef.current);
-      autoScrollAnimationRef.current = null;
-    }
-
-    const distanceFromTop = mouseY - containerRect.top;
-    const distanceFromBottom = containerRect.bottom - mouseY;
-    const currentScrollTop = scrollContainer.scrollTop;
-    const maxScroll =
-      scrollContainer.scrollHeight - scrollContainer.clientHeight;
-
-    // Scroll up when near the top
-    if (distanceFromTop < scrollThreshold && currentScrollTop > 0) {
-      const animateScrollUp = () => {
-        const newScrollTop = Math.max(
-          0,
-          scrollContainer.scrollTop - scrollSpeed,
-        );
-        scrollContainer.scrollTop = newScrollTop;
-
-        if (newScrollTop > 0 && autoScrollAnimationRef.current) {
-          autoScrollAnimationRef.current =
-            requestAnimationFrame(animateScrollUp);
-        } else {
-          autoScrollAnimationRef.current = null;
-        }
-      };
-      autoScrollAnimationRef.current = requestAnimationFrame(animateScrollUp);
-    }
-    // Scroll down when near the bottom
-    else if (
-      distanceFromBottom < scrollThreshold &&
-      currentScrollTop < maxScroll
-    ) {
-      const animateScrollDown = () => {
-        const currentMax =
-          scrollContainer.scrollHeight - scrollContainer.clientHeight;
-        const newScrollTop = Math.min(
-          currentMax,
-          scrollContainer.scrollTop + scrollSpeed,
-        );
-        scrollContainer.scrollTop = newScrollTop;
-
-        if (newScrollTop < currentMax && autoScrollAnimationRef.current) {
-          autoScrollAnimationRef.current =
-            requestAnimationFrame(animateScrollDown);
-        } else {
-          autoScrollAnimationRef.current = null;
-        }
-      };
-      autoScrollAnimationRef.current = requestAnimationFrame(animateScrollDown);
-    }
-  };
-
-  const handleDrop = async (e: React.DragEvent, column: CalendarColumnId) => {
-    e.preventDefault();
-
-    if (autoScrollAnimationRef.current) {
-      cancelAnimationFrame(autoScrollAnimationRef.current);
-      autoScrollAnimationRef.current = null;
-    }
-
-    if (draggedBlockedSlotId) {
-      // Handle blocked slot drop
-      const blockedSlot = manualBlockedSlots.find(
-        (bs) => bs.id === draggedBlockedSlotId,
-      );
-      if (!blockedSlot) {
+        handleAutoScroll(pointer);
         return;
       }
 
-      const resolvedBlockedSlotId = findIdInList(
-        [...blockedSlotDocMapRef.current.keys()],
-        blockedSlot.id,
-      );
-      const blockedSlotDoc =
-        resolvedBlockedSlotId === undefined
-          ? undefined
-          : blockedSlotDocMapRef.current.get(resolvedBlockedSlotId);
+      if (draggedBlockedSlotId) {
+        const blockedSlot = manualBlockedSlots.find(
+          (bs) => bs.id === draggedBlockedSlotId,
+        );
+        if (!blockedSlot) {
+          return;
+        }
+        const targetSlot = resolveDragPreviewSlot({
+          durationMinutes: blockedSlot.duration,
+          pointerSlot: getPointerSlot(target.element, pointer.clientY),
+          slotDurationMinutes: SLOT_DURATION,
+          totalSlots,
+        });
 
-      const finalSlot = resolveDropSlot(e, blockedSlot.duration);
+        setDragPreview((prev) => {
+          if (
+            prev.visible &&
+            prev.column !== null &&
+            sameCalendarColumnScope(prev.column, column) &&
+            prev.slot === targetSlot
+          ) {
+            return prev;
+          }
+          return { column, slot: targetSlot, visible: true };
+        });
+
+        handleAutoScroll(pointer);
+      }
+    },
+    [
+      draggedAppointment,
+      draggedBlockedSlotId,
+      getPointerSlot,
+      handleAutoScroll,
+      manualBlockedSlots,
+      resolvePointerTarget,
+      totalSlots,
+    ],
+  );
+
+  const resolveFinalDropSlot = useCallback(
+    (target: CalendarPointerTarget, pointer: CalendarPointerCoordinates) => {
+      if (draggedAppointment) {
+        return resolveDragPreviewSlot({
+          durationMinutes: draggedAppointment.duration,
+          pointerSlot: getPointerSlot(target.element, pointer.clientY),
+          slotDurationMinutes: SLOT_DURATION,
+          totalSlots,
+        });
+      }
+
+      if (draggedBlockedSlotId) {
+        const blockedSlot = manualBlockedSlots.find(
+          (bs) => bs.id === draggedBlockedSlotId,
+        );
+        if (!blockedSlot) {
+          return null;
+        }
+
+        return resolveDragPreviewSlot({
+          durationMinutes: blockedSlot.duration,
+          pointerSlot: getPointerSlot(target.element, pointer.clientY),
+          slotDurationMinutes: SLOT_DURATION,
+          totalSlots,
+        });
+      }
+
+      return null;
+    },
+    [
+      draggedAppointment,
+      draggedBlockedSlotId,
+      getPointerSlot,
+      manualBlockedSlots,
+      totalSlots,
+    ],
+  );
+
+  const handleDrop = useCallback(
+    async (column: CalendarColumnId, finalSlot: number) => {
+      stopAutoScroll();
+
+      if (draggedBlockedSlotId) {
+        // Handle blocked slot drop
+        const blockedSlot = manualBlockedSlots.find(
+          (bs) => bs.id === draggedBlockedSlotId,
+        );
+        if (!blockedSlot) {
+          return;
+        }
+
+        const resolvedBlockedSlotId = findIdInList(
+          [...blockedSlotDocMapRef.current.keys()],
+          blockedSlot.id,
+        );
+        const blockedSlotDoc =
+          resolvedBlockedSlotId === undefined
+            ? undefined
+            : blockedSlotDocMapRef.current.get(resolvedBlockedSlotId);
+
+        if (!dragPreview.visible) {
+          setDraggedBlockedSlotId(null);
+          setDragPreview(emptyDragPreview);
+          return;
+        }
+        const newTime = slotToTime(finalSlot);
+
+        try {
+          if (checkCollision(column, finalSlot, blockedSlot.duration)) {
+            toast.error(
+              "Gesperrter Zeitraum kann nicht auf einen belegten Zeitraum verschoben werden.",
+            );
+            return;
+          }
+
+          const plainTime = Temporal.PlainTime.from(newTime);
+          const startZoned = selectedDate.toZonedDateTime({
+            plainTime,
+            timeZone: TIMEZONE,
+          });
+
+          const endZoned = startZoned.add({
+            minutes: blockedSlot.duration,
+          });
+
+          const dropOccupancyScope = resolveBlockedSlotDropOccupancyScope({
+            column,
+            getPractitionerIdForColumn,
+          });
+          if (dropOccupancyScope.kind === "reject-resource-column") {
+            toast.error(
+              "Gesperrte Zeitraeume koennen nicht auf EKG- oder Labor-Spalten verschoben werden.",
+            );
+            return;
+          }
+
+          if (simulatedContext) {
+            if (!blockedSlot.id || !blockedSlotDoc) {
+              toast.error(
+                "Gesperrter Zeitraum konnte in der Simulation nicht aktualisiert werden.",
+              );
+            } else if (blockedSlotDoc.isSimulation) {
+              await planningCommands.updateBlockedSlot({
+                end: endZoned.toString(),
+                id: blockedSlotDoc._id,
+                occupancyScope: dropOccupancyScope,
+                start: startZoned.toString(),
+              });
+            } else {
+              const blockedSlotDisplayRefs =
+                resolveBlockedSlotReferenceDisplayIds(blockedSlotDoc);
+              if (!blockedSlotDisplayRefs) {
+                toast.error(
+                  "Gesperrter Zeitraum konnte in der Simulation nicht aktualisiert werden.",
+                );
+                return;
+              }
+
+              await planningCommands.convertRealBlockedSlotToSimulation(
+                blockedSlot.id,
+                {
+                  endISO: endZoned.toString(),
+                  locationId: blockedSlotDisplayRefs.locationId,
+                  startISO: startZoned.toString(),
+                  title:
+                    blockedSlotDoc.title ||
+                    blockedSlot.title ||
+                    "Gesperrter Zeitraum",
+                  ...(dropOccupancyScope.kind === "practitioner" ||
+                  blockedSlotDisplayRefs.practitionerId
+                    ? {
+                        practitionerId:
+                          (dropOccupancyScope.kind === "practitioner"
+                            ? dropOccupancyScope.practitionerId
+                            : undefined) ||
+                          blockedSlotDisplayRefs.practitionerId,
+                      }
+                    : {}),
+                },
+              );
+            }
+          } else if (blockedSlotDoc) {
+            await planningCommands.updateBlockedSlot({
+              end: endZoned.toString(),
+              id: blockedSlotDoc._id,
+              occupancyScope: dropOccupancyScope,
+              start: startZoned.toString(),
+            });
+          }
+        } catch (error) {
+          captureErrorGlobal(error, {
+            blockedSlotId: draggedBlockedSlotId,
+            context: "Failed to update blocked slot position",
+          });
+          toast.error("Gesperrter Zeitraum konnte nicht verschoben werden");
+        } finally {
+          setDraggedBlockedSlotId(null);
+          setDragPreview(emptyDragPreview);
+        }
+        return;
+      }
+
+      if (!draggedAppointment) {
+        return;
+      }
+
+      if (!dragPreview.visible) {
+        setDraggedAppointment(null);
+        setDragPreview(emptyDragPreview);
+        return;
+      }
+
+      if (isNonRootSeriesAppointment(draggedAppointment.record._id)) {
+        showNonRootSeriesEditToast();
+        setDraggedAppointment(null);
+        setDragPreview(emptyDragPreview);
+        return;
+      }
+
       const newTime = slotToTime(finalSlot);
 
       try {
-        if (checkCollision(column, finalSlot, blockedSlot.duration)) {
+        if (
+          checkCollision(
+            column,
+            finalSlot,
+            draggedAppointment.duration,
+            draggedAppointment.id,
+          )
+        ) {
           toast.error(
-            "Gesperrter Zeitraum kann nicht auf einen belegten Zeitraum verschoben werden.",
+            "Termin kann nicht auf einen belegten Zeitraum verschoben werden.",
           );
           return;
         }
@@ -865,207 +1129,212 @@ export function useCalendarLogic({
         });
 
         const endZoned = startZoned.add({
-          minutes: blockedSlot.duration,
+          minutes: draggedAppointment.duration,
         });
 
-        const dropOccupancyScope = resolveBlockedSlotDropOccupancyScope({
-          column,
-          getPractitionerIdForColumn,
-        });
-        if (dropOccupancyScope.kind === "reject-resource-column") {
-          toast.error(
-            "Gesperrte Zeitraeume koennen nicht auf EKG- oder Labor-Spalten verschoben werden.",
+        const targetResourceColumn =
+          getCalendarResourceColumnFromColumn(column);
+        const targetPractitionerId =
+          targetResourceColumn === undefined
+            ? getPractitionerIdForColumn(column)
+            : undefined;
+
+        if (
+          simulatedContext &&
+          draggedAppointment.record.isSimulation !== true
+        ) {
+          await planningCommands.convertRealAppointmentToSimulation(
+            draggedAppointment,
+            {
+              columnOverride: column,
+              endISO: endZoned.toString(),
+              ...(targetResourceColumn === undefined
+                ? { calendarResourceColumn: null }
+                : { calendarResourceColumn: targetResourceColumn }),
+              ...(targetPractitionerId && {
+                practitionerId: targetPractitionerId,
+              }),
+              startISO: startZoned.toString(),
+            },
           );
-          return;
-        }
-
-        if (simulatedContext) {
-          if (!blockedSlot.id || !blockedSlotDoc) {
-            toast.error(
-              "Gesperrter Zeitraum konnte in der Simulation nicht aktualisiert werden.",
-            );
-          } else if (blockedSlotDoc.isSimulation) {
-            await planningCommands.updateBlockedSlot({
-              end: endZoned.toString(),
-              id: blockedSlotDoc._id,
-              occupancyScope: dropOccupancyScope,
-              start: startZoned.toString(),
-            });
-          } else {
-            const blockedSlotDisplayRefs =
-              resolveBlockedSlotReferenceDisplayIds(blockedSlotDoc);
-            if (!blockedSlotDisplayRefs) {
-              toast.error(
-                "Gesperrter Zeitraum konnte in der Simulation nicht aktualisiert werden.",
-              );
-              return;
-            }
-
-            await planningCommands.convertRealBlockedSlotToSimulation(
-              blockedSlot.id,
-              {
-                endISO: endZoned.toString(),
-                locationId: blockedSlotDisplayRefs.locationId,
-                startISO: startZoned.toString(),
-                title:
-                  blockedSlotDoc.title ||
-                  blockedSlot.title ||
-                  "Gesperrter Zeitraum",
-                ...(dropOccupancyScope.kind === "practitioner" ||
-                blockedSlotDisplayRefs.practitionerId
-                  ? {
-                      practitionerId:
-                        (dropOccupancyScope.kind === "practitioner"
-                          ? dropOccupancyScope.practitionerId
-                          : undefined) || blockedSlotDisplayRefs.practitionerId,
-                    }
-                  : {}),
-              },
-            );
-          }
-        } else if (blockedSlotDoc) {
-          await planningCommands.updateBlockedSlot({
-            end: endZoned.toString(),
-            id: blockedSlotDoc._id,
-            occupancyScope: dropOccupancyScope,
-            start: startZoned.toString(),
-          });
-        }
-      } catch (error) {
-        captureErrorGlobal(error, {
-          blockedSlotId: draggedBlockedSlotId,
-          context: "Failed to update blocked slot position",
-        });
-        toast.error("Gesperrter Zeitraum konnte nicht verschoben werden");
-      } finally {
-        setDraggedBlockedSlotId(null);
-        setDragPreview(emptyDragPreview);
-      }
-      return;
-    }
-
-    if (!draggedAppointment) {
-      return;
-    }
-
-    if (isNonRootSeriesAppointment(draggedAppointment.record._id)) {
-      showNonRootSeriesEditToast();
-      setDraggedAppointment(null);
-      setDragPreview(emptyDragPreview);
-      return;
-    }
-
-    const finalSlot = resolveDropSlot(e, draggedAppointment.duration);
-    const newTime = slotToTime(finalSlot);
-
-    try {
-      if (
-        checkCollision(
-          column,
-          finalSlot,
-          draggedAppointment.duration,
-          draggedAppointment.id,
-        )
-      ) {
-        toast.error(
-          "Termin kann nicht auf einen belegten Zeitraum verschoben werden.",
-        );
-        return;
-      }
-
-      const plainTime = Temporal.PlainTime.from(newTime);
-      const startZoned = selectedDate.toZonedDateTime({
-        plainTime,
-        timeZone: TIMEZONE,
-      });
-
-      const endZoned = startZoned.add({ minutes: draggedAppointment.duration });
-
-      const targetResourceColumn = getCalendarResourceColumnFromColumn(column);
-      const targetPractitionerId =
-        targetResourceColumn === undefined
-          ? getPractitionerIdForColumn(column)
-          : undefined;
-
-      if (simulatedContext && draggedAppointment.record.isSimulation !== true) {
-        await planningCommands.convertRealAppointmentToSimulation(
-          draggedAppointment,
-          {
-            columnOverride: column,
-            endISO: endZoned.toString(),
-            ...(targetResourceColumn === undefined
-              ? { calendarResourceColumn: null }
-              : { calendarResourceColumn: targetResourceColumn }),
-            ...(targetPractitionerId && {
-              practitionerId: targetPractitionerId,
-            }),
-            startISO: startZoned.toString(),
-          },
-        );
-      } else {
-        try {
-          const targetPractitionerLineageKey =
-            getPractitionerLineageKeyFromColumn(column);
-          const targetPlacement =
-            targetResourceColumn === undefined
-              ? targetPractitionerLineageKey === undefined
-                ? null
+        } else {
+          try {
+            const targetPractitionerLineageKey =
+              getPractitionerLineageKeyFromColumn(column);
+            const targetPlacement =
+              targetResourceColumn === undefined
+                ? targetPractitionerLineageKey === undefined
+                  ? null
+                  : createCalendarPlacement({
+                      locationLineageKey:
+                        draggedAppointment.record.placement.locationLineageKey,
+                      occupancyScope: {
+                        kind: "practitioner",
+                        practitionerLineageKey: targetPractitionerLineageKey,
+                      },
+                    })
                 : createCalendarPlacement({
                     locationLineageKey:
                       draggedAppointment.record.placement.locationLineageKey,
                     occupancyScope: {
-                      kind: "practitioner",
-                      practitionerLineageKey: targetPractitionerLineageKey,
+                      calendarResourceColumn: targetResourceColumn,
+                      kind: "resource",
                     },
-                  })
-              : createCalendarPlacement({
-                  locationLineageKey:
-                    draggedAppointment.record.placement.locationLineageKey,
-                  occupancyScope: {
-                    calendarResourceColumn: targetResourceColumn,
-                    kind: "resource",
-                  },
-                });
-          if (targetPlacement === null) {
-            toast.error("Ungültige Ressource");
-            return;
+                  });
+            if (targetPlacement === null) {
+              toast.error("Ungültige Ressource");
+              return;
+            }
+            await planningCommands.updateAppointment({
+              end: endZoned.toString(),
+              id: draggedAppointment.record._id,
+              placement: targetPlacement,
+              start: startZoned.toString(),
+            });
+          } catch (error) {
+            captureErrorGlobal(error, {
+              appointmentId: draggedAppointment.record._id,
+              context: "NewCalendar - Failed to update appointment (drag)",
+            });
+            toast.error("Termin konnte nicht verschoben werden");
           }
-          await planningCommands.updateAppointment({
-            end: endZoned.toString(),
-            id: draggedAppointment.record._id,
-            placement: targetPlacement,
-            start: startZoned.toString(),
-          });
-        } catch (error) {
-          captureErrorGlobal(error, {
-            appointmentId: draggedAppointment.record._id,
-            context: "NewCalendar - Failed to update appointment (drag)",
-          });
-          toast.error("Termin konnte nicht verschoben werden");
         }
+      } catch (error) {
+        captureErrorGlobal(error, {
+          context: "Failed to parse time during drag",
+          newTime,
+        });
+        toast.error("Termin konnte nicht verschoben werden");
+      } finally {
+        // Convex optimistic updates will handle successful UI updates.
+        setDraggedAppointment(null);
+        setDragPreview(emptyDragPreview);
       }
-    } catch (error) {
-      captureErrorGlobal(error, {
-        context: "Failed to parse time during drag",
-        newTime,
-      });
-      toast.error("Termin konnte nicht verschoben werden");
-    } finally {
-      // Convex optimistic updates will handle successful UI updates.
-      setDraggedAppointment(null);
-      setDragPreview(emptyDragPreview);
-    }
-  };
+    },
+    [
+      blockedSlotDocMapRef,
+      checkCollision,
+      dragPreview.visible,
+      draggedAppointment,
+      draggedBlockedSlotId,
+      emptyDragPreview,
+      getPractitionerIdForColumn,
+      isNonRootSeriesAppointment,
+      manualBlockedSlots,
+      planningCommands,
+      resolveBlockedSlotReferenceDisplayIds,
+      selectedDate,
+      showNonRootSeriesEditToast,
+      simulatedContext,
+      slotToTime,
+      stopAutoScroll,
+    ],
+  );
 
-  const handleDragEnd = () => {
-    if (autoScrollAnimationRef.current) {
-      cancelAnimationFrame(autoScrollAnimationRef.current);
-      autoScrollAnimationRef.current = null;
-    }
+  const handleDragEnd = useCallback(() => {
+    stopAutoScroll();
+    clearPointerDragListeners();
 
+    activeDragPointerRef.current = null;
     setDraggedAppointment(null);
+    setDraggedBlockedSlotId(null);
     setDragPreview(emptyDragPreview);
-  };
+  }, [clearPointerDragListeners, emptyDragPreview, stopAutoScroll]);
+
+  const handlePointerUp = useCallback(
+    (pointer: CalendarPointerCoordinates) => {
+      const target = resolvePointerTarget(pointer);
+      if (target === null) {
+        handleDragEnd();
+        return;
+      }
+      const finalSlot = resolveFinalDropSlot(target, pointer);
+      if (finalSlot === null) {
+        handleDragEnd();
+        return;
+      }
+      clearPointerDragListeners();
+      void handleDrop(target.column, finalSlot);
+    },
+    [
+      clearPointerDragListeners,
+      handleDragEnd,
+      handleDrop,
+      resolveFinalDropSlot,
+      resolvePointerTarget,
+    ],
+  );
+
+  useEffect(() => {
+    if (draggedAppointment === null && draggedBlockedSlotId === null) {
+      clearPointerDragListeners();
+      activeDragPointerRef.current = null;
+      return;
+    }
+
+    const handleDocumentPointerMove = (event: PointerEvent) => {
+      const activePointer = activeDragPointerRef.current;
+      if (activePointer?.pointerId !== event.pointerId) {
+        return;
+      }
+      if (!activePointer.hasMovedPastThreshold) {
+        if (!hasMovedPastCalendarDragThreshold(activePointer, event)) {
+          return;
+        }
+        activePointer.hasMovedPastThreshold = true;
+      }
+      handleDragOver(event);
+    };
+    const handleDocumentPointerUp = (event: PointerEvent) => {
+      const activePointer = activeDragPointerRef.current;
+      if (activePointer?.pointerId !== event.pointerId) {
+        return;
+      }
+      if (
+        !activePointer.hasMovedPastThreshold &&
+        !hasMovedPastCalendarDragThreshold(activePointer, event)
+      ) {
+        handleDragEnd();
+        return;
+      }
+      activeDragPointerRef.current = null;
+      handlePointerUp(event);
+    };
+    const handleDocumentPointerCancel = (event: PointerEvent) => {
+      if (activeDragPointerRef.current?.pointerId !== event.pointerId) {
+        return;
+      }
+      handleDragEnd();
+    };
+
+    document.addEventListener("pointermove", handleDocumentPointerMove);
+    document.addEventListener("pointerup", handleDocumentPointerUp);
+    document.addEventListener("pointercancel", handleDocumentPointerCancel);
+    detachPointerDragListenersRef.current = () => {
+      document.removeEventListener("pointermove", handleDocumentPointerMove);
+      document.removeEventListener("pointerup", handleDocumentPointerUp);
+      document.removeEventListener(
+        "pointercancel",
+        handleDocumentPointerCancel,
+      );
+    };
+
+    return () => {
+      document.removeEventListener("pointermove", handleDocumentPointerMove);
+      document.removeEventListener("pointerup", handleDocumentPointerUp);
+      document.removeEventListener(
+        "pointercancel",
+        handleDocumentPointerCancel,
+      );
+    };
+  }, [
+    clearPointerDragListeners,
+    draggedAppointment,
+    draggedBlockedSlotId,
+    handleDragOver,
+    handleDragEnd,
+    handlePointerUp,
+  ]);
 
   const addAppointment = (column: CalendarColumnId, slot: number) => {
     // Check if this slot is blocked (including breaks and rules)
@@ -1281,16 +1550,26 @@ export function useCalendarLogic({
 
   // Blocked slot handlers
   const handleBlockedSlotDragStart = (
-    e: React.DragEvent,
+    e: React.PointerEvent,
     blockedSlotId: string,
   ) => {
+    if (e.button !== 0) {
+      return;
+    }
+    e.currentTarget.setPointerCapture(e.pointerId);
+    activeDragPointerRef.current = {
+      hasMovedPastThreshold: false,
+      pointerId: e.pointerId,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+    };
     setDraggedBlockedSlotId(blockedSlotId);
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", blockedSlotId);
-    setTransparentDragImage(e.dataTransfer);
   };
 
   const handleBlockedSlotDragEnd = () => {
+    stopAutoScroll();
+    clearPointerDragListeners();
+    activeDragPointerRef.current = null;
     setDraggedBlockedSlotId(null);
     setDragPreview(emptyDragPreview);
   };
@@ -1312,8 +1591,9 @@ export function useCalendarLogic({
         cancelAnimationFrame(autoScrollAnimationRef.current);
         autoScrollAnimationRef.current = null;
       }
+      clearPointerDragListeners();
     };
-  }, []);
+  }, [clearPointerDragListeners]);
 
   const handleLocationSelect = (locationId: Id<"locations"> | undefined) => {
     if (simulatedContext && onUpdateSimulatedContext) {

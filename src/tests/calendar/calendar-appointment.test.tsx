@@ -53,9 +53,8 @@ describe("CalendarAppointment", () => {
 
   const mockHandlers = {
     onDelete: vi.fn(),
-    onDragEnd: vi.fn(),
-    onDragStart: vi.fn(),
     onEdit: vi.fn(),
+    onPointerDragStart: vi.fn(),
     onResizeStart: vi.fn(),
   };
 
@@ -143,29 +142,51 @@ describe("CalendarAppointment", () => {
     );
   });
 
-  test("is draggable", () => {
+  test("does not opt into native HTML dragging", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
     const appointmentElement = container.querySelector("[draggable]");
-    expect(appointmentElement).toBeInTheDocument();
-    expect(appointmentElement?.getAttribute("draggable")).toBe("true");
+    expect(appointmentElement).not.toBeInTheDocument();
   });
 
-  test("calls onDragStart when drag starts", () => {
+  test("calls onPointerDragStart when pointer dragging starts", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
-    const appointmentElement = container.querySelector("[draggable]");
+    const appointmentElement = container.querySelector(".cursor-move");
 
     assertElement(appointmentElement);
-    fireEvent.dragStart(appointmentElement);
-    expect(mockHandlers.onDragStart).toHaveBeenCalled();
+    fireEvent.pointerDown(appointmentElement, { button: 0, pointerId: 1 });
+    expect(mockHandlers.onPointerDragStart).toHaveBeenCalled();
   });
 
-  test("calls onDragEnd when drag ends", () => {
+  test("suppresses the synthesized click after pointer dragging moves", () => {
     const { container } = render(<CalendarAppointment {...defaultProps} />);
-    const appointmentElement = container.querySelector("[draggable]");
+    const appointmentElement = container.querySelector(".cursor-move");
 
     assertElement(appointmentElement);
-    fireEvent.dragEnd(appointmentElement);
-    expect(mockHandlers.onDragEnd).toHaveBeenCalled();
+    fireEvent.pointerDown(appointmentElement, {
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(appointmentElement, {
+      clientX: 14,
+      clientY: 10,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(appointmentElement, { pointerId: 1 });
+    fireEvent.click(appointmentElement);
+
+    expect(mockHandlers.onEdit).not.toHaveBeenCalled();
+  });
+
+  test("does not start pointer dragging from the resize handle", () => {
+    const { container } = render(<CalendarAppointment {...defaultProps} />);
+    const resizeHandle = container.querySelector(".cursor-ns-resize");
+
+    assertElement(resizeHandle);
+    fireEvent.pointerDown(resizeHandle, { button: 0, pointerId: 1 });
+
+    expect(mockHandlers.onPointerDragStart).not.toHaveBeenCalled();
   });
 
   test("visually hides the source appointment while dragging", () => {
