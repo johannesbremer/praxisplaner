@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { UsersManagement, WorkOsWidgets } from "@workos-inc/widgets";
 import { useAction, useQuery } from "convex/react";
-import { Building2, Loader2, UsersRound } from "lucide-react";
+import { AlertTriangle, Building2, Loader2, UsersRound } from "lucide-react";
 import {
   type BaseSyntheticEvent,
   useCallback,
@@ -46,6 +46,7 @@ function AccountPage() {
     api.workosOrganizations.syncCurrentUserOrganizationMembership,
   );
   const [createError, setCreateError] = useState<null | string>(null);
+  const [createWarning, setCreateWarning] = useState<null | string>(null);
   const [createdOrganizationId, setCreatedOrganizationId] = useState<
     null | string
   >(null);
@@ -113,10 +114,17 @@ function AccountPage() {
       return;
     }
     setCreateError(null);
+    setCreateWarning(null);
     setCreatedOrganizationId(null);
     setIsCreating(true);
     createOrganizationPractice({ name })
-      .then(({ organizationId: nextOrganizationId }) => {
+      .then((result) => {
+        if (result.status === "warning") {
+          setCreateWarning(result.message);
+          refreshOrganizations();
+          return;
+        }
+        const nextOrganizationId = result.organizationId;
         setCreatedOrganizationId(nextOrganizationId);
         setPracticeName("");
         refreshOrganizations();
@@ -128,6 +136,7 @@ function AccountPage() {
             });
       })
       .catch((error: unknown) => {
+        setCreateWarning(null);
         setCreateError(
           error instanceof Error
             ? error.message
@@ -214,6 +223,12 @@ function AccountPage() {
                   />
                   {createError ? (
                     <p className="text-sm text-destructive">{createError}</p>
+                  ) : null}
+                  {createWarning ? (
+                    <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-sm text-warning-foreground">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                      <p>{createWarning}</p>
+                    </div>
                   ) : null}
                   {createdOrganizationId ? (
                     <p className="text-sm text-muted-foreground">
