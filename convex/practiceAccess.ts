@@ -142,6 +142,20 @@ export async function getAccessiblePracticeIdsForQuery(
   return memberships.map((membership) => membership.practiceId);
 }
 
+export async function getAccessibleStaffPracticeIdsForQuery(
+  ctx: QueryCtx,
+): Promise<Id<"practices">[]> {
+  const { _id: userId } = await requireUser(ctx);
+  const memberships = await ctx.db
+    .query("organizationMembers")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .collect();
+
+  return memberships.flatMap((membership) =>
+    membership.role === "patient" ? [] : [membership.practiceId],
+  );
+}
+
 export async function requireActiveBookingRuleSet(
   ctx: MutationCtx | QueryCtx,
   args: {

@@ -7,6 +7,7 @@ import { isConvexAuthBypassEnabled } from "./authBypass";
 import { createInitialRuleSet } from "./copyOnWrite";
 import {
   getAccessiblePracticeIdsForQuery,
+  getAccessibleStaffPracticeIdsForQuery,
   organizationRoleValidator,
   requireOrganizationMember,
   requirePracticeManager,
@@ -155,7 +156,7 @@ export const createPractice = action({
 export const getAllPractices = query({
   args: {},
   handler: async (ctx) => {
-    const practiceIds = await getAccessiblePracticeIdsForQuery(ctx);
+    const practiceIds = await getAccessibleStaffPracticeIdsForQuery(ctx);
     const practiceCandidates = await Promise.all(
       practiceIds.map((practiceId) => ctx.db.get("practices", practiceId)),
     );
@@ -206,8 +207,10 @@ export const getAllPracticesIfAuthenticated = query({
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
     const practiceCandidates = await Promise.all(
-      memberships.map((membership) =>
-        ctx.db.get("practices", membership.practiceId),
+      memberships.flatMap((membership) =>
+        membership.role === "patient"
+          ? []
+          : [ctx.db.get("practices", membership.practiceId)],
       ),
     );
 
@@ -271,7 +274,7 @@ export const getAccessiblePracticeBySlug = query({
     slug: v.string(),
   },
   handler: async (ctx, args) => {
-    const practiceIds = await getAccessiblePracticeIdsForQuery(ctx);
+    const practiceIds = await getAccessibleStaffPracticeIdsForQuery(ctx);
     const practices = await Promise.all(
       practiceIds.map((practiceId) => ctx.db.get("practices", practiceId)),
     );

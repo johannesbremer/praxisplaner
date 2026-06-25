@@ -477,11 +477,14 @@ describe("Convex query authorization", () => {
     const t = createTestContext();
     const authId = "workos_authz_patient_member";
     const email = "authz-patient-member@example.com";
-    const { authed, practiceId, userId } = await createPracticeForUser(
+    const { authed, practiceId, slug, userId } = await createPracticeForUser(
       t,
       authId,
       email,
     );
+    if (!slug) {
+      throw new Error("Expected created practice to have a slug.");
+    }
     await setMembershipRole(t, { practiceId, role: "patient", userId });
 
     await expect(
@@ -489,11 +492,13 @@ describe("Convex query authorization", () => {
     ).rejects.toThrow("Role patient is insufficient");
     await expect(
       authed.query(api.practices.getAllPractices, {}),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        _id: practiceId,
-      }),
-    ]);
+    ).resolves.toEqual([]);
+    await expect(
+      authed.query(api.practices.getAllPracticesIfAuthenticated, {}),
+    ).resolves.toEqual([]);
+    await expect(
+      authed.query(api.practices.getAccessiblePracticeBySlug, { slug }),
+    ).resolves.toBeNull();
     await expect(
       authed.query(api.users.getById, { id: userId, practiceId }),
     ).rejects.toThrow("Role patient is insufficient");
