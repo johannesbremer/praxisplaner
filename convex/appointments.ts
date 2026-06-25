@@ -2868,7 +2868,7 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     await validateAppointmentSeriesOwnerRefs(ctx, {
       practiceId: args.practiceId,
       ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
@@ -2968,7 +2968,7 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    await ensurePracticeAccessForQuery(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     await validateAppointmentSeriesOwnerRefs(ctx, {
       practiceId: args.practiceId,
       ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
@@ -3636,7 +3636,7 @@ export const getAppointmentSeriesRestoreSnapshotByRootId = query({
     if (!rootAppointment?.seriesId) {
       return null;
     }
-    await ensurePracticeAccessForQuery(ctx, rootAppointment.practiceId);
+    await requirePracticeStaff(ctx, rootAppointment.practiceId);
 
     const series = await getAppointmentSeriesRecord(
       ctx.db,
@@ -3661,7 +3661,7 @@ export const getAppointmentSeriesRestoreSnapshotByAppointmentId = query({
     if (!appointment?.seriesId) {
       return null;
     }
-    await ensurePracticeAccessForQuery(ctx, appointment.practiceId);
+    await requirePracticeStaff(ctx, appointment.practiceId);
 
     const series = await getAppointmentSeriesRecord(
       ctx.db,
@@ -3694,7 +3694,7 @@ export const restoreAppointmentSeriesSnapshot = mutation({
         "Kettentermin-Wiederherstellung wurde nicht gefunden.",
       );
     }
-    await ensurePracticeAccessForMutation(ctx, storedSnapshot.practiceId);
+    await requirePracticeStaffForMutation(ctx, storedSnapshot.practiceId);
 
     const { appointments, series } = storedSnapshot.snapshot;
     if (appointments.length === 0) {
