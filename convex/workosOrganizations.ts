@@ -155,11 +155,24 @@ export const syncCurrentUserOrganizationMembership = action({
       return null;
     }
 
+    const role = mapWorkOSRoleToOrganizationRoleOrNull(membership);
+    if (!role) {
+      await ctx.runMutation(
+        internal.workosOrganizations
+          .removeOrganizationMemberByWorkOSOrganization,
+        {
+          organizationId: args.organizationId,
+          workOSUserId: identity.subject,
+        },
+      );
+      return null;
+    }
+
     return await ctx.runMutation(
       internal.workosOrganizations.upsertOrganizationMemberByWorkOSOrganization,
       {
         organizationId: args.organizationId,
-        role: mapWorkOSRoleToOrganizationRole(membership),
+        role,
         workOSUserId: identity.subject,
       },
     );
@@ -513,6 +526,18 @@ export function getWorkOSOrganizationMembershipRoleSlugs(
 export function mapWorkOSRoleSlugsToOrganizationRole(
   roleSlugs: readonly string[],
 ): OrganizationRole {
+  const role = mapWorkOSRoleSlugsToOrganizationRoleOrNull(roleSlugs);
+  if (role) {
+    return role;
+  }
+  throw new Error(
+    `WorkOS organization membership has no supported role slug: ${roleSlugs.join(", ")}`,
+  );
+}
+
+export function mapWorkOSRoleSlugsToOrganizationRoleOrNull(
+  roleSlugs: readonly string[],
+): null | OrganizationRole {
   if (hasWorkOSRoleSlug(roleSlugs, "owner")) {
     return "owner";
   }
@@ -525,15 +550,19 @@ export function mapWorkOSRoleSlugsToOrganizationRole(
   if (hasWorkOSRoleSlug(roleSlugs, "patient")) {
     return "patient";
   }
-  throw new Error(
-    `WorkOS organization membership has no supported role slug: ${roleSlugs.join(", ")}`,
-  );
+  return null;
 }
 
 export function mapWorkOSRoleToOrganizationRole(
   membership: Pick<WorkOSOrganizationMembership, "roleSlugs">,
 ): OrganizationRole {
   return mapWorkOSRoleSlugsToOrganizationRole(membership.roleSlugs);
+}
+
+export function mapWorkOSRoleToOrganizationRoleOrNull(
+  membership: Pick<WorkOSOrganizationMembership, "roleSlugs">,
+): null | OrganizationRole {
+  return mapWorkOSRoleSlugsToOrganizationRoleOrNull(membership.roleSlugs);
 }
 
 async function allocateBypassOrganizationId(

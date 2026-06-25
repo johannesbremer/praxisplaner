@@ -282,4 +282,51 @@ describe("WorkOS AuthKit user sync", () => {
       }),
     ).resolves.toBeNull();
   });
+
+  test("unsupported active WorkOS roles remove stale local memberships", async () => {
+    const t = createTestContext();
+    const userId = await t.run(async (ctx) => {
+      return await ctx.db.insert("users", {
+        authId: "user_org_unsupported_role",
+        createdAt: BigInt(Date.now()),
+        email: "unsupported-role@example.com",
+      });
+    });
+    const practiceId = await t.run(async (ctx) => {
+      const insertedPracticeId = await ctx.db.insert("practices", {
+        name: "Unsupported Role Practice",
+        workOSOrganizationId: "org_unsupported_role_sync",
+      });
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: insertedPracticeId,
+        role: "admin",
+        userId,
+      });
+      return insertedPracticeId;
+    });
+
+    await t.mutation(internal.auth.authKitEvent, {
+      data: {
+        id: "om_unsupported_role_sync",
+        object: "organization_membership",
+        organization_id: "org_unsupported_role_sync",
+        roles: [{ slug: "member" }],
+        status: "active",
+        user_id: "user_org_unsupported_role",
+      },
+      event: "organization_membership.updated",
+    });
+
+    await expect(
+      t.run(async (ctx) => {
+        return await ctx.db
+          .query("organizationMembers")
+          .withIndex("by_practiceId_userId", (q) =>
+            q.eq("practiceId", practiceId).eq("userId", userId),
+          )
+          .first();
+      }),
+    ).resolves.toBeNull();
+  });
 });

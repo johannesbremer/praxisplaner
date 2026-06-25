@@ -7,7 +7,7 @@ import { components, internal } from "./_generated/api";
 import { findUserByAuthId } from "./userIdentity";
 import {
   getWorkOSOrganizationMembershipRoleSlugs,
-  mapWorkOSRoleSlugsToOrganizationRole,
+  mapWorkOSRoleSlugsToOrganizationRoleOrNull,
 } from "./workosOrganizations";
 
 // Get a typed object of internal Convex functions exported by this file
@@ -51,11 +51,25 @@ export const { authKitEvent } = authKit.events({
     if (membership.status !== "active") {
       return;
     }
+    const role = mapWorkOSRoleSlugsToOrganizationRoleOrNull(
+      membership.roleSlugs,
+    );
+    if (!role) {
+      await ctx.runMutation(
+        internal.workosOrganizations
+          .removeOrganizationMemberByWorkOSOrganization,
+        {
+          organizationId: membership.organizationId,
+          workOSUserId: membership.userId,
+        },
+      );
+      return;
+    }
     await ctx.runMutation(
       internal.workosOrganizations.upsertOrganizationMemberByWorkOSOrganization,
       {
         organizationId: membership.organizationId,
-        role: mapWorkOSRoleSlugsToOrganizationRole(membership.roleSlugs),
+        role,
         workOSUserId: membership.userId,
       },
     );
@@ -83,11 +97,25 @@ export const { authKitEvent } = authKit.events({
       );
       return;
     }
+    const role = mapWorkOSRoleSlugsToOrganizationRoleOrNull(
+      membership.roleSlugs,
+    );
+    if (!role) {
+      await ctx.runMutation(
+        internal.workosOrganizations
+          .removeOrganizationMemberByWorkOSOrganization,
+        {
+          organizationId: membership.organizationId,
+          workOSUserId: membership.userId,
+        },
+      );
+      return;
+    }
     await ctx.runMutation(
       internal.workosOrganizations.upsertOrganizationMemberByWorkOSOrganization,
       {
         organizationId: membership.organizationId,
-        role: mapWorkOSRoleSlugsToOrganizationRole(membership.roleSlugs),
+        role,
         workOSUserId: membership.userId,
       },
     );
