@@ -516,6 +516,50 @@ async function validateAppointmentPlansReferencingTargetDuration(
   }
 }
 
+async function validateNoAppointmentPlansReferenceChainTarget(
+  db: GenericDatabaseReader<DataModel>,
+  args: {
+    currentAppointmentTypeId: Id<"appointmentTypes">;
+    currentAppointmentTypeLineageKey: AppointmentTypeLineageKey;
+    nextHasAppointmentPlan: boolean;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  if (!args.nextHasAppointmentPlan) {
+    return;
+  }
+
+  const appointmentTypes = await db
+    .query("appointmentTypes")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+    .collect();
+
+  for (const appointmentType of appointmentTypes) {
+    if (
+      appointmentType._id === args.currentAppointmentTypeId ||
+      isDeletedRuleSetEntity(appointmentType) ||
+      !hasAppointmentPlan(appointmentType)
+    ) {
+      continue;
+    }
+
+    const referencesUpdatedType = (
+      appointmentType.appointmentPlan?.steps ?? []
+    ).some(
+      (step) =>
+        step.appointmentTypeLineageKey ===
+        args.currentAppointmentTypeLineageKey,
+    );
+    if (!referencesUpdatedType) {
+      continue;
+    }
+
+    throw new Error(
+      `Terminart ${args.currentAppointmentTypeLineageKey} wird bereits als Kettentermin-Schritt verwendet und darf deshalb nicht selbst ein Kettentermin sein.`,
+    );
+  }
+}
+
 /**
  * Resolve a base schedule ID into the current unsaved rule set.
  * Returns null when neither the original nor a CoW copy exists.
@@ -1197,6 +1241,15 @@ export const updateAppointmentType = mutation({
       );
       updates.defaultOccupancy = effectiveDefaultOccupancy;
     }
+    await validateNoAppointmentPlansReferenceChainTarget(ctx.db, {
+      currentAppointmentTypeId: appointmentType._id,
+      currentAppointmentTypeLineageKey:
+        requireAppointmentTypeLineageKey(appointmentType),
+      nextHasAppointmentPlan:
+        ((updates.appointmentPlan ?? appointmentType.appointmentPlan)?.steps
+          .length ?? 0) > 0,
+      ruleSetId,
+    });
     if (
       args.duration !== undefined &&
       args.duration !== appointmentType.duration
