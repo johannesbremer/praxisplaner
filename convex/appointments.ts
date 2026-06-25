@@ -254,6 +254,10 @@ const blockedSlotMutationOccupancyScopeValidator = v.union(
     kind: v.literal("practitioner"),
     practitionerId: v.id("practitioners"),
   }),
+  v.object({
+    calendarResourceColumn: calendarResourceColumnValidator,
+    kind: v.literal("resource"),
+  }),
 );
 
 const calendarDayQueryArgsValidator = {
@@ -4147,20 +4151,26 @@ export const createBlockedSlot = mutation({
     const occupancyScope =
       rest.occupancyScope.kind === "location-wide"
         ? { kind: "location-wide" as const }
-        : {
-            kind: "practitioner" as const,
-            practitionerLineageKey: await requirePractitionerInPractice(
-              ctx.db,
-              {
-                practitionerId: rest.occupancyScope.practitionerId,
-                scope: practiceScope,
-              },
-            ).then((practitioner) =>
-              asPractitionerLineageKey(
-                practitioner.lineageKey ?? practitioner._id,
+        : rest.occupancyScope.kind === "resource"
+          ? {
+              calendarResourceColumn:
+                rest.occupancyScope.calendarResourceColumn,
+              kind: "resource" as const,
+            }
+          : {
+              kind: "practitioner" as const,
+              practitionerLineageKey: await requirePractitionerInPractice(
+                ctx.db,
+                {
+                  practitionerId: rest.occupancyScope.practitionerId,
+                  scope: practiceScope,
+                },
+              ).then((practitioner) =>
+                asPractitionerLineageKey(
+                  practitioner.lineageKey ?? practitioner._id,
+                ),
               ),
-            ),
-          };
+            };
 
     const id = await ctx.db.insert("blockedSlots", {
       createdAt: BigInt(Date.now()),
@@ -4225,18 +4235,24 @@ export const updateBlockedSlot = mutation({
                 ? existingBlockedSlot.occupancyScope
                 : occupancyScope.kind === "location-wide"
                   ? { kind: "location-wide" as const }
-                  : {
-                      kind: "practitioner" as const,
-                      practitionerLineageKey:
-                        await requirePractitionerInPractice(ctx.db, {
-                          practitionerId: occupancyScope.practitionerId,
-                          scope: practiceScope,
-                        }).then((practitioner) =>
-                          asPractitionerLineageKey(
-                            practitioner.lineageKey ?? practitioner._id,
+                  : occupancyScope.kind === "resource"
+                    ? {
+                        calendarResourceColumn:
+                          occupancyScope.calendarResourceColumn,
+                        kind: "resource" as const,
+                      }
+                    : {
+                        kind: "practitioner" as const,
+                        practitionerLineageKey:
+                          await requirePractitionerInPractice(ctx.db, {
+                            practitionerId: occupancyScope.practitionerId,
+                            scope: practiceScope,
+                          }).then((practitioner) =>
+                            asPractitionerLineageKey(
+                              practitioner.lineageKey ?? practitioner._id,
+                            ),
                           ),
-                        ),
-                    },
+                      },
           }
         : undefined;
 

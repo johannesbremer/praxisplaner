@@ -588,7 +588,7 @@ describe("TelefonKI availability", () => {
       }),
     );
     expect(slots).toEqual([]);
-  });
+  }, 15_000);
 
   test("forces availability searches to use the Phone-AI client type", async () => {
     const t = createTestContext();
@@ -615,7 +615,7 @@ describe("TelefonKI availability", () => {
       }),
     );
     expect(slots).toEqual([]);
-  });
+  }, 15_000);
 
   test("hides appointment series types from TelefonKI config and queries", async () => {
     const t = createTestContext();

@@ -2,7 +2,7 @@ export type AppointmentOccupancyScope<PractitionerKey extends string = string> =
   Exclude<CalendarOccupancyScope<PractitionerKey>, LocationWideOccupancyScope>;
 
 export type BlockedSlotOccupancyScope<PractitionerKey extends string = string> =
-  Exclude<CalendarOccupancyScope<PractitionerKey>, ResourceOccupancyScope>;
+  CalendarOccupancyScope<PractitionerKey>;
 
 export type CalendarColumnScope<PractitionerKey extends string = string> =
   AppointmentOccupancyScope<PractitionerKey>;

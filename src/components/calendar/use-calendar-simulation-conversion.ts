@@ -88,6 +88,7 @@ interface UseCalendarSimulationConversionArgs {
     isSimulation?: boolean;
     locationId: Id<"locations">;
     occupancyScope:
+      | { calendarResourceColumn: "ekg" | "labor"; kind: "resource" }
       | { kind: "location-wide" }
       | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
     practiceId: Id<"practices">;
@@ -511,12 +512,29 @@ export function useCalendarSimulationConversion({
       }
 
       const practitionerId =
-        options.practitionerId ??
-        (original.placement.occupancyScope.kind === "practitioner"
-          ? getPractitionerIdForLineageKey(
-              original.placement.occupancyScope.practitionerLineageKey,
-            )
+        options.calendarResourceColumn === undefined
+          ? (options.practitionerId ??
+            (original.placement.occupancyScope.kind === "practitioner"
+              ? getPractitionerIdForLineageKey(
+                  original.placement.occupancyScope.practitionerLineageKey,
+                )
+              : undefined))
+          : undefined;
+      const calendarResourceColumn =
+        options.calendarResourceColumn ??
+        (practitionerId === undefined &&
+        original.placement.occupancyScope.kind === "resource"
+          ? original.placement.occupancyScope.calendarResourceColumn
           : undefined);
+      const occupancyScope =
+        calendarResourceColumn === undefined
+          ? practitionerId === undefined
+            ? { kind: "location-wide" as const }
+            : { kind: "practitioner" as const, practitionerId }
+          : {
+              calendarResourceColumn,
+              kind: "resource" as const,
+            };
       const startISO = options.startISO ?? original.start;
       const endISO = options.endISO ?? original.end;
       const title = options.title || original.title || "Gesperrter Zeitraum";
@@ -526,10 +544,7 @@ export function useCalendarSimulationConversion({
           end: endISO,
           isSimulation: true,
           locationId,
-          occupancyScope:
-            practitionerId === undefined
-              ? { kind: "location-wide" }
-              : { kind: "practitioner", practitionerId },
+          occupancyScope,
           practiceId: original.practiceId,
           replacesBlockedSlotId: original._id,
           start: startISO,

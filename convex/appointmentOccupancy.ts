@@ -53,6 +53,10 @@ export const blockedSlotOccupancyScopeValidator = v.union(
     practitionerLineageKey: v.id("practitioners"),
   }),
   v.object({
+    calendarResourceColumn: calendarResourceColumnValidator,
+    kind: v.literal("resource"),
+  }),
+  v.object({
     kind: v.literal("location-wide"),
   }),
 );

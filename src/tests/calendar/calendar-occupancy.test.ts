@@ -163,9 +163,7 @@ describe("calendar occupancy", () => {
     expectTypeOf(locationWide).not.toExtend<
       AppointmentOccupancyScope<PractitionerKey>
     >();
-    expectTypeOf(ekg).not.toExtend<
-      BlockedSlotOccupancyScope<PractitionerKey>
-    >();
+    expectTypeOf(ekg).toExtend<BlockedSlotOccupancyScope<PractitionerKey>>();
     expectTypeOf(locationWide).not.toExtend<
       CalendarColumnScope<PractitionerKey>
     >();
