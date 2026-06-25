@@ -29,6 +29,10 @@ export function capturePostHogException(
 ) {
   const posthog = registeredPostHogClient ?? getGlobalPostHogClient();
   if (!posthog) {
+    if (!canQueuePostHogException()) {
+      return false;
+    }
+
     pendingExceptions.push({ context, error });
     return false;
   }
@@ -116,6 +120,10 @@ function buildPostHogUserProperties(user: AuthUserForPostHog): Properties {
     ...(user.firstName ? { first_name: user.firstName } : {}),
     ...(user.lastName ? { last_name: user.lastName } : {}),
   };
+}
+
+function canQueuePostHogException() {
+  return !import.meta.env.SSR && isPostHogEnabled();
 }
 
 function getGlobalPostHogClient(): null | PostHogCaptureClient {
