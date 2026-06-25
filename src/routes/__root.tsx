@@ -49,6 +49,7 @@ import {
   getPostHogApiKey,
   identifyPostHogUser,
   initializePostHogClient,
+  isBookingRoutePathname,
   isPostHogEnabled,
   registerPostHogClient,
   resetPostHogIdentity,
@@ -90,6 +91,7 @@ function BrowserPostHogProvider({ children }: { children: React.ReactNode }) {
     <PostHogProvider client={posthog}>
       <PostHogClientRegistrar />
       <PostHogIdentitySync />
+      <PostHogSessionReplayRouteSync />
       {children}
     </PostHogProvider>
   );
@@ -194,6 +196,29 @@ function PostHogIdentitySync() {
     identifyPostHogUser(posthog, user);
     identifiedUserSignatureRef.current = userIdentitySignature;
   }, [posthog, user, userIdentitySignature]);
+
+  return null;
+}
+
+function PostHogSessionReplayRouteSync() {
+  const posthog = usePostHog();
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const disabledForBookingRouteRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (isBookingRoutePathname(pathname)) {
+      posthog.stopSessionRecording();
+      disabledForBookingRouteRef.current = true;
+      return;
+    }
+
+    if (disabledForBookingRouteRef.current) {
+      posthog.startSessionRecording();
+      disabledForBookingRouteRef.current = false;
+    }
+  }, [pathname, posthog]);
 
   return null;
 }

@@ -2,6 +2,8 @@ import type { PostHog, PostHogConfig, Properties } from "posthog-js";
 
 import posthog from "posthog-js";
 
+import { RESERVED_TOP_LEVEL_ROUTE_SEGMENTS } from "@/lib/reserved-top-level-route-segments";
+
 export const POSTHOG_PROXY_PATH = "/fluss";
 
 interface AuthUserForPostHog {
@@ -15,6 +17,10 @@ const pendingExceptions: {
   context: Properties | undefined;
   error: Error;
 }[] = [];
+
+const RESERVED_TOP_LEVEL_ROUTE_SEGMENT_SET: ReadonlySet<string> = new Set(
+  RESERVED_TOP_LEVEL_ROUTE_SEGMENTS,
+);
 
 let registeredPostHogClient: null | PostHog = null;
 let initializedPostHogClient: null | PostHog = null;
@@ -59,6 +65,7 @@ export function getPostHogProviderOptions(): Partial<PostHogConfig> {
     api_host: POSTHOG_PROXY_PATH,
     capture_exceptions: true,
     defaults: "2026-05-30",
+    disable_session_recording: isBookingRoutePathname(getCurrentPathname()),
     session_recording: {
       maskAllInputs: true,
       maskTextSelector: "*",
@@ -90,6 +97,16 @@ export function initializePostHogClientIfEnabled() {
   }
 
   return initializePostHogClient(apiKey);
+}
+
+export function isBookingRoutePathname(pathname: string) {
+  const segments = pathname.split("/").filter(Boolean);
+  const [segment] = segments;
+  return (
+    segments.length === 1 &&
+    segment !== undefined &&
+    !RESERVED_TOP_LEVEL_ROUTE_SEGMENT_SET.has(segment)
+  );
 }
 
 export function isPostHogEnabled() {
@@ -138,6 +155,13 @@ function buildPostHogUserProperties(user: AuthUserForPostHog): Properties {
 
 function canQueuePostHogException() {
   return !import.meta.env.SSR && isPostHogEnabled();
+}
+
+function getCurrentPathname() {
+  if (import.meta.env.SSR) {
+    return "/";
+  }
+  return globalThis.location.pathname;
 }
 
 function getGlobalPostHogClient(): null | PostHogCaptureClient {
