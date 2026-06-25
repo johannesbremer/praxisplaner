@@ -850,6 +850,10 @@ export function useCalendarPlanningWorkbench(args: {
     (refs: {
       locationId: Id<"locations">;
       occupancyScope:
+        | {
+            calendarResourceColumn: "ekg" | "labor";
+            kind: "resource";
+          }
         | { kind: "location-wide" }
         | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
     }) => resolveBlockedSlotLineageRefs(refs, referenceMaps),
@@ -1482,12 +1486,14 @@ export function useCalendarPlanningWorkbench(args: {
             const currentRecord = toCalendarBlockedSlotRecord(slot);
             const nextDisplayOccupancyScope =
               optimisticArgs.occupancyScope ??
-              (slot.practitionerId === undefined
-                ? { kind: "location-wide" as const }
-                : {
-                    kind: "practitioner" as const,
-                    practitionerId: slot.practitionerId,
-                  });
+              (slot.occupancyScope.kind === "resource"
+                ? slot.occupancyScope
+                : slot.practitionerId === undefined
+                  ? { kind: "location-wide" as const }
+                  : {
+                      kind: "practitioner" as const,
+                      practitionerId: slot.practitionerId,
+                    });
             const lineageRefs =
               optimisticArgs.locationId === undefined &&
               optimisticArgs.occupancyScope === undefined
@@ -1996,12 +2002,14 @@ export function useCalendarPlanningWorkbench(args: {
               ? before.placement.occupancyScope
               : args.occupancyScope.kind === "location-wide"
                 ? { kind: "location-wide" }
-                : nextPractitionerLineageKey === undefined
-                  ? before.placement.occupancyScope
-                  : {
-                      kind: "practitioner",
-                      practitionerLineageKey: nextPractitionerLineageKey,
-                    },
+                : args.occupancyScope.kind === "resource"
+                  ? args.occupancyScope
+                  : nextPractitionerLineageKey === undefined
+                    ? before.placement.occupancyScope
+                    : {
+                        kind: "practitioner",
+                        practitionerLineageKey: nextPractitionerLineageKey,
+                      },
         });
         const afterState = {
           end: args.end ?? before.end,
@@ -2176,6 +2184,10 @@ export function useCalendarPlanningWorkbench(args: {
 function createBlockedSlotPlacement(args: {
   locationLineageKey: LocationLineageKey;
   occupancyScope:
+    | {
+        calendarResourceColumn: "ekg" | "labor";
+        kind: "resource";
+      }
     | { kind: "location-wide" }
     | { kind: "practitioner"; practitionerLineageKey: PractitionerLineageKey };
 }): CalendarBlockedSlotPlacement {

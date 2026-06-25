@@ -202,7 +202,7 @@ describe("Manual Blocked Slots Integration", () => {
   });
 
   describe("Database to Frontend Mapping", () => {
-    it("rejects dropping manual blocked slots onto resource columns", () => {
+    it("resolves resource columns as manual blocked-slot drop targets", () => {
       const noPractitionerForColumn: (
         column: Parameters<
           typeof resolveBlockedSlotDropOccupancyScope
@@ -216,7 +216,10 @@ describe("Manual Blocked Slots Integration", () => {
         getPractitionerIdForColumn: noPractitionerForColumn,
       });
 
-      expect(result).toEqual({ kind: "reject-resource-column" });
+      expect(result).toEqual({
+        calendarResourceColumn: "ekg",
+        kind: "resource",
+      });
     });
 
     it("should create manual blocked slots with isManual=true flag", () => {
