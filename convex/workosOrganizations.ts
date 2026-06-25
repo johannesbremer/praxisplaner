@@ -205,6 +205,110 @@ export const syncCurrentUserOrganizationMembership = action({
   returns: v.union(v.id("organizationMembers"), v.null()),
 });
 
+export const joinBookingPracticeBySlug = action({
+  args: {
+    practiceSlug: v.string(),
+  },
+  handler: async (ctx, args): Promise<Id<"organizationMembers">> => {
+    const identity = await requireActionIdentity(ctx);
+    await provisionUserFromTrustedWorkOSIdentity(ctx, identity.subject);
+
+    const organizationId = await ctx.runQuery(
+      internal.workosOrganizations.getWorkOSOrganizationIdByPracticeSlug,
+      { slug: args.practiceSlug },
+    );
+    if (!organizationId) {
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "Practice is not available for booking",
+      });
+    }
+
+    if (shouldUseBypassOrganizations(identity.subject)) {
+      return await ctx.runMutation(
+        internal.workosOrganizations.joinBypassBookingPracticeBySlug,
+        {
+          role: "patient",
+          slug: args.practiceSlug,
+          workOSUserId: identity.subject,
+        },
+      );
+    }
+    await ctx.runQuery(
+      internal.workosOrganizations.requireNoOtherLocalOrganizationMembership,
+      {
+        organizationId,
+        workOSUserId: identity.subject,
+      },
+    );
+
+    const memberships = await loadActiveWorkOSOrganizationMemberships({
+      userId: identity.subject,
+    });
+    if (
+      memberships.some(
+        (membership) => membership.organizationId !== organizationId,
+      )
+    ) {
+      throw new ConvexError({
+        code: "ALREADY_EXISTS",
+        message: "User already belongs to another WorkOS organization",
+      });
+    }
+
+    const targetMembership = memberships.find(
+      (membership) => membership.organizationId === organizationId,
+    );
+    if (targetMembership) {
+      const role = mapWorkOSRoleToOrganizationRoleOrNull(targetMembership);
+      if (!role) {
+        throw new ConvexError({
+          code: "FORBIDDEN",
+          message: "WorkOS organization membership has no supported role",
+        });
+      }
+      const membershipId = await ctx.runMutation(
+        internal.workosOrganizations
+          .upsertOrganizationMemberByWorkOSOrganization,
+        {
+          organizationId,
+          role,
+          workOSUserId: identity.subject,
+        },
+      );
+      if (!membershipId) {
+        throw new ConvexError({
+          code: "NOT_FOUND",
+          message: "Practice is not available for booking",
+        });
+      }
+      return membershipId;
+    }
+
+    await createWorkOSOrganizationMembership({
+      organizationId,
+      roleSlug: "patient",
+      userId: identity.subject,
+    });
+    const membershipId = await ctx.runMutation(
+      internal.workosOrganizations.upsertOrganizationMemberByWorkOSOrganization,
+      {
+        organizationId,
+        role: "patient",
+        workOSUserId: identity.subject,
+      },
+    );
+    if (!membershipId) {
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "Practice is not available for booking",
+      });
+    }
+    return membershipId;
+  },
+  returns: v.id("organizationMembers"),
+});
+
 export const getUsersManagementWidgetToken = action({
   args: {
     organizationId: v.string(),
@@ -381,6 +485,30 @@ export const syncBypassOrganizationMembership = internalMutation({
   returns: v.union(v.id("organizationMembers"), v.null()),
 });
 
+export const joinBypassBookingPracticeBySlug = internalMutation({
+  args: {
+    role: organizationRoleValidator,
+    slug: v.string(),
+    workOSUserId: v.string(),
+  },
+  handler: async (ctx, args): Promise<Id<"organizationMembers">> => {
+    const practice = await findPracticeBySlug(ctx.db, args.slug);
+    const user = await requireUserByAuthId(ctx.db, args.workOSUserId);
+    if (!practice?.workOSOrganizationId) {
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "Practice is not available for booking",
+      });
+    }
+    return await upsertOrganizationMembership(ctx, {
+      practiceId: practice._id,
+      role: args.role,
+      userId: user._id,
+    });
+  },
+  returns: v.id("organizationMembers"),
+});
+
 export const createPracticeForWorkOSOrganization = internalMutation({
   args: {
     name: v.string(),
@@ -444,6 +572,55 @@ export const getPracticeIdByWorkOSOrganizationId = internalQuery({
     return practice?._id ?? null;
   },
   returns: v.union(v.id("practices"), v.null()),
+});
+
+export const getWorkOSOrganizationIdByPracticeSlug = internalQuery({
+  args: {
+    slug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const practice = await findPracticeBySlug(ctx.db, args.slug);
+    return practice?.workOSOrganizationId ?? null;
+  },
+  returns: v.union(v.string(), v.null()),
+});
+
+export const requireNoOtherLocalOrganizationMembership = internalQuery({
+  args: {
+    organizationId: v.string(),
+    workOSUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const targetPractice = await findPracticeByWorkOSOrganizationId(
+      ctx.db,
+      args.organizationId,
+    );
+    if (!targetPractice) {
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "Practice is not available for booking",
+      });
+    }
+    const user = await findUserByAuthId(ctx.db, args.workOSUserId);
+    if (!user) {
+      return null;
+    }
+    const existingMembership = await ctx.db
+      .query("organizationMembers")
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .first();
+    if (
+      existingMembership &&
+      existingMembership.practiceId !== targetPractice._id
+    ) {
+      throw new ConvexError({
+        code: "ALREADY_EXISTS",
+        message: "User already belongs to another WorkOS organization",
+      });
+    }
+    return null;
+  },
+  returns: v.null(),
 });
 
 export const getPracticeIdByName = internalQuery({
@@ -687,6 +864,17 @@ async function findPracticeByName(
     .first();
 }
 
+async function findPracticeBySlug(
+  db: DatabaseReader,
+  slug: string,
+): Promise<Doc<"practices"> | null> {
+  const practices = await db
+    .query("practices")
+    .withIndex("by_slug", (q) => q.eq("slug", slug))
+    .collect();
+  return practices.length === 1 ? (practices[0] ?? null) : null;
+}
+
 async function findPracticeByWorkOSOrganizationId(
   db: DatabaseReader,
   organizationId: string,
@@ -798,6 +986,33 @@ async function loadActiveWorkOSOrganizationMemberships(args: {
   );
 }
 
+async function loadTrustedWorkOSUser(workOSUserId: string): Promise<{
+  email: string;
+  firstName?: string;
+  id: string;
+  lastName?: string;
+}> {
+  const response = await fetch(
+    `${WORKOS_API_BASE}/user_management/users/${encodeURIComponent(workOSUserId)}`,
+    {
+      headers: workOSHeaders(),
+      method: "GET",
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `WorkOS user lookup failed with status ${response.status}: ${await readWorkOSError(response)}`,
+    );
+  }
+  const user = parseWorkOSUserResponse(await response.json());
+  return {
+    email: user.email,
+    id: user.id,
+    ...(user.firstName ? { firstName: user.firstName } : {}),
+    ...(user.lastName ? { lastName: user.lastName } : {}),
+  };
+}
+
 async function loadWorkOSOrganization(
   organizationId: string,
 ): Promise<WorkOSOrganizationSummary> {
@@ -814,6 +1029,10 @@ async function loadWorkOSOrganization(
     );
   }
   return parseWorkOSOrganization(await response.json());
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function parseWorkOSObjectWithId(
@@ -879,6 +1098,54 @@ function parseWorkOSOrganizationMembership(
     status,
     userId,
   };
+}
+
+function parseWorkOSUserResponse(value: unknown): {
+  email: string;
+  firstName?: string;
+  id: string;
+  lastName?: string;
+} {
+  if (!isRecord(value)) {
+    throw new Error("WorkOS user response was not an object.");
+  }
+  const id = value["id"];
+  const email = value["email"];
+  if (typeof id !== "string" || typeof email !== "string") {
+    throw new TypeError("WorkOS user response is missing required fields.");
+  }
+  const firstName = optionalString(value["first_name"]);
+  const lastName = optionalString(value["last_name"]);
+  return {
+    email,
+    id,
+    ...(firstName ? { firstName } : {}),
+    ...(lastName ? { lastName } : {}),
+  };
+}
+
+async function provisionUserFromTrustedWorkOSIdentity(
+  ctx: ActionCtx,
+  workOSUserId: string,
+): Promise<Id<"users">> {
+  const existingUserId = await ctx.runQuery(
+    internal.users.getProvisionedUserIdByAuthId,
+    { authId: workOSUserId },
+  );
+  if (existingUserId) {
+    return existingUserId;
+  }
+
+  const authUser = await loadTrustedWorkOSUser(workOSUserId);
+  return await ctx.runMutation(
+    internal.users.insertProvisionedUserFromTrustedProfile,
+    {
+      email: authUser.email,
+      ...(authUser.firstName ? { firstName: authUser.firstName } : {}),
+      ...(authUser.lastName ? { lastName: authUser.lastName } : {}),
+      workOSUserId: authUser.id,
+    },
+  );
 }
 
 async function readWorkOSError(response: Response): Promise<string> {

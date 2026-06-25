@@ -7,12 +7,41 @@ import {
 
 let authReturnToPath: null | string = null;
 let authReturnToError: FrontendError | null = null;
+let authReturnToPracticeSlug: null | string = null;
 
-export function consumeAuthReturnToPath(): Result<string, FrontendError> {
-  const savedError = authReturnToError;
-  const returnTo = authReturnToPath;
+export interface AuthReturnToState {
+  practiceSlug?: string;
+  returnTo: string;
+}
+
+export function clearAuthReturnToState(): void {
   authReturnToError = null;
   authReturnToPath = null;
+  authReturnToPracticeSlug = null;
+}
+
+export function consumeAuthReturnToPath(): Result<string, FrontendError> {
+  return consumeAuthReturnToState().map(({ returnTo }) => returnTo);
+}
+
+export function consumeAuthReturnToState(): Result<
+  AuthReturnToState,
+  FrontendError
+> {
+  const result = readAuthReturnToState();
+  authReturnToError = null;
+  authReturnToPath = null;
+  authReturnToPracticeSlug = null;
+  return result;
+}
+
+export function readAuthReturnToState(): Result<
+  AuthReturnToState,
+  FrontendError
+> {
+  const savedError = authReturnToError;
+  const returnTo = authReturnToPath;
+  const practiceSlug = authReturnToPracticeSlug;
 
   if (savedError) {
     return err(savedError);
@@ -29,12 +58,16 @@ export function consumeAuthReturnToPath(): Result<string, FrontendError> {
     return err(createInvalidReturnTargetError(returnTo));
   }
 
-  return ok(returnTo);
+  return ok({
+    ...(practiceSlug ? { practiceSlug } : {}),
+    returnTo,
+  });
 }
 
 export function setAuthReturnToError(error: FrontendError): void {
   authReturnToError = error;
   authReturnToPath = null;
+  authReturnToPracticeSlug = null;
 }
 
 export function setAuthReturnToPath(
@@ -46,6 +79,21 @@ export function setAuthReturnToPath(
 
   authReturnToError = null;
   authReturnToPath = returnTo;
+  authReturnToPracticeSlug = null;
+  return ok();
+}
+
+export function setAuthReturnToState({
+  practiceSlug,
+  returnTo,
+}: AuthReturnToState): Result<void, FrontendError> {
+  if (!isAllowedReturnToPath(returnTo) || returnTo === "/callback") {
+    return err(createInvalidReturnTargetError(returnTo));
+  }
+
+  authReturnToError = null;
+  authReturnToPath = returnTo;
+  authReturnToPracticeSlug = practiceSlug ?? null;
   return ok();
 }
 

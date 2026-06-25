@@ -236,17 +236,12 @@ describe("Convex query authorization", () => {
     });
   });
 
-  test("current user provisioning rejects a mismatched WorkOS user id", async () => {
+  test("current user provisioning requires authentication", async () => {
     const t = createTestContext();
-    const authed = t.withIdentity({
-      subject: "workos_provision_subject",
-    });
 
     await expect(
-      authed.action(api.users.provisionCurrentUserFromAuthIdentity, {
-        workOSUserId: "workos_provision_other",
-      }),
-    ).rejects.toThrow("Authenticated identity does not match WorkOS user");
+      t.action(api.users.provisionCurrentUserFromAuthIdentity, {}),
+    ).rejects.toThrow("Authentication required");
   });
 
   test("current user provisioning returns existing user without WorkOS lookup", async () => {
@@ -262,9 +257,7 @@ describe("Convex query authorization", () => {
     });
 
     await expect(
-      authed.action(api.users.provisionCurrentUserFromAuthIdentity, {
-        workOSUserId: authId,
-      }),
+      authed.action(api.users.provisionCurrentUserFromAuthIdentity, {}),
     ).resolves.toBe(userId);
   });
 

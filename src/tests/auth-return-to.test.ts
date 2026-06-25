@@ -1,8 +1,12 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  clearAuthReturnToState,
   consumeAuthReturnToPath,
+  consumeAuthReturnToState,
+  readAuthReturnToState,
   setAuthReturnToPath,
+  setAuthReturnToState,
 } from "../auth/auth-return-to";
 
 describe("auth return target", () => {
@@ -46,5 +50,44 @@ describe("auth return target", () => {
     expect(crossOriginMessage).toBe(
       "Invalid WorkOS auth return target: //attacker.example/path",
     );
+  });
+
+  test("consumes practice slug from booking return state", () => {
+    const saved = setAuthReturnToState({
+      practiceSlug: "demo-praxis",
+      returnTo: "/demo-praxis",
+    });
+    expect(saved.isOk()).toBe(true);
+
+    const consumed = consumeAuthReturnToState();
+    expect(consumed.isOk()).toBe(true);
+    const consumedValue = consumed.isOk() ? consumed.value : null;
+    expect(consumedValue).toEqual({
+      practiceSlug: "demo-praxis",
+      returnTo: "/demo-praxis",
+    });
+  });
+
+  test("reads return state without consuming it", () => {
+    const saved = setAuthReturnToState({
+      practiceSlug: "retry-praxis",
+      returnTo: "/retry-praxis",
+    });
+    expect(saved.isOk()).toBe(true);
+
+    const firstRead = readAuthReturnToState();
+    const secondRead = readAuthReturnToState();
+    expect(firstRead.isOk() ? firstRead.value : null).toEqual({
+      practiceSlug: "retry-praxis",
+      returnTo: "/retry-praxis",
+    });
+    expect(secondRead.isOk() ? secondRead.value : null).toEqual({
+      practiceSlug: "retry-praxis",
+      returnTo: "/retry-praxis",
+    });
+
+    clearAuthReturnToState();
+    const consumedAfterClear = consumeAuthReturnToState();
+    expect(consumedAfterClear.isErr()).toBe(true);
   });
 });

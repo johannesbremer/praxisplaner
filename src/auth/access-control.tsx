@@ -95,16 +95,17 @@ export function AuthenticatedGate({
       return;
     }
     signInRequestedRef.current = true;
-    const returnTo = getAuthReturnToPath();
-    signIn({ state: { returnTo } }).catch((error: unknown) => {
-      signInRequestedRef.current = false;
-      setSignInError(
-        error instanceof Error
-          ? error.message
-          : "Anmeldung konnte nicht gestartet werden",
-      );
-    });
-  }, [signIn]);
+    signIn({ state: getAuthReturnState(devPersona) }).catch(
+      (error: unknown) => {
+        signInRequestedRef.current = false;
+        setSignInError(
+          error instanceof Error
+            ? error.message
+            : "Anmeldung konnte nicht gestartet werden",
+        );
+      },
+    );
+  }, [devPersona, signIn]);
 
   useEffect(() => {
     if (isLoading || user || isAuthBypassEnabled()) {
@@ -151,6 +152,19 @@ export function AuthenticatedGate({
   }
 
   return <>{children}</>;
+}
+
+export function getAuthReturnState(devPersona?: DevAuthPersona): {
+  practiceSlug?: string;
+  returnTo: string;
+} {
+  const returnTo = getAuthReturnToPath();
+  const practiceSlug =
+    devPersona === "patient" ? getBookingPracticeSlugFromPath() : null;
+  return {
+    ...(practiceSlug ? { practiceSlug } : {}),
+    returnTo,
+  };
 }
 
 export function hasPraxismanagerAccess(access: {
@@ -275,6 +289,12 @@ function AuthorizedGate({
 
 function getAuthReturnToPath(): string {
   return `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
+}
+
+function getBookingPracticeSlugFromPath(): null | string {
+  const pathSegments = globalThis.location.pathname.split("/").filter(Boolean);
+  const [practiceSlug] = pathSegments;
+  return pathSegments.length === 1 && practiceSlug ? practiceSlug : null;
 }
 
 function isDevPersonaActive(persona: DevAuthPersona | undefined): boolean {

@@ -29,6 +29,7 @@ import { isAuthBypassEnabled } from "./auth/auth-bypass";
 import {
   setAuthReturnToError,
   setAuthReturnToPath,
+  setAuthReturnToState,
 } from "./auth/auth-return-to";
 import {
   createDevAuthJwt,
@@ -369,7 +370,19 @@ function storeAuthReturnTo({ state }: { state?: unknown }) {
     );
     return;
   }
-  setAuthReturnToPath(returnTo).match(
+  const practiceSlug = state["practiceSlug"];
+  const result =
+    practiceSlug === undefined
+      ? setAuthReturnToPath(returnTo)
+      : typeof practiceSlug === "string"
+        ? setAuthReturnToState({ practiceSlug, returnTo })
+        : err(
+            invalidStateError(
+              "WorkOS callback state has invalid practiceSlug.",
+              "router",
+            ),
+          );
+  result.match(
     () => true,
     (error) => {
       setAuthReturnToError(error);
