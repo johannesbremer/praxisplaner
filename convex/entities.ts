@@ -1082,6 +1082,13 @@ export const createAppointmentType = mutation({
         );
       }
       if (existingByLineage) {
+        await validateNoAppointmentPlansReferenceChainTarget(ctx.db, {
+          currentAppointmentTypeId: existingByLineage._id,
+          currentAppointmentTypeLineageKey:
+            asAppointmentTypeLineageKey(lineageKey),
+          nextHasAppointmentPlan: (appointmentPlan?.steps.length ?? 0) > 0,
+          ruleSetId,
+        });
         await verifyEntityInUnsavedRuleSet(
           ctx.db,
           existingByLineage.ruleSetId,

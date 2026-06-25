@@ -3847,6 +3847,85 @@ describe("appointment series", () => {
     ).rejects.toThrow("wird bereits als Kettentermin-Schritt verwendet");
   });
 
+  test("createAppointmentType rejects restoring a referenced target as a chain type", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const child = await t.mutation(api.entities.createAppointmentType, {
+      duration: 10,
+      expectedDraftRevision: null,
+      name: "Child",
+      practiceId,
+      practitionerIds: [practitionerId],
+      selectedRuleSetId: ruleSetId,
+    });
+    const grandchild = await t.mutation(api.entities.createAppointmentType, {
+      duration: 10,
+      expectedDraftRevision: child.draftRevision,
+      name: "Grandchild",
+      practiceId,
+      practitionerIds: [practitionerId],
+      selectedRuleSetId: child.ruleSetId,
+    });
+    const parent = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: {
+        steps: [
+          {
+            appointmentTypeLineageKey: child.entityId,
+            occupancy: { kind: "inheritRootPractitioner" },
+            required: true,
+            stepId: "step-1",
+            timing: {
+              kind: "afterPreviousEnd",
+              offsetUnit: "minutes",
+              offsetValue: 0,
+            },
+          },
+        ],
+      },
+      duration: 10,
+      expectedDraftRevision: grandchild.draftRevision,
+      name: "Parent",
+      practiceId,
+      practitionerIds: [practitionerId],
+      selectedRuleSetId: grandchild.ruleSetId,
+    });
+    const deletedChild = await t.mutation(api.entities.deleteAppointmentType, {
+      appointmentTypeId: child.entityId,
+      expectedDraftRevision: parent.draftRevision,
+      practiceId,
+      selectedRuleSetId: parent.ruleSetId,
+    });
+
+    await expect(
+      t.mutation(api.entities.createAppointmentType, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: grandchild.entityId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        duration: 10,
+        expectedDraftRevision: deletedChild.draftRevision,
+        lineageKey: child.entityId,
+        name: "Child restored as chain",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: deletedChild.ruleSetId,
+      }),
+    ).rejects.toThrow("wird bereits als Kettentermin-Schritt verwendet");
+  });
+
   test("createAppointmentType allows an empty practitioner allowlist", async () => {
     const t = createAuthedTestContext();
     const { practiceId, ruleSetId } = await createBasePractice(t);
@@ -4218,6 +4297,156 @@ describe("appointment series", () => {
         id: appointmentId,
       }),
     ).rejects.toThrow("Kettentermin-Terminart");
+  });
+
+  test("updateAppointment preserves patient date of birth when resizing a follow-up", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_followup_resize_dob_user",
+      "followup-resize-dob@example.com",
+    );
+    const patientId = await createPatient(t, {
+      dateOfBirth: "1950-01-01",
+      patientId: 19500101,
+      practiceId,
+    });
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const rootId = await ctx.db.insert("ruleConditions", {
+        childOrder: 0,
+        createdAt: now,
+        isRoot: true,
+        lastModified: now,
+        practiceId,
+        ruleSetId,
+      });
+      const andId = await ctx.db.insert("ruleConditions", {
+        childOrder: 0,
+        createdAt: now,
+        isRoot: false,
+        lastModified: now,
+        nodeType: "AND",
+        parentConditionId: rootId,
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.insert("ruleConditions", {
+        childOrder: 0,
+        conditionType: "PATIENT_AGE",
+        createdAt: now,
+        isRoot: false,
+        lastModified: now,
+        nodeType: "CONDITION",
+        operator: "GREATER_THAN_OR_EQUAL",
+        parentConditionId: andId,
+        practiceId,
+        ruleSetId,
+        valueNumber: 65,
+      });
+      await ctx.db.insert("ruleConditions", {
+        childOrder: 1,
+        conditionType: "TIME_RANGE",
+        createdAt: now,
+        isRoot: false,
+        lastModified: now,
+        nodeType: "CONDITION",
+        operator: "IS",
+        parentConditionId: andId,
+        practiceId,
+        ruleSetId,
+        valueIds: ["09:20", "17:00"],
+      });
+    });
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const followUpId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "Follow-up",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", followUpId, {
+        lineageKey: followUpId,
+      });
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: followUpId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "minutes",
+                offsetValue: 0,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        duration: 10,
+        lastModified: now,
+        name: "Root",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+      return rootId;
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const createdSeries = await t.mutation(
+      api.appointments.createAppointmentSeries,
+      {
+        locationId,
+        patientId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Root",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      },
+    );
+    const followUpAppointment = await t.run(async (ctx) => {
+      const appointments = await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) =>
+          q.eq("seriesId", createdSeries.seriesId),
+        )
+        .collect();
+      return appointments.find(
+        (appointment) => appointment.seriesStepIndex === 1n,
+      );
+    });
+    assertDefined(followUpAppointment);
+
+    await expect(
+      t.mutation(api.appointments.updateAppointment, {
+        end: Temporal.ZonedDateTime.from(followUpAppointment.start)
+          .add({ minutes: 15 })
+          .toString(),
+        id: followUpAppointment._id,
+      }),
+    ).rejects.toThrow("außerhalb der Verfügbarkeit");
   });
 
   test("updateAppointment replans a series when the new root overlaps an old follow-up", async () => {
