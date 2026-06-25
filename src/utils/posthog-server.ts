@@ -6,7 +6,7 @@ import { PostHog } from "posthog-node";
 
 let postHogClient: null | PostHog = null;
 
-export function capturePostHogServerEvent({
+export async function capturePostHogServerEvent({
   distinctId,
   event,
   properties,
@@ -20,7 +20,7 @@ export function capturePostHogServerEvent({
     return;
   }
 
-  posthog.capture({
+  await posthog.captureImmediate({
     distinctId,
     event,
     ...(properties ? { properties } : {}),
