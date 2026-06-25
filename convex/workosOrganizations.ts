@@ -26,6 +26,18 @@ import { allocateUniquePracticeSlug } from "./practiceSlugs";
 
 const WORKOS_API_BASE = `https://${getWorkOSApiHostname()}`;
 
+type OrganizationPracticeCreationResult =
+  | {
+      message: string;
+      reason: "practiceNameAlreadyExists" | "userAlreadyHasOrganization";
+      status: "warning";
+    }
+  | {
+      organizationId: string;
+      practiceId: Id<"practices">;
+      status: "created";
+    };
+
 type WorkOSMembershipStatus = "active" | "inactive" | "pending";
 
 interface WorkOSOrganizationMembership {
@@ -43,25 +55,35 @@ interface WorkOSOrganizationSummary {
   practiceId?: Id<"practices">;
 }
 
+const organizationPracticeCreationResultValidator = v.union(
+  v.object({
+    organizationId: v.string(),
+    practiceId: v.id("practices"),
+    status: v.literal("created"),
+  }),
+  v.object({
+    message: v.string(),
+    reason: v.union(
+      v.literal("practiceNameAlreadyExists"),
+      v.literal("userAlreadyHasOrganization"),
+    ),
+    status: v.literal("warning"),
+  }),
+);
+
 export const createOrganizationPractice = action({
   args: {
     name: v.string(),
   },
   handler: async (ctx, args) =>
     await createOrganizationPracticeForCurrentUser(ctx, args),
-  returns: v.object({
-    organizationId: v.string(),
-    practiceId: v.id("practices"),
-  }),
+  returns: organizationPracticeCreationResultValidator,
 });
 
 export async function createOrganizationPracticeForCurrentUser(
   ctx: ActionCtx,
   args: { name: string },
-): Promise<{
-  organizationId: string;
-  practiceId: Id<"practices">;
-}> {
+): Promise<OrganizationPracticeCreationResult> {
   const identity = await requireActionIdentity(ctx);
   const name = args.name.trim();
   if (name.length === 0) {
@@ -86,20 +108,23 @@ export async function createOrganizationPracticeForCurrentUser(
     userId: identity.subject,
   });
   if (existingMemberships.length > 0) {
-    throw new ConvexError({
-      code: "ALREADY_EXISTS",
-      message: "User already belongs to a WorkOS organization",
-    });
+    return {
+      message: "Ihr Benutzerkonto ist bereits einer Praxis zugeordnet.",
+      reason: "userAlreadyHasOrganization",
+      status: "warning",
+    };
   }
   const existingPracticeId = await ctx.runQuery(
     internal.workosOrganizations.getPracticeIdByName,
     { name },
   );
   if (existingPracticeId) {
-    throw new ConvexError({
-      code: "ALREADY_EXISTS",
-      message: "Practice name already exists",
-    });
+    return {
+      message:
+        "Dieser Praxisname ist bereits vergeben. Bitte waehlen Sie einen eindeutigen Namen.",
+      reason: "practiceNameAlreadyExists",
+      status: "warning",
+    };
   }
   const organization = await createWorkOSOrganization(name);
   await createWorkOSOrganizationMembership({
@@ -117,7 +142,7 @@ export async function createOrganizationPracticeForCurrentUser(
     },
   );
 
-  return { organizationId: organization.id, practiceId };
+  return { organizationId: organization.id, practiceId, status: "created" };
 }
 
 export const syncCurrentUserOrganizationMembership = action({
@@ -231,30 +256,27 @@ export const createBypassOrganizationPractice = internalMutation({
     name: v.string(),
     workOSUserId: v.string(),
   },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{
-    organizationId: string;
-    practiceId: Id<"practices">;
-  }> => {
+  handler: async (ctx, args): Promise<OrganizationPracticeCreationResult> => {
     const user = await requireUserByAuthId(ctx.db, args.workOSUserId);
     const existingMemberships = await ctx.db
       .query("practiceMembers")
       .withIndex("by_userId", (q) => q.eq("userId", user._id))
       .collect();
     if (existingMemberships.length > 0) {
-      throw new ConvexError({
-        code: "ALREADY_EXISTS",
-        message: "User already belongs to a WorkOS organization",
-      });
+      return {
+        message: "Ihr Benutzerkonto ist bereits einer Praxis zugeordnet.",
+        reason: "userAlreadyHasOrganization",
+        status: "warning",
+      };
     }
     const existingPractice = await findPracticeByName(ctx.db, args.name);
     if (existingPractice) {
-      throw new ConvexError({
-        code: "ALREADY_EXISTS",
-        message: "Practice name already exists",
-      });
+      return {
+        message:
+          "Dieser Praxisname ist bereits vergeben. Bitte waehlen Sie einen eindeutigen Namen.",
+        reason: "practiceNameAlreadyExists",
+        status: "warning",
+      };
     }
 
     const organizationId = await allocateBypassOrganizationId(
@@ -272,12 +294,9 @@ export const createBypassOrganizationPractice = internalMutation({
       userId: user._id,
     });
     await createInitialRuleSet(ctx.db, practiceId);
-    return { organizationId, practiceId };
+    return { organizationId, practiceId, status: "created" };
   },
-  returns: v.object({
-    organizationId: v.string(),
-    practiceId: v.id("practices"),
-  }),
+  returns: organizationPracticeCreationResultValidator,
 });
 
 export const listBypassUserOrganizations = internalQuery({

@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -139,10 +139,14 @@ export const createPractice = action({
     name: v.string(),
   },
   handler: async (ctx, args) => {
-    const { practiceId } = await createOrganizationPracticeForCurrentUser(
-      ctx,
-      args,
-    );
+    const result = await createOrganizationPracticeForCurrentUser(ctx, args);
+    if (result.status === "warning") {
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: result.message,
+      });
+    }
+    const { practiceId } = result;
     return practiceId;
   },
   returns: v.id("practices"),
