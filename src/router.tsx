@@ -9,7 +9,11 @@ import {
 } from "@tanstack/react-query";
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import { routerWithQueryClient } from "@tanstack/react-router-with-query";
-import { AuthKitProvider, useAuth } from "@workos-inc/authkit-react";
+import {
+  AuthKitProvider,
+  LoginRequiredError,
+  useAuth,
+} from "@workos-inc/authkit-react";
 import { ConvexProviderWithAuth } from "convex/react";
 import { err, ok, type Result } from "neverthrow";
 import * as React from "react";
@@ -50,6 +54,12 @@ import {
 const CALLBACK_PATH = "/callback" as const satisfies FileRouteTypes["to"];
 const DEV_WORKOS_CLIENT_ID = "client_praxisplaner_dev";
 const DEV_AUTH_TOKEN_REFRESH_AFTER_MS = 4 * 60 * 1000;
+const WORKOS_API_HOSTNAME = "api.workos.com";
+const WORKOS_REFRESH_BUFFER_INTERVAL_SECONDS = 60;
+
+interface ConvexAccessTokenFetchArgs {
+  forceRefreshToken: boolean;
+}
 
 interface DevAuthTokenState {
   persona: DevAuthPersona;
@@ -114,15 +124,12 @@ function getWorkOSApiHostname(): Result<
   const apiHostname = (
     import.meta.env["VITE_WORKOS_API_HOSTNAME"] as string | undefined
   )?.trim();
-  if (apiHostname && !isInvalidWorkOSApiHostname(apiHostname)) {
-    return ok({ apiHostname });
-  }
-  if (!apiHostname) {
-    return ok({});
+  if (!apiHostname || apiHostname === WORKOS_API_HOSTNAME) {
+    return ok({ apiHostname: WORKOS_API_HOSTNAME });
   }
   return err(
     configurationError(
-      "VITE_WORKOS_API_HOSTNAME must be a WorkOS Authentication API hostname, not an AuthKit app URL.",
+      `This build is hard-coded to VITE_WORKOS_API_HOSTNAME=${WORKOS_API_HOSTNAME}.`,
       "getWorkOSApiHostname",
     ),
   );
@@ -144,14 +151,6 @@ function getWorkOSClientId(): Result<string, FrontendError> {
       "Missing required environment variable: VITE_WORKOS_CLIENT_ID",
       "getWorkOSClientId",
     ),
-  );
-}
-
-function isInvalidWorkOSApiHostname(apiHostname: string): boolean {
-  return (
-    apiHostname.includes("://") ||
-    apiHostname.includes("/") ||
-    apiHostname.endsWith(".authkit.app")
   );
 }
 
@@ -312,6 +311,7 @@ function AuthProvidersInner({
       devMode={isWorkOSDevModeEnabled()}
       onRedirectCallback={storeAuthReturnTo}
       redirectUri={redirectUri}
+      refreshBufferInterval={WORKOS_REFRESH_BUFFER_INTERVAL_SECONDS}
     >
       <ConvexProviderWithAuth
         client={convexQueryClient.convexClient}
@@ -420,9 +420,6 @@ function useConvexAuthFromWorkOS(pathname: string) {
   const authBypassEnabled = isAuthBypassEnabled();
   const devPersona = getDevAuthPersonaForPath(pathname);
   const userId = user?.id ?? null;
-  const [accessTokenReadyUserId, setAccessTokenReadyUserId] = useState<
-    null | string
-  >(null);
   const [accessTokenUnavailableUserId, setAccessTokenUnavailableUserId] =
     useState<null | string>(null);
   const [devAuthToken, setDevAuthToken] = useState<DevAuthTokenState | null>(
@@ -454,98 +451,73 @@ function useConvexAuthFromWorkOS(pathname: string) {
     };
   }, [authBypassEnabled, devPersona]);
 
-  useEffect(() => {
-    if (authBypassEnabled) {
-      return;
-    }
-    if (isLoading || !userId) {
-      return;
-    }
-
-    let active = true;
-    void getAccessToken().then(
-      (token) => {
-        if (active) {
-          setAccessTokenReadyUserId(token ? userId : null);
-          setAccessTokenUnavailableUserId(token ? null : userId);
+  const fetchAccessToken = useCallback(
+    async ({
+      forceRefreshToken,
+    }: ConvexAccessTokenFetchArgs): Promise<null | string> => {
+      if (authBypassEnabled) {
+        if (
+          !forceRefreshToken &&
+          devAuthToken?.persona === devPersona &&
+          devAuthToken.refreshAfterMs > Date.now()
+        ) {
+          return devAuthToken.token;
         }
-      },
-      (error: unknown) => {
-        if (active) {
-          console.error("Error preparing access token:", error);
-          setAccessTokenReadyUserId(null);
-          setAccessTokenUnavailableUserId(userId);
-        }
-      },
-    );
 
-    return () => {
-      active = false;
-    };
-  }, [authBypassEnabled, getAccessToken, isLoading, userId]);
-
-  const fetchAccessToken = useCallback(async (): Promise<null | string> => {
-    if (authBypassEnabled) {
-      if (
-        devAuthToken?.persona === devPersona &&
-        devAuthToken.refreshAfterMs > Date.now()
-      ) {
-        return devAuthToken.token;
+        const tokenState = await createDevAuthTokenState(devPersona);
+        setDevAuthToken(tokenState);
+        return tokenState.token;
       }
-
-      const tokenState = await createDevAuthTokenState(devPersona);
-      setDevAuthToken(tokenState);
-      return tokenState.token;
-    }
-    if (isLoading) {
-      return null;
-    }
-    if (!user) {
-      return null;
-    }
-    try {
-      const token = await getAccessToken();
-      setAccessTokenReadyUserId(token ? user.id : null);
-      setAccessTokenUnavailableUserId(token ? null : user.id);
-      return token || null;
-    } catch (error) {
-      console.error("Error fetching access token:", error);
-      setAccessTokenReadyUserId(null);
-      setAccessTokenUnavailableUserId(user.id);
-      return null;
-    }
-  }, [
-    authBypassEnabled,
-    devAuthToken,
-    devPersona,
-    getAccessToken,
-    isLoading,
-    user,
-  ]);
+      if (isLoading) {
+        return null;
+      }
+      if (!user) {
+        return null;
+      }
+      try {
+        const token = await getAccessToken({
+          forceRefresh: forceRefreshToken,
+        });
+        setAccessTokenUnavailableUserId(null);
+        return token || null;
+      } catch (error) {
+        if (error instanceof LoginRequiredError) {
+          console.error("WorkOS session requires login:", error);
+          setAccessTokenUnavailableUserId(user.id);
+          return null;
+        }
+        console.error("Error fetching WorkOS access token:", error);
+        return null;
+      }
+    },
+    [
+      authBypassEnabled,
+      devAuthToken,
+      devPersona,
+      getAccessToken,
+      isLoading,
+      user,
+    ],
+  );
 
   const devAuthReady =
     authBypassEnabled && devAuthToken?.persona === devPersona;
-  const accessTokenReady = userId !== null && accessTokenReadyUserId === userId;
   const accessTokenUnavailable =
     userId !== null && accessTokenUnavailableUserId === userId;
+  const workOSAuthenticated = userId !== null && !accessTokenUnavailable;
 
   return useMemo(
     () => ({
       fetchAccessToken,
-      isAuthenticated: authBypassEnabled ? devAuthReady : accessTokenReady,
-      isLoading: authBypassEnabled
-        ? !devAuthReady
-        : isLoading ||
-          (userId !== null && !accessTokenReady && !accessTokenUnavailable),
+      isAuthenticated: authBypassEnabled ? devAuthReady : workOSAuthenticated,
+      isLoading: authBypassEnabled ? !devAuthReady : isLoading,
     }),
     [
-      accessTokenReady,
-      accessTokenUnavailable,
       authBypassEnabled,
       devAuthReady,
       fetchAccessToken,
       isLoading,
-      userId,
+      workOSAuthenticated,
     ],
   );
 }
