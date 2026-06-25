@@ -39,17 +39,23 @@ export function buildAppointmentPlacement(
 }
 
 export function buildBlockedSlotPlacement(args: {
+  calendarResourceColumn?: "ekg" | "labor";
   locationLineageKey: LocationLineageKey;
   practitionerLineageKey?: PractitionerLineageKey;
 }): CalendarBlockedSlotRecord["placement"] {
   return createCalendarPlacement({
     locationLineageKey: args.locationLineageKey,
     occupancyScope:
-      args.practitionerLineageKey === undefined
-        ? { kind: "location-wide" }
+      args.calendarResourceColumn === undefined
+        ? args.practitionerLineageKey === undefined
+          ? { kind: "location-wide" }
+          : {
+              kind: "practitioner",
+              practitionerLineageKey: args.practitionerLineageKey,
+            }
         : {
-            kind: "practitioner",
-            practitionerLineageKey: args.practitionerLineageKey,
+            calendarResourceColumn: args.calendarResourceColumn,
+            kind: "resource",
           },
   });
 }
@@ -103,6 +109,7 @@ export function buildCalendarAppointmentRecord(args: {
 
 export function buildCalendarBlockedSlotRecord(args: {
   _id: Id<"blockedSlots">;
+  calendarResourceColumn?: "ekg" | "labor";
   end: CalendarBlockedSlotRecord["end"];
   locationLineageKey?: LocationLineageKey;
   placement?: CalendarBlockedSlotRecord["placement"];
@@ -121,6 +128,9 @@ export function buildCalendarBlockedSlotRecord(args: {
             "Calendar blocked-slot test records require a location.",
           );
         })(),
+      ...(args.calendarResourceColumn === undefined
+        ? {}
+        : { calendarResourceColumn: args.calendarResourceColumn }),
       ...(args.practitionerLineageKey === undefined
         ? {}
         : { practitionerLineageKey: args.practitionerLineageKey }),

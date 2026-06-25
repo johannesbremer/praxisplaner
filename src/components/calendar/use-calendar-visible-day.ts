@@ -173,6 +173,46 @@ export function useCalendarVisibleDay({
       collectAppointmentRangesByPractitioner(appointmentsForSelectedDate);
     const appointmentRangesByResourceColumn =
       collectAppointmentRangesByResourceColumn(appointmentsForSelectedDate);
+    const blockedSlotsForSelectedDate = blockedSlotsData.filter(
+      (blockedSlot) =>
+        Temporal.PlainDate.compare(
+          Temporal.ZonedDateTime.from(blockedSlot.start).toPlainDate(),
+          selectedDate,
+        ) === 0 &&
+        (effectiveLocationLineageKey === undefined ||
+          blockedSlot.placement.locationLineageKey ===
+            effectiveLocationLineageKey),
+    );
+    const blockedSlotResourceColumns = new Set(
+      blockedSlotsForSelectedDate
+        .map((blockedSlot) =>
+          getCalendarResourceColumnFromOccupancy(
+            blockedSlot.placement.occupancyScope,
+          ),
+        )
+        .filter((resourceColumn) => resourceColumn !== undefined),
+    );
+    const blockedSlotResourceRanges = blockedSlotsForSelectedDate.flatMap(
+      (blockedSlot) => {
+        if (
+          getCalendarResourceColumnFromOccupancy(
+            blockedSlot.placement.occupancyScope,
+          ) === undefined
+        ) {
+          return [];
+        }
+
+        const start = Temporal.ZonedDateTime.from(blockedSlot.start);
+        const end = Temporal.ZonedDateTime.from(blockedSlot.end);
+
+        return [
+          {
+            endMinutes: end.hour * 60 + end.minute,
+            startMinutes: start.hour * 60 + start.minute,
+          },
+        ];
+      },
+    );
     const deletedPractitionerIds = new Set(
       practitionersData
         .filter((practitioner) => practitioner.deleted === true)
@@ -200,6 +240,7 @@ export function useCalendarVisibleDay({
       daySchedules.length === 0 &&
       appointmentRangesByPractitioner.size === 0 &&
       appointmentRangesByResourceColumn.size === 0 &&
+      blockedSlotResourceColumns.size === 0 &&
       deletedPractitionerIdsWithCalendarItems.size === 0
     ) {
       return emptyVisibleDay();
@@ -407,6 +448,7 @@ export function useCalendarVisibleDay({
       ...effectiveWorkingRanges,
       ...appointmentRanges,
       ...appointmentRangesByResourceColumn.values(),
+      ...blockedSlotResourceRanges,
       ...deletedPractitionerCalendarItemRanges,
     ];
 
@@ -466,7 +508,9 @@ export function useCalendarVisibleDay({
     );
 
     const shouldShowSpecialColumns =
-      working.length > 0 || appointmentRangesByResourceColumn.size > 0;
+      working.length > 0 ||
+      appointmentRangesByResourceColumn.size > 0 ||
+      blockedSlotResourceColumns.size > 0;
     const specialColumns: CalendarColumn[] = shouldShowSpecialColumns
       ? [
           {
