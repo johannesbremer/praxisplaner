@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "../../components/ui/button";
 import { api } from "../../convex/_generated/api";
-import { consumeAuthReturnToPath } from "../auth/auth-return-to";
+import { consumeAuthReturnToState } from "../auth/auth-return-to";
 import {
   type FrontendError,
   invalidStateError,
@@ -24,13 +24,13 @@ const CALLBACK_TIMEOUT_MESSAGE =
   "Anmeldung konnte nicht innerhalb von 15 Sekunden abgeschlossen werden. Bitte prüfen Sie die WorkOS-Tokenausgabe und Convex-Authentifizierung für diese Preview.";
 
 function CallbackComponent() {
-  const { getAccessToken, isLoading, organizationId, signIn, user } = useAuth();
+  const { getAccessToken, isLoading, signIn, user } = useAuth();
   const convexAuth = useConvexAuth();
+  const joinBookingPracticeBySlug = useAction(
+    api.workosOrganizations.joinBookingPracticeBySlug,
+  );
   const provisionCurrentUser = useAction(
     api.users.provisionCurrentUserFromAuthIdentity,
-  );
-  const syncCurrentOrganizationMembership = useAction(
-    api.workosOrganizations.syncCurrentUserOrganizationMembership,
   );
   const navigate = useNavigate();
   const accessTokenUserIdRef = useRef<null | string>(null);
@@ -198,44 +198,58 @@ function CallbackComponent() {
       convexAuthenticated: convexAuth.isAuthenticated,
     });
     provisioningUserIdRef.current = userId;
-    provisionCurrentUser({
-      workOSUserId: user.id,
-    })
-      .then(() => {
-        logPreviewAuthCallback("provision:success");
-        return organizationId
-          ? syncCurrentOrganizationMembership({ organizationId })
-          : null;
-      })
-      .then(() => {
-        const result = consumeAuthReturnToPath().andThen((returnTo) =>
-          navigateToReturnPath(navigate, returnTo),
-        );
-        result.match(
-          () => true,
-          (error) => {
+    const returnState = consumeAuthReturnToState();
+    returnState.match(
+      ({ practiceSlug, returnTo }) => {
+        const backendAction = practiceSlug
+          ? joinBookingPracticeBySlug({ practiceSlug })
+          : provisionCurrentUser({});
+        backendAction
+          .then(() => {
+            logPreviewAuthCallback(
+              practiceSlug
+                ? "join-booking-practice:success"
+                : "provision:success",
+            );
+            const result = navigateToReturnPath(navigate, returnTo);
+            result.match(
+              () => true,
+              (error) => {
+                provisioningUserIdRef.current = null;
+                setProvisioningError({
+                  message: error.message,
+                  userId,
+                });
+                return false;
+              },
+            );
+          })
+          .catch((error: unknown) => {
+            logPreviewAuthCallback("provision:error", {
+              error: error instanceof Error ? error.message : "unknown",
+            });
             provisioningUserIdRef.current = null;
             setProvisioningError({
-              message: error.message,
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Benutzerkonto konnte nicht angelegt werden.",
               userId,
             });
-            return false;
-          },
-        );
-      })
-      .catch((error: unknown) => {
-        logPreviewAuthCallback("provision:error", {
-          error: error instanceof Error ? error.message : "unknown",
+          });
+        return true;
+      },
+      (error) => {
+        globalThis.queueMicrotask(() => {
+          provisioningUserIdRef.current = null;
+          setProvisioningError({
+            message: error.message,
+            userId,
+          });
         });
-        provisioningUserIdRef.current = null;
-        setProvisioningError({
-          message:
-            error instanceof Error
-              ? error.message
-              : "Benutzerkonto konnte nicht angelegt werden.",
-          userId,
-        });
-      });
+        return false;
+      },
+    );
   }, [
     activeAccessTokenError,
     activeCallbackTimeoutError,
@@ -245,10 +259,9 @@ function CallbackComponent() {
     convexAuth.isAuthenticated,
     convexAuth.isLoading,
     isLoading,
+    joinBookingPracticeBySlug,
     navigate,
-    organizationId,
     provisionCurrentUser,
-    syncCurrentOrganizationMembership,
     user,
     userId,
   ]);

@@ -7,6 +7,7 @@ import type { DatabaseReader } from "./_generated/server";
 import { internal } from "./_generated/api";
 import {
   action,
+  type ActionCtx,
   internalMutation,
   internalQuery,
   query,
@@ -92,10 +93,8 @@ export const getCurrentUser = query({
 });
 
 export const provisionCurrentUserFromAuthIdentity = action({
-  args: {
-    workOSUserId: v.string(),
-  },
-  handler: async (ctx, args): Promise<Id<"users">> => {
+  args: {},
+  handler: async (ctx): Promise<Id<"users">> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new ConvexError({
@@ -103,31 +102,35 @@ export const provisionCurrentUserFromAuthIdentity = action({
         message: "Authentication required",
       });
     }
-    if (identity.subject !== args.workOSUserId) {
-      throw new Error("Authenticated identity does not match WorkOS user.");
-    }
 
-    const existingUserId = await ctx.runQuery(
-      internal.users.getProvisionedUserIdByAuthId,
-      { authId: args.workOSUserId },
-    );
-    if (existingUserId) {
-      return existingUserId;
-    }
-
-    const authUser = await loadTrustedWorkOSUser(args.workOSUserId);
-    return await ctx.runMutation(
-      internal.users.insertProvisionedUserFromTrustedProfile,
-      {
-        email: authUser.email,
-        ...(authUser.firstName ? { firstName: authUser.firstName } : {}),
-        ...(authUser.lastName ? { lastName: authUser.lastName } : {}),
-        workOSUserId: authUser.id,
-      },
-    );
+    return await provisionUserFromTrustedWorkOSIdentity(ctx, identity.subject);
   },
   returns: v.id("users"),
 });
+
+export async function provisionUserFromTrustedWorkOSIdentity(
+  ctx: ActionCtx,
+  workOSUserId: string,
+): Promise<Id<"users">> {
+  const existingUserId = await ctx.runQuery(
+    internal.users.getProvisionedUserIdByAuthId,
+    { authId: workOSUserId },
+  );
+  if (existingUserId) {
+    return existingUserId;
+  }
+
+  const authUser = await loadTrustedWorkOSUser(workOSUserId);
+  return await ctx.runMutation(
+    internal.users.insertProvisionedUserFromTrustedProfile,
+    {
+      email: authUser.email,
+      ...(authUser.firstName ? { firstName: authUser.firstName } : {}),
+      ...(authUser.lastName ? { lastName: authUser.lastName } : {}),
+      workOSUserId: authUser.id,
+    },
+  );
+}
 
 export const getProvisionedUserIdByAuthId = internalQuery({
   args: {
