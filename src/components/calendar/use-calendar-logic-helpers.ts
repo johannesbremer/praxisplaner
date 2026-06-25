@@ -20,7 +20,7 @@ import { invalidStateError } from "../../utils/frontend-errors";
 export const TIMEZONE = "Europe/Berlin";
 
 export interface BlockedSlotConversionOptions {
-  calendarResourceColumn?: CalendarResourceColumn;
+  calendarResourceColumn?: CalendarResourceColumn | null;
   endISO?: string;
   locationId?: Id<"locations">;
   practitionerId?: Id<"practitioners">;

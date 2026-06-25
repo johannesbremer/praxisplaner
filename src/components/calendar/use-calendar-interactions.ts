@@ -6,6 +6,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { SimulatedContextInput } from "../../../convex/typedDtos";
+import type { BlockedSlotDisplayOccupancyScope } from "./calendar-reference-adapters";
 import type {
   CalendarAppointmentLayout,
   CalendarBlockedSlotRecord,
@@ -100,6 +101,7 @@ export function useCalendarInteractions({
   convertRealBlockedSlotToSimulation: (
     blockedSlotId: string,
     options: {
+      calendarResourceColumn?: "ekg" | "labor" | null;
       endISO?: string;
       locationId?: Id<"locations">;
       practitionerId?: Id<"practitioners">;
@@ -110,6 +112,7 @@ export function useCalendarInteractions({
   isNonRootSeriesAppointment: (appointmentId?: string) => boolean;
   resolveBlockedSlotDisplayRefs: (blockedSlot: BlockedSlotRecord) => null | {
     locationId: Id<"locations">;
+    occupancyScope: BlockedSlotDisplayOccupancyScope;
     practitionerId?: Id<"practitioners">;
   };
   runUpdateAppointment: (args: {
@@ -504,9 +507,17 @@ export function useCalendarInteractions({
                 {
                   endISO: blockedSlotDoc.end,
                   locationId: displayRefs.locationId,
-                  ...(displayRefs.practitionerId
-                    ? { practitionerId: displayRefs.practitionerId }
-                    : {}),
+                  ...(displayRefs.occupancyScope.kind === "practitioner"
+                    ? {
+                        practitionerId:
+                          displayRefs.occupancyScope.practitionerId,
+                      }
+                    : displayRefs.occupancyScope.kind === "resource"
+                      ? {
+                          calendarResourceColumn:
+                            displayRefs.occupancyScope.calendarResourceColumn,
+                        }
+                      : { calendarResourceColumn: null }),
                   startISO: blockedSlotDoc.start,
                   title:
                     blockedSlotDoc.title ||

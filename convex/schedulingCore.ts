@@ -14,6 +14,7 @@ import { internal } from "./_generated/api";
 import { getOccupancyViewForBookingScope } from "./appointmentConflicts";
 import {
   getAppointmentPractitionerLineageKey,
+  getBlockedSlotCalendarResourceColumn,
   getBlockedSlotPractitionerLineageKey,
 } from "./appointmentOccupancy";
 import {
@@ -551,6 +552,12 @@ export function slotOverlapsBlockedSlot(
 
   const blockedSlotPractitionerLineageKey =
     getBlockedSlotPractitionerLineageKey(blockedSlot.occupancyScope);
+  if (
+    getBlockedSlotCalendarResourceColumn(blockedSlot.occupancyScope) !==
+    undefined
+  ) {
+    return false;
+  }
   if (
     blockedSlotPractitionerLineageKey &&
     blockedSlotPractitionerLineageKey !== slot.practitionerLineageKey
