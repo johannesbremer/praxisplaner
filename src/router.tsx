@@ -475,6 +475,7 @@ function useConvexAuthFromWorkOS(pathname: string) {
     }: ConvexAccessTokenFetchArgs): Promise<null | string> => {
       if (authBypassEnabled) {
         if (
+          !forceRefreshToken &&
           devAuthToken?.persona === devPersona &&
           devAuthToken.refreshAfterMs > Date.now()
         ) {
