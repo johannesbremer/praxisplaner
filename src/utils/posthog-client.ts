@@ -27,7 +27,10 @@ export function capturePostHogException(
   error: Error,
   context: Properties | undefined,
 ) {
-  const posthog = registeredPostHogClient ?? getGlobalPostHogClient();
+  const posthog =
+    registeredPostHogClient ??
+    initializedPostHogClient ??
+    getGlobalPostHogClient();
   if (!posthog) {
     if (!canQueuePostHogException()) {
       return false;
