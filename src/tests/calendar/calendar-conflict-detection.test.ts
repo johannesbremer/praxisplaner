@@ -38,12 +38,6 @@ describe("calendar conflict detection", () => {
       occupancyScope: { calendarResourceColumn, kind: "resource" },
     });
 
-  const locationWidePlacement = (locationLineageKey: typeof location1) =>
-    createCalendarPlacement({
-      locationLineageKey,
-      occupancyScope: { kind: "location-wide" },
-    });
-
   it("detects blocked-slot replay conflicts against appointments outside the active day cache", () => {
     expect(
       hasCalendarOccupancyConflictInRecords({
@@ -173,7 +167,7 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"blockedSlots">("blocked_slot_1"),
             end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            placement: locationWidePlacement(location1),
+            placement: resourcePlacement(location1, "ekg"),
             start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
           },
         ],
@@ -185,7 +179,7 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"blockedSlots">("blocked_slot_1"),
             end: "2026-04-24T10:00:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            placement: locationWidePlacement(location1),
+            placement: resourcePlacement(location1, "ekg"),
             start: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
           },
         ],
@@ -237,7 +231,7 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"blockedSlots">("blocked_slot_1"),
             end: "2026-04-24T10:00:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            placement: locationWidePlacement(location1),
+            placement: resourcePlacement(location1, "ekg"),
             start: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
           },
         ],
@@ -249,7 +243,7 @@ describe("calendar conflict detection", () => {
             _id: toTableId<"blockedSlots">("blocked_slot_1"),
             end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
             isSimulation: false,
-            placement: locationWidePlacement(location1),
+            placement: resourcePlacement(location1, "ekg"),
             start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
           },
         ],
@@ -271,7 +265,7 @@ describe("calendar conflict detection", () => {
               _id: toTableId<"blockedSlots">("blocked_slot_1"),
               end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
               isSimulation: false,
-              placement: locationWidePlacement(location1),
+              placement: resourcePlacement(location1, "ekg"),
               start: "2026-04-24T09:00:00+02:00[Europe/Berlin]",
             },
           ],

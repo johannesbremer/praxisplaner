@@ -43,20 +43,38 @@ export function buildBlockedSlotPlacement(args: {
   locationLineageKey: LocationLineageKey;
   practitionerLineageKey?: PractitionerLineageKey;
 }): CalendarBlockedSlotRecord["placement"] {
+  if (
+    args.calendarResourceColumn === undefined &&
+    args.practitionerLineageKey === undefined
+  ) {
+    throw new Error(
+      "Calendar blocked-slot test records require a practitioner or resource scope.",
+    );
+  }
+
+  if (args.calendarResourceColumn !== undefined) {
+    return createCalendarPlacement({
+      locationLineageKey: args.locationLineageKey,
+      occupancyScope: {
+        calendarResourceColumn: args.calendarResourceColumn,
+        kind: "resource",
+      },
+    });
+  }
+
+  const { practitionerLineageKey } = args;
+  if (practitionerLineageKey === undefined) {
+    throw new Error(
+      "Calendar blocked-slot test records require a practitioner scope.",
+    );
+  }
+
   return createCalendarPlacement({
     locationLineageKey: args.locationLineageKey,
-    occupancyScope:
-      args.calendarResourceColumn === undefined
-        ? args.practitionerLineageKey === undefined
-          ? { kind: "location-wide" }
-          : {
-              kind: "practitioner",
-              practitionerLineageKey: args.practitionerLineageKey,
-            }
-        : {
-            calendarResourceColumn: args.calendarResourceColumn,
-            kind: "resource",
-          },
+    occupancyScope: {
+      kind: "practitioner",
+      practitionerLineageKey,
+    },
   });
 }
 

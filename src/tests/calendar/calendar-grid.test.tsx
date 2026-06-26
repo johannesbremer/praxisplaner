@@ -555,7 +555,7 @@ describe("CalendarGrid", () => {
       expect(resizeHandles.length).toBe(mockAppointments.length);
     });
 
-    test("renders manual blocked-slot resize preview height from duration", () => {
+    test("renders manual blocked-slot height from grouped visible slots", () => {
       render(
         <CalendarGrid
           {...defaultProps}
@@ -588,7 +588,7 @@ describe("CalendarGrid", () => {
       });
 
       expect(blockedSlot).toHaveStyle({
-        "--blocked-height": "96px",
+        "--blocked-height": "32px",
       });
     });
   });

@@ -854,7 +854,6 @@ export function useCalendarPlanningWorkbench(args: {
             calendarResourceColumn: "ekg" | "labor";
             kind: "resource";
           }
-        | { kind: "location-wide" }
         | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
     }) => resolveBlockedSlotLineageRefs(refs, referenceMaps),
     [referenceMaps],
@@ -1489,14 +1488,15 @@ export function useCalendarPlanningWorkbench(args: {
               (slot.occupancyScope.kind === "resource"
                 ? slot.occupancyScope
                 : slot.practitionerId === undefined
-                  ? { kind: "location-wide" as const }
+                  ? null
                   : {
                       kind: "practitioner" as const,
                       practitionerId: slot.practitionerId,
                     });
             const lineageRefs =
-              optimisticArgs.locationId === undefined &&
-              optimisticArgs.occupancyScope === undefined
+              (optimisticArgs.locationId === undefined &&
+                optimisticArgs.occupancyScope === undefined) ||
+              nextDisplayOccupancyScope === null
                 ? null
                 : resolveBlockedSlotReferenceLineageKeys({
                     locationId: optimisticArgs.locationId ?? slot.locationId,
@@ -1526,7 +1526,7 @@ export function useCalendarPlanningWorkbench(args: {
 
             return toCalendarBlockedSlotResult({
               locationId: optimisticArgs.locationId ?? slot.locationId,
-              ...(nextDisplayOccupancyScope.kind === "practitioner"
+              ...(nextDisplayOccupancyScope?.kind === "practitioner"
                 ? {
                     practitionerId: nextDisplayOccupancyScope.practitionerId,
                   }
@@ -1967,13 +1967,11 @@ export function useCalendarPlanningWorkbench(args: {
                 before.placement.occupancyScope,
               );
         const nextPractitionerLineageKey =
-          args.occupancyScope?.kind === "location-wide"
-            ? undefined
-            : args.occupancyScope?.kind === "practitioner"
-              ? getPractitionerLineageKeyForDisplayId(
-                  args.occupancyScope.practitionerId,
-                )
-              : beforePractitionerLineageKey;
+          args.occupancyScope?.kind === "practitioner"
+            ? getPractitionerLineageKeyForDisplayId(
+                args.occupancyScope.practitionerId,
+              )
+            : beforePractitionerLineageKey;
         if (
           args.occupancyScope?.kind === "practitioner" &&
           nextPractitionerLineageKey === undefined
@@ -2000,16 +1998,14 @@ export function useCalendarPlanningWorkbench(args: {
           occupancyScope:
             args.occupancyScope === undefined
               ? before.placement.occupancyScope
-              : args.occupancyScope.kind === "location-wide"
-                ? { kind: "location-wide" }
-                : args.occupancyScope.kind === "resource"
-                  ? args.occupancyScope
-                  : nextPractitionerLineageKey === undefined
-                    ? before.placement.occupancyScope
-                    : {
-                        kind: "practitioner",
-                        practitionerLineageKey: nextPractitionerLineageKey,
-                      },
+              : args.occupancyScope.kind === "resource"
+                ? args.occupancyScope
+                : nextPractitionerLineageKey === undefined
+                  ? before.placement.occupancyScope
+                  : {
+                      kind: "practitioner",
+                      practitionerLineageKey: nextPractitionerLineageKey,
+                    },
         });
         const afterState = {
           end: args.end ?? before.end,
@@ -2182,7 +2178,6 @@ function createBlockedSlotPlacement(args: {
         calendarResourceColumn: "ekg" | "labor";
         kind: "resource";
       }
-    | { kind: "location-wide" }
     | { kind: "practitioner"; practitionerLineageKey: PractitionerLineageKey };
 }): CalendarBlockedSlotPlacement {
   return createCalendarPlacement({

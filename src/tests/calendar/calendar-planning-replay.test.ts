@@ -5,6 +5,7 @@ import type { CalendarPlanningCommandExecutorContext } from "../../components/ca
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
+  asPractitionerLineageKey,
   toTableId,
 } from "../../../convex/identity";
 import { createCalendarPlacement } from "../../../lib/calendar-occupancy";
@@ -108,11 +109,16 @@ describe("calendar planning replay", () => {
     const locationLineageKey = asLocationLineageKey(
       toTableId<"locations">("location_lineage_1"),
     );
+    const practitionerId = toTableId<"practitioners">("practitioner_1");
+    const practitionerLineageKey = asPractitionerLineageKey(
+      toTableId<"practitioners">("practitioner_lineage_1"),
+    );
     const practiceId = toTableId<"practices">("practice_1");
     const placement = createCalendarPlacement({
       locationLineageKey,
       occupancyScope: {
-        kind: "location-wide",
+        kind: "practitioner",
+        practitionerLineageKey,
       },
     });
     const forgetBlockedSlotHistoryDoc = vi.fn();
@@ -128,7 +134,7 @@ describe("calendar planning replay", () => {
               end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
               isSimulation: false,
               locationId,
-              occupancyScope: { kind: "location-wide" },
+              occupancyScope: { kind: "practitioner", practitionerId },
               practiceId,
               start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
               title: "Block",
@@ -850,11 +856,16 @@ describe("calendar planning replay", () => {
     const locationLineageKey = asLocationLineageKey(
       toTableId<"locations">("location_lineage_1"),
     );
+    const practitionerId = toTableId<"practitioners">("practitioner_1");
+    const practitionerLineageKey = asPractitionerLineageKey(
+      toTableId<"practitioners">("practitioner_lineage_1"),
+    );
     const practiceId = toTableId<"practices">("practice_1");
     const placement = createCalendarPlacement({
       locationLineageKey,
       occupancyScope: {
-        kind: "location-wide",
+        kind: "practitioner",
+        practitionerLineageKey,
       },
     });
     const before = buildCalendarBlockedSlotRecord({
@@ -896,7 +907,7 @@ describe("calendar planning replay", () => {
           end: before.end,
           isSimulation: false,
           locationId,
-          occupancyScope: { kind: "location-wide" as const },
+          occupancyScope: { kind: "practitioner" as const, practitionerId },
           practiceId,
           start: before.start,
           title: before.title,
@@ -939,8 +950,12 @@ describe("calendar planning replay", () => {
         appointmentTypeLineageKeyById: new Map(),
         locationIdByLineageKey: new Map([[locationLineageKey, locationId]]),
         locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
-        practitionerIdByLineageKey: new Map(),
-        practitionerLineageKeyById: new Map(),
+        practitionerIdByLineageKey: new Map([
+          [practitionerLineageKey, practitionerId],
+        ]),
+        practitionerLineageKeyById: new Map([
+          [practitionerId, practitionerLineageKey],
+        ]),
       },
       rememberAppointmentHistoryDoc: vi.fn(),
       rememberBlockedSlotHistoryDoc,
@@ -1103,11 +1118,16 @@ describe("calendar planning replay", () => {
     const locationLineageKey = asLocationLineageKey(
       toTableId<"locations">("location_lineage_1"),
     );
+    const practitionerId = toTableId<"practitioners">("practitioner_1");
+    const practitionerLineageKey = asPractitionerLineageKey(
+      toTableId<"practitioners">("practitioner_lineage_1"),
+    );
     const practiceId = toTableId<"practices">("practice_1");
     const placement = createCalendarPlacement({
       locationLineageKey,
       occupancyScope: {
-        kind: "location-wide",
+        kind: "practitioner",
+        practitionerLineageKey,
       },
     });
     const deleted = buildCalendarBlockedSlotRecord({
@@ -1132,7 +1152,7 @@ describe("calendar planning replay", () => {
             end: deleted.end,
             isSimulation: false,
             locationId,
-            occupancyScope: { kind: "location-wide" },
+            occupancyScope: { kind: "practitioner", practitionerId },
             practiceId,
             start: deleted.start,
             title: deleted.title,

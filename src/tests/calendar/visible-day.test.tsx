@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
+  asPractitionerLineageKey,
   toTableId,
 } from "../../../convex/identity";
 import {
@@ -134,5 +135,71 @@ describe("useCalendarVisibleDay", () => {
         ),
       ),
     ).toBe(true);
+  });
+
+  test("expands the visible day to include practitioner manual blocked slots outside working hours", () => {
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(locationId);
+    const practitionerId = toTableId<"practitioners">("practitioner_1");
+    const practitionerLineageKey = asPractitionerLineageKey(practitionerId);
+
+    const { result } = renderHook(() =>
+      useCalendarVisibleDay({
+        appointmentsData: [],
+        baseSchedulesData: [
+          {
+            dayOfWeek: 5,
+            endTime: "10:00",
+            locationLineageKey,
+            practitionerId,
+            practitionerLineageKey,
+            startTime: "08:00",
+          },
+        ],
+        blockedSlotsData: [
+          buildCalendarBlockedSlotRecord({
+            _id: toTableId<"blockedSlots">("blocked_slot_1"),
+            end: "2026-04-24T09:30:00+02:00[Europe/Berlin]",
+            locationLineageKey,
+            practiceId: toTableId<"practices">("practice_1"),
+            practitionerLineageKey,
+            start: "2026-04-24T07:30:00+02:00[Europe/Berlin]",
+            title: "Early block",
+          }),
+        ],
+        currentDayOfWeek: 5,
+        draggedAppointmentTypeLineageKey: undefined,
+        getUnsupportedPractitionerIdsForAppointmentType: () => new Set(),
+        locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
+        placementAppointmentTypeLineageKey: undefined,
+        practitionerIdByLineageKey: new Map([
+          [practitionerLineageKey, practitionerId],
+        ]),
+        practitionerLineageKeyById: new Map([
+          [practitionerId, practitionerLineageKey],
+        ]),
+        practitionerNameByLineageKey: new Map([
+          [practitionerLineageKey, "Dr. Early"],
+        ]),
+        practitionersData: [
+          {
+            _id: practitionerId,
+            lineageKey: practitionerLineageKey,
+            name: "Dr. Early",
+          },
+        ],
+        selectedDate: Temporal.PlainDate.from("2026-04-24"),
+        selectedLocationId: locationId,
+        simulatedContext: undefined,
+        timeToMinutes: (time) => {
+          const [hours = "0", minutes = "0"] = time.split(":");
+          return Number(hours) * 60 + Number(minutes);
+        },
+        vacationsData: [],
+      }),
+    );
+
+    expect(result.current.businessStartHour).toBe(7);
+    expect(result.current.businessEndHour).toBe(10);
   });
 });

@@ -101,7 +101,7 @@ export function useCalendarInteractions({
   convertRealBlockedSlotToSimulation: (
     blockedSlotId: string,
     options: {
-      calendarResourceColumn?: "ekg" | "labor" | null;
+      calendarResourceColumn?: "ekg" | "labor";
       endISO?: string;
       locationId?: Id<"locations">;
       practitionerId?: Id<"practitioners">;
@@ -512,12 +512,10 @@ export function useCalendarInteractions({
                         practitionerId:
                           displayRefs.occupancyScope.practitionerId,
                       }
-                    : displayRefs.occupancyScope.kind === "resource"
-                      ? {
-                          calendarResourceColumn:
-                            displayRefs.occupancyScope.calendarResourceColumn,
-                        }
-                      : { calendarResourceColumn: null }),
+                    : {
+                        calendarResourceColumn:
+                          displayRefs.occupancyScope.calendarResourceColumn,
+                      }),
                   startISO: blockedSlotDoc.start,
                   title:
                     blockedSlotDoc.title ||

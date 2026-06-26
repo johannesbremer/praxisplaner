@@ -12,6 +12,7 @@ import type { CalendarPlanningCommandExecutor } from "../../components/calendar/
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
+  asPractitionerLineageKey,
   toTableId,
 } from "../../../convex/identity";
 import { createCalendarPlacement } from "../../../lib/calendar-occupancy";
@@ -666,11 +667,16 @@ describe("calendar planning workbench", () => {
       toTableId<"locations">("location_lineage_1"),
     );
     const practiceId = toTableId<"practices">("practice_1");
+    const practitionerLineageKey = asPractitionerLineageKey(
+      toTableId<"practitioners">("practitioner_lineage_1"),
+    );
+    const practitionerId = toTableId<"practitioners">("practitioner_1");
     const blockedSlot = buildCalendarBlockedSlotRecord({
       _id: toTableId<"blockedSlots">("blocked_slot_1"),
       end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
       locationLineageKey,
       practiceId,
+      practitionerLineageKey,
       start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
       title: "Team meeting",
     });
@@ -708,8 +714,12 @@ describe("calendar planning workbench", () => {
           appointmentTypeLineageKeyById: new Map(),
           locationIdByLineageKey: new Map([[locationLineageKey, locationId]]),
           locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
-          practitionerIdByLineageKey: new Map(),
-          practitionerLineageKeyById: new Map(),
+          practitionerIdByLineageKey: new Map([
+            [practitionerLineageKey, practitionerId],
+          ]),
+          practitionerLineageKeyById: new Map([
+            [practitionerId, practitionerLineageKey],
+          ]),
         },
         refreshAllPracticeConflictData: vi.fn(() => Promise.resolve()),
       }),
@@ -899,7 +909,7 @@ describe("calendar planning workbench", () => {
       await result.current.commands.createBlockedSlot({
         end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
         locationId,
-        occupancyScope: { kind: "location-wide" },
+        occupancyScope: { calendarResourceColumn: "ekg", kind: "resource" },
         practiceId,
         start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
         title: "Team meeting",
@@ -928,12 +938,17 @@ describe("calendar planning workbench", () => {
       toTableId<"locations">("location_lineage_1"),
     );
     const practiceId = toTableId<"practices">("practice_1");
+    const practitionerLineageKey = asPractitionerLineageKey(
+      toTableId<"practitioners">("practitioner_lineage_1"),
+    );
+    const practitionerId = toTableId<"practitioners">("practitioner_1");
     const blockedSlot: CalendarBlockedSlotRecord = {
       ...buildCalendarBlockedSlotRecord({
         _id: toTableId<"blockedSlots">("blocked_slot_1"),
         end: "2026-04-25T10:00:00+02:00[Europe/Berlin]",
         locationLineageKey,
         practiceId,
+        practitionerLineageKey,
         start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
         title: "Team meeting",
       }),
@@ -973,8 +988,12 @@ describe("calendar planning workbench", () => {
           appointmentTypeLineageKeyById: new Map(),
           locationIdByLineageKey: new Map([[locationLineageKey, locationId]]),
           locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
-          practitionerIdByLineageKey: new Map(),
-          practitionerLineageKeyById: new Map(),
+          practitionerIdByLineageKey: new Map([
+            [practitionerLineageKey, practitionerId],
+          ]),
+          practitionerLineageKeyById: new Map([
+            [practitionerId, practitionerLineageKey],
+          ]),
         },
         refreshAllPracticeConflictData: vi.fn(() => Promise.resolve()),
       }),
@@ -986,7 +1005,9 @@ describe("calendar planning workbench", () => {
       slotData: {
         end: blockedSlot.end,
         locationId,
+        occupancyScope: { kind: "practitioner", practitionerId },
         practiceId,
+        practitionerId,
         start: blockedSlot.start,
         title: "Team meeting",
       },

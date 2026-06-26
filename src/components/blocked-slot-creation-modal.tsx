@@ -47,16 +47,18 @@ interface BlockedSlotCreationModalProps {
   initialSlotStart: string; // Temporal.ZonedDateTime as string (Europe/Berlin)
   isSimulation?: boolean;
   locationId: Id<"locations">;
+  occupancyScope:
+    | { calendarResourceColumn: "ekg" | "labor"; kind: "resource" }
+    | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
   onOpenChange: (open: boolean) => void;
   open: boolean;
   practiceId: Id<"practices">;
-  practitionerId?: Id<"practitioners">;
   runCreateBlockedSlot?: (args: {
     end: string;
     isSimulation?: boolean;
     locationId: Id<"locations">;
     occupancyScope:
-      | { kind: "location-wide" }
+      | { calendarResourceColumn: "ekg" | "labor"; kind: "resource" }
       | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
     practiceId: Id<"practices">;
     replacesBlockedSlotId?: Id<"blockedSlots">;
@@ -70,10 +72,10 @@ export function BlockedSlotCreationModal({
   initialSlotStart,
   isSimulation = false,
   locationId,
+  occupancyScope,
   onOpenChange,
   open,
   practiceId,
-  practitionerId,
   runCreateBlockedSlot: runCreateBlockedSlotProp,
 }: BlockedSlotCreationModalProps) {
   const createBlockedSlotMutation = useMutation(
@@ -103,10 +105,7 @@ export function BlockedSlotCreationModal({
         await runCreateBlockedSlot({
           end: endZoned.toString(),
           locationId,
-          occupancyScope:
-            practitionerId === undefined
-              ? { kind: "location-wide" }
-              : { kind: "practitioner", practitionerId },
+          occupancyScope,
           practiceId,
           start: startZoned.toString(),
           title: value.title,

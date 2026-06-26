@@ -1015,6 +1015,10 @@ export function useCalendarLogic({
             column,
             getPractitionerIdForColumn,
           });
+          if (dropOccupancyScope === null) {
+            toast.error("Ungültige Ressource");
+            return;
+          }
 
           if (simulatedContext) {
             if (!blockedSlot.id || !blockedSlotDoc) {
@@ -1056,9 +1060,7 @@ export function useCalendarLogic({
                         calendarResourceColumn:
                           dropOccupancyScope.calendarResourceColumn,
                       }
-                    : dropOccupancyScope.kind === "location-wide"
-                      ? { calendarResourceColumn: null }
-                      : {}),
+                    : {}),
                 },
               );
             }

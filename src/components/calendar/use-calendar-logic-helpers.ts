@@ -20,7 +20,7 @@ import { invalidStateError } from "../../utils/frontend-errors";
 export const TIMEZONE = "Europe/Berlin";
 
 export interface BlockedSlotConversionOptions {
-  calendarResourceColumn?: CalendarResourceColumn | null;
+  calendarResourceColumn?: CalendarResourceColumn;
   endISO?: string;
   locationId?: Id<"locations">;
   practitionerId?: Id<"practitioners">;
@@ -30,7 +30,6 @@ export interface BlockedSlotConversionOptions {
 
 export type BlockedSlotDropResolution =
   | { calendarResourceColumn: CalendarResourceColumn; kind: "resource" }
-  | { kind: "location-wide" }
   | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
 
 export interface DeletedPractitionerCalendarRange {
@@ -221,7 +220,7 @@ export function resolveBlockedSlotDropOccupancyScope(args: {
   getPractitionerIdForColumn: (
     column: CalendarColumnId,
   ) => Id<"practitioners"> | undefined;
-}): BlockedSlotDropResolution {
+}): BlockedSlotDropResolution | null {
   const practitionerId = args.getPractitionerIdForColumn(args.column);
   if (practitionerId !== undefined) {
     return { kind: "practitioner", practitionerId };
@@ -234,7 +233,7 @@ export function resolveBlockedSlotDropOccupancyScope(args: {
     };
   }
 
-  return { kind: "location-wide" };
+  return null;
 }
 
 export function resolveDragPreviewSlot(args: {
