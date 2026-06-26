@@ -185,7 +185,7 @@ export function StaffAppointmentCreationModal({
   );
   const location = locations?.find((entry) => entry._id === locationId);
   const hasAppointmentPlan =
-    (appointmentType?.appointmentPlan?.steps.length ?? 0) > 0;
+    (appointmentType?.appointmentPlan.steps.length ?? 0) > 0;
   const bookingScope = isSimulation
     ? ("simulation" as const)
     : ("real" as const);

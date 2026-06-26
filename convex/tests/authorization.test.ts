@@ -76,7 +76,10 @@ async function createPublicBookingSchedulingFixture(
       "appointmentTypes",
       {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: BigInt(Date.now()),
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: BigInt(Date.now()),
         name: "Public Booking",
@@ -558,7 +561,10 @@ describe("Convex query authorization", () => {
     await t.run(async (ctx) => {
       await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
         allowedPractitionerLineageKeys: [],
+        appointmentPlan: { steps: [] },
         createdAt: BigInt(Date.now()),
+        defaultOccupancy: { kind: "selectedPractitioner" },
+
         duration: 20,
         lastModified: BigInt(Date.now()),
         name: "Booking reference",
@@ -1057,6 +1063,8 @@ describe("Convex query authorization", () => {
           allowedPractitionerLineageKeys: [practitionerId],
           appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 5,
           lastModified: now,
           name: "Simulation Scope Checkup",

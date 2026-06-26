@@ -1801,10 +1801,9 @@ async function loadRootAppointmentType(
 function normalizeAppointmentPlanSnapshot(
   appointmentPlan:
     | Doc<"appointmentTypes">["appointmentPlan"]
-    | undefined
     | { steps: AppointmentPlanStep[] },
 ): AppointmentPlanStep[] {
-  return normalizeAppointmentPlan(appointmentPlan)?.steps ?? [];
+  return normalizeAppointmentPlan(appointmentPlan).steps;
 }
 
 function normalizeAppointmentPlanSnapshotFromType(

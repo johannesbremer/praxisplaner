@@ -140,7 +140,9 @@ async function createTelefonkiFixture(
       "appointmentTypes",
       {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Akut",
@@ -640,6 +642,8 @@ describe("TelefonKI availability", () => {
           ],
         },
         createdAt: now,
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Serientermin",
@@ -681,6 +685,7 @@ describe("TelefonKI availability", () => {
       const now = BigInt(Date.now());
       return await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
         allowedPractitionerLineageKeys: [fixture.practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
         defaultOccupancy: {
           calendarResourceColumn: "ekg",

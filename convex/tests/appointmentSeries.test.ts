@@ -223,7 +223,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const missingTargetId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 15,
         lastModified: now,
         name: "Gelöschter Folgetermin",
@@ -254,6 +256,8 @@ describe("appointment series", () => {
             },
           ],
         },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         expectedDraftRevision: null,
         name: "Root",
@@ -273,7 +277,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         lastModified: now,
         name: "Kontrolle",
@@ -303,6 +309,8 @@ describe("appointment series", () => {
             },
           ],
         },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         expectedDraftRevision: null,
         name: "Ungueltig Minuten",
@@ -329,6 +337,8 @@ describe("appointment series", () => {
             },
           ],
         },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         expectedDraftRevision: null,
         name: "Ungueltig Tage",
@@ -355,6 +365,8 @@ describe("appointment series", () => {
             },
           ],
         },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         expectedDraftRevision: null,
         name: "Ungueltig Kommazahl",
@@ -380,6 +392,8 @@ describe("appointment series", () => {
           },
         ],
       },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: null,
       name: "Gueltig Tage",
@@ -400,7 +414,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         lastModified: now,
         name: "Diagnostik",
@@ -426,6 +442,8 @@ describe("appointment series", () => {
             },
           ],
         },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         expectedDraftRevision: null,
         name: "Ergometrie",
@@ -445,7 +463,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "EKG",
@@ -527,7 +547,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Diagnostik",
@@ -563,6 +585,8 @@ describe("appointment series", () => {
             },
           ],
         },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         expectedDraftRevision: null,
         name: "Indirekt Root",
@@ -582,7 +606,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         lastModified: now,
         name: "Diagnostik",
@@ -619,6 +645,8 @@ describe("appointment series", () => {
             },
           ],
         },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         expectedDraftRevision: null,
         name: "Ergometrie",
@@ -658,6 +686,8 @@ describe("appointment series", () => {
             },
           ],
         },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         expectedDraftRevision: null,
         name: "EKG Doppelung",
@@ -703,6 +733,8 @@ describe("appointment series", () => {
             },
           ],
         },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         expectedDraftRevision: null,
         name: "Labor Doppelung Indirekt",
@@ -722,7 +754,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         lastModified: now,
         name: "EKG",
@@ -761,6 +795,8 @@ describe("appointment series", () => {
             },
           ],
         },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         expectedDraftRevision: null,
         name: "EKG Doppelung",
@@ -783,7 +819,9 @@ describe("appointment series", () => {
           "appointmentTypes",
           {
             allowedPractitionerLineageKeys: [practitionerId],
+            appointmentPlan: { steps: [] },
             createdAt: now,
+            defaultOccupancy: { kind: "selectedPractitioner" },
             duration: 20,
             lastModified: now,
             name: "Verbandwechsel",
@@ -813,6 +851,7 @@ describe("appointment series", () => {
             ],
           },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Ersttermin",
@@ -899,7 +938,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Lange Kontrolle",
@@ -928,6 +969,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Root",
@@ -1019,7 +1061,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         lastModified: now,
         name: "Kontrolle",
@@ -1048,6 +1092,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -1102,7 +1147,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         lastModified: now,
         name: "Kontrolle",
@@ -1131,6 +1178,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -1177,7 +1225,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const ekgAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         lastModified: now,
         name: "EKG",
@@ -1209,6 +1259,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -1262,7 +1313,9 @@ describe("appointment series", () => {
         const now = BigInt(Date.now());
         const ekgTypeId = await ctx.db.insert("appointmentTypes", {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 20,
           lastModified: now,
           name: "EKG",
@@ -1294,6 +1347,7 @@ describe("appointment series", () => {
             ],
           },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Ersttermin",
@@ -1361,7 +1415,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         lastModified: now,
         name: "Kontrolle",
@@ -1390,6 +1446,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -1441,7 +1498,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Kontrolle",
@@ -1470,6 +1529,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 15,
         lastModified: now,
         name: "Spättermin",
@@ -1568,7 +1628,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Lange Diagnostik",
@@ -1597,6 +1659,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Root",
@@ -1662,7 +1725,9 @@ describe("appointment series", () => {
         const now = BigInt(Date.now());
         const followUpTypeId = await ctx.db.insert("appointmentTypes", {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 10,
           lastModified: now,
           name: "Folgetermin",
@@ -1674,7 +1739,9 @@ describe("appointment series", () => {
         });
         const blockingTypeId = await ctx.db.insert("appointmentTypes", {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 10,
           lastModified: now,
           name: "Blocker",
@@ -1702,6 +1769,7 @@ describe("appointment series", () => {
             ],
           },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 10,
           lastModified: now,
           name: "Root",
@@ -1798,7 +1866,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 15,
         lastModified: now,
         name: "Kontrolle",
@@ -1827,6 +1897,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Langer Starttermin",
@@ -1891,7 +1962,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Gelöschter Folgetermin",
@@ -1919,6 +1992,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Root",
@@ -1969,7 +2043,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const rootAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         deleted: true,
         duration: 30,
         lastModified: now,
@@ -2027,7 +2103,9 @@ describe("appointment series", () => {
           "appointmentTypes",
           {
             allowedPractitionerLineageKeys: [practitionerId],
+            appointmentPlan: { steps: [] },
             createdAt: now,
+            defaultOccupancy: { kind: "selectedPractitioner" },
             duration: 30,
             lastModified: now,
             name: "Diagnostik",
@@ -2057,6 +2135,7 @@ describe("appointment series", () => {
             ],
           },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Root",
@@ -2145,7 +2224,9 @@ describe("appointment series", () => {
 
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [otherPractitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Nur anderer Behandler",
@@ -2174,6 +2255,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Root",
@@ -2237,7 +2319,10 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [activePractitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
+
         duration: 30,
         lastModified: now,
         name: "Kontrolle",
@@ -2266,6 +2351,8 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -2313,7 +2400,10 @@ describe("appointment series", () => {
 
       await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [activePractitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
+
         duration: 30,
         lastModified: now,
         lineageKey: targetAppointmentTypeId,
@@ -2342,6 +2432,8 @@ describe("appointment series", () => {
             ],
           },
           createdAt: now,
+
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           lineageKey: rootAppointmentTypeId,
@@ -2434,7 +2526,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Kontrolle",
@@ -2463,6 +2557,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -2544,7 +2639,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Kontrolle",
@@ -2573,6 +2670,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -2655,7 +2753,9 @@ describe("appointment series", () => {
           "appointmentTypes",
           {
             allowedPractitionerLineageKeys: [practitionerId],
+            appointmentPlan: { steps: [] },
             createdAt: now,
+            defaultOccupancy: { kind: "selectedPractitioner" },
             duration: 30,
             lastModified: now,
             name: "Kontrolle",
@@ -2685,6 +2785,7 @@ describe("appointment series", () => {
             ],
           },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Ersttermin",
@@ -2761,7 +2862,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const planStepTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Kontrolle",
@@ -2790,6 +2893,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -2895,7 +2999,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const planStepTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Kontrolle",
@@ -2924,6 +3030,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -3048,7 +3155,9 @@ describe("appointment series", () => {
       });
       const planStepTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Kontrolle",
@@ -3077,6 +3186,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -3174,7 +3284,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Kontrolle",
@@ -3203,6 +3315,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -3274,6 +3387,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [practitionerId],
         appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -3326,6 +3440,7 @@ describe("appointment series", () => {
         allowedPractitionerLineageKeys: [practitionerId],
         appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -3397,7 +3512,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const optionalFollowUpTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [alternatePractitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Optionale Kontrolle",
@@ -3429,6 +3546,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -3527,7 +3645,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         lastModified: now,
         name: "Kontrolle",
@@ -3556,6 +3676,8 @@ describe("appointment series", () => {
           },
         ],
       },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: null,
       name: "Root",
@@ -3567,6 +3689,7 @@ describe("appointment series", () => {
     await t.mutation(api.entities.updateAppointmentType, {
       appointmentPlan: { steps: [] },
       appointmentTypeId: created.entityId,
+      defaultOccupancy: { kind: "selectedPractitioner" },
       expectedDraftRevision: created.draftRevision,
       practiceId,
       selectedRuleSetId: created.ruleSetId,
@@ -3588,7 +3711,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const firstTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 5,
         lastModified: now,
         name: "BE",
@@ -3600,7 +3725,9 @@ describe("appointment series", () => {
       });
       const secondTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 5,
         lastModified: now,
         name: "Diagnostik",
@@ -3632,6 +3759,8 @@ describe("appointment series", () => {
           },
         ],
       },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: null,
       name: "Root",
@@ -3642,7 +3771,9 @@ describe("appointment series", () => {
 
     await expect(
       t.mutation(api.entities.updateAppointmentType, {
+        appointmentPlan: { steps: [] },
         appointmentTypeId: secondStepTypeId,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         expectedDraftRevision: createdRoot.draftRevision,
         practiceId,
@@ -3660,7 +3791,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const firstTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 5,
         lastModified: now,
         name: "Closer before-root step",
@@ -3672,7 +3805,9 @@ describe("appointment series", () => {
       });
       const secondTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 5,
         lastModified: now,
         name: "Earlier before-root step",
@@ -3704,6 +3839,8 @@ describe("appointment series", () => {
           },
         ],
       },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: null,
       name: "Root",
@@ -3714,7 +3851,9 @@ describe("appointment series", () => {
 
     await expect(
       t.mutation(api.entities.updateAppointmentType, {
+        appointmentPlan: { steps: [] },
         appointmentTypeId: firstStepTypeId,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 15,
         expectedDraftRevision: createdRoot.draftRevision,
         practiceId,
@@ -3732,7 +3871,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const nestedStepTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Nested child",
@@ -3761,6 +3902,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Nested root",
@@ -3790,6 +3932,8 @@ describe("appointment series", () => {
             },
           ],
         },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         expectedDraftRevision: null,
         name: "Outer root",
@@ -3809,7 +3953,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const childId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Child",
@@ -3822,7 +3968,9 @@ describe("appointment series", () => {
 
       const grandchildId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Grandchild",
@@ -3851,6 +3999,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Parent",
@@ -3885,6 +4034,7 @@ describe("appointment series", () => {
           ],
         },
         appointmentTypeId: childTypeId,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         expectedDraftRevision: null,
         practiceId,
         selectedRuleSetId: ruleSetId,
@@ -3898,6 +4048,9 @@ describe("appointment series", () => {
       await createBasePractice(t);
 
     const child = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 10,
       expectedDraftRevision: null,
       name: "Child",
@@ -3906,6 +4059,9 @@ describe("appointment series", () => {
       selectedRuleSetId: ruleSetId,
     });
     const grandchild = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 10,
       expectedDraftRevision: child.draftRevision,
       name: "Grandchild",
@@ -3929,6 +4085,8 @@ describe("appointment series", () => {
           },
         ],
       },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 10,
       expectedDraftRevision: grandchild.draftRevision,
       name: "Parent",
@@ -3959,6 +4117,8 @@ describe("appointment series", () => {
             },
           ],
         },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         expectedDraftRevision: parent.draftRevision,
         lineageKey: child.entityId,
@@ -3976,6 +4136,9 @@ describe("appointment series", () => {
       await createBasePractice(t);
 
     const child = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 10,
       expectedDraftRevision: null,
       name: "Child",
@@ -3999,6 +4162,8 @@ describe("appointment series", () => {
           },
         ],
       },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 10,
       expectedDraftRevision: child.draftRevision,
       name: "Parent",
@@ -4022,6 +4187,9 @@ describe("appointment series", () => {
     const { practiceId, ruleSetId } = await createBasePractice(t);
 
     const created = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: null,
       name: "Ohne Behandler",
@@ -4043,6 +4211,9 @@ describe("appointment series", () => {
       await createBasePractice(t);
 
     const created = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: null,
       name: "Mit Behandler",
@@ -4052,7 +4223,9 @@ describe("appointment series", () => {
     });
 
     await t.mutation(api.entities.updateAppointmentType, {
+      appointmentPlan: { steps: [] },
       appointmentTypeId: created.entityId,
+      defaultOccupancy: { kind: "selectedPractitioner" },
       expectedDraftRevision: created.draftRevision,
       practiceId,
       practitionerIds: [],
@@ -4080,7 +4253,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const targetAppointmentTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Kontrolle",
@@ -4109,6 +4284,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -4308,7 +4484,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const standaloneId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Standalone",
@@ -4321,7 +4499,9 @@ describe("appointment series", () => {
 
       const followUpId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Follow-up",
@@ -4350,6 +4530,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Chain root",
@@ -4457,7 +4638,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const followUpId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Follow-up",
@@ -4485,6 +4668,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Root",
@@ -4553,7 +4737,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const followUpTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Folgetermin",
@@ -4581,6 +4767,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Starttermin",
@@ -4663,7 +4850,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const followUpTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Speed",
@@ -4691,6 +4880,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Akut-2",
@@ -4801,7 +4991,9 @@ describe("appointment series", () => {
 
         const speedType = await ctx.db.insert("appointmentTypes", {
           allowedPractitionerLineageKeys: [practitionerId, otherPractitioner],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Speed",
@@ -4829,6 +5021,7 @@ describe("appointment series", () => {
             ],
           },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Akut-2",
@@ -4949,7 +5142,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const beTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 5,
         lastModified: now,
         name: "BE",
@@ -4961,7 +5156,9 @@ describe("appointment series", () => {
       });
       const ekgTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "EKG",
@@ -4995,6 +5192,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "DMP KHK + EKG",
@@ -5047,7 +5245,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const ekgTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         lastModified: now,
         name: "EKG",
@@ -5074,6 +5274,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Root + EKG",
@@ -5125,7 +5326,9 @@ describe("appointment series", () => {
         const now = BigInt(Date.now());
         const busyTypeId = await ctx.db.insert("appointmentTypes", {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 10,
           lastModified: now,
           name: "Busy practitioner appointment",
@@ -5137,7 +5340,9 @@ describe("appointment series", () => {
         });
         const ekgTypeId = await ctx.db.insert("appointmentTypes", {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 10,
           lastModified: now,
           name: "EKG",
@@ -5164,6 +5369,7 @@ describe("appointment series", () => {
             ],
           },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 10,
           lastModified: now,
           name: "Root + EKG before",
@@ -5245,7 +5451,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const ekgTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "EKG Kontrolle",
@@ -5355,6 +5563,7 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const typeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
         defaultOccupancy: {
           calendarResourceColumn: "ekg",
@@ -5399,6 +5608,9 @@ describe("appointment series", () => {
     const appointmentType = await t.mutation(
       api.entities.createAppointmentType,
       {
+        appointmentPlan: { steps: [] },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         expectedDraftRevision: null,
         name: "Deleted Type",
@@ -5484,7 +5696,9 @@ describe("appointment series", () => {
 
       const followUpTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Folgetermin",
@@ -5513,6 +5727,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Root mit Folge",
@@ -5551,7 +5766,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const ekgTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "EKG Kontrolle",
@@ -5650,7 +5867,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const ekgTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "EKG",
@@ -5681,6 +5900,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Checkup + EKG",
@@ -5770,7 +5990,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const diagnostikTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 10,
         lastModified: now,
         name: "Diagnostik",
@@ -5794,6 +6016,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ergometrie",
@@ -5843,7 +6066,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const planStepTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Kontrolle",
@@ -5872,6 +6097,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -5964,7 +6190,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const planStepTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Kontrolle",
@@ -5993,6 +6221,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -6060,7 +6289,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const planStepTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Kontrolle",
@@ -6089,6 +6320,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",
@@ -6196,7 +6428,9 @@ describe("appointment series", () => {
       const now = BigInt(Date.now());
       const planStepTypeId = await ctx.db.insert("appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Kontrolle",
@@ -6225,6 +6459,7 @@ describe("appointment series", () => {
           ],
         },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Ersttermin",

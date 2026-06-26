@@ -160,7 +160,9 @@ async function createAppointmentType(
       "appointmentTypes",
       {
         allowedPractitionerLineageKeys: practitionerIds,
+        appointmentPlan: { steps: [] },
         createdAt: BigInt(Date.now()),
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration,
         lastModified: BigInt(Date.now()),
         name,
@@ -3563,7 +3565,9 @@ describe("E2E: Slot Generation with Rules", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [basePractitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: BigInt(Date.now()),
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: BigInt(Date.now()),
           lineageKey: baseAppointmentTypeId,

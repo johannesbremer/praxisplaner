@@ -391,15 +391,12 @@ const normalizeAppointmentPlanForSubmit = (
 };
 
 const createAppointmentPlanCreateArgs = (
-  appointmentPlan: AppointmentPlanStep[] | undefined,
-) =>
-  appointmentPlan === undefined
-    ? {}
-    : { appointmentPlan: { steps: appointmentPlan } };
+  appointmentPlan: AppointmentPlanStep[],
+) => ({ appointmentPlan: { steps: appointmentPlan } });
 
 const createAppointmentPlanUpdateArgs = (
-  appointmentPlan: AppointmentPlanStep[] | undefined,
-) => ({ appointmentPlan: { steps: appointmentPlan ?? [] } });
+  appointmentPlan: AppointmentPlanStep[],
+) => ({ appointmentPlan: { steps: appointmentPlan } });
 
 const parseNumberInput = (valueAsNumber: number, fallback = 0) =>
   Number.isNaN(valueAsNumber) ? fallback : valueAsNumber;
@@ -476,7 +473,7 @@ const normalizeDefaultOccupancyForSubmit = (
 const defaultOccupancyKindForForm = (
   defaultOccupancy: AppointmentType["defaultOccupancy"],
 ): AppointmentTypeDefaultOccupancyKind => {
-  if (!defaultOccupancy || defaultOccupancy.kind === "selectedPractitioner") {
+  if (defaultOccupancy.kind === "selectedPractitioner") {
     return "selectedPractitioner";
   }
   return `resource-${defaultOccupancy.calendarResourceColumn}`;
@@ -514,9 +511,9 @@ const parseAppointmentPlanTimingKind = (
 };
 
 const normalizeAppointmentPlanForForm = (
-  appointmentPlan: AppointmentType["appointmentPlan"] | undefined,
+  appointmentPlan: AppointmentType["appointmentPlan"],
 ): AppointmentPlanFormStep[] =>
-  (appointmentPlan?.steps ?? []).map((step) => ({
+  appointmentPlan.steps.map((step) => ({
     anchorStepId:
       "anchorStepId" in step.timing ? step.timing.anchorStepId : "root",
     appointmentTypeLineageKey: asAppointmentTypeLineageKey(
@@ -1461,8 +1458,7 @@ export function AppointmentTypesManagement({
         const normalizedAppointmentPlan = normalizeAppointmentPlanForSubmit(
           parsedValue.appointmentPlan,
         ).match(
-          (normalizedPlan) =>
-            normalizedPlan.length === 0 ? undefined : normalizedPlan,
+          (normalizedPlan) => normalizedPlan,
           (message) => {
             toast.error("Fehler beim Speichern", {
               description: message,
@@ -1517,10 +1513,7 @@ export function AppointmentTypesManagement({
           };
           const afterState = {
             color: appointmentTypeColorMutationValue(parsedValue.color),
-            appointmentPlan:
-              normalizedAppointmentPlan === undefined
-                ? undefined
-                : { steps: normalizedAppointmentPlan },
+            appointmentPlan: { steps: normalizedAppointmentPlan },
             defaultOccupancy: normalizedDefaultOccupancy,
             duration: parsedValue.duration,
             name: normalizedName,
@@ -1561,7 +1554,7 @@ export function AppointmentTypesManagement({
               allowedPractitionerLineageKeys:
                 afterState.practitionerLineageKeys,
               color: afterState.color ?? undefined,
-              appointmentPlan: afterState.appointmentPlan ?? { steps: [] },
+              appointmentPlan: afterState.appointmentPlan,
               defaultOccupancy: afterState.defaultOccupancy,
               duration: afterState.duration,
               name: afterState.name,
@@ -1597,7 +1590,7 @@ export function AppointmentTypesManagement({
                 practitionerIds: resolvedRedoPractitionerIds.ids,
                 ...getCowMutationArgs(),
                 ...createAppointmentPlanUpdateArgs(
-                  afterState.appointmentPlan?.steps,
+                  afterState.appointmentPlan.steps,
                 ),
               });
               handleDraftMutationResult(redoResult);
@@ -1615,16 +1608,14 @@ export function AppointmentTypesManagement({
               const undoResult = await updateAppointmentTypeMutation({
                 appointmentTypeId: currentAppointmentTypeId,
                 color: beforeState.color ?? null,
-                defaultOccupancy: beforeState.defaultOccupancy ?? {
-                  kind: "selectedPractitioner",
-                },
+                defaultOccupancy: beforeState.defaultOccupancy,
                 duration: beforeState.duration,
                 name: beforeState.name,
                 practiceId,
                 practitionerIds: resolvedUndoPractitionerIds.ids,
                 ...getCowMutationArgs(),
                 ...createAppointmentPlanUpdateArgs(
-                  beforeState.appointmentPlan?.steps,
+                  beforeState.appointmentPlan.steps,
                 ),
               });
               handleDraftMutationResult(undoResult);
@@ -1645,10 +1636,8 @@ export function AppointmentTypesManagement({
                   current.defaultOccupancy,
                   beforeState.defaultOccupancy,
                 ) ||
-                serializeAppointmentPlan(current.appointmentPlan?.steps) !==
-                  serializeAppointmentPlan(
-                    beforeState.appointmentPlan?.steps,
-                  ) ||
+                serializeAppointmentPlan(current.appointmentPlan.steps) !==
+                  serializeAppointmentPlan(beforeState.appointmentPlan.steps) ||
                 !samePractitionerLineageIds(
                   current.allowedPractitionerLineageKeys
                     .map((lineageKey) => asPractitionerLineageKey(lineageKey))
@@ -1669,8 +1658,8 @@ export function AppointmentTypesManagement({
                   current.defaultOccupancy,
                   afterState.defaultOccupancy,
                 ) ||
-                serializeAppointmentPlan(current.appointmentPlan?.steps) !==
-                  serializeAppointmentPlan(afterState.appointmentPlan?.steps) ||
+                serializeAppointmentPlan(current.appointmentPlan.steps) !==
+                  serializeAppointmentPlan(afterState.appointmentPlan.steps) ||
                 !samePractitionerLineageIds(
                   current.allowedPractitionerLineageKeys
                     .map((lineageKey) => asPractitionerLineageKey(lineageKey))
@@ -1713,10 +1702,7 @@ export function AppointmentTypesManagement({
               formPractitionerSnapshots,
             ),
             color: colorSnapshotValue(parsedValue.color),
-            appointmentPlan:
-              normalizedAppointmentPlan === undefined
-                ? { steps: [] }
-                : { steps: normalizedAppointmentPlan },
+            appointmentPlan: { steps: normalizedAppointmentPlan },
             defaultOccupancy: normalizedDefaultOccupancy,
             duration: parsedValue.duration,
             id: asAppointmentTypeId(createResult.entityId),
@@ -1729,10 +1715,7 @@ export function AppointmentTypesManagement({
           const { entityId } = createResult;
           const createdSnapshot = encodeRuleSetSnapshot({
             color: colorSnapshotValue(parsedValue.color),
-            appointmentPlan:
-              normalizedAppointmentPlan === undefined
-                ? undefined
-                : { steps: normalizedAppointmentPlan },
+            appointmentPlan: { steps: normalizedAppointmentPlan },
             duration: parsedValue.duration,
             name: normalizedName,
             practitionerLineageKeys: toSnapshotLineageIds(
@@ -1795,10 +1778,7 @@ export function AppointmentTypesManagement({
                   formPractitionerSnapshots,
                 ),
                 color: colorSnapshotValue(parsedValue.color),
-                appointmentPlan:
-                  normalizedAppointmentPlan === undefined
-                    ? { steps: [] }
-                    : { steps: normalizedAppointmentPlan },
+                appointmentPlan: { steps: normalizedAppointmentPlan },
                 defaultOccupancy: normalizedDefaultOccupancy,
                 duration: parsedValue.duration,
                 id: asAppointmentTypeId(recreateResult.entityId),
@@ -1866,7 +1846,7 @@ export function AppointmentTypesManagement({
                   existing.defaultOccupancy,
                   normalizedDefaultOccupancy,
                 ) ||
-                serializeAppointmentPlan(existing.appointmentPlan?.steps) !==
+                serializeAppointmentPlan(existing.appointmentPlan.steps) !==
                   serializeAppointmentPlan(normalizedAppointmentPlan) ||
                 existing.treeFolderId !== resolvedFolder.folderId ||
                 !samePractitionerLineageIds(
@@ -2481,9 +2461,7 @@ export function AppointmentTypesManagement({
             }
             return {
               appointmentPlan: appointmentType.appointmentPlan,
-              defaultOccupancy: appointmentType.defaultOccupancy ?? {
-                kind: "selectedPractitioner",
-              },
+              defaultOccupancy: appointmentType.defaultOccupancy,
               duration: appointmentType.duration,
               lineageKey: appointmentType.lineageKey,
               name: appointmentType.name,
@@ -2612,9 +2590,9 @@ export function AppointmentTypesManagement({
                     snapshot.defaultOccupancy,
                   ) ||
                   serializeAppointmentPlan(
-                    existingByLineage.appointmentPlan?.steps,
+                    existingByLineage.appointmentPlan.steps,
                   ) !==
-                    serializeAppointmentPlan(snapshot.appointmentPlan?.steps))
+                    serializeAppointmentPlan(snapshot.appointmentPlan.steps))
               ) {
                 return {
                   message: `[HISTORY:APPOINTMENT_TYPE_LINEAGE_CONFLICT] Die Terminart mit lineageKey ${snapshot.lineageKey} existiert bereits, hat aber abweichende Einstellungen.`,
@@ -2757,7 +2735,7 @@ export function AppointmentTypesManagement({
                     allowedPractitionerLineageKeys: toSnapshotLineageIds(
                       snapshot.practitionerSnapshots,
                     ),
-                    appointmentPlan: snapshot.appointmentPlan ?? { steps: [] },
+                    appointmentPlan: snapshot.appointmentPlan,
                     createdAt: 0n,
                     defaultOccupancy: snapshot.defaultOccupancy,
                     duration: snapshot.duration,
@@ -2861,7 +2839,7 @@ export function AppointmentTypesManagement({
                   treeFolderId,
                   ...getCowMutationArgs(),
                   ...createAppointmentPlanCreateArgs(
-                    snapshot.appointmentPlan?.steps,
+                    snapshot.appointmentPlan.steps,
                   ),
                 });
                 handleDraftMutationResult(recreateResult);
@@ -2871,7 +2849,7 @@ export function AppointmentTypesManagement({
                   allowedPractitionerLineageKeys: toSnapshotLineageIds(
                     snapshot.practitionerSnapshots,
                   ),
-                  appointmentPlan: snapshot.appointmentPlan ?? { steps: [] },
+                  appointmentPlan: snapshot.appointmentPlan,
                   createdAt: 0n,
                   defaultOccupancy: snapshot.defaultOccupancy,
                   duration: snapshot.duration,
@@ -3222,9 +3200,7 @@ export function AppointmentTypesManagement({
     try {
       const deletedSnapshot = {
         appointmentPlan: appointmentType.appointmentPlan,
-        defaultOccupancy: appointmentType.defaultOccupancy ?? {
-          kind: "selectedPractitioner",
-        },
+        defaultOccupancy: appointmentType.defaultOccupancy,
         duration: appointmentType.duration,
         lineageKey: appointmentType.lineageKey,
         name: appointmentType.name,
@@ -3292,7 +3268,7 @@ export function AppointmentTypesManagement({
             practitionerIds,
             treeFolderId,
             ...getCowMutationArgs(),
-            ...createAppointmentPlanCreateArgs(snapshot.appointmentPlan?.steps),
+            ...createAppointmentPlanCreateArgs(snapshot.appointmentPlan.steps),
           });
           handleDraftMutationResult(recreateResult);
           return {
@@ -3339,8 +3315,8 @@ export function AppointmentTypesManagement({
               snapshot.defaultOccupancy,
             ) &&
             serializeAppointmentPlan(
-              existingByLineage.appointmentPlan?.steps,
-            ) === serializeAppointmentPlan(snapshot.appointmentPlan?.steps) &&
+              existingByLineage.appointmentPlan.steps,
+            ) === serializeAppointmentPlan(snapshot.appointmentPlan.steps) &&
             samePractitionerLineageIds(
               existingPractitionerLineageIds,
               deletedPractitionerLineageIds,
@@ -3387,7 +3363,7 @@ export function AppointmentTypesManagement({
           allowedPractitionerLineageKeys: toSnapshotLineageIds(
             deletedPractitionerSnapshots,
           ),
-          appointmentPlan: snapshot.appointmentPlan ?? { steps: [] },
+          appointmentPlan: snapshot.appointmentPlan,
           createdAt: 0n,
           defaultOccupancy: snapshot.defaultOccupancy,
           duration: snapshot.duration,

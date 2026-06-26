@@ -57,7 +57,9 @@ async function createAppointmentBaseData(t: TestContext) {
       "appointmentTypes",
       {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Checkup",
@@ -684,7 +686,13 @@ describe("appointments self-service cancellation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [baseData.practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: {
+            calendarResourceColumn: "labor",
+            kind: "resourceColumn",
+          },
+
           duration: 30,
           lastModified: now,
           lineageKey: baseData.appointmentTypeId,
@@ -1091,7 +1099,9 @@ describe("appointments self-service cancellation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Kontrolle",
@@ -1121,6 +1131,7 @@ describe("appointments self-service cancellation", () => {
             ],
           },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Ersttermin",
@@ -1234,7 +1245,9 @@ describe("appointments self-service cancellation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Checkup",
@@ -1334,7 +1347,9 @@ describe("appointments self-service cancellation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Checkup",
@@ -1976,6 +1991,7 @@ describe("appointments update safety", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [baseData.practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
           defaultOccupancy: {
             calendarResourceColumn: "labor",
@@ -2045,6 +2061,7 @@ describe("appointments update safety", () => {
       });
       return await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
         allowedPractitionerLineageKeys: [baseData.practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: BigInt(Date.now()),
         defaultOccupancy: {
           calendarResourceColumn: "labor",
@@ -2957,7 +2974,10 @@ describe("appointments update safety", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
           lastModified: now,
           lineageKey: baseData.appointmentTypeId,
@@ -3165,7 +3185,10 @@ describe("appointments update safety", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [foreignPractitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
           lastModified: now,
           name: "Foreign Type",
@@ -3440,8 +3463,11 @@ describe("appointments update safety", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [deletedPractitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           deleted: true,
+
           duration: 30,
           lastModified: now,
           lineageKey: baseData.appointmentTypeId,
@@ -3903,7 +3929,10 @@ describe("calendar day appointment queries", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [baseData.practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
           lastModified: now,
           lineageKey: baseData.appointmentTypeId,
@@ -4557,7 +4586,10 @@ describe("calendar day appointment queries", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [baseData.practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: BigInt(Date.now()),
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
           lastModified: BigInt(Date.now()),
           lineageKey: baseData.appointmentTypeId,

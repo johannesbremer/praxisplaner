@@ -97,6 +97,8 @@ async function createCopiedCoverageRuleSet(
       ],
       appointmentPlan: { steps: [] },
       createdAt: now,
+      defaultOccupancy: { kind: "selectedPractitioner" },
+
       duration: 30,
       lastModified: now,
       lineageKey: fixture.appointmentTypeId,
@@ -202,6 +204,7 @@ async function createCoverageFixture(
       ],
       appointmentPlan: { steps: [] },
       createdAt: BigInt(Date.now()),
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       lastModified: BigInt(Date.now()),
       name: "Kontrolle",
@@ -280,6 +283,7 @@ async function createSchedulingFixture(
       allowedPractitionerLineageKeys: [practitionerId],
       appointmentPlan: { steps: [] },
       createdAt: BigInt(Date.now()),
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       lastModified: BigInt(Date.now()),
       name: "Kontrolle",
@@ -681,6 +685,8 @@ describe("vacations", () => {
           ],
           appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
           lastModified: now,
           lineageKey: fixture.appointmentTypeId,
@@ -812,6 +818,8 @@ describe("vacations", () => {
         ],
         appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
+
         duration: 30,
         lastModified: now,
         lineageKey: fixture.appointmentTypeId,

@@ -216,7 +216,7 @@ export const conditionTreeTransportValidator = v.object({
 export const appointmentTypeArgsValidator = v.object({
   allowedPractitionerLineageKeys: v.optional(v.array(v.id("practitioners"))),
   appointmentPlan: appointmentPlanValidator,
-  defaultOccupancy: v.optional(appointmentTypeDefaultOccupancyValidator),
+  defaultOccupancy: appointmentTypeDefaultOccupancyValidator,
   duration: v.number(),
   name: v.string(),
   practiceId: v.id("practices"),

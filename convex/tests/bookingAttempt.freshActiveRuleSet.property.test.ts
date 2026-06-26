@@ -74,6 +74,7 @@ describe("booking attempt freshness properties", () => {
               allowedPractitionerLineageKeys: [fixture.practitionerId],
               appointmentPlan: { steps: [] },
               createdAt: now,
+              defaultOccupancy: { kind: "selectedPractitioner" },
               duration: 5,
               lastModified: now,
               lineageKey: fixture.appointmentTypeId,

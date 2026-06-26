@@ -548,7 +548,7 @@ export default defineSchema({
     color: v.optional(appointmentColorValidator),
     appointmentPlan: appointmentPlanValidator,
     createdAt: v.int64(),
-    defaultOccupancy: v.optional(appointmentTypeDefaultOccupancyValidator),
+    defaultOccupancy: appointmentTypeDefaultOccupancyValidator,
     deleted: v.optional(v.boolean()),
     duration: v.number(), // duration in minutes (simplified - no more separate durations table)
     lastModified: v.int64(),

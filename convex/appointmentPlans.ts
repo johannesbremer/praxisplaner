@@ -66,13 +66,13 @@ export const appointmentPlanStepValidator = v.object({
   timing: appointmentPlanTimingValidator,
 });
 
-export const appointmentPlanValidator = v.optional(
-  v.object({
-    steps: v.array(appointmentPlanStepValidator),
-  }),
-);
+export const appointmentPlanValidator = v.object({
+  steps: v.array(appointmentPlanStepValidator),
+});
 
-export type AppointmentPlan = undefined | { steps: AppointmentPlanStep[] };
+export interface AppointmentPlan {
+  steps: AppointmentPlanStep[];
+}
 export type AppointmentPlanOccupancy = Infer<
   typeof appointmentPlanOccupancyValidator
 >;
@@ -120,16 +120,12 @@ export async function getAppointmentTypeByLineageKey(
 export function hasAppointmentPlan(
   appointmentType: Pick<Doc<"appointmentTypes">, "appointmentPlan">,
 ): boolean {
-  return (appointmentType.appointmentPlan?.steps.length ?? 0) > 0;
+  return appointmentType.appointmentPlan.steps.length > 0;
 }
 
 export function normalizeAppointmentPlan(
   appointmentPlan: AppointmentPlan | RawAppointmentPlan,
-): AppointmentPlan | undefined {
-  if (!appointmentPlan || appointmentPlan.steps.length === 0) {
-    return undefined;
-  }
-
+): AppointmentPlan {
   return {
     steps: appointmentPlan.steps.map((step) => ({
       ...step,
@@ -144,9 +140,9 @@ export function normalizeAppointmentPlan(
 }
 
 export function normalizeDefaultOccupancy(
-  defaultOccupancy: AppointmentTypeDefaultOccupancy | undefined,
+  defaultOccupancy: AppointmentTypeDefaultOccupancy,
 ): AppointmentTypeDefaultOccupancy {
-  return defaultOccupancy ?? { kind: "selectedPractitioner" };
+  return defaultOccupancy;
 }
 
 export async function requireAppointmentTypeByLineageKey(
@@ -171,14 +167,14 @@ export async function validateAppointmentPlan(
   db: DatabaseReader | DatabaseWriter,
   ruleSetId: Id<"ruleSets">,
   appointmentPlan: AppointmentPlan | RawAppointmentPlan,
-  currentAppointmentTypeLineageKey?: AppointmentTypeLineageKey,
-  rootDefaultOccupancy?: AppointmentTypeDefaultOccupancy,
+  currentAppointmentTypeLineageKey: AppointmentTypeLineageKey | undefined,
+  rootDefaultOccupancy: AppointmentTypeDefaultOccupancy,
   targetDurationOverrides?: ReadonlyMap<AppointmentTypeLineageKey, number>,
-): Promise<AppointmentPlan | undefined> {
+): Promise<AppointmentPlan> {
   const normalizedPlan = normalizeAppointmentPlan(appointmentPlan);
 
-  if (!normalizedPlan || normalizedPlan.steps.length === 0) {
-    return undefined;
+  if (normalizedPlan.steps.length === 0) {
+    return normalizedPlan;
   }
 
   const seenStepIds = new Set<string>();
@@ -252,7 +248,7 @@ export async function validateAppointmentPlan(
 }
 
 export function validateDefaultOccupancy(
-  defaultOccupancy: AppointmentTypeDefaultOccupancy | undefined,
+  defaultOccupancy: AppointmentTypeDefaultOccupancy,
 ): AppointmentTypeDefaultOccupancy {
   return normalizeDefaultOccupancy(defaultOccupancy);
 }

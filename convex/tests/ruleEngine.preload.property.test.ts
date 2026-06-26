@@ -53,7 +53,9 @@ describe("ruleEngine preloaded day data properties", () => {
             "appointmentTypes",
             {
               allowedPractitionerLineageKeys: [practitionerId],
+              appointmentPlan: { steps: [] },
               createdAt: now,
+              defaultOccupancy: { kind: "selectedPractitioner" },
               duration: 30,
               lastModified: now,
               name: "Property Checkup",

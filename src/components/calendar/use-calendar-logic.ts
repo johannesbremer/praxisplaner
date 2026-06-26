@@ -495,7 +495,7 @@ export function useCalendarLogic({
         .toString();
 
     const rootDefaultOccupancy = rootAppointmentType.defaultOccupancy;
-    if (rootDefaultOccupancy?.kind === "resourceColumn") {
+    if (rootDefaultOccupancy.kind === "resourceColumn") {
       const resourceColumn = columns.find(
         (column) =>
           getCalendarResourceColumnFromColumn(column.id) ===
@@ -1670,7 +1670,7 @@ export function useCalendarLogic({
         : undefined);
     const resourceColumn = getCalendarResourceColumnFromColumn(column);
     if (
-      appointmentTypeInfo.defaultOccupancy?.kind === "resourceColumn" &&
+      appointmentTypeInfo.defaultOccupancy.kind === "resourceColumn" &&
       resourceColumn !==
         appointmentTypeInfo.defaultOccupancy.calendarResourceColumn
     ) {
