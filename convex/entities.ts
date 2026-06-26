@@ -493,9 +493,7 @@ async function validateAppointmentPlansReferencingTargetDuration(
       continue;
     }
 
-    const referencesUpdatedType = (
-      appointmentType.appointmentPlan?.steps ?? []
-    ).some(
+    const referencesUpdatedType = appointmentType.appointmentPlan.steps.some(
       (step) =>
         step.appointmentTypeLineageKey ===
         args.currentAppointmentTypeLineageKey,
@@ -559,9 +557,7 @@ async function validateNoAppointmentPlansReferenceTarget(
       continue;
     }
 
-    const referencesUpdatedType = (
-      appointmentType.appointmentPlan?.steps ?? []
-    ).some(
+    const referencesUpdatedType = appointmentType.appointmentPlan.steps.some(
       (step) =>
         step.appointmentTypeLineageKey ===
         args.currentAppointmentTypeLineageKey,
@@ -1026,7 +1022,7 @@ async function resolvePractitionerLineageKeys(
 export const createAppointmentType = mutation({
   args: {
     appointmentPlan: appointmentPlanValidator,
-    defaultOccupancy: v.optional(appointmentTypeDefaultOccupancyValidator),
+    defaultOccupancy: appointmentTypeDefaultOccupancyValidator,
     duration: v.number(), // duration in minutes
     expectedDraftRevision: expectedDraftRevisionValidator,
     lineageKey: v.optional(v.id("appointmentTypes")),
@@ -1101,7 +1097,7 @@ export const createAppointmentType = mutation({
           currentAppointmentTypeId: existingByLineage._id,
           currentAppointmentTypeLineageKey:
             asAppointmentTypeLineageKey(lineageKey),
-          nextHasAppointmentPlan: (appointmentPlan?.steps.length ?? 0) > 0,
+          nextHasAppointmentPlan: appointmentPlan.steps.length > 0,
           ruleSetId,
         });
         await verifyEntityInUnsavedRuleSet(
@@ -1112,7 +1108,7 @@ export const createAppointmentType = mutation({
         await ctx.db.patch("appointmentTypes", existingByLineage._id, {
           allowedPractitionerLineageKeys:
             normalizedAllowedPractitionerLineageKeys,
-          appointmentPlan: appointmentPlan ?? { steps: [] },
+          appointmentPlan,
           defaultOccupancy,
           deleted: false,
           duration: args.duration,
@@ -1135,7 +1131,7 @@ export const createAppointmentType = mutation({
     // Create the appointment type
     const entityId = await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
       allowedPractitionerLineageKeys: normalizedAllowedPractitionerLineageKeys,
-      appointmentPlan: appointmentPlan ?? { steps: [] },
+      appointmentPlan,
       createdAt: BigInt(Date.now()),
       defaultOccupancy,
       duration: args.duration,
@@ -1160,7 +1156,7 @@ export const updateAppointmentType = mutation({
   args: {
     appointmentPlan: appointmentPlanValidator,
     appointmentTypeId: v.id("appointmentTypes"),
-    defaultOccupancy: v.optional(appointmentTypeDefaultOccupancyValidator),
+    defaultOccupancy: appointmentTypeDefaultOccupancyValidator,
     duration: v.optional(v.number()),
     expectedDraftRevision: expectedDraftRevisionValidator,
     name: v.optional(v.string()),
@@ -1226,39 +1222,22 @@ export const updateAppointmentType = mutation({
       );
       updates.allowedPractitionerLineageKeys = resolved ?? [];
     }
-    const effectiveDefaultOccupancy =
-      args.defaultOccupancy === undefined
-        ? validateDefaultOccupancy(appointmentType.defaultOccupancy)
-        : validateDefaultOccupancy(args.defaultOccupancy);
-    if (args.appointmentPlan !== undefined) {
-      const validatedAppointmentPlan = await validateAppointmentPlan(
-        ctx.db,
-        ruleSetId,
-        args.appointmentPlan,
-        requireAppointmentTypeLineageKey(appointmentType),
-        effectiveDefaultOccupancy,
-      );
-      updates.appointmentPlan = validatedAppointmentPlan ?? { steps: [] };
-    }
-    if (args.defaultOccupancy !== undefined) {
-      const planToValidate =
-        args.appointmentPlan ?? appointmentType.appointmentPlan;
-      await validateAppointmentPlan(
-        ctx.db,
-        ruleSetId,
-        planToValidate,
-        requireAppointmentTypeLineageKey(appointmentType),
-        effectiveDefaultOccupancy,
-      );
-      updates.defaultOccupancy = effectiveDefaultOccupancy;
-    }
+    const effectiveDefaultOccupancy = validateDefaultOccupancy(
+      args.defaultOccupancy,
+    );
+    updates.appointmentPlan = await validateAppointmentPlan(
+      ctx.db,
+      ruleSetId,
+      args.appointmentPlan,
+      requireAppointmentTypeLineageKey(appointmentType),
+      effectiveDefaultOccupancy,
+    );
+    updates.defaultOccupancy = effectiveDefaultOccupancy;
     await validateNoAppointmentPlansReferenceChainTarget(ctx.db, {
       currentAppointmentTypeId: appointmentType._id,
       currentAppointmentTypeLineageKey:
         requireAppointmentTypeLineageKey(appointmentType),
-      nextHasAppointmentPlan:
-        ((updates.appointmentPlan ?? appointmentType.appointmentPlan)?.steps
-          .length ?? 0) > 0,
+      nextHasAppointmentPlan: updates.appointmentPlan.steps.length > 0,
       ruleSetId,
     });
     if (

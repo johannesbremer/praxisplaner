@@ -112,6 +112,7 @@ async function createFlowFixture(
         allowedPractitionerLineageKeys: [practitionerLineageKey],
         appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         lastModified: now,
         name: "Akuttermin",
@@ -1459,7 +1460,10 @@ describe("booking flow without bookingSessions table", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerLineageKey],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
           lastModified: now,
           name: "Draft-only appointment type",

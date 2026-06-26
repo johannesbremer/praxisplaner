@@ -41,7 +41,7 @@ import {
 interface CalendarAppointmentTypeInfo {
   allowedPractitionerLineageKeys: PractitionerLineageKey[];
   appointmentPlan: AppointmentPlan;
-  defaultOccupancy: AppointmentTypeDefaultOccupancy | undefined;
+  defaultOccupancy: AppointmentTypeDefaultOccupancy;
   duration: number;
   hasAppointmentPlan: boolean;
   lineageKey: AppointmentTypeLineageKey;
@@ -442,21 +442,17 @@ export function useCalendarData(args: {
 
       map.set(asAppointmentTypeLineageKey(appointmentType.lineageKey), {
         allowedPractitionerLineageKeys,
-        appointmentPlan:
-          appointmentType.appointmentPlan === undefined
-            ? undefined
-            : {
-                steps: appointmentType.appointmentPlan.steps.map((step) => ({
-                  ...step,
-                  appointmentTypeLineageKey: asAppointmentTypeLineageKey(
-                    step.appointmentTypeLineageKey,
-                  ),
-                })),
-              },
+        appointmentPlan: {
+          steps: appointmentType.appointmentPlan.steps.map((step) => ({
+            ...step,
+            appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+              step.appointmentTypeLineageKey,
+            ),
+          })),
+        },
         defaultOccupancy: appointmentType.defaultOccupancy,
         duration: appointmentType.duration,
-        hasAppointmentPlan:
-          (appointmentType.appointmentPlan?.steps.length ?? 0) > 0,
+        hasAppointmentPlan: appointmentType.appointmentPlan.steps.length > 0,
         lineageKey: asAppointmentTypeLineageKey(appointmentType.lineageKey),
         name: appointmentType.name,
       });

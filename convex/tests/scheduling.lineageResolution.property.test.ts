@@ -47,6 +47,8 @@ describe("scheduling lineage resolution properties", () => {
             allowedPractitionerLineageKeys: [fixture.practitionerId],
             appointmentPlan: { steps: [] },
             createdAt: now,
+            defaultOccupancy: { kind: "selectedPractitioner" },
+
             duration: 5,
             lastModified: now,
             lineageKey: fixture.appointmentTypeId,

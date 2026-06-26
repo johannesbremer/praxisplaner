@@ -47,7 +47,9 @@ describe("ruleEngine preloaded day data", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Checkup",
@@ -175,7 +177,9 @@ describe("ruleEngine preloaded day data", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Simulation Checkup",
@@ -331,7 +335,10 @@ describe("ruleEngine preloaded day data", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [basePractitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
           lastModified: now,
           name: "Checkup",
@@ -344,7 +351,10 @@ describe("ruleEngine preloaded day data", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [basePractitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
           lastModified: now,
           lineageKey: baseAppointmentTypeId,

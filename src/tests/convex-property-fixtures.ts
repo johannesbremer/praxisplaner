@@ -80,6 +80,7 @@ export async function createPropertySchedulingFixture(
         allowedPractitionerLineageKeys: [practitionerId],
         appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 5,
         lastModified: now,
         name: "Property Checkup",

@@ -3,11 +3,12 @@ import { describe, expect, test } from "vitest";
 import { sameAppointmentTypeDefaultOccupancy } from "../utils/appointment-type-default-occupancy";
 
 describe("appointment type default occupancy comparison", () => {
-  test("treats missing occupancy as selected practitioner", () => {
+  test("matches selected practitioner occupancy", () => {
     expect(
-      sameAppointmentTypeDefaultOccupancy(undefined, {
-        kind: "selectedPractitioner",
-      }),
+      sameAppointmentTypeDefaultOccupancy(
+        { kind: "selectedPractitioner" },
+        { kind: "selectedPractitioner" },
+      ),
     ).toBe(true);
   });
 

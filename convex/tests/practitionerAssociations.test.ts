@@ -79,6 +79,7 @@ async function createAssociationFixture(t: TestContext) {
         ],
         appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Checkup",
