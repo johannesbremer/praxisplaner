@@ -529,6 +529,23 @@ async function validateNoAppointmentPlansReferenceChainTarget(
     return;
   }
 
+  await validateNoAppointmentPlansReferenceTarget(db, {
+    currentAppointmentTypeId: args.currentAppointmentTypeId,
+    currentAppointmentTypeLineageKey: args.currentAppointmentTypeLineageKey,
+    message: `Terminart ${args.currentAppointmentTypeLineageKey} wird bereits als Kettentermin-Schritt verwendet und darf deshalb nicht selbst ein Kettentermin sein.`,
+    ruleSetId: args.ruleSetId,
+  });
+}
+
+async function validateNoAppointmentPlansReferenceTarget(
+  db: GenericDatabaseReader<DataModel>,
+  args: {
+    currentAppointmentTypeId: Id<"appointmentTypes">;
+    currentAppointmentTypeLineageKey: AppointmentTypeLineageKey;
+    message: string;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
   const appointmentTypes = await db
     .query("appointmentTypes")
     .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -554,9 +571,7 @@ async function validateNoAppointmentPlansReferenceChainTarget(
       continue;
     }
 
-    throw new Error(
-      `Terminart ${args.currentAppointmentTypeLineageKey} wird bereits als Kettentermin-Schritt verwendet und darf deshalb nicht selbst ein Kettentermin sein.`,
-    );
+    throw new Error(args.message);
   }
 }
 
@@ -1339,6 +1354,14 @@ export const deleteAppointmentType = mutation({
         `[LINEAGE:APPOINTMENT_TYPE_ALREADY_DELETED] Terminart ${appointmentType._id} ist in Regelset ${ruleSetId} bereits gelöscht.`,
       );
     }
+
+    await validateNoAppointmentPlansReferenceTarget(ctx.db, {
+      currentAppointmentTypeId: appointmentType._id,
+      currentAppointmentTypeLineageKey:
+        requireAppointmentTypeLineageKey(appointmentType),
+      message: `Terminart ${requireAppointmentTypeLineageKey(appointmentType)} wird als Kettentermin-Schritt verwendet und kann deshalb nicht gelöscht werden.`,
+      ruleSetId,
+    });
 
     // SAFETY: Verify entity belongs to unsaved rule set before deleting
     await verifyEntityInUnsavedRuleSet(

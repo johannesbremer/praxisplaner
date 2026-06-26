@@ -3936,11 +3936,10 @@ describe("appointment series", () => {
       practitionerIds: [practitionerId],
       selectedRuleSetId: grandchild.ruleSetId,
     });
-    const deletedChild = await t.mutation(api.entities.deleteAppointmentType, {
-      appointmentTypeId: child.entityId,
-      expectedDraftRevision: parent.draftRevision,
-      practiceId,
-      selectedRuleSetId: parent.ruleSetId,
+    await t.run(async (ctx) => {
+      await ctx.db.patch("appointmentTypes", child.entityId, {
+        deleted: true,
+      });
     });
 
     await expect(
@@ -3961,14 +3960,61 @@ describe("appointment series", () => {
           ],
         },
         duration: 10,
-        expectedDraftRevision: deletedChild.draftRevision,
+        expectedDraftRevision: parent.draftRevision,
         lineageKey: child.entityId,
         name: "Child restored as chain",
         practiceId,
         practitionerIds: [practitionerId],
-        selectedRuleSetId: deletedChild.ruleSetId,
+        selectedRuleSetId: parent.ruleSetId,
       }),
     ).rejects.toThrow("wird bereits als Kettentermin-Schritt verwendet");
+  });
+
+  test("deleteAppointmentType rejects targets referenced by appointment plans", async () => {
+    const t = createAuthedTestContext();
+    const { practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const child = await t.mutation(api.entities.createAppointmentType, {
+      duration: 10,
+      expectedDraftRevision: null,
+      name: "Child",
+      practiceId,
+      practitionerIds: [practitionerId],
+      selectedRuleSetId: ruleSetId,
+    });
+    const parent = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: {
+        steps: [
+          {
+            appointmentTypeLineageKey: child.entityId,
+            occupancy: { kind: "inheritRootPractitioner" },
+            required: true,
+            stepId: "step-1",
+            timing: {
+              kind: "afterPreviousEnd",
+              offsetUnit: "minutes",
+              offsetValue: 0,
+            },
+          },
+        ],
+      },
+      duration: 10,
+      expectedDraftRevision: child.draftRevision,
+      name: "Parent",
+      practiceId,
+      practitionerIds: [practitionerId],
+      selectedRuleSetId: child.ruleSetId,
+    });
+
+    await expect(
+      t.mutation(api.entities.deleteAppointmentType, {
+        appointmentTypeId: child.entityId,
+        expectedDraftRevision: parent.draftRevision,
+        practiceId,
+        selectedRuleSetId: parent.ruleSetId,
+      }),
+    ).rejects.toThrow("kann deshalb nicht gelöscht werden");
   });
 
   test("createAppointmentType allows an empty practitioner allowlist", async () => {
@@ -5343,6 +5389,60 @@ describe("appointment series", () => {
       locationLineageKey: locationId,
       status: "available",
     });
+  });
+
+  test("candidate slot decisions reject deleted appointment types", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const appointmentType = await t.mutation(
+      api.entities.createAppointmentType,
+      {
+        duration: 20,
+        expectedDraftRevision: null,
+        name: "Deleted Type",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      },
+    );
+    const deletedAppointmentType = await t.mutation(
+      api.entities.deleteAppointmentType,
+      {
+        appointmentTypeId: appointmentType.entityId,
+        expectedDraftRevision: appointmentType.draftRevision,
+        practiceId,
+        selectedRuleSetId: appointmentType.ruleSetId,
+      },
+    );
+
+    const start = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const decisions = await t.query(
+      api.appointments.getCandidateSlotDecisionsForStaffPlacement,
+      {
+        appointmentTypeId: appointmentType.entityId,
+        candidates: [
+          {
+            duration: 20,
+            locationLineageKey: locationId,
+            practitionerLineageKey: practitionerId,
+            practitionerName: "Dr. Deleted",
+            startTime: start,
+          },
+        ],
+        locationId,
+        practiceId,
+        ruleSetId: deletedAppointmentType.ruleSetId,
+      },
+    );
+
+    expect(decisions).toEqual([]);
   });
 
   test("series next-available search skips practitioners disallowed for the root type", async () => {

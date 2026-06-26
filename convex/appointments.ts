@@ -2896,7 +2896,8 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
     );
     if (
       appointmentType?.practiceId !== args.practiceId ||
-      appointmentType.ruleSetId !== args.ruleSetId
+      appointmentType.ruleSetId !== args.ruleSetId ||
+      isRuleSetEntityDeleted(appointmentType)
     ) {
       return [];
     }
