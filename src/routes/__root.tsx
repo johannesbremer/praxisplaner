@@ -174,17 +174,23 @@ function PostHogClientRegistrar() {
 
 function PostHogIdentitySync() {
   const posthog = usePostHog();
-  const { user } = useAuth();
+  const { isLoading, user } = useAuth();
   const identifiedUserSignatureRef = React.useRef<null | string>(null);
+  const resetUnauthenticatedIdentityRef = React.useRef(false);
   const userIdentitySignature = user
     ? getPostHogUserIdentitySignature(user)
     : null;
 
   React.useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
     if (!user) {
-      if (identifiedUserSignatureRef.current) {
-        resetPostHogIdentity();
-        identifiedUserSignatureRef.current = null;
+      identifiedUserSignatureRef.current = null;
+      if (!resetUnauthenticatedIdentityRef.current) {
+        resetPostHogIdentity(posthog);
+        resetUnauthenticatedIdentityRef.current = true;
       }
       return;
     }
@@ -195,7 +201,8 @@ function PostHogIdentitySync() {
 
     identifyPostHogUser(posthog, user);
     identifiedUserSignatureRef.current = userIdentitySignature;
-  }, [posthog, user, userIdentitySignature]);
+    resetUnauthenticatedIdentityRef.current = false;
+  }, [isLoading, posthog, user, userIdentitySignature]);
 
   return null;
 }

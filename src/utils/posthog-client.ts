@@ -132,8 +132,10 @@ export function registerPostHogClient(posthog: PostHog) {
   }
 }
 
-export function resetPostHogIdentity() {
-  registeredPostHogClient?.reset();
+export function resetPostHogIdentity(posthog?: PostHog) {
+  const targetPostHog =
+    posthog ?? registeredPostHogClient ?? initializedPostHogClient;
+  targetPostHog?.reset();
 }
 
 export function stopPostHogSessionReplayForBookingRoute() {
