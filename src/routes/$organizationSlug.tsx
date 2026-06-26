@@ -52,9 +52,15 @@ import {
   wrapAsyncResult,
 } from "../utils/frontend-errors";
 import { readOrganizationSlugParam } from "../utils/organization-route-params";
-import { resetPostHogIdentity } from "../utils/posthog-client";
+import {
+  resetPostHogIdentity,
+  stopPostHogSessionReplayForBookingRoute,
+} from "../utils/posthog-client";
 
 export const Route = createFileRoute("/$organizationSlug")({
+  beforeLoad: () => {
+    stopPostHogSessionReplayForBookingRoute();
+  },
   component: BookingPage,
 });
 
