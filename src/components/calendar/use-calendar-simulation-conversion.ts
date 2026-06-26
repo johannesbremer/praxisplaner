@@ -89,7 +89,6 @@ interface UseCalendarSimulationConversionArgs {
     locationId: Id<"locations">;
     occupancyScope:
       | { calendarResourceColumn: "ekg" | "labor"; kind: "resource" }
-      | { kind: "location-wide" }
       | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
     practiceId: Id<"practices">;
     replacesBlockedSlotId?: Id<"blockedSlots">;
@@ -513,18 +512,16 @@ export function useCalendarSimulationConversion({
 
       const hasExplicitResourceTarget =
         options.calendarResourceColumn !== undefined;
-      const practitionerId =
-        hasExplicitResourceTarget && options.calendarResourceColumn !== null
-          ? undefined
-          : (options.practitionerId ??
-            (!hasExplicitResourceTarget &&
-            original.placement.occupancyScope.kind === "practitioner"
-              ? getPractitionerIdForLineageKey(
-                  original.placement.occupancyScope.practitionerLineageKey,
-                )
-              : undefined));
+      const practitionerId = hasExplicitResourceTarget
+        ? undefined
+        : (options.practitionerId ??
+          (original.placement.occupancyScope.kind === "practitioner"
+            ? getPractitionerIdForLineageKey(
+                original.placement.occupancyScope.practitionerLineageKey,
+              )
+            : undefined));
       const calendarResourceColumn = hasExplicitResourceTarget
-        ? (options.calendarResourceColumn ?? undefined)
+        ? options.calendarResourceColumn
         : practitionerId === undefined &&
             original.placement.occupancyScope.kind === "resource"
           ? original.placement.occupancyScope.calendarResourceColumn
@@ -532,12 +529,19 @@ export function useCalendarSimulationConversion({
       const occupancyScope =
         calendarResourceColumn === undefined
           ? practitionerId === undefined
-            ? { kind: "location-wide" as const }
-            : { kind: "practitioner" as const, practitionerId }
+            ? null
+            : {
+                kind: "practitioner" as const,
+                practitionerId,
+              }
           : {
               calendarResourceColumn,
               kind: "resource" as const,
             };
+      if (occupancyScope === null) {
+        toast.error("Sperrungs-Referenzen konnten nicht aufgelöst werden.");
+        return null;
+      }
       const startISO = options.startISO ?? original.start;
       const endISO = options.endISO ?? original.end;
       const title = options.title || original.title || "Gesperrter Zeitraum";

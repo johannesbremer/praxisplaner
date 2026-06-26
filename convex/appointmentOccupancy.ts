@@ -56,9 +56,6 @@ export const blockedSlotOccupancyScopeValidator = v.union(
     calendarResourceColumn: calendarResourceColumnValidator,
     kind: v.literal("resource"),
   }),
-  v.object({
-    kind: v.literal("location-wide"),
-  }),
 );
 
 export function appointmentOccupancyScopeFromRefs(args: {
@@ -94,7 +91,7 @@ export function appointmentOccupancyScopeFromRefs(args: {
 }
 
 export function blockedSlotOccupancyScopeFromPractitionerRef(
-  practitionerLineageKey?: Id<"practitioners">,
+  practitionerLineageKey: Id<"practitioners">,
 ): BlockedSlotOccupancyScope {
   return blockedSlotOccupancyScopeFromPractitioner(practitionerLineageKey);
 }

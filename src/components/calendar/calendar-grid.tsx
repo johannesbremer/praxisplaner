@@ -297,10 +297,7 @@ export function CalendarGrid({
         }
 
         const isDragging = draggedBlockedSlotId === id;
-        const slotCount = Math.max(
-          1,
-          Math.ceil(firstSlot.duration / slotDuration),
-        );
+        const slotCount = Math.max(1, slots.length);
 
         return (
           <CalendarBlockedSlot

@@ -72,14 +72,9 @@ describe("calendar occupancy", () => {
   });
 
   test("creates blocked slot occupancy from explicit practitioner intent", () => {
-    const noPractitioner: PractitionerKey | undefined = undefined;
-
     expect(blockedSlotOccupancyScopeFromPractitioner("doc-1")).toEqual({
       kind: "practitioner",
       practitionerLineageKey: "doc-1",
-    });
-    expect(blockedSlotOccupancyScopeFromPractitioner(noPractitioner)).toEqual({
-      kind: "location-wide",
     });
   });
 
@@ -162,6 +157,9 @@ describe("calendar occupancy", () => {
   test("keeps appointment, blocked-slot, and column scope types distinct", () => {
     expectTypeOf(locationWide).not.toExtend<
       AppointmentOccupancyScope<PractitionerKey>
+    >();
+    expectTypeOf(locationWide).not.toExtend<
+      BlockedSlotOccupancyScope<PractitionerKey>
     >();
     expectTypeOf(ekg).toExtend<BlockedSlotOccupancyScope<PractitionerKey>>();
     expectTypeOf(locationWide).not.toExtend<
