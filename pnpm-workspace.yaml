@@ -1,7 +1,16 @@
+allowBuilds:
+  "@ffmpeg-installer/darwin-arm64": true
+  core-js: true
+  esbuild: true
+  protobufjs: true
+  sharp: true
 onlyBuiltDependencies:
+  - "@ffmpeg-installer/darwin-arm64"
   - core-js
   - esbuild
   - msw
+  - protobufjs
+  - sharp
 overrides:
   cookie@<0.7.0: ">=0.7.0"
   qs@>=6.11.1 <=6.15.1: ">=6.15.2"
