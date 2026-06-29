@@ -2199,6 +2199,7 @@ describe("appointments update safety", () => {
     await insertBlockedSlotRecord(t, {
       locationId: baseData.locationId,
       practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
       title: "Standortweite Sperrung",
       window,
     });
@@ -2294,6 +2295,7 @@ describe("appointments update safety", () => {
     await insertBlockedSlotRecord(t, {
       locationId: baseData.locationId,
       practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
       title: "Standortweite Sperrung",
       window: blockedWindow,
     });

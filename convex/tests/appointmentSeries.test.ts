@@ -5967,7 +5967,10 @@ describe("appointment series", () => {
         end: blockedEnd,
         lastModified: now,
         locationLineageKey: locationId,
-        occupancyScope: { kind: "location-wide" },
+        occupancyScope: {
+          calendarResourceColumn: "ekg",
+          kind: "resource",
+        },
         practiceId,
         start: blockedStart,
         title: "Standort gesperrt",

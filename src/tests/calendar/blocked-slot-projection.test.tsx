@@ -41,11 +41,14 @@ describe("useCalendarBlockedSlotProjection", () => {
     const minute = Number(minuteText);
     return (hour * 60 + minute - businessStartMinutes) / SLOT_DURATION;
   };
+  const noPractitionerIdForLineageKey = (): Id<"practitioners"> | undefined => {
+    return;
+  };
 
   function renderProjection(args: {
     appointmentSeriesRootBlockedSlots?: {
-      calendarResourceColumn?: "ekg" | "labor";
       blockingRuleIds?: Id<"ruleConditions">[];
+      calendarResourceColumn?: "ekg" | "labor";
       canOverride: boolean;
       duration: number;
       practitionerLineageKey?: typeof rawPractitionerLineageId;
@@ -82,7 +85,10 @@ describe("useCalendarBlockedSlotProjection", () => {
         columns: [
           { id: practitionerColumn, title: "Dr. Chain" },
           { id: calendarColumnScopeFromResourceColumn("ekg"), title: "EKG" },
-          { id: calendarColumnScopeFromResourceColumn("labor"), title: "Labor" },
+          {
+            id: calendarColumnScopeFromResourceColumn("labor"),
+            title: "Labor",
+          },
         ],
         getPractitionerIdForLineageKey: (lineageKey) =>
           lineageKey === practitionerLineageKey ? practitionerId : undefined,
@@ -116,7 +122,6 @@ describe("useCalendarBlockedSlotProjection", () => {
       useCalendarBlockedSlotProjection({
         appointmentsData: [],
         appointmentSeriesRootBlockedSlots: undefined,
-        appointmentSeriesRootPendingCandidates: undefined,
         appointmentTypeSelected: false,
         baseSchedulesData: undefined,
         blockedSlotsData: [
@@ -133,7 +138,7 @@ describe("useCalendarBlockedSlotProjection", () => {
         blockedSlotsWithoutAppointmentTypeSlots: undefined,
         businessStartHour: 8,
         columns: [{ id: laborColumn, title: "Labor" }],
-        getPractitionerIdForLineageKey: () => undefined,
+        getPractitionerIdForLineageKey: noPractitionerIdForLineageKey,
         locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
         practitionerLineageKeyById: new Map(),
         selectedDate: Temporal.PlainDate.from("2026-04-24"),
