@@ -109,6 +109,7 @@
     "@eslint/js": "^9.39.4",
     "@eslint/markdown": "^8.0.2",
     "@playwright/test": "^1.61.0",
+    "@posthog/cli": "^0.7.33",
     "@rolldown/plugin-babel": "^0.2.3",
     "@tailwindcss/postcss": "^4.3.1",
     "@tanstack/devtools-vite": "^0.7.0",

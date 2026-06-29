@@ -33,6 +33,9 @@ export default defineConfig(({ command }) => {
     : basePlugins;
 
   return {
+    build: {
+      sourcemap: true,
+    },
     define: {
       __ENABLE_DEVTOOLS__: JSON.stringify(enableDevtoolsRuntime),
     },
