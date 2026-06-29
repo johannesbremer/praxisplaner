@@ -2372,4 +2372,75 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     expect(practitioners).toHaveLength(1);
     expect(practitioners[0]?.lineageKey).toEqual(seeded.practitioner1Id);
   });
+
+  test("creating a draft from a saved rule set preserves appointment type and folder colors", async () => {
+    const t = createAuthedTestContext();
+    const practiceId = await createPractice(t);
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
+
+    const seeded = await t.run(async (ctx) => {
+      const practitionerId = await insertWithLineage(ctx, "practitioners", {
+        name: "Dr. Color",
+        practiceId,
+        ruleSetId: initialRuleSetId,
+      });
+      const folderId = await ctx.db.insert("appointmentTypeFolders", {
+        color: "green",
+        createdAt: BigInt(Date.now()),
+        lastModified: BigInt(Date.now()),
+        name: "Color Folder",
+        practiceId,
+        ruleSetId: initialRuleSetId,
+      });
+      const appointmentTypeId = await insertWithLineage(
+        ctx,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [practitionerId],
+          color: "yellow",
+          createdAt: BigInt(Date.now()),
+          duration: 30,
+          lastModified: BigInt(Date.now()),
+          name: "Color Appointment Type",
+          practiceId,
+          ruleSetId: initialRuleSetId,
+          treeFolderId: folderId,
+        },
+      );
+
+      return { appointmentTypeId, folderId, practitionerId };
+    });
+
+    const draft = await t.mutation(api.entities.createAppointmentType, {
+      duration: 30,
+      expectedDraftRevision: null,
+      name: "Draft Trigger",
+      practiceId,
+      practitionerIds: [seeded.practitionerId],
+      selectedRuleSetId: initialRuleSetId,
+    });
+
+    const copied = await t.run(async (ctx) => {
+      const copiedFolders = await ctx.db
+        .query("appointmentTypeFolders")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", draft.ruleSetId))
+        .collect();
+      const copiedFolder = copiedFolders.find(
+        (folder) => folder.lineageKey === seeded.folderId,
+      );
+      const copiedAppointmentType = await ctx.db
+        .query("appointmentTypes")
+        .withIndex("by_ruleSetId_lineageKey", (q) =>
+          q
+            .eq("ruleSetId", draft.ruleSetId)
+            .eq("lineageKey", seeded.appointmentTypeId),
+        )
+        .first();
+
+      return { copiedAppointmentType, copiedFolder };
+    });
+
+    expect(copied.copiedFolder?.color).toBe("green");
+    expect(copied.copiedAppointmentType?.color).toBe("yellow");
+  });
 });

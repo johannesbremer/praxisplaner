@@ -2186,6 +2186,7 @@ export async function createAppointmentFromTrustedSource(
       ...(replacesAppointmentId && {
         rootReplacesAppointmentId: replacesAppointmentId,
       }),
+      ...(requestedColor !== undefined && { rootColor: requestedColor }),
       ...(smiley !== undefined && { rootSmiley: smiley }),
       rootTitle: title.trim(),
       ruleSetId: activeAppointmentType.ruleSetId,
@@ -2435,6 +2436,22 @@ export const createAppointment = mutation({
     return await createAppointmentFromTrustedSource(ctx, args);
   },
   returns: v.id("appointments"),
+});
+
+export const getAppointmentColor = query({
+  args: {
+    appointmentId: v.id("appointments"),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const appointment = await ctx.db.get("appointments", args.appointmentId);
+    if (!appointment) {
+      throw new Error("Appointment not found.");
+    }
+    await requirePracticeStaff(ctx, appointment.practiceId);
+    return appointment.color ?? DEFAULT_APPOINTMENT_COLOR;
+  },
+  returns: appointmentColorValidator,
 });
 
 export const restoreDeletedAppointment = mutation({

@@ -284,6 +284,9 @@ export async function copyAppointmentTypes(
 
     const newFolderId = await db.insert("appointmentTypeFolders", {
       createdAt: sourceFolder.createdAt,
+      ...(sourceFolder.color === undefined
+        ? {}
+        : { color: sourceFolder.color }),
       lastModified: BigInt(Date.now()),
       lineageKey: sourceFolder.lineageKey ?? sourceFolder._id,
       name: sourceFolder.name,
@@ -327,6 +330,7 @@ export async function copyAppointmentTypes(
         ),
       createdAt: sourceType.createdAt,
       duration: sourceType.duration,
+      ...(sourceType.color === undefined ? {} : { color: sourceType.color }),
       ...(sourceType.followUpPlan && { followUpPlan: sourceType.followUpPlan }),
       lastModified: BigInt(Date.now()),
       lineageKey: requireLineageKey({

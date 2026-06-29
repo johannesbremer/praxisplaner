@@ -47,6 +47,7 @@ describe("calendar planning replay", () => {
           payload: {
             appointmentTypeLineageKey,
             appointmentTypeTitle: "Check-up",
+            color: "blue",
             createArgs: {
               appointmentTypeId,
               isSimulation: false,
@@ -203,6 +204,7 @@ describe("calendar planning replay", () => {
           payload: {
             appointmentTypeLineageKey,
             appointmentTypeTitle: "Check-up",
+            color: "blue",
             createArgs: {
               appointmentTypeId,
               isSimulation: false,
@@ -732,6 +734,7 @@ describe("calendar planning replay", () => {
       payload: {
         appointmentTypeLineageKey,
         appointmentTypeTitle: "Check-up",
+        color: "blue" as const,
         createArgs: {
           appointmentTypeId,
           isSimulation: false,

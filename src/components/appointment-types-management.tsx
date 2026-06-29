@@ -218,13 +218,25 @@ const appointmentColorSelectionOptions = (
   ...(includeInherit
     ? [
         {
-          label: "Erben",
-          searchText: "inherit erben inherited geerbt",
+          icon: (
+            <span className="size-3 shrink-0 rounded-[2px] border border-dashed border-muted-foreground/70 bg-transparent" />
+          ),
+          label: "Keine Farbe",
+          searchText: "inherit erben inherited geerbt keine farbe",
           value: "inherit",
         },
       ]
     : []),
   ...APPOINTMENT_COLOR_OPTIONS.map((option) => ({
+    icon: (
+      <span
+        className="size-3 shrink-0 rounded-[2px] border"
+        style={{
+          backgroundColor: option.background,
+          borderColor: option.border,
+        }}
+      />
+    ),
     label: option.label,
     searchText: `${option.label} ${option.value}`,
     value: option.value,

@@ -5651,4 +5651,120 @@ describe("calendar day appointment queries", () => {
 
     expect(restoredAppointment?.color).toBe("yellow");
   });
+
+  test("restoreDeletedAppointment preserves the deleted color for restored series roots", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_restore_series_color";
+    const userId = await createUser(
+      t,
+      authId,
+      "restore-series-color@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "restore-series-color@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      for (const dayOfWeek of [1, 2, 3, 4, 5]) {
+        await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+          dayOfWeek,
+          endTime: "17:00",
+          locationLineageKey: baseData.locationId,
+          practiceId: baseData.practiceId,
+          practitionerLineageKey: baseData.practitionerId,
+          ruleSetId: baseData.ruleSetId,
+          startTime: "08:00",
+        });
+      }
+      const now = BigInt(Date.now());
+      const followUpTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [baseData.practitionerId],
+          createdAt: now,
+          duration: 30,
+          lastModified: now,
+          name: "Follow-up",
+          practiceId: baseData.practiceId,
+          ruleSetId: baseData.ruleSetId,
+        },
+      );
+      await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        color: "yellow",
+        followUpPlan: [
+          {
+            appointmentTypeLineageKey: followUpTypeId,
+            locationMode: "inherit",
+            offsetUnit: "days",
+            offsetValue: 2,
+            practitionerMode: "inherit",
+            required: true,
+            searchMode: "first_available_on_or_after",
+            stepId: "step-1",
+          },
+        ],
+      });
+    });
+
+    const originalAppointmentId = await insertAppointment(t, {
+      appointmentTypeId: baseData.appointmentTypeId,
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      userId,
+      window: {
+        end: nextWeekday(1)
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: nextWeekday(1)
+          .toZonedDateTime({
+            plainTime: { hour: 10, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch("appointments", originalAppointmentId, {
+        color: "yellow",
+      });
+    });
+
+    await expect(
+      authed.mutation(api.appointments.deleteAppointment, {
+        id: originalAppointmentId,
+      }),
+    ).resolves.toBeNull();
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        color: "green",
+      });
+    });
+
+    const restoredAppointmentId = await authed.mutation(
+      api.appointments.restoreDeletedAppointment,
+      {
+        originalAppointmentId,
+      },
+    );
+    const restoredAppointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", restoredAppointmentId);
+    });
+
+    expect(restoredAppointment?.color).toBe("yellow");
+    expect(restoredAppointment?.seriesStepIndex).toBe(0n);
+  });
 });

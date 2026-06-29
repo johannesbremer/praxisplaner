@@ -1,6 +1,6 @@
 import type { FunctionArgs } from "convex/server";
 
-import { useMutation } from "convex/react";
+import { useConvex, useMutation } from "convex/react";
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
@@ -11,6 +11,7 @@ import type {
   LocationLineageKey,
   PractitionerLineageKey,
 } from "../../../convex/identity";
+import type { AppointmentColor } from "../../../convex/schema";
 import type { ZonedDateTimeString } from "../../../convex/typedDtos";
 import type { LedgerOperation } from "../../utils/command-ledger";
 import type { CalendarPlanningCommand } from "./calendar-planning-command";
@@ -251,6 +252,7 @@ interface CreatedAppointmentHistoryArgs extends AppointmentOwnerRefs {
   appointmentId: Id<"appointments">;
   appointmentTypeLineageKey: AppointmentTypeLineageKey;
   appointmentTypeTitle: string;
+  color: AppointmentColor;
   end: CalendarAppointmentRecord["end"];
   isSimulation: boolean;
   now: number;
@@ -347,6 +349,7 @@ export function useCalendarPlanningWorkbench(args: {
   referenceMaps: CalendarReferenceMaps;
   refreshAllPracticeConflictData: () => Promise<void>;
 }) {
+  const convex = useConvex();
   const {
     blockedSlotsQueryArgs,
     calendarDayQueryArgs,
@@ -551,7 +554,7 @@ export function useCalendarPlanningWorkbench(args: {
         appointmentTypeLineageKey: args.appointmentTypeLineageKey,
         appointmentTypeTitle: args.appointmentTypeTitle,
         ...getAppointmentOwnerRefs(args),
-        color: DEFAULT_APPOINTMENT_COLOR,
+        color: args.color,
         createdAt: BigInt(args.now),
         end: args.end,
         isSimulation: args.isSimulation,
@@ -709,6 +712,7 @@ export function useCalendarPlanningWorkbench(args: {
       createdArgs: AppointmentOwnerRefs & {
         appointmentTypeLineageKey: AppointmentTypeLineageKey;
         appointmentTypeTitle: string;
+        color: AppointmentColor;
         createdId: Id<"appointments">;
         createEnd: string;
         createStart: string;
@@ -735,6 +739,7 @@ export function useCalendarPlanningWorkbench(args: {
         appointmentId: createdArgs.createdId,
         appointmentTypeLineageKey: createdArgs.appointmentTypeLineageKey,
         appointmentTypeTitle: createdArgs.appointmentTypeTitle,
+        color: createdArgs.color,
         ...getAppointmentOwnerRefs(createdArgs),
         end,
         isSimulation: createdArgs.isSimulation,
@@ -1625,9 +1630,16 @@ export function useCalendarPlanningWorkbench(args: {
         toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
         return createdId;
       }
+      const persistedColor = await convex.query(
+        api.appointments.getAppointmentColor,
+        {
+          appointmentId: createdId,
+        },
+      );
       rememberCreatedAppointmentFromStrings({
         appointmentTypeLineageKey,
         appointmentTypeTitle: appointmentTypeInfo.name,
+        color: persistedColor,
         ...getAppointmentOwnerRefs(createArgs),
         createdId,
         createEnd,
@@ -1647,6 +1659,7 @@ export function useCalendarPlanningWorkbench(args: {
         payload: {
           appointmentTypeLineageKey,
           appointmentTypeTitle: appointmentTypeInfo.name,
+          color: persistedColor,
           createArgs,
           createEnd,
           currentAppointmentId: createdId,
@@ -1659,6 +1672,7 @@ export function useCalendarPlanningWorkbench(args: {
     [
       createAppointmentMutation,
       createAppointmentMutationArgsFromCommand,
+      convex,
       getAppointmentCreationEnd,
       getRequiredAppointmentTypeInfo,
       recordCalendarCommand,

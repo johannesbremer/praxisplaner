@@ -5,7 +5,7 @@ import type { InstantString, IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { InternalSchedulingResultSlot } from "./scheduling";
-import type { AppointmentSmiley } from "./schema";
+import type { AppointmentColor, AppointmentSmiley } from "./schema";
 import type { ZonedDateTimeString } from "./typedDtos";
 
 import { internal } from "./_generated/api";
@@ -179,6 +179,7 @@ export async function createAppointmentSeries(
     practiceId: Id<"practices">;
     practitionerId: Id<"practitioners">;
     rootAppointmentTypeId: Id<"appointmentTypes">;
+    rootColor?: AppointmentColor;
     rootReplacesAppointmentId?: Id<"appointments">;
     rootSmiley?: AppointmentSmiley;
     rootTitle: string;
@@ -286,7 +287,10 @@ export async function createAppointmentSeries(
       ...(args.bookingIdentityId && {
         bookingIdentityId: args.bookingIdentityId,
       }),
-      color: await resolveAppointmentColorForType(ctx.db, stepAppointmentType),
+      color:
+        index === 0 && args.rootColor !== undefined
+          ? args.rootColor
+          : await resolveAppointmentColorForType(ctx.db, stepAppointmentType),
       createdAt: now,
       end: step.end,
       ...(scope === "simulation" && {

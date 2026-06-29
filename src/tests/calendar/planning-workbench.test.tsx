@@ -35,8 +35,12 @@ const recordCalendarCommand =
   vi.fn<(command: CalendarPlanningCommand) => void>();
 let executeRecordedCalendarCommand: CalendarPlanningCommandExecutor | null =
   null;
+const convexQuery = vi.fn(() => Promise.resolve("blue"));
 
 vi.mock("convex/react", () => ({
+  useConvex: () => ({
+    query: convexQuery,
+  }),
   useMutation: () => {
     const mutation = mutationQueue.shift();
     if (!mutation) {
@@ -100,6 +104,8 @@ const parseZonedDateTime = (value: string, source: string) =>
 describe("calendar planning workbench", () => {
   beforeEach(() => {
     mutationQueue.length = 0;
+    convexQuery.mockReset();
+    convexQuery.mockResolvedValue("blue");
     recordCalendarCommand.mockReset();
     executeRecordedCalendarCommand = null;
   });
