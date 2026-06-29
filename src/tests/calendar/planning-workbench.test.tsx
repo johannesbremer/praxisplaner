@@ -211,6 +211,7 @@ describe("calendar planning workbench", () => {
         blockedSlotsQueryArgs: null,
         calendarDayQueryArgs: null,
         getRequiredAppointmentTypeInfo: () => ({
+          color: "blue",
           duration: 30,
           hasFollowUpPlan: false,
           name: "Check-up",
@@ -318,6 +319,7 @@ describe("calendar planning workbench", () => {
         blockedSlotsQueryArgs: null,
         calendarDayQueryArgs: null,
         getRequiredAppointmentTypeInfo: () => ({
+          color: "blue",
           duration: 30,
           hasFollowUpPlan: false,
           name: "Check-up",
@@ -421,6 +423,7 @@ describe("calendar planning workbench", () => {
           selectedRuleSetId: ruleSetId,
         },
         getRequiredAppointmentTypeInfo: () => ({
+          color: "blue",
           duration: 30,
           hasFollowUpPlan: false,
           name: "Check-up",
@@ -523,6 +526,7 @@ describe("calendar planning workbench", () => {
           selectedRuleSetId: ruleSetId,
         },
         getRequiredAppointmentTypeInfo: () => ({
+          color: "blue",
           duration: 30,
           hasFollowUpPlan: false,
           name: "Check-up",
@@ -605,6 +609,7 @@ describe("calendar planning workbench", () => {
         blockedSlotsQueryArgs: null,
         calendarDayQueryArgs: null,
         getRequiredAppointmentTypeInfo: () => ({
+          color: "blue",
           duration: 30,
           hasFollowUpPlan: false,
           name: "Check-up",

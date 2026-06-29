@@ -1276,11 +1276,33 @@ export const getAppointmentTypeFolders = query({
     if (!(await ruleSetExists(ctx, args.ruleSetId))) {
       return [];
     }
-    await requireManagerRuleSetScope(ctx, args.ruleSetId);
+    await requireRuleSetMember(ctx, args.ruleSetId);
 
     const folders = await ctx.db
       .query("appointmentTypeFolders")
       .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+      .collect();
+
+    return folders.filter((folder) => !isDeletedRuleSetEntity(folder));
+  },
+});
+
+export const getAppointmentTypeFoldersFromActive = query({
+  args: {
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await requirePracticeStaff(ctx, args.practiceId);
+    const practice = await ctx.db.get("practices", args.practiceId);
+    if (!practice?.currentActiveRuleSetId) {
+      return [];
+    }
+    const ruleSetId = practice.currentActiveRuleSetId;
+
+    const folders = await ctx.db
+      .query("appointmentTypeFolders")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
       .collect();
 
     return folders.filter((folder) => !isDeletedRuleSetEntity(folder));
