@@ -27,6 +27,13 @@ append_convex_deploy_selection_env() {
   append_if_set CONVEX_SELF_HOSTED_ADMIN_KEY "$file"
 }
 
+append_posthog_cli_env() {
+  file="$1"
+  append_if_set POSTHOG_CLI_HOST "$file"
+  append_if_set POSTHOG_CLI_PROJECT_ID "$file"
+  append_if_set POSTHOG_CLI_API_KEY "$file"
+}
+
 get_workos_client_id() {
   workos_client_id="$(printenv WORKOS_CLIENT_ID 2> /dev/null || true)"
   if [ -z "$workos_client_id" ]; then
@@ -130,6 +137,7 @@ else
   append_convex_deploy_selection_env "$deploy_env_file"
   append_auth_config_env "$deploy_env_file"
   append_vite_auth_config_env "$deploy_env_file"
+  append_posthog_cli_env "$deploy_env_file"
   printf 'AUTH_BYPASS_ENABLED=false\n' >> "$deploy_env_file"
   export_vite_auth_config_env
 
