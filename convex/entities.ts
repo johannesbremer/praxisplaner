@@ -22,7 +22,6 @@ import { Temporal } from "temporal-polyfill";
 
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type AppointmentColor, appointmentColorValidator } from "./schema";
 
 import { parseConditionTreeTransport } from "../lib/condition-tree.js";
 import { mutation, query } from "./_generated/server";
@@ -102,6 +101,7 @@ import {
 import { type ConditionTreeNode, validateConditionTree } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import { selectDraftRuleSetForEdit } from "./ruleSetLifecycle";
+import { type AppointmentColor, appointmentColorValidator } from "./schema";
 import {
   asBaseScheduleCreatePayload,
   asBaseSchedulePayload,
@@ -1022,8 +1022,8 @@ async function resolvePractitionerLineageKeys(
  */
 export const createAppointmentType = mutation({
   args: {
-    color: v.optional(v.union(appointmentColorValidator, v.null())),
     appointmentPlan: appointmentPlanValidator,
+    color: v.optional(v.union(appointmentColorValidator, v.null())),
     defaultOccupancy: appointmentTypeDefaultOccupancyValidator,
     duration: v.number(), // duration in minutes
     expectedDraftRevision: expectedDraftRevisionValidator,
@@ -1163,7 +1163,6 @@ export const updateAppointmentType = mutation({
     appointmentPlan: appointmentPlanValidator,
     appointmentTypeId: v.id("appointmentTypes"),
     color: v.optional(v.union(appointmentColorValidator, v.null())),
-    color: v.optional(v.union(appointmentColorValidator, v.null())),
     defaultOccupancy: appointmentTypeDefaultOccupancyValidator,
     duration: v.optional(v.number()),
     expectedDraftRevision: expectedDraftRevisionValidator,
@@ -1207,8 +1206,8 @@ export const updateAppointmentType = mutation({
     // Build updates object
     const updates: Partial<{
       allowedPractitionerLineageKeys: PractitionerLineageKey[];
-      color: AppointmentColor | undefined;
       appointmentPlan: AppointmentPlan;
+      color: AppointmentColor | undefined;
       defaultOccupancy: AppointmentTypeDefaultOccupancy;
       duration: number;
       lastModified: bigint;

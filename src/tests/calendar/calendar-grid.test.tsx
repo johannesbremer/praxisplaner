@@ -456,7 +456,7 @@ describe("CalendarGrid", () => {
             {
               column: practitionerColumn1,
               reason: "Regel",
-              slot: 14,
+              slot: 13,
             },
           ]}
           draggedAppointment={draggedApt}
@@ -465,7 +465,13 @@ describe("CalendarGrid", () => {
       );
 
       const preview = container.querySelector(".border-dashed");
-      expect(preview).toHaveClass("bg-destructive/80");
+      assertElement(preview);
+      expect(preview.getAttribute("style")).toContain(
+        "background-color: var(--destructive)",
+      );
+      expect(preview.getAttribute("style")).toContain(
+        "border-color: var(--destructive)",
+      );
     });
 
     test("does not render drag preview when not dragging", () => {

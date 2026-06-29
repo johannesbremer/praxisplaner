@@ -333,7 +333,6 @@ export async function copyAppointmentTypes(
       defaultOccupancy: sourceType.defaultOccupancy,
       duration: sourceType.duration,
       ...(sourceType.color === undefined ? {} : { color: sourceType.color }),
-      ...(sourceType.followUpPlan && { followUpPlan: sourceType.followUpPlan }),
       lastModified: BigInt(Date.now()),
       lineageKey: requireLineageKey({
         entityId: sourceType._id,

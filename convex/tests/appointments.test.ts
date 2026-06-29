@@ -46,10 +46,20 @@ function appointmentIdFromCreateEffect(
 function appointmentIdFromRestoreEffect(
   effect: RestoreDeletedAppointmentEffect,
 ): Id<"appointments"> {
-  if (effect.kind !== "appointment.created") {
-    throw new Error(`Unexpected restore effect: ${effect.kind}`);
+  switch (effect.kind) {
+    case "appointment.created": {
+      return effect.appointment._id;
+    }
+    case "appointmentSeries.created": {
+      return effect.series.rootAppointmentId;
+    }
+    case "appointment.deleted":
+    case "appointment.updated":
+    case "appointmentSeries.deleted":
+    case "appointmentSeries.updated": {
+      throw new Error(`Unexpected restore effect: ${effect.kind}`);
+    }
   }
-  return effect.appointment._id;
 }
 
 async function createAppointmentBaseData(t: TestContext) {
@@ -6071,9 +6081,8 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -6081,13 +6090,13 @@ describe("calendar day appointment queries", () => {
         start: makeSlotWindow(39).start,
         title: "Color restore",
         userId,
-      },
+      }),
     );
     await expect(
       authed.mutation(api.appointments.deleteAppointment, {
         id: appointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
 
     await t.run(async (ctx) => {
       await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
@@ -6095,11 +6104,10 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const restoredAppointmentId = await authed.mutation(
-      api.appointments.restoreDeletedAppointment,
-      {
+    const restoredAppointmentId = appointmentIdFromRestoreEffect(
+      await authed.mutation(api.appointments.restoreDeletedAppointment, {
         originalAppointmentId: appointmentId,
-      },
+      }),
     );
     const restoredAppointment = await t.run(async (ctx) => {
       return await ctx.db.get("appointments", restoredAppointmentId);
@@ -6146,7 +6154,9 @@ describe("calendar day appointment queries", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [baseData.practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Follow-up",
@@ -6155,19 +6165,22 @@ describe("calendar day appointment queries", () => {
         },
       );
       await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: followUpTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "days",
+                offsetValue: 2,
+              },
+            },
+          ],
+        },
         color: "yellow",
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: followUpTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 2,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
       });
     });
 
@@ -6202,7 +6215,7 @@ describe("calendar day appointment queries", () => {
       authed.mutation(api.appointments.deleteAppointment, {
         id: originalAppointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
 
     await t.run(async (ctx) => {
       await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
@@ -6210,11 +6223,10 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const restoredAppointmentId = await authed.mutation(
-      api.appointments.restoreDeletedAppointment,
-      {
+    const restoredAppointmentId = appointmentIdFromRestoreEffect(
+      await authed.mutation(api.appointments.restoreDeletedAppointment, {
         originalAppointmentId,
-      },
+      }),
     );
     const restoredAppointment = await t.run(async (ctx) => {
       return await ctx.db.get("appointments", restoredAppointmentId);

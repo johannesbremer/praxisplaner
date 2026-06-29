@@ -11,6 +11,7 @@ import type {
   LocationLineageKey,
   PractitionerLineageKey,
 } from "../../../convex/identity";
+import type { AppointmentColor } from "../../../convex/schema";
 import type { ZonedDateTimeString } from "../../../convex/typedDtos";
 import type { LedgerOperation } from "../../utils/command-ledger";
 import type {
@@ -177,6 +178,7 @@ interface AppointmentCandidate {
 }
 
 interface AppointmentTypeInfo {
+  color: AppointmentColor;
   duration: number;
   hasAppointmentPlan: boolean;
   name: string;
@@ -1010,6 +1012,13 @@ export function useCalendarPlanningWorkbench(args: {
                       }
                     : step.occupancyScope,
               });
+              const stepAppointmentTypeInfo = getRequiredAppointmentTypeInfo(
+                step.appointmentTypeId,
+                "useCalendarPlanningWorkbench.optimisticCreate.seriesStep",
+              );
+              if (!stepAppointmentTypeInfo) {
+                return;
+              }
               const newAppointmentRecord: CalendarAppointmentRecord = {
                 _creationTime: now,
                 _id: stepId,
@@ -1018,6 +1027,7 @@ export function useCalendarPlanningWorkbench(args: {
                 ),
                 appointmentTypeTitle: step.appointmentTypeTitle,
                 ...appointmentOwnerRefs,
+                color: stepAppointmentTypeInfo.color,
                 createdAt: BigInt(now),
                 end: typedEnd,
                 isSimulation: optimisticArgs.isSimulation ?? false,
@@ -1137,6 +1147,7 @@ export function useCalendarPlanningWorkbench(args: {
             appointmentTypeLineageKey: lineageRefs.appointmentTypeLineageKey,
             appointmentTypeTitle: appointmentTypeInfo.name,
             ...appointmentOwnerRefs,
+            color: appointmentTypeInfo.color,
             createdAt: BigInt(now),
             end: typedEnd,
             isSimulation: optimisticArgs.isSimulation ?? false,
@@ -1750,6 +1761,7 @@ export function useCalendarPlanningWorkbench(args: {
           appointmentTypeLineageKey:
             createdAppointment.appointmentTypeLineageKey,
           appointmentTypeTitle: createdAppointment.appointmentTypeTitle,
+          color: createdAppointment.color,
           createArgs: serverCreateArgs,
           createEnd: createdAppointment.end,
           currentAppointmentId: createdAppointment._id,
@@ -1896,6 +1908,7 @@ export function useCalendarPlanningWorkbench(args: {
                 appointmentTypeLineageKey:
                   createdAppointment.appointmentTypeLineageKey,
                 appointmentTypeTitle: createdAppointment.appointmentTypeTitle,
+                color: createdAppointment.color,
                 createArgs: createPayload.createArgs,
                 createEnd: createPayload.createEnd,
                 currentAppointmentId: createdAppointment._id,

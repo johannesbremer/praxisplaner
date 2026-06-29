@@ -545,8 +545,8 @@ export default defineSchema({
 
   appointmentTypes: defineTable({
     allowedPractitionerLineageKeys: v.array(v.id("practitioners")),
-    color: v.optional(appointmentColorValidator),
     appointmentPlan: appointmentPlanValidator,
+    color: v.optional(appointmentColorValidator),
     createdAt: v.int64(),
     defaultOccupancy: appointmentTypeDefaultOccupancyValidator,
     deleted: v.optional(v.boolean()),

@@ -2450,8 +2450,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           color: "yellow",
           createdAt: BigInt(Date.now()),
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: BigInt(Date.now()),
           name: "Color Appointment Type",
@@ -2465,6 +2467,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const draft = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: null,
       name: "Draft Trigger",

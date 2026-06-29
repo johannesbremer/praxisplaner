@@ -68,10 +68,8 @@ import {
   asPractitionerLineageKey,
 } from "@/convex/identity";
 import {
-  APPOINTMENT_COLOR_BY_VALUE,
   APPOINTMENT_COLOR_OPTIONS,
   APPOINTMENT_COLOR_VALUES,
-  DEFAULT_APPOINTMENT_COLOR,
 } from "@/lib/appointment-colors";
 import { APPOINTMENT_TYPE_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
@@ -170,8 +168,8 @@ type AppointmentTypeFolderLineageKey = Id<"appointmentTypeFolders">;
 type AppointmentTypeFolderQueryResult =
   (typeof api.entities.getAppointmentTypeFolders)["_returnType"];
 interface AppointmentTypeFormValues {
-  color: AppointmentColorSelection;
   appointmentPlan: AppointmentPlanFormStep[];
+  color: AppointmentColorSelection;
   defaultOccupancyKind: AppointmentTypeDefaultOccupancyKind;
   duration: number;
   name: string;
@@ -194,8 +192,8 @@ interface DeletedAppointmentTypeFolderSnapshot {
 }
 
 interface DeletedAppointmentTypeSnapshot {
-  color: AppointmentColor | undefined;
   appointmentPlan: AppointmentType["appointmentPlan"];
+  color: AppointmentColor | undefined;
   defaultOccupancy: NonNullable<AppointmentType["defaultOccupancy"]>;
   duration: number;
   lineageKey: AppointmentTypeLineageKey;
@@ -220,8 +218,8 @@ type PractitionerQueryResult =
   (typeof api.entities.getPractitioners)["_returnType"];
 
 const defaultAppointmentTypeFormValues: AppointmentTypeFormValues = {
-  color: "inherit",
   appointmentPlan: [],
+  color: "inherit",
   defaultOccupancyKind: "selectedPractitioner",
   duration: 30,
   name: "",
@@ -639,10 +637,10 @@ function createAppointmentTypeFormSchema(params: {
   practitionerIds: readonly Id<"practitioners">[];
 }) {
   return z.object({
-    color: z.union([z.literal("inherit"), z.enum(APPOINTMENT_COLOR_VALUES)]),
     appointmentPlan: z.array(
       createAppointmentPlanStepSchema(params.appointmentTypeLineageKeys),
     ),
+    color: z.union([z.literal("inherit"), z.enum(APPOINTMENT_COLOR_VALUES)]),
     defaultOccupancyKind: z
       .string()
       .transform((value) => normalizeDefaultOccupancyKindSelection(value)),
@@ -1189,6 +1187,7 @@ export function AppointmentTypesManagement({
   );
   const createAppointmentTypeFolderRefSnapshot = useCallback(
     (params: {
+      color?: AppointmentColor | undefined;
       id: Id<"appointmentTypeFolders">;
       lineageKey: AppointmentTypeFolderLineageKey;
       name: string;
@@ -1203,6 +1202,7 @@ export function AppointmentTypesManagement({
       name: params.name,
       practiceId,
       ruleSetId: params.ruleSetId,
+      ...(params.color === undefined ? {} : { color: params.color }),
       ...(params.parentFolderId && {
         parentFolderId: params.parentFolderId,
       }),
@@ -1213,6 +1213,7 @@ export function AppointmentTypesManagement({
     (params: {
       allowedPractitionerLineageKeys: AppointmentType["allowedPractitionerLineageKeys"];
       appointmentPlan: NonNullable<AppointmentType["appointmentPlan"]>;
+      color?: AppointmentColor | undefined;
       defaultOccupancy: NonNullable<AppointmentType["defaultOccupancy"]>;
       duration: number;
       id: AppointmentTypeId;
@@ -1226,6 +1227,7 @@ export function AppointmentTypesManagement({
       allowedPractitionerLineageKeys: params.allowedPractitionerLineageKeys,
       appointmentPlan: params.appointmentPlan,
       createdAt: 0n,
+      ...(params.color === undefined ? {} : { color: params.color }),
       defaultOccupancy: params.defaultOccupancy,
       duration: params.duration,
       lastModified: 0n,
@@ -1501,8 +1503,8 @@ export function AppointmentTypesManagement({
         if (editingAppointmentType) {
           const appointmentTypeLineageKey = editingAppointmentType.lineageKey;
           const beforeState = {
-            color: editingAppointmentType.color,
             appointmentPlan: editingAppointmentType.appointmentPlan,
+            color: editingAppointmentType.color,
             defaultOccupancy: editingAppointmentType.defaultOccupancy,
             duration: editingAppointmentType.duration,
             name: editingAppointmentType.name,
@@ -1512,8 +1514,8 @@ export function AppointmentTypesManagement({
               ),
           };
           const afterState = {
-            color: appointmentTypeColorMutationValue(parsedValue.color),
             appointmentPlan: { steps: normalizedAppointmentPlan },
+            color: appointmentTypeColorMutationValue(parsedValue.color),
             defaultOccupancy: normalizedDefaultOccupancy,
             duration: parsedValue.duration,
             name: normalizedName,
@@ -1553,8 +1555,8 @@ export function AppointmentTypesManagement({
               _id: asAppointmentTypeId(updateResult.entityId),
               allowedPractitionerLineageKeys:
                 afterState.practitionerLineageKeys,
-              color: afterState.color ?? undefined,
               appointmentPlan: afterState.appointmentPlan,
+              ...(afterState.color === null ? {} : { color: afterState.color }),
               defaultOccupancy: afterState.defaultOccupancy,
               duration: afterState.duration,
               name: afterState.name,
@@ -1701,8 +1703,8 @@ export function AppointmentTypesManagement({
             allowedPractitionerLineageKeys: toSnapshotLineageIds(
               formPractitionerSnapshots,
             ),
-            color: colorSnapshotValue(parsedValue.color),
             appointmentPlan: { steps: normalizedAppointmentPlan },
+            color: colorSnapshotValue(parsedValue.color),
             defaultOccupancy: normalizedDefaultOccupancy,
             duration: parsedValue.duration,
             id: asAppointmentTypeId(createResult.entityId),
@@ -1714,8 +1716,8 @@ export function AppointmentTypesManagement({
           upsertAppointmentTypeRef(createdAppointmentType);
           const { entityId } = createResult;
           const createdSnapshot = encodeRuleSetSnapshot({
-            color: colorSnapshotValue(parsedValue.color),
             appointmentPlan: { steps: normalizedAppointmentPlan },
+            color: colorSnapshotValue(parsedValue.color),
             duration: parsedValue.duration,
             name: normalizedName,
             practitionerLineageKeys: toSnapshotLineageIds(
@@ -1777,8 +1779,8 @@ export function AppointmentTypesManagement({
                 allowedPractitionerLineageKeys: toSnapshotLineageIds(
                   formPractitionerSnapshots,
                 ),
-                color: colorSnapshotValue(parsedValue.color),
                 appointmentPlan: { steps: normalizedAppointmentPlan },
+                color: colorSnapshotValue(parsedValue.color),
                 defaultOccupancy: normalizedDefaultOccupancy,
                 duration: parsedValue.duration,
                 id: asAppointmentTypeId(recreateResult.entityId),
@@ -1921,6 +1923,7 @@ export function AppointmentTypesManagement({
       );
       form.setFieldValue("name", appointmentType.name);
       form.setFieldValue("duration", appointmentType.duration);
+      form.setFieldValue("color", appointmentType.color ?? "inherit");
       form.setFieldValue(
         "appointmentPlan",
         normalizeAppointmentPlanForForm(appointmentType.appointmentPlan),
@@ -2432,6 +2435,7 @@ export function AppointmentTypesManagement({
                 )
               : undefined;
             return {
+              color: candidate.color,
               lineageKey: getAppointmentTypeFolderLineageKey(candidate),
               name: candidate.name,
               parentLineageKey: parentFolder
@@ -2461,6 +2465,7 @@ export function AppointmentTypesManagement({
             }
             return {
               appointmentPlan: appointmentType.appointmentPlan,
+              color: appointmentType.color,
               defaultOccupancy: appointmentType.defaultOccupancy,
               duration: appointmentType.duration,
               lineageKey: appointmentType.lineageKey,
@@ -3513,6 +3518,19 @@ export function AppointmentTypesManagement({
                             </Field>
                           );
                         }}
+                      </form.Field>
+
+                      <form.Field name="color">
+                        {(field) => (
+                          <Field>
+                            <FieldLabel>Farbe</FieldLabel>
+                            <AppointmentColorCombobox
+                              includeInherit
+                              onChange={field.handleChange}
+                              value={field.state.value}
+                            />
+                          </Field>
+                        )}
                       </form.Field>
 
                       <form.Field name="defaultOccupancyKind">

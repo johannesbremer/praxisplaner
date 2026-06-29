@@ -3800,6 +3800,8 @@ export const getAppointmentColor = query({
     return appointment.color ?? DEFAULT_APPOINTMENT_COLOR;
   },
   returns: appointmentColorValidator,
+});
+
 export const getAppointmentSeriesRestoreSnapshotByRootId = query({
   args: {
     rootAppointmentId: v.id("appointments"),

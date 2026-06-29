@@ -479,6 +479,7 @@ describe("calendar planning workbench", () => {
         blockedSlotsQueryArgs: null,
         calendarDayQueryArgs: null,
         getRequiredAppointmentTypeInfo: () => ({
+          color: "blue",
           duration: 30,
           hasAppointmentPlan: true,
           name: "Check-up",
@@ -632,6 +633,7 @@ describe("calendar planning workbench", () => {
         blockedSlotsQueryArgs: null,
         calendarDayQueryArgs: null,
         getRequiredAppointmentTypeInfo: () => ({
+          color: "blue",
           duration: 30,
           hasAppointmentPlan: true,
           name: "Check-up",
@@ -1008,6 +1010,7 @@ describe("calendar planning workbench", () => {
         blockedSlotsQueryArgs: null,
         calendarDayQueryArgs: null,
         getRequiredAppointmentTypeInfo: () => ({
+          color: "blue",
           duration: 30,
           hasAppointmentPlan: true,
           name: "Check-up",

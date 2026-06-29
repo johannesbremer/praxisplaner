@@ -13,7 +13,7 @@ import type {
   PractitionerLineageKey,
 } from "../../../convex/identity";
 import type { AppointmentColor } from "../../../convex/schema";
-import type { PatientInfo, SchedulingSlot } from "../../types";
+import type { PatientInfo } from "../../types";
 import type {
   CalendarAppointmentRecord,
   CalendarBlockedSlotRecord,
@@ -25,7 +25,6 @@ import {
   asLocationLineageKey,
   asPractitionerLineageKey,
 } from "../../../convex/identity";
-import { asZonedDateTimeString } from "../../../convex/typedDtos";
 import { DEFAULT_APPOINTMENT_COLOR } from "../../../lib/appointment-colors";
 import { createSimulatedContext } from "../../../lib/utils";
 import {
@@ -43,8 +42,8 @@ import {
 
 interface CalendarAppointmentTypeInfo {
   allowedPractitionerLineageKeys: PractitionerLineageKey[];
-  color: AppointmentColor;
   appointmentPlan: AppointmentPlan;
+  color: AppointmentColor;
   defaultOccupancy: AppointmentTypeDefaultOccupancy;
   duration: number;
   hasAppointmentPlan: boolean;
@@ -95,19 +94,13 @@ export function useCalendarData(args: {
         ? { practiceId: args.practiceId }
         : "skip",
   );
-  const appointmentTypeFoldersData = useQuery(
-    args.ruleSetId
-      ? api.entities.getAppointmentTypeFolders
-      : api.entities.getAppointmentTypeFoldersFromActive,
-    args.ruleSetId
-      ? { ruleSetId: args.ruleSetId }
-      : args.practiceId
-        ? { practiceId: args.practiceId }
-        : "skip",
-  );
   const appointmentScope = args.simulatedContext ? "simulation" : "real";
   const activeRuleSetId = activeRuleSetData?._id;
   const effectiveRuleSetId = args.ruleSetId ?? activeRuleSetId;
+  const appointmentTypeFoldersData = useQuery(
+    api.entities.getAppointmentTypeFolders,
+    effectiveRuleSetId ? { ruleSetId: effectiveRuleSetId } : "skip",
+  );
   const effectiveLocationId =
     args.simulatedContext?.locationLineageKey === undefined
       ? args.selectedLocationId
@@ -496,8 +489,6 @@ export function useCalendarData(args: {
 
       map.set(asAppointmentTypeLineageKey(appointmentType.lineageKey), {
         allowedPractitionerLineageKeys,
-        color: resolveAppointmentTypeColor(appointmentType),
-        color: resolveAppointmentTypeColor(appointmentType),
         appointmentPlan: {
           steps: appointmentType.appointmentPlan.steps.map((step) => ({
             ...step,
@@ -506,6 +497,7 @@ export function useCalendarData(args: {
             ),
           })),
         },
+        color: resolveAppointmentTypeColor(appointmentType),
         defaultOccupancy: appointmentType.defaultOccupancy,
         duration: appointmentType.duration,
         hasAppointmentPlan: appointmentType.appointmentPlan.steps.length > 0,
