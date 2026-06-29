@@ -60,6 +60,7 @@ export interface CalendarPlanningCommandExecutorContext {
   hasAppointmentConflict: (
     candidate: AppointmentCandidate,
     excludeId?: Id<"appointments">,
+    excludeIds?: ReadonlySet<Id<"appointments">>,
   ) => boolean;
   hasBlockedSlotConflict: (
     candidate: BlockedSlotCandidate,
@@ -291,6 +292,68 @@ export function executeCalendarPlanningCommand(
   return Promise.resolve(result).then(toLedgerExecutionResult);
 }
 
+function appointmentSeriesSnapshotAppointmentIds(
+  snapshot: CalendarAppointmentSeriesCreateCommand["payload"]["snapshot"],
+  context: CalendarPlanningCommandExecutorContext,
+): ReadonlySet<Id<"appointments">> {
+  const ids = new Set<Id<"appointments">>();
+  for (const appointment of snapshot.appointments) {
+    ids.add(appointment.originalAppointmentId);
+    ids.add(
+      context.resolveCurrentAppointmentId(appointment.originalAppointmentId),
+    );
+  }
+  return ids;
+}
+
+async function checkAppointmentSeriesRestoreConflict(
+  payload: {
+    snapshot: CalendarAppointmentSeriesCreateCommand["payload"]["snapshot"];
+  },
+  context: CalendarPlanningCommandExecutorContext,
+  excludeAppointmentIds?: ReadonlySet<Id<"appointments">>,
+): Promise<CalendarPlanningReplayResult | null> {
+  await context.ensureLatestConflictData();
+  const conflictingAppointment = payload.snapshot.appointments.some(
+    (appointment) =>
+      appointment.cancelledAt === undefined &&
+      context.hasAppointmentConflict(
+        {
+          end: appointment.end,
+          isSimulation: appointment.isSimulation ?? false,
+          placement: {
+            locationLineageKey: asLocationLineageKey(
+              appointment.locationLineageKey,
+            ),
+            occupancyScope:
+              appointment.occupancyScope.kind === "resource"
+                ? appointment.occupancyScope
+                : {
+                    kind: "practitioner",
+                    practitionerLineageKey: asPractitionerLineageKey(
+                      appointment.occupancyScope.practitionerLineageKey,
+                    ),
+                  },
+          },
+          ...(appointment.replacesAppointmentId === undefined
+            ? {}
+            : { replacesAppointmentId: appointment.replacesAppointmentId }),
+          start: appointment.start,
+        },
+        undefined,
+        excludeAppointmentIds,
+      ),
+  );
+  if (conflictingAppointment) {
+    return {
+      message:
+        "Die Kettentermine können nicht wiederhergestellt werden, weil ein gespeicherter Zeitraum bereits belegt ist.",
+      status: "conflict",
+    };
+  }
+  return null;
+}
+
 async function deleteAppointmentSeriesRoot(
   payload: {
     currentRootAppointmentId: Id<"appointments">;
@@ -504,6 +567,15 @@ async function executeAppointmentSeriesUpdateCommand(
     operation === "redo" ? command.payload.before : command.payload.after;
   const restoreTarget =
     operation === "redo" ? command.payload.after : command.payload.before;
+
+  const targetConflict = await checkAppointmentSeriesRestoreConflict(
+    restoreTarget,
+    context,
+    appointmentSeriesSnapshotAppointmentIds(removeCurrent.snapshot, context),
+  );
+  if (targetConflict) {
+    return targetConflict;
+  }
 
   const deleteResult = await deleteAppointmentSeriesRoot(
     removeCurrent,
@@ -983,44 +1055,18 @@ async function restoreAppointmentSeriesSnapshot(
   },
   context: CalendarPlanningCommandExecutorContext,
 ): Promise<CalendarPlanningReplayResult> {
-  await context.ensureLatestConflictData();
-  const conflictingAppointment = payload.snapshot.appointments.some(
-    (appointment) =>
-      appointment.cancelledAt === undefined &&
-      context.hasAppointmentConflict({
-        end: appointment.end,
-        isSimulation: appointment.isSimulation ?? false,
-        placement: {
-          locationLineageKey: asLocationLineageKey(
-            appointment.locationLineageKey,
-          ),
-          occupancyScope:
-            appointment.occupancyScope.kind === "resource"
-              ? appointment.occupancyScope
-              : {
-                  kind: "practitioner",
-                  practitionerLineageKey: asPractitionerLineageKey(
-                    appointment.occupancyScope.practitionerLineageKey,
-                  ),
-                },
-        },
-        ...(appointment.replacesAppointmentId === undefined
-          ? {}
-          : { replacesAppointmentId: appointment.replacesAppointmentId }),
-        start: appointment.start,
-      }),
+  const conflict = await checkAppointmentSeriesRestoreConflict(
+    payload,
+    context,
   );
-  if (conflictingAppointment) {
-    return {
-      message:
-        "Die Kettentermine können nicht wiederhergestellt werden, weil ein gespeicherter Zeitraum bereits belegt ist.",
-      status: "conflict",
-    };
+  if (conflict) {
+    return conflict;
   }
 
   const originalRootAppointmentId = payload.currentRootAppointmentId;
   const result = await context.runRestoreAppointmentSeriesSnapshotInternal({
     seriesId: payload.snapshot.series.seriesId,
+    snapshot: payload.snapshot,
   });
   if (!result) {
     return { status: "conflict" };

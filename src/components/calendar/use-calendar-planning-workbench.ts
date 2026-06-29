@@ -622,7 +622,11 @@ export function useCalendarPlanningWorkbench(args: {
   );
 
   const hasAppointmentConflict = useCallback(
-    (candidate: AppointmentCandidate, excludeId?: Id<"appointments">) => {
+    (
+      candidate: AppointmentCandidate,
+      excludeId?: Id<"appointments">,
+      excludeIds?: ReadonlySet<Id<"appointments">>,
+    ) => {
       return hasCalendarOccupancyConflictInRecords({
         appointments: mergeCurrentConflictRecordsByIdExcluding({
           allPracticeMap: args.allPracticeAppointmentMapRef.current,
@@ -636,6 +640,7 @@ export function useCalendarPlanningWorkbench(args: {
         }),
         candidate,
         ...(excludeId === undefined ? {} : { excludeId }),
+        ...(excludeIds === undefined ? {} : { excludeIds }),
         toEpochMilliseconds,
       });
     },
@@ -1601,6 +1606,10 @@ export function useCalendarPlanningWorkbench(args: {
       const createdAppointment = toCalendarAppointmentRecordFromServerLedger(
         effect.appointment,
       );
+      const serverCreateArgs = {
+        ...createArgs,
+        end: createdAppointment.end,
+      };
       rememberAppointmentHistoryDoc(createdAppointment);
       recordCalendarCommand({
         kind: "appointment.create",
@@ -1609,7 +1618,7 @@ export function useCalendarPlanningWorkbench(args: {
           appointmentTypeLineageKey:
             createdAppointment.appointmentTypeLineageKey,
           appointmentTypeTitle: createdAppointment.appointmentTypeTitle,
-          createArgs,
+          createArgs: serverCreateArgs,
           createEnd: createdAppointment.end,
           currentAppointmentId: createdAppointment._id,
           placement: createdAppointment.placement,
@@ -1663,6 +1672,7 @@ export function useCalendarPlanningWorkbench(args: {
         ...(appointment.smiley === undefined
           ? {}
           : { smiley: appointment.smiley }),
+        end: appointment.end,
         start: appointment.start,
         title: appointment.title,
       };
@@ -1676,17 +1686,10 @@ export function useCalendarPlanningWorkbench(args: {
 
       return {
         createArgs,
-        createEnd: getAppointmentCreationEnd({
-          durationMinutes: appointmentTypeInfo.duration,
-          start: createArgs.start,
-        }),
+        createEnd: appointment.end,
       };
     },
-    [
-      getAppointmentCreationEnd,
-      getRequiredAppointmentTypeInfo,
-      resolveAppointmentReferenceDisplayIds,
-    ],
+    [getRequiredAppointmentTypeInfo, resolveAppointmentReferenceDisplayIds],
   );
 
   const runUpdateAppointment = useCallback(

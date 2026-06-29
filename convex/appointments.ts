@@ -3821,6 +3821,7 @@ export const getAppointmentSeriesRestoreSnapshotByAppointmentId = query({
 export const restoreAppointmentSeriesSnapshot = mutation({
   args: {
     seriesId: v.string(),
+    snapshot: v.optional(appointmentSeriesRestoreSnapshotValidator),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -3830,15 +3831,25 @@ export const restoreAppointmentSeriesSnapshot = mutation({
         q.eq("originalSeriesId", args.seriesId),
       )
       .first();
-    if (!storedSnapshot) {
+    const restoreSnapshot = args.snapshot ?? storedSnapshot?.snapshot;
+    if (!restoreSnapshot) {
       throw appointmentChainError(
         "CHAIN_NOT_FOUND",
         "Kettentermin-Wiederherstellung wurde nicht gefunden.",
       );
     }
-    await requirePracticeStaffForMutation(ctx, storedSnapshot.practiceId);
+    if (restoreSnapshot.series.seriesId !== args.seriesId) {
+      throw appointmentChainError(
+        "CHAIN_RESTORE_SERIES_MISMATCH",
+        "Die Kettentermin-Wiederherstellung gehört zu einer anderen Serie.",
+      );
+    }
+    await requirePracticeStaffForMutation(
+      ctx,
+      restoreSnapshot.series.practiceId,
+    );
 
-    const { appointments, series } = storedSnapshot.snapshot;
+    const { appointments, series } = restoreSnapshot;
     if (appointments.length === 0) {
       throw appointmentChainError(
         "CHAIN_RESTORE_EMPTY",
@@ -4059,10 +4070,12 @@ export const restoreAppointmentSeriesSnapshot = mutation({
       seriesId: series.seriesId,
       ...(series.userId === undefined ? {} : { userId: series.userId }),
     });
-    await ctx.db.delete(
-      "appointmentSeriesRestoreSnapshots",
-      storedSnapshot._id,
-    );
+    if (storedSnapshot) {
+      await ctx.db.delete(
+        "appointmentSeriesRestoreSnapshots",
+        storedSnapshot._id,
+      );
+    }
 
     const restoredSeriesAppointments = await getSeriesAppointments(
       ctx.db,

@@ -60,6 +60,7 @@ export function hasCalendarOccupancyConflictInRecords(args: {
   blockedSlots: Iterable<ConflictBlockedSlotRecord>;
   candidate: ConflictAppointmentCandidate | ConflictBlockedSlotCandidate;
   excludeId?: string;
+  excludeIds?: ReadonlySet<string>;
   toEpochMilliseconds: (iso: string) => number;
 }): boolean {
   for (const existing of args.blockedSlots) {
@@ -67,6 +68,9 @@ export function hasCalendarOccupancyConflictInRecords(args: {
       isCalendarOccupancyConflict({
         candidate: args.candidate,
         ...(args.excludeId === undefined ? {} : { excludeId: args.excludeId }),
+        ...(args.excludeIds === undefined
+          ? {}
+          : { excludeIds: args.excludeIds }),
         existing,
         toEpochMilliseconds: args.toEpochMilliseconds,
       })
@@ -80,6 +84,9 @@ export function hasCalendarOccupancyConflictInRecords(args: {
       isCalendarOccupancyConflict({
         candidate: args.candidate,
         ...(args.excludeId === undefined ? {} : { excludeId: args.excludeId }),
+        ...(args.excludeIds === undefined
+          ? {}
+          : { excludeIds: args.excludeIds }),
         existing,
         toEpochMilliseconds: args.toEpochMilliseconds,
       })
@@ -136,6 +143,7 @@ export function mergeCurrentConflictRecordsByIdExcluding<
 function isCalendarOccupancyConflict(args: {
   candidate: ConflictAppointmentCandidate | ConflictBlockedSlotCandidate;
   excludeId?: string;
+  excludeIds?: ReadonlySet<string>;
   existing: {
     _id: string;
     end: string;
@@ -149,7 +157,10 @@ function isCalendarOccupancyConflict(args: {
   const candidateStart = args.toEpochMilliseconds(args.candidate.start);
   const candidateEnd = args.toEpochMilliseconds(args.candidate.end);
 
-  if (args.excludeId && args.existing._id === args.excludeId) {
+  if (
+    args.excludeId === args.existing._id ||
+    args.excludeIds?.has(args.existing._id) === true
+  ) {
     return false;
   }
 

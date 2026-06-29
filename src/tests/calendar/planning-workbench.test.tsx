@@ -289,7 +289,7 @@ describe("calendar planning workbench", () => {
       appointmentTypeLineageKey,
       appointmentTypeTitle: "Check-up",
       calendarResourceColumn: "ekg",
-      end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      end: "2026-04-25T09:20:00+02:00[Europe/Berlin]",
       locationLineageKey,
       practiceId,
       start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
@@ -380,6 +380,17 @@ describe("calendar planning workbench", () => {
     );
     expect(recordCalendarCommand).toHaveBeenCalledWith(
       expect.objectContaining({ label: "Termin erstellt" }),
+    );
+    const command = recordCalendarCommand.mock.calls[0]?.[0];
+    expect(command?.kind).toBe("appointment.create");
+    if (command?.kind !== "appointment.create") {
+      throw new Error("Expected an appointment create command.");
+    }
+    expect(command.payload.createArgs.end).toBe(
+      "2026-04-25T09:20:00+02:00[Europe/Berlin]",
+    );
+    expect(command.payload.createEnd).toBe(
+      "2026-04-25T09:20:00+02:00[Europe/Berlin]",
     );
   });
 
