@@ -1,6 +1,6 @@
 // src/tests/error-tracking.test.ts
 
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
   captureErrorGlobal,
@@ -23,8 +23,14 @@ describe("Error Tracking", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("VITE_ENABLE_POSTHOG_IN_DEV", "true");
+    vi.stubEnv("VITE_PUBLIC_POSTHOG_HOST", "");
+    vi.stubEnv("VITE_PUBLIC_POSTHOG_KEY", "");
     // Reset globalThis
     delete (globalThis as GlobalWithPostHog).posthog;
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   describe("captureErrorGlobal", () => {

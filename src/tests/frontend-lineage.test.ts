@@ -18,6 +18,8 @@ describe("frontend lineage mapping", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.stubEnv("VITE_ENABLE_POSTHOG_IN_DEV", "true");
+    vi.stubEnv("VITE_PUBLIC_POSTHOG_HOST", "");
+    vi.stubEnv("VITE_PUBLIC_POSTHOG_KEY", "");
     mutableGlobalThis.posthog = {
       captureException: vi.fn(),
     };
