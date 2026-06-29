@@ -1955,7 +1955,7 @@ export function AppointmentTypesManagement({
   ) {
     setEditingAppointmentTypeFolder(null);
     setCreateFolderParentId(parentFolderId);
-    setCreateFolderColor("blue");
+    setCreateFolderColor(parentFolderId === undefined ? "blue" : "inherit");
     setCreateFolderName("");
     setIsFolderDialogOpen(true);
   }
@@ -2970,6 +2970,7 @@ export function AppointmentTypesManagement({
         handleDraftMutationResult(result);
         upsertAppointmentTypeFolderRef(
           createAppointmentTypeFolderRefSnapshot({
+            ...(folder.color === undefined ? {} : { color: folder.color }),
             id: result.entityId,
             lineageKey: folderLineageKey,
             name: folder.name,
@@ -3010,6 +3011,7 @@ export function AppointmentTypesManagement({
             handleDraftMutationResult(redoResult);
             upsertAppointmentTypeFolderRef(
               createAppointmentTypeFolderRefSnapshot({
+                ...(folder.color === undefined ? {} : { color: folder.color }),
                 id: redoResult.entityId,
                 lineageKey: folderLineageKey,
                 name: folder.name,
@@ -3035,6 +3037,7 @@ export function AppointmentTypesManagement({
             handleDraftMutationResult(undoResult);
             upsertAppointmentTypeFolderRef(
               createAppointmentTypeFolderRefSnapshot({
+                ...(folder.color === undefined ? {} : { color: folder.color }),
                 id: undoResult.entityId,
                 lineageKey: folderLineageKey,
                 name: folder.name,
