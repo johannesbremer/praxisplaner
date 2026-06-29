@@ -1,3 +1,5 @@
+import { capturePostHogException } from "./posthog-client";
+
 export type SafeErrorContext = Partial<Record<UnsafeTelemetryKey, never>> &
   Record<string, unknown>;
 
@@ -47,20 +49,9 @@ export function captureErrorGlobal(error: unknown, context?: SafeErrorContext) {
   const errorInstance =
     error instanceof Error ? error : new Error(String(error));
 
-  // Access PostHog from global if available
-  const posthog = (
-    globalThis as {
-      posthog?: {
-        captureException: (error: Error, context?: SafeErrorContext) => void;
-      };
-    }
-  ).posthog;
   const safeContext = sanitizeErrorContext(context);
 
-  if (posthog) {
-    posthog.captureException(errorInstance, safeContext);
-  } else {
-    // Fallback to console if PostHog is not available
+  if (!capturePostHogException(errorInstance, safeContext)) {
     console.error("Error (PostHog not available):", error, safeContext);
   }
 }

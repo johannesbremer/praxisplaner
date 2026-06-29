@@ -1,6 +1,6 @@
 // src/utils/error-tracking.ts
 
-import { usePostHog } from "posthog-js/react";
+import { usePostHog } from "@posthog/react";
 import { useCallback } from "react";
 
 import {

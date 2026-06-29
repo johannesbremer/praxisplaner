@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/fluss/static/:path(.*)",
+      "destination": "https://eu-assets.i.posthog.com/static/:path"
+    },
+    {
+      "source": "/fluss/array/:path(.*)",
+      "destination": "https://eu-assets.i.posthog.com/array/:path"
+    },
+    {
+      "source": "/fluss/:path(.*)",
+      "destination": "https://eu.i.posthog.com/:path"
+    }
+  ]
+}

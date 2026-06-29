@@ -7,6 +7,7 @@ const outputPath = new URL(
 );
 
 const routeTreeSource = await readFile(routeTreePath, "utf8");
+const extraReservedSegments = ["fluss"];
 const fullPathBlock = routeTreeSource.match(
   /export interface FileRoutesByFullPath \{(?<body>[\s\S]*?)\n\}/,
 );
@@ -18,22 +19,25 @@ if (!fullPathBlock?.groups?.["body"]) {
 const routePaths = [...fullPathBlock.groups["body"].matchAll(/'([^']+)'/g)].map(
   (match) => match[1],
 );
-const reservedSegments = routePaths
-  .flatMap((routePath) => {
-    if (!routePath) {
-      return [];
-    }
-    const segments = routePath.split("/").filter(Boolean);
-    if (segments.length !== 1) {
-      return [];
-    }
-    const [segment] = segments;
-    if (!segment || segment.startsWith("$") || segment.includes("{")) {
-      return [];
-    }
-    return [segment];
-  })
-  .toSorted((left, right) => left.localeCompare(right));
+const reservedSegments = [
+  ...new Set([
+    ...routePaths.flatMap((routePath) => {
+      if (!routePath) {
+        return [];
+      }
+      const segments = routePath.split("/").filter(Boolean);
+      if (segments.length !== 1) {
+        return [];
+      }
+      const [segment] = segments;
+      if (!segment || segment.startsWith("$") || segment.includes("{")) {
+        return [];
+      }
+      return [segment];
+    }),
+    ...extraReservedSegments,
+  ]),
+].toSorted((left, right) => left.localeCompare(right));
 
 const reservedSegmentSource =
   reservedSegments.length === 0

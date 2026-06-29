@@ -52,8 +52,15 @@ import {
   wrapAsyncResult,
 } from "../utils/frontend-errors";
 import { readOrganizationSlugParam } from "../utils/organization-route-params";
+import {
+  resetPostHogIdentity,
+  stopPostHogSessionReplayForBookingRoute,
+} from "../utils/posthog-client";
 
 export const Route = createFileRoute("/$organizationSlug")({
+  beforeLoad: () => {
+    stopPostHogSessionReplayForBookingRoute();
+  },
   component: BookingPage,
 });
 
@@ -434,6 +441,7 @@ function BookingPage() {
               <Button
                 className="w-full"
                 onClick={() => {
+                  resetPostHogIdentity();
                   signOut();
                 }}
               >
