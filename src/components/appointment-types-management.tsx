@@ -1738,6 +1738,7 @@ export function AppointmentTypesManagement({
           const createdSnapshot = encodeRuleSetSnapshot({
             appointmentPlan: { steps: normalizedAppointmentPlan },
             color: colorSnapshotValue(parsedValue.color),
+            defaultOccupancy: normalizedDefaultOccupancy,
             duration: parsedValue.duration,
             name: normalizedName,
             practitionerLineageKeys: toSnapshotLineageIds(
@@ -2845,6 +2846,12 @@ export function AppointmentTypesManagement({
                   restoredRootFolderId = recreateResult.entityId;
                 }
               }
+              const restoredAppointmentTypes: {
+                appointmentTypeId: AppointmentTypeId;
+                practitionerIds: Id<"practitioners">[];
+                snapshot: (typeof appointmentTypeSnapshots)[number];
+                treeFolderId: Id<"appointmentTypeFolders">;
+              }[] = [];
               for (const snapshot of appointmentTypeSnapshots) {
                 const treeFolderId = restoredFolderIds.get(
                   snapshot.treeFolderLineageKey,
@@ -2866,6 +2873,20 @@ export function AppointmentTypesManagement({
                     status: "conflict" as const,
                   };
                 }
+                const existingAppointmentType =
+                  appointmentTypesRef.current.find(
+                    (appointmentType) =>
+                      appointmentType.lineageKey === snapshot.lineageKey,
+                  );
+                if (existingAppointmentType !== undefined) {
+                  restoredAppointmentTypes.push({
+                    appointmentTypeId: existingAppointmentType._id,
+                    practitionerIds,
+                    snapshot,
+                    treeFolderId,
+                  });
+                  continue;
+                }
                 const recreateResult = await createAppointmentTypeMutation({
                   defaultOccupancy: snapshot.defaultOccupancy,
                   duration: snapshot.duration,
@@ -2878,30 +2899,55 @@ export function AppointmentTypesManagement({
                     ? {}
                     : { color: snapshot.color }),
                   ...getCowMutationArgs(),
-                  ...createAppointmentPlanCreateArgs(
-                    snapshot.appointmentPlan.steps,
-                  ),
+                  ...createAppointmentPlanCreateArgs([]),
                 });
                 handleDraftMutationResult(recreateResult);
+                restoredAppointmentTypes.push({
+                  appointmentTypeId: asAppointmentTypeId(
+                    recreateResult.entityId,
+                  ),
+                  practitionerIds,
+                  snapshot,
+                  treeFolderId,
+                });
+              }
+              for (const restoredAppointmentType of restoredAppointmentTypes) {
+                const updateResult = await updateAppointmentTypeMutation({
+                  appointmentTypeId: restoredAppointmentType.appointmentTypeId,
+                  color: restoredAppointmentType.snapshot.color ?? null,
+                  defaultOccupancy:
+                    restoredAppointmentType.snapshot.defaultOccupancy,
+                  duration: restoredAppointmentType.snapshot.duration,
+                  name: restoredAppointmentType.snapshot.name,
+                  practiceId,
+                  practitionerIds: restoredAppointmentType.practitionerIds,
+                  ...getCowMutationArgs(),
+                  ...createAppointmentPlanUpdateArgs(
+                    restoredAppointmentType.snapshot.appointmentPlan.steps,
+                  ),
+                });
+                handleDraftMutationResult(updateResult);
                 upsertAppointmentTypeRef({
                   _creationTime: 0,
-                  _id: asAppointmentTypeId(recreateResult.entityId),
+                  _id: asAppointmentTypeId(updateResult.entityId),
                   allowedPractitionerLineageKeys: toSnapshotLineageIds(
-                    snapshot.practitionerSnapshots,
+                    restoredAppointmentType.snapshot.practitionerSnapshots,
                   ),
-                  appointmentPlan: snapshot.appointmentPlan,
-                  ...(snapshot.color === undefined
+                  appointmentPlan:
+                    restoredAppointmentType.snapshot.appointmentPlan,
+                  ...(restoredAppointmentType.snapshot.color === undefined
                     ? {}
-                    : { color: snapshot.color }),
+                    : { color: restoredAppointmentType.snapshot.color }),
                   createdAt: 0n,
-                  defaultOccupancy: snapshot.defaultOccupancy,
-                  duration: snapshot.duration,
+                  defaultOccupancy:
+                    restoredAppointmentType.snapshot.defaultOccupancy,
+                  duration: restoredAppointmentType.snapshot.duration,
                   lastModified: 0n,
-                  lineageKey: snapshot.lineageKey,
-                  name: snapshot.name,
+                  lineageKey: restoredAppointmentType.snapshot.lineageKey,
+                  name: restoredAppointmentType.snapshot.name,
                   practiceId,
-                  ruleSetId: recreateResult.ruleSetId,
-                  treeFolderId,
+                  ruleSetId: updateResult.ruleSetId,
+                  treeFolderId: restoredAppointmentType.treeFolderId,
                 });
               }
               return {
