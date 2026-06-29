@@ -96,6 +96,7 @@ import {
 import { type ConditionTreeNode, validateConditionTree } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
 import { selectDraftRuleSetForEdit } from "./ruleSetLifecycle";
+import { type AppointmentColor, appointmentColorValidator } from "./schema";
 import {
   asBaseScheduleCreatePayload,
   asBaseSchedulePayload,
@@ -913,6 +914,7 @@ async function resolvePractitionerLineageKeys(
  */
 export const createAppointmentType = mutation({
   args: {
+    color: v.optional(v.union(appointmentColorValidator, v.null())),
     duration: v.number(), // duration in minutes
     expectedDraftRevision: expectedDraftRevisionValidator,
     followUpPlan: v.optional(v.array(followUpStepValidator)),
@@ -991,6 +993,7 @@ export const createAppointmentType = mutation({
           allowedPractitionerLineageKeys:
             normalizedAllowedPractitionerLineageKeys,
           deleted: false,
+          ...(args.color !== undefined && { color: args.color ?? undefined }),
           duration: args.duration,
           followUpPlan: followUpPlan ?? [],
           lastModified: BigInt(Date.now()),
@@ -1012,6 +1015,9 @@ export const createAppointmentType = mutation({
     // Create the appointment type
     const entityId = await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
       allowedPractitionerLineageKeys: normalizedAllowedPractitionerLineageKeys,
+      ...(args.color !== undefined && args.color !== null
+        ? { color: args.color }
+        : {}),
       createdAt: BigInt(Date.now()),
       duration: args.duration,
       ...(followUpPlan && { followUpPlan }),
@@ -1035,6 +1041,7 @@ export const createAppointmentType = mutation({
 export const updateAppointmentType = mutation({
   args: {
     appointmentTypeId: v.id("appointmentTypes"),
+    color: v.optional(v.union(appointmentColorValidator, v.null())),
     duration: v.optional(v.number()),
     expectedDraftRevision: expectedDraftRevisionValidator,
     followUpPlan: v.optional(v.array(followUpStepValidator)),
@@ -1078,6 +1085,7 @@ export const updateAppointmentType = mutation({
     // Build updates object
     const updates: Partial<{
       allowedPractitionerLineageKeys: PractitionerLineageKey[];
+      color: AppointmentColor | undefined;
       duration: number;
       followUpPlan: FollowUpPlan;
       lastModified: bigint;
@@ -1088,6 +1096,9 @@ export const updateAppointmentType = mutation({
 
     if (name !== undefined) {
       updates.name = name;
+    }
+    if (args.color !== undefined) {
+      updates.color = args.color ?? undefined;
     }
     if (args.duration !== undefined) {
       updates.duration = args.duration;
@@ -1265,7 +1276,7 @@ export const getAppointmentTypeFolders = query({
     if (!(await ruleSetExists(ctx, args.ruleSetId))) {
       return [];
     }
-    await requireManagerRuleSetScope(ctx, args.ruleSetId);
+    await requireRuleSetMember(ctx, args.ruleSetId);
 
     const folders = await ctx.db
       .query("appointmentTypeFolders")
@@ -1276,8 +1287,31 @@ export const getAppointmentTypeFolders = query({
   },
 });
 
+export const getAppointmentTypeFoldersFromActive = query({
+  args: {
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await requirePracticeStaff(ctx, args.practiceId);
+    const practice = await ctx.db.get("practices", args.practiceId);
+    if (!practice?.currentActiveRuleSetId) {
+      return [];
+    }
+    const ruleSetId = practice.currentActiveRuleSetId;
+
+    const folders = await ctx.db
+      .query("appointmentTypeFolders")
+      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+      .collect();
+
+    return folders.filter((folder) => !isDeletedRuleSetEntity(folder));
+  },
+});
+
 export const createAppointmentTypeFolder = mutation({
   args: {
+    color: v.optional(v.union(appointmentColorValidator, v.null())),
     expectedDraftRevision: expectedDraftRevisionValidator,
     lineageKey: v.optional(v.id("appointmentTypeFolders")),
     name: v.string(),
@@ -1327,6 +1361,7 @@ export const createAppointmentTypeFolder = mutation({
 
         await ctx.db.patch("appointmentTypeFolders", existingFolder._id, {
           deleted: false,
+          ...(args.color !== undefined && { color: args.color ?? undefined }),
           lastModified: BigInt(Date.now()),
           lineageKey: args.lineageKey,
           name,
@@ -1339,6 +1374,9 @@ export const createAppointmentTypeFolder = mutation({
     }
 
     const folderId = await ctx.db.insert("appointmentTypeFolders", {
+      ...(args.color !== undefined && args.color !== null
+        ? { color: args.color }
+        : {}),
       createdAt: BigInt(Date.now()),
       lastModified: BigInt(Date.now()),
       ...(args.lineageKey && { lineageKey: args.lineageKey }),
@@ -1365,6 +1403,7 @@ export const createAppointmentTypeFolder = mutation({
 
 export const updateAppointmentTypeFolder = mutation({
   args: {
+    color: v.optional(v.union(appointmentColorValidator, v.null())),
     expectedDraftRevision: expectedDraftRevisionValidator,
     folderId: v.id("appointmentTypeFolders"),
     name: v.optional(v.string()),
@@ -1418,6 +1457,7 @@ export const updateAppointmentTypeFolder = mutation({
     }
 
     await ctx.db.patch("appointmentTypeFolders", folder._id, {
+      ...(args.color !== undefined && { color: args.color ?? undefined }),
       lastModified: BigInt(Date.now()),
       ...(name !== undefined && { name }),
       ...(args.parentFolderId !== undefined && { parentFolderId }),

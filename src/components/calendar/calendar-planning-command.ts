@@ -2,6 +2,7 @@ import type { FunctionArgs } from "convex/server";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { AppointmentTypeLineageKey } from "../../../convex/identity";
+import type { AppointmentColor } from "../../../convex/schema";
 import type { LedgerCommand } from "../../utils/command-ledger";
 import type {
   CalendarAppointmentPlacement,
@@ -27,6 +28,7 @@ export interface CalendarAppointmentCreateCommand extends CalendarPlanningComman
   payload: {
     appointmentTypeLineageKey: AppointmentTypeLineageKey;
     appointmentTypeTitle: string;
+    color: AppointmentColor;
     createArgs: CreateAppointmentMutationArgs & { isSimulation: boolean };
     createEnd: string;
     currentAppointmentId: Id<"appointments">;

@@ -10,6 +10,7 @@ import type {
   LocationLineageKey,
   PractitionerLineageKey,
 } from "../../../convex/identity";
+import type { AppointmentColor } from "../../../convex/schema";
 import type {
   CalendarResourceColumn,
   AppointmentOccupancyScope as SharedAppointmentOccupancyScope,
@@ -22,6 +23,8 @@ import type {
   SchedulingRuleSetId,
   SchedulingSimulatedContext,
 } from "../../types";
+
+import { APPOINTMENT_COLOR_VALUES } from "../../../lib/appointment-colors";
 
 export type AppointmentOccupancyScope =
   SharedAppointmentOccupancyScope<PractitionerLineageKey>;
@@ -56,7 +59,7 @@ export type CalendarAppointmentRecord = Omit<
 };
 
 export interface CalendarAppointmentView {
-  color: string;
+  color: AppointmentColor;
   layout: CalendarAppointmentLayout;
   patientName?: string;
 }
@@ -168,19 +171,8 @@ export interface NewCalendarProps {
 
 export const SLOT_DURATION = 5; // minutes
 
-export const CALENDAR_APPOINTMENT_COLOR_CLASSES = {
-  amber: "bg-amber-500",
-  blue: "bg-blue-500",
-  cyan: "bg-cyan-500",
-  emerald: "bg-emerald-500",
-  fuchsia: "bg-fuchsia-500",
-  indigo: "bg-indigo-500",
-  rose: "bg-rose-500",
-  slate: "bg-slate-500",
-  teal: "bg-teal-500",
-  violet: "bg-violet-500",
-} as const;
+export const CALENDAR_APPOINTMENT_COLOR_CLASSES = Object.fromEntries(
+  APPOINTMENT_COLOR_VALUES.map((color) => [color, color]),
+) as Record<AppointmentColor, AppointmentColor>;
 
-export const APPOINTMENT_COLORS = Object.values(
-  CALENDAR_APPOINTMENT_COLOR_CLASSES,
-);
+export const APPOINTMENT_COLORS = [...APPOINTMENT_COLOR_VALUES];

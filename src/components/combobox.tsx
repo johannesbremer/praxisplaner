@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { Check, ChevronsUpDown, X } from "lucide-react";
 import { useState } from "react";
 
@@ -19,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export interface ComboboxOption {
+  icon?: ReactNode;
   label: string;
   searchText?: string;
   value: string;
@@ -120,6 +123,7 @@ export function Combobox({
                 key={val}
                 variant={inverted ? "destructive" : "secondary"}
               >
+                {option?.icon}
                 {option?.label || val}
                 <X
                   className="h-3 w-3 cursor-pointer"
@@ -135,7 +139,15 @@ export function Combobox({
     }
 
     const option = options.find((opt) => opt.value === selectedValues[0]);
-    return option?.label || selectedValues[0];
+    if (!option) {
+      return selectedValues[0];
+    }
+    return (
+      <span className="flex min-w-0 items-center gap-2">
+        {option.icon}
+        <span className="truncate">{option.label}</span>
+      </span>
+    );
   };
 
   return (
@@ -186,7 +198,10 @@ export function Combobox({
                   }}
                   value={option.label}
                 >
-                  {option.label}
+                  <span className="flex min-w-0 items-center gap-2">
+                    {option.icon}
+                    <span className="truncate">{option.label}</span>
+                  </span>
                   <Check
                     className={cn(
                       "ml-auto h-4 w-4",

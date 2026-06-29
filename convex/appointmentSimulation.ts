@@ -16,6 +16,7 @@ export interface AppointmentReplacementState {
     | AppointmentDoc["cancelledByPhoneBookingIdentityId"]
     | undefined;
   cancelledByUserId: AppointmentDoc["cancelledByUserId"] | undefined;
+  color: AppointmentDoc["color"];
   end: AppointmentDoc["end"];
   locationLineageKey: AppointmentDoc["locationLineageKey"];
   occupancyScope: AppointmentDoc["occupancyScope"];
@@ -65,6 +66,7 @@ export function appointmentReplacementInsertFields(
     ...(state.cancelledByUserId === undefined
       ? {}
       : { cancelledByUserId: state.cancelledByUserId }),
+    ...(state.color === undefined ? {} : { color: state.color }),
     end: state.end,
     locationLineageKey: state.locationLineageKey,
     occupancyScope: state.occupancyScope,
@@ -99,6 +101,7 @@ export function appointmentReplacementState(
     cancelledByPhoneBookingIdentityId:
       appointment.cancelledByPhoneBookingIdentityId,
     cancelledByUserId: appointment.cancelledByUserId,
+    color: appointment.color,
     end: appointment.end,
     locationLineageKey: appointment.locationLineageKey,
     occupancyScope: appointment.occupancyScope,
@@ -128,6 +131,7 @@ export function appointmentReplacementStatesEqual(
     left.cancelledByPhoneBookingIdentityId ===
       right.cancelledByPhoneBookingIdentityId &&
     left.cancelledByUserId === right.cancelledByUserId &&
+    left.color === right.color &&
     left.end === right.end &&
     left.locationLineageKey === right.locationLineageKey &&
     appointmentOccupancyScopesEqual(

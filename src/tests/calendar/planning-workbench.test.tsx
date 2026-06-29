@@ -36,8 +36,12 @@ const recordCalendarCommand =
   vi.fn<(command: CalendarPlanningCommand) => void>();
 let executeRecordedCalendarCommand: CalendarPlanningCommandExecutor | null =
   null;
+const convexQuery = vi.fn(() => Promise.resolve("blue"));
 
 vi.mock("convex/react", () => ({
+  useConvex: () => ({
+    query: convexQuery,
+  }),
   useMutation: () => {
     const mutation = mutationQueue.shift();
     if (!mutation) {
@@ -101,6 +105,8 @@ const parseZonedDateTime = (value: string, source: string) =>
 describe("calendar planning workbench", () => {
   beforeEach(() => {
     mutationQueue.length = 0;
+    convexQuery.mockReset();
+    convexQuery.mockResolvedValue("blue");
     recordCalendarCommand.mockReset();
     executeRecordedCalendarCommand = null;
   });
@@ -206,6 +212,7 @@ describe("calendar planning workbench", () => {
         blockedSlotsQueryArgs: null,
         calendarDayQueryArgs: null,
         getRequiredAppointmentTypeInfo: () => ({
+          color: "blue",
           duration: 30,
           hasFollowUpPlan: false,
           name: "Check-up",
@@ -313,6 +320,7 @@ describe("calendar planning workbench", () => {
         blockedSlotsQueryArgs: null,
         calendarDayQueryArgs: null,
         getRequiredAppointmentTypeInfo: () => ({
+          color: "blue",
           duration: 30,
           hasFollowUpPlan: false,
           name: "Check-up",
@@ -416,6 +424,7 @@ describe("calendar planning workbench", () => {
           selectedRuleSetId: ruleSetId,
         },
         getRequiredAppointmentTypeInfo: () => ({
+          color: "blue",
           duration: 30,
           hasFollowUpPlan: false,
           name: "Check-up",
@@ -518,6 +527,7 @@ describe("calendar planning workbench", () => {
           selectedRuleSetId: ruleSetId,
         },
         getRequiredAppointmentTypeInfo: () => ({
+          color: "blue",
           duration: 30,
           hasFollowUpPlan: false,
           name: "Check-up",
@@ -600,6 +610,7 @@ describe("calendar planning workbench", () => {
         blockedSlotsQueryArgs: null,
         calendarDayQueryArgs: null,
         getRequiredAppointmentTypeInfo: () => ({
+          color: "blue",
           duration: 30,
           hasFollowUpPlan: false,
           name: "Check-up",

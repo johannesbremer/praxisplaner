@@ -18,6 +18,7 @@ const baseAppointment: AppointmentResult = {
     "appointment_type_lineage_1",
   ),
   appointmentTypeTitle: "Erstgespräch",
+  color: "blue",
   createdAt: 0n,
   end: "2024-01-15T11:00:00Z",
   lastModified: 0n,

@@ -23,7 +23,7 @@ import {
 } from "../../../src/components/calendar/types";
 import { buildCalendarAppointmentRecord } from "./test-records";
 
-const TAILWIND_BG_COLOR_REGEX = regex.as(String.raw`^bg-\w+-\d{3}$`);
+const APPOINTMENT_COLOR_TOKEN_REGEX = regex.as("^[a-z]+$");
 
 describe("Calendar Types and Constants", () => {
   const practitioner1 = asPractitionerLineageKey(
@@ -87,11 +87,11 @@ describe("Calendar Types and Constants", () => {
   });
 
   const createView = (args: {
-    color?: string;
+    color?: CalendarAppointmentView["color"];
     layout?: CalendarAppointmentLayout;
     patientName?: string;
   }): CalendarAppointmentView => ({
-    color: args.color ?? "bg-blue-500",
+    color: args.color ?? "blue",
     layout: args.layout ?? createLayout({ id: "test-1" }),
     ...(args.patientName === undefined
       ? {}
@@ -117,9 +117,9 @@ describe("Calendar Types and Constants", () => {
       expect(APPOINTMENT_COLORS.length).toBeGreaterThanOrEqual(5);
     });
 
-    test("should contain valid Tailwind classes", () => {
+    test("should contain valid color tokens", () => {
       for (const color of APPOINTMENT_COLORS) {
-        expect(color).toMatch(TAILWIND_BG_COLOR_REGEX);
+        expect(color).toMatch(APPOINTMENT_COLOR_TOKEN_REGEX);
       }
     });
 
@@ -128,7 +128,7 @@ describe("Calendar Types and Constants", () => {
         CALENDAR_APPOINTMENT_COLOR_CLASSES.blue,
       );
       expect(APPOINTMENT_COLORS).toContain(
-        CALENDAR_APPOINTMENT_COLOR_CLASSES.emerald,
+        CALENDAR_APPOINTMENT_COLOR_CLASSES.green,
       );
       expect(APPOINTMENT_COLORS).toContain(
         CALENDAR_APPOINTMENT_COLOR_CLASSES.rose,
@@ -156,7 +156,7 @@ describe("Calendar Types and Constants", () => {
           calendarColumnScopeFromPractitioner(practitioner1),
         ),
       ).toBe(true);
-      expect(appointment.color).toBe("bg-blue-500");
+      expect(appointment.color).toBe("blue");
       expect(appointment.layout.record.isSimulation).toBeUndefined();
     });
 

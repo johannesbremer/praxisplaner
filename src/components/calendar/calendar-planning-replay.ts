@@ -1,5 +1,6 @@
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { AppointmentTypeLineageKey } from "../../../convex/identity";
+import type { AppointmentColor } from "../../../convex/schema";
 import type {
   LedgerExecutionResult,
   LedgerOperation,
@@ -41,6 +42,7 @@ export interface CalendarPlanningCommandExecutorContext {
   ensureLatestConflictData: () => Promise<void>;
   forgetAppointmentHistoryDoc: (id: Id<"appointments">) => void;
   forgetBlockedSlotHistoryDoc: (id: Id<"blockedSlots">) => void;
+  getAppointmentColor?: (id: Id<"appointments">) => Promise<AppointmentColor>;
   getCurrentAppointmentDoc: (
     id: Id<"appointments">,
   ) => CalendarAppointmentRecord | undefined;
@@ -136,6 +138,7 @@ type CalendarPlanningReplayResult =
 interface CreatedAppointmentHistoryArgs extends AppointmentOwnerRefs {
   appointmentTypeLineageKey: AppointmentTypeLineageKey;
   appointmentTypeTitle: string;
+  color: AppointmentColor;
   createdId: Id<"appointments">;
   createEnd: string;
   createStart: string;
@@ -313,9 +316,12 @@ async function executeAppointmentCreateCommand(
       currentId: recreatedId,
       originalId: originalAppointmentId,
     });
+    const persistedColor =
+      (await context.getAppointmentColor?.(recreatedId)) ?? payload.color;
     context.rememberCreatedAppointmentFromStrings({
       appointmentTypeLineageKey: payload.appointmentTypeLineageKey,
       appointmentTypeTitle: payload.appointmentTypeTitle,
+      color: persistedColor,
       ...getAppointmentOwnerRefs(payload.createArgs),
       createdId: recreatedId,
       createEnd: payload.createEnd,

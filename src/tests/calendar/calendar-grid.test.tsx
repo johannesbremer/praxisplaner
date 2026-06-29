@@ -39,7 +39,7 @@ describe("CalendarGrid", () => {
     calendarColumnScopeFromPractitioner(practitioner2);
 
   const createAppointment = (args: {
-    color: string;
+    color: CalendarAppointmentView["color"];
     column: typeof practitioner1;
     duration: number;
     id: string;
@@ -67,7 +67,7 @@ describe("CalendarGrid", () => {
 
   const mockAppointments: CalendarAppointmentView[] = [
     createAppointment({
-      color: "bg-blue-500",
+      color: "blue",
       column: practitioner1,
       duration: 30,
       id: "apt-1",
@@ -75,7 +75,7 @@ describe("CalendarGrid", () => {
       title: "Test Appointment 1",
     }),
     createAppointment({
-      color: "bg-green-500",
+      color: "green",
       column: practitioner2,
       duration: 45,
       id: "apt-2",
@@ -631,7 +631,7 @@ describe("CalendarGrid", () => {
     test("only shows appointments in correct columns", () => {
       const mixedAppointments: CalendarAppointmentView[] = [
         createAppointment({
-          color: "bg-blue-500",
+          color: "blue",
           column: practitioner1,
           duration: 30,
           id: "apt-1",
@@ -639,7 +639,7 @@ describe("CalendarGrid", () => {
           title: "Mixed Appointment 1",
         }),
         createAppointment({
-          color: "bg-green-500",
+          color: "green",
           column: practitioner2,
           duration: 30,
           id: "apt-2",
@@ -647,7 +647,7 @@ describe("CalendarGrid", () => {
           title: "Mixed Appointment 2",
         }),
         createAppointment({
-          color: "bg-red-500",
+          color: "red",
           column: practitioner1,
           duration: 30,
           id: "apt-3",
@@ -668,7 +668,7 @@ describe("CalendarGrid", () => {
     test("handles appointments with overlapping times", () => {
       const overlappingAppointments: CalendarAppointmentView[] = [
         createAppointment({
-          color: "bg-blue-500",
+          color: "blue",
           column: practitioner1,
           duration: 60,
           id: "apt-1",
@@ -676,7 +676,7 @@ describe("CalendarGrid", () => {
           title: "Overlapping Appointment 1",
         }),
         createAppointment({
-          color: "bg-green-500",
+          color: "green",
           column: practitioner1,
           duration: 30,
           id: "apt-2",

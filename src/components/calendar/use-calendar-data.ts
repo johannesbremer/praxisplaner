@@ -8,6 +8,7 @@ import type {
   LocationLineageKey,
   PractitionerLineageKey,
 } from "../../../convex/identity";
+import type { AppointmentColor } from "../../../convex/schema";
 import type { PatientInfo } from "../../types";
 import type {
   CalendarAppointmentRecord,
@@ -20,6 +21,7 @@ import {
   asLocationLineageKey,
   asPractitionerLineageKey,
 } from "../../../convex/identity";
+import { DEFAULT_APPOINTMENT_COLOR } from "../../../lib/appointment-colors";
 import { createSimulatedContext } from "../../../lib/utils";
 import {
   captureFrontendError,
@@ -36,6 +38,7 @@ import {
 
 interface CalendarAppointmentTypeInfo {
   allowedPractitionerLineageKeys: PractitionerLineageKey[];
+  color: AppointmentColor;
   duration: number;
   hasFollowUpPlan: boolean;
   lineageKey: AppointmentTypeLineageKey;
@@ -79,6 +82,16 @@ export function useCalendarData(args: {
       : api.entities.getAppointmentTypesFromActive,
     args.ruleSetId
       ? { includeDeleted: false, ruleSetId: args.ruleSetId }
+      : args.practiceId
+        ? { practiceId: args.practiceId }
+        : "skip",
+  );
+  const appointmentTypeFoldersData = useQuery(
+    args.ruleSetId
+      ? api.entities.getAppointmentTypeFolders
+      : api.entities.getAppointmentTypeFoldersFromActive,
+    args.ruleSetId
+      ? { ruleSetId: args.ruleSetId }
       : args.practiceId
         ? { practiceId: args.practiceId }
         : "skip",
@@ -421,6 +434,46 @@ export function useCalendarData(args: {
       AppointmentTypeLineageKey,
       CalendarAppointmentTypeInfo
     >();
+    const folderById = new Map<
+      Id<"appointmentTypeFolders">,
+      {
+        color: AppointmentColor | undefined;
+        parentFolderId: Id<"appointmentTypeFolders"> | undefined;
+      }
+    >(
+      (appointmentTypeFoldersData ?? []).map((folder) => [
+        folder._id,
+        {
+          color: folder.color,
+          parentFolderId: folder.parentFolderId,
+        },
+      ]),
+    );
+    const resolveAppointmentTypeColor = (appointmentType: {
+      color?: AppointmentColor;
+      treeFolderId?: Id<"appointmentTypeFolders">;
+    }): AppointmentColor => {
+      if (appointmentType.color !== undefined) {
+        return appointmentType.color;
+      }
+
+      let folderId = appointmentType.treeFolderId;
+      const visitedFolderIds = new Set<Id<"appointmentTypeFolders">>();
+      while (folderId !== undefined && !visitedFolderIds.has(folderId)) {
+        visitedFolderIds.add(folderId);
+        const folder = folderById.get(folderId);
+        if (folder === undefined) {
+          break;
+        }
+        if (folder.color !== undefined) {
+          return folder.color;
+        }
+        folderId = folder.parentFolderId;
+      }
+
+      return DEFAULT_APPOINTMENT_COLOR;
+    };
+
     for (const appointmentType of appointmentTypesData ?? []) {
       if (!appointmentType.lineageKey) {
         continue;
@@ -433,6 +486,7 @@ export function useCalendarData(args: {
 
       map.set(asAppointmentTypeLineageKey(appointmentType.lineageKey), {
         allowedPractitionerLineageKeys,
+        color: resolveAppointmentTypeColor(appointmentType),
         duration: appointmentType.duration,
         hasFollowUpPlan: (appointmentType.followUpPlan?.length ?? 0) > 0,
         lineageKey: asAppointmentTypeLineageKey(appointmentType.lineageKey),
@@ -440,7 +494,7 @@ export function useCalendarData(args: {
       });
     }
     return map;
-  }, [appointmentTypesData]);
+  }, [appointmentTypeFoldersData, appointmentTypesData]);
   const practitionerNameByLineageKey = useMemo(
     () =>
       new Map<PractitionerLineageKey, string>(

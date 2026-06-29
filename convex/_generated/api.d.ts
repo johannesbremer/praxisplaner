@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as appointmentColors from "../appointmentColors.js";
 import type * as appointmentConflicts from "../appointmentConflicts.js";
 import type * as appointmentCoverage from "../appointmentCoverage.js";
 import type * as appointmentOccupancy from "../appointmentOccupancy.js";
@@ -71,6 +72,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  appointmentColors: typeof appointmentColors;
   appointmentConflicts: typeof appointmentConflicts;
   appointmentCoverage: typeof appointmentCoverage;
   appointmentOccupancy: typeof appointmentOccupancy;
