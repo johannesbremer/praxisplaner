@@ -1,11 +1,13 @@
 allowBuilds:
   "@ffmpeg-installer/darwin-arm64": true
+  "@posthog/cli": true
   core-js: true
   esbuild: true
   protobufjs: true
   sharp: true
 onlyBuiltDependencies:
   - "@ffmpeg-installer/darwin-arm64"
+  - "@posthog/cli"
   - core-js
   - esbuild
   - msw
