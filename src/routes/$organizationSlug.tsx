@@ -1,9 +1,9 @@
+import { usePostHog } from "@posthog/react";
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { usePostHog } from "posthog-js/react";
 import {
   type ReactElement,
   useCallback,
@@ -549,7 +549,7 @@ function AuthenticatedBookingFlow() {
           () => {
             captureBookingAnalyticsEvent(
               posthog,
-              "booking_flow_started",
+              "booking_flow:flow_start",
               buildBookingAnalyticsScopeProperties({
                 organizationSlug,
                 practiceId: currentPractice._id,
@@ -594,7 +594,7 @@ function AuthenticatedBookingFlow() {
     if (currentPractice && hasActiveRuleSet) {
       captureBookingAnalyticsEvent(
         posthog,
-        "booking_flow_reset",
+        "booking_flow:flow_reset",
         buildBookingAnalyticsScopeProperties({
           organizationSlug,
           practiceId: currentPractice._id,
@@ -653,7 +653,7 @@ function AuthenticatedBookingFlow() {
         }),
     ).match(
       () => {
-        captureBookingAnalyticsEvent(posthog, "booking_step_back", {
+        captureBookingAnalyticsEvent(posthog, "booking_flow:step_back", {
           ...buildBookingStepAnalyticsProperties({
             organizationSlug,
             practiceId: currentPractice._id,
@@ -721,7 +721,7 @@ function AuthenticatedBookingFlow() {
     lastStepAnalyticsKeyRef.current = analyticsKey;
     captureBookingAnalyticsEvent(
       posthog,
-      "booking_step_viewed",
+      "booking_flow:step_view",
       buildBookingStepAnalyticsProperties({
         organizationSlug,
         practiceId: currentPractice._id,
@@ -744,7 +744,7 @@ function AuthenticatedBookingFlow() {
         return;
       }
 
-      captureBookingAnalyticsEvent(posthog, "booking_appointment_created", {
+      captureBookingAnalyticsEvent(posthog, "booking_flow:appointment_create", {
         ...buildBookingStepAnalyticsProperties({
           organizationSlug,
           practiceId: currentPractice._id,

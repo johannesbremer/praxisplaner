@@ -10,12 +10,16 @@ import {
 
 import type { BookingSessionState } from "../components/booking-wizard/types";
 
+import { isPostHogEnabled } from "./posthog-client";
+
 export type BookingAnalyticsEventName =
-  | "booking_appointment_created"
-  | "booking_flow_reset"
-  | "booking_flow_started"
-  | "booking_step_back"
-  | "booking_step_viewed";
+  | "booking_flow:appointment_create"
+  | "booking_flow:flow_reset"
+  | "booking_flow:flow_start"
+  | "booking_flow:step_back"
+  | "booking_flow:step_view";
+
+const BOOKING_ANALYTICS_EVENT_VERSION = 1;
 
 interface BookingAnalyticsScope {
   organizationSlug: string;
@@ -31,6 +35,7 @@ export function buildBookingAnalyticsScopeProperties({
   ruleSetId,
 }: BookingAnalyticsScope): Properties {
   return {
+    analytics_event_version: BOOKING_ANALYTICS_EVENT_VERSION,
     organization_slug: organizationSlug,
     practice_id: practiceId,
     ...(ruleSetId === undefined ? {} : { rule_set_id: ruleSetId }),
@@ -85,10 +90,7 @@ export function captureBookingAnalyticsEvent(
   eventName: BookingAnalyticsEventName,
   properties: Properties,
 ): void {
-  if (
-    !import.meta.env["VITE_PUBLIC_POSTHOG_KEY"] ||
-    (import.meta.env.DEV && !import.meta.env["VITE_ENABLE_POSTHOG_IN_DEV"])
-  ) {
+  if (!isPostHogEnabled()) {
     return;
   }
 
