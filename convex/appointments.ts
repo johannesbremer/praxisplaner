@@ -1232,6 +1232,7 @@ function toAppointmentSeriesRestoreSnapshot(args: {
       ...(appointment.cancelledByUserId === undefined
         ? {}
         : { cancelledByUserId: appointment.cancelledByUserId }),
+      ...(appointment.color === undefined ? {} : { color: appointment.color }),
       createdAt: appointment.createdAt,
       end: appointment.end,
       ...(appointment.isSimulation === undefined
@@ -4016,6 +4017,9 @@ export const restoreAppointmentSeriesSnapshot = mutation({
         ...(appointment.cancelledByUserId === undefined
           ? {}
           : { cancelledByUserId: appointment.cancelledByUserId }),
+        ...(appointment.color === undefined
+          ? {}
+          : { color: appointment.color }),
         createdAt: appointment.createdAt,
         end: appointment.end,
         ...(appointment.isSimulation === undefined

@@ -1432,7 +1432,7 @@ export const getAppointmentTypeFolders = query({
     if (!(await ruleSetExists(ctx, args.ruleSetId))) {
       return [];
     }
-    await requireManagerRuleSetScope(ctx, args.ruleSetId);
+    await requireRuleSetMember(ctx, args.ruleSetId);
 
     const folders = await ctx.db
       .query("appointmentTypeFolders")
@@ -1445,6 +1445,7 @@ export const getAppointmentTypeFolders = query({
 
 export const createAppointmentTypeFolder = mutation({
   args: {
+    color: v.optional(appointmentColorValidator),
     expectedDraftRevision: expectedDraftRevisionValidator,
     lineageKey: v.optional(v.id("appointmentTypeFolders")),
     name: v.string(),
@@ -1493,6 +1494,7 @@ export const createAppointmentTypeFolder = mutation({
         }
 
         await ctx.db.patch("appointmentTypeFolders", existingFolder._id, {
+          ...(args.color === undefined ? {} : { color: args.color }),
           deleted: false,
           lastModified: BigInt(Date.now()),
           lineageKey: args.lineageKey,
@@ -1506,6 +1508,7 @@ export const createAppointmentTypeFolder = mutation({
     }
 
     const folderId = await ctx.db.insert("appointmentTypeFolders", {
+      ...(args.color === undefined ? {} : { color: args.color }),
       createdAt: BigInt(Date.now()),
       lastModified: BigInt(Date.now()),
       ...(args.lineageKey && { lineageKey: args.lineageKey }),

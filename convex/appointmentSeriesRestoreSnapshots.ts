@@ -5,6 +5,20 @@ import { appointmentPlanStepValidator } from "./appointmentPlans";
 import { appointmentSimulationKindValidator } from "./appointmentSimulation";
 
 const appointmentSmileyValidator = v.string();
+const appointmentColorValidator = v.union(
+  v.literal("blue"),
+  v.literal("teal"),
+  v.literal("green"),
+  v.literal("lime"),
+  v.literal("yellow"),
+  v.literal("orange"),
+  v.literal("red"),
+  v.literal("rose"),
+  v.literal("fuchsia"),
+  v.literal("violet"),
+  v.literal("indigo"),
+  v.literal("slate"),
+);
 
 export const appointmentSeriesRestoreAppointmentSnapshotValidator = v.object({
   appointmentTypeLineageKey: v.id("appointmentTypes"),
@@ -13,6 +27,7 @@ export const appointmentSeriesRestoreAppointmentSnapshotValidator = v.object({
   cancelledAt: v.optional(v.int64()),
   cancelledByPhoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
   cancelledByUserId: v.optional(v.id("users")),
+  color: v.optional(appointmentColorValidator),
   createdAt: v.int64(),
   end: v.string(),
   isSimulation: v.optional(v.boolean()),

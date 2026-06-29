@@ -2609,6 +2609,8 @@ export function AppointmentTypesManagement({
               if (
                 existingByLineage &&
                 (existingByLineage.name !== snapshot.name ||
+                  storedAppointmentTypeColor(existingByLineage.color) !==
+                    snapshot.color ||
                   existingByLineage.duration !== snapshot.duration ||
                   !sameAppointmentTypeDefaultOccupancy(
                     existingByLineage.defaultOccupancy,
@@ -2681,6 +2683,7 @@ export function AppointmentTypesManagement({
               if (
                 existingFolderByLineage !== undefined &&
                 (existingFolderByLineage.name !== snapshot.name ||
+                  existingFolderByLineage.color !== snapshot.color ||
                   existingFolderByLineage.parentFolderId !== parentFolderId)
               ) {
                 return {
@@ -2711,6 +2714,7 @@ export function AppointmentTypesManagement({
                 plannedFolderIds.set(snapshot.lineageKey, snapshot.lineageKey);
                 plannedFolders.push(
                   createAppointmentTypeFolderRefSnapshot({
+                    color: snapshot.color,
                     id: snapshot.lineageKey,
                     lineageKey: snapshot.lineageKey,
                     name: snapshot.name,
@@ -2731,6 +2735,7 @@ export function AppointmentTypesManagement({
                   ? undefined
                   : optimisticFolderIds.get(snapshot.parentLineageKey);
               return createAppointmentTypeFolderRefSnapshot({
+                color: snapshot.color,
                 id: snapshot.lineageKey,
                 lineageKey: snapshot.lineageKey,
                 name: snapshot.name,
@@ -2761,6 +2766,9 @@ export function AppointmentTypesManagement({
                       snapshot.practitionerSnapshots,
                     ),
                     appointmentPlan: snapshot.appointmentPlan,
+                    ...(snapshot.color === undefined
+                      ? {}
+                      : { color: snapshot.color }),
                     createdAt: 0n,
                     defaultOccupancy: snapshot.defaultOccupancy,
                     duration: snapshot.duration,
@@ -2808,6 +2816,9 @@ export function AppointmentTypesManagement({
                 }
                 const recreateResult =
                   await createAppointmentTypeFolderMutation({
+                    ...(snapshot.color === undefined
+                      ? {}
+                      : { color: snapshot.color }),
                     lineageKey: snapshot.lineageKey,
                     name: snapshot.name,
                     practiceId,
@@ -2821,6 +2832,7 @@ export function AppointmentTypesManagement({
                 );
                 upsertAppointmentTypeFolderRef(
                   createAppointmentTypeFolderRefSnapshot({
+                    color: snapshot.color,
                     id: recreateResult.entityId,
                     lineageKey: snapshot.lineageKey,
                     name: snapshot.name,
@@ -2862,6 +2874,9 @@ export function AppointmentTypesManagement({
                   practiceId,
                   practitionerIds,
                   treeFolderId,
+                  ...(snapshot.color === undefined
+                    ? {}
+                    : { color: snapshot.color }),
                   ...getCowMutationArgs(),
                   ...createAppointmentPlanCreateArgs(
                     snapshot.appointmentPlan.steps,
@@ -2875,6 +2890,9 @@ export function AppointmentTypesManagement({
                     snapshot.practitionerSnapshots,
                   ),
                   appointmentPlan: snapshot.appointmentPlan,
+                  ...(snapshot.color === undefined
+                    ? {}
+                    : { color: snapshot.color }),
                   createdAt: 0n,
                   defaultOccupancy: snapshot.defaultOccupancy,
                   duration: snapshot.duration,
@@ -3225,6 +3243,7 @@ export function AppointmentTypesManagement({
     try {
       const deletedSnapshot = {
         appointmentPlan: appointmentType.appointmentPlan,
+        color: storedAppointmentTypeColor(appointmentType.color),
         defaultOccupancy: appointmentType.defaultOccupancy,
         duration: appointmentType.duration,
         lineageKey: appointmentType.lineageKey,
@@ -3292,6 +3311,7 @@ export function AppointmentTypesManagement({
             practiceId,
             practitionerIds,
             treeFolderId,
+            ...(snapshot.color === undefined ? {} : { color: snapshot.color }),
             ...getCowMutationArgs(),
             ...createAppointmentPlanCreateArgs(snapshot.appointmentPlan.steps),
           });
@@ -3333,6 +3353,8 @@ export function AppointmentTypesManagement({
           );
           return (
             existingByLineage.name === snapshot.name &&
+            storedAppointmentTypeColor(existingByLineage.color) ===
+              snapshot.color &&
             existingByLineage.treeFolderId === resolvedFolder.folderId &&
             existingByLineage.duration === snapshot.duration &&
             sameAppointmentTypeDefaultOccupancy(
@@ -3389,6 +3411,7 @@ export function AppointmentTypesManagement({
             deletedPractitionerSnapshots,
           ),
           appointmentPlan: snapshot.appointmentPlan,
+          ...(snapshot.color === undefined ? {} : { color: snapshot.color }),
           createdAt: 0n,
           defaultOccupancy: snapshot.defaultOccupancy,
           duration: snapshot.duration,
