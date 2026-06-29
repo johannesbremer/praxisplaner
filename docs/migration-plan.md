@@ -124,12 +124,18 @@ Plan:
    - preferred: WorkOS invites or password reset flow
    - avoid attempting to preserve PocketBase password hashes unless WorkOS explicitly supports the exact hash import path
 3. Create WorkOS users first.
-4. Export `users.jsonl` for Convex only after WorkOS IDs are known:
+4. Backfill or reconcile Convex `users` before creating organization
+   memberships. Membership webhooks can arrive before delayed `user.created`
+   events, so membership creation must not be the first operation that depends
+   on Convex user rows.
+5. Create WorkOS organization memberships only after the corresponding Convex
+   `users` rows exist, then run an explicit membership reconciliation pass.
+6. Export `users.jsonl` for Convex only after WorkOS IDs are known:
    - `authId`: WorkOS user ID
    - `email`
    - optional `firstName`, `lastName`
    - `createdAt`
-5. Keep a local ignored mapping file: legacy PocketBase user ID -> WorkOS user ID -> Convex user ID.
+7. Keep a local ignored mapping file: legacy PocketBase user ID -> WorkOS user ID -> Convex user ID.
 
 ## Phase 5: legacy booking history
 
@@ -181,6 +187,9 @@ Only non-conflicting identity-to-PVS associations belong in the append-only asso
 ## Phase 7: rehearsal and import order
 
 Run the migration against a disposable Convex dev or preview deployment first.
+For the live pre-production website rehearsal, use the production runbook in
+[`docs/migration-production-rehearsal.md`](./migration-production-rehearsal.md)
+instead of the local-only command sequence below.
 
 Order:
 
@@ -200,9 +209,10 @@ For local rehearsal, the current Convex CLI flow is:
 pnpm exec convex deployment create local
 pnpm exec convex deployment select local
 pnpm exec convex env set WORKOS_CLIENT_ID client_local_migration_rehearsal
-pnpm exec convex env set WORKOS_API_KEY sk_test_local_migration_rehearsal
-pnpm exec convex env set WORKOS_WEBHOOK_SECRET whsec_local_migration_rehearsal
+pnpm exec convex env set WORKOS_API_KEY local-workos-api-key-placeholder
+pnpm exec convex env set WORKOS_WEBHOOK_SECRET local-workos-webhook-secret-placeholder
 pnpm exec convex env set MIGRATION_REHEARSAL_ENABLED true
+pnpm exec convex env set MIGRATION_OPERATOR_WORKOS_USER_IDS dev-admin
 pnpm exec convex dev
 ```
 
@@ -268,7 +278,11 @@ The TypeScript build step should convert normalized JSON into Convex-valid backu
 
 ## Open decisions
 
-- Final WorkOS password/invite flow.
+- Final WorkOS user activation copy and timing. The migration should create or
+  find WorkOS users first, attach them to the right WorkOS organization where
+  appropriate, and prefer invitation or password reset over importing legacy
+  PocketBase password hashes unless the hash format is proven compatible with
+  WorkOS-supported password hash import.
 - Whether to represent legacy booking history in existing booking step tables or a dedicated imported-history table.
 - Appointment title policy for historical imports.
 - Final manual-review threshold for matching legacy online/TelefonKI identities to PVS patients.

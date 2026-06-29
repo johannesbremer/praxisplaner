@@ -691,7 +691,10 @@ export const upsertOrganizationMemberByWorkOSOrganization = internalMutation({
     if (!practice) {
       return null;
     }
-    const user = await requireUserByAuthId(ctx.db, args.workOSUserId);
+    const user = await findUserByAuthId(ctx.db, args.workOSUserId);
+    if (!user) {
+      return null;
+    }
     return await upsertOrganizationMembership(ctx, {
       practiceId: practice._id,
       role: args.role,

@@ -504,6 +504,7 @@ function buildAppointmentsZip() {
     return {
       appointmentTypeLineageKey: appointmentType.lineageKey,
       appointmentTypeTitle: appointment.Terminart,
+      color: "blue",
       createdAt: importTimestamp,
       end: interval.end,
       lastModified: importTimestamp,
@@ -575,7 +576,7 @@ function buildAppointmentsZip() {
     patientIdAlternatives.length === 0
       ? ""
       : `, "patientId": ${patientIdAlternatives}`;
-  const baseSchemaPrefix = `{"practiceId": "${practice._id}", "start": string, "end": string, "title": string, "appointmentTypeLineageKey": ${appointmentTypeLineageKeyAlternatives}, "appointmentTypeTitle": string, "locationLineageKey": ${locationLineageKeyAlternatives}`;
+  const baseSchemaPrefix = `{"practiceId": "${practice._id}", "start": string, "end": string, "title": string, "appointmentTypeLineageKey": ${appointmentTypeLineageKeyAlternatives}, "appointmentTypeTitle": string, "color": "blue", "locationLineageKey": ${locationLineageKeyAlternatives}`;
   const baseSchemaSuffix = `, "createdAt": int64, "lastModified": int64}`;
   const schemaVariants = [
     ...(practitionerLineageKeyAlternatives.length === 0

@@ -17,9 +17,10 @@ const localConvexDataPaths = [
 const localRehearsalWorkosEnv = {
   AUTH_BYPASS_ENABLED: "true",
   MIGRATION_REHEARSAL_ENABLED: "true",
-  WORKOS_API_KEY: "sk_test_local_migration_rehearsal",
+  MIGRATION_OPERATOR_WORKOS_USER_IDS: "dev-admin",
+  WORKOS_API_KEY: "local-workos-api-key-placeholder",
   WORKOS_CLIENT_ID: "client_local_migration_rehearsal",
-  WORKOS_WEBHOOK_SECRET: "whsec_local_migration_rehearsal",
+  WORKOS_WEBHOOK_SECRET: "local-workos-webhook-secret-placeholder",
 };
 function localConvexCliEnv() {
   const config = JSON.parse(readFileSync(localConvexConfigPath, "utf8"));
@@ -286,7 +287,7 @@ async function main() {
         "env",
         "set",
         "WORKOS_API_KEY",
-        "sk_test_local_migration_rehearsal",
+        "local-workos-api-key-placeholder",
       ]);
       runWithRetry("pnpm", [
         "exec",
@@ -294,7 +295,7 @@ async function main() {
         "env",
         "set",
         "WORKOS_WEBHOOK_SECRET",
-        "whsec_local_migration_rehearsal",
+        "local-workos-webhook-secret-placeholder",
       ]);
       runWithRetry("pnpm", [
         "exec",
@@ -303,6 +304,14 @@ async function main() {
         "set",
         "MIGRATION_REHEARSAL_ENABLED",
         "true",
+      ]);
+      runWithRetry("pnpm", [
+        "exec",
+        "convex",
+        "env",
+        "set",
+        "MIGRATION_OPERATOR_WORKOS_USER_IDS",
+        "dev-admin",
       ]);
       runWithRetry("pnpm", [
         "exec",
