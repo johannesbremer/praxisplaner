@@ -1,12 +1,11 @@
 # Production migration rehearsal
 
-This runbook is for rehearsing the already-tested local migration against the
-live pre-production website stack: production Vercel, production Convex, and the
-real WorkOS environment. The goal is to reuse the deterministic local import
-pipeline while replacing the local-only shortcuts with explicit production
-safety gates.
+This runbook is for rehearsing the migration against the live pre-production
+website stack: production Vercel, production Convex, and the real WorkOS
+environment. The goal is to keep deterministic source shaping while using
+explicit production safety gates.
 
-## Non-negotiable differences from local rehearsal
+## Non-negotiable safety rules
 
 - For the one-time pre-production run, explicitly reset imported/migration-owned
   tables before importing. Preserve only the target practice, its active rule
@@ -16,8 +15,7 @@ safety gates.
 - Do not enable `AUTH_BYPASS_ENABLED`.
 - Do not use fake WorkOS credentials or `dev-admin` identities.
 - Do not import Convex `users` before the corresponding WorkOS users exist.
-- Do not rely on local seed IDs for the target `practiceId` or active
-  `ruleSetId`.
+- Do not rely on seed IDs for the target `practiceId` or active `ruleSetId`.
 - Do not run the production rehearsal from `.env.local` unless the script has
   already proven the target deployment is non-local and explicit.
 
@@ -25,20 +23,20 @@ safety gates.
 for migration-only Convex functions, but only on the intended production
 rehearsal deployment and only during the import window. It is not an auth bypass.
 
-## Reused local pipeline
+## Reused source pipeline
 
-These steps are deterministic and should stay shared with the local rehearsal:
+These steps are deterministic source-shaping steps:
 
 1. Convert and validate the Praxistimer source export.
 2. Build PVS patient import rows from `patients.csv`.
 3. Build reference labels from `old-appointments.csv`.
 4. Correlate legacy appointments and booking identities.
 5. Build legacy booking step replay rows and conflict reports.
-6. Generate backup-style ZIP imports for patients and appointments.
+6. Generate production appointment import ZIPs with explicit target IDs.
 7. Run the same count and duplicate reports after import.
 
-The production-specific wrapper should supply target IDs and WorkOS mappings to
-these builders instead of reading `seed_data_preview` or `.convex/local`.
+The production-specific wrapper supplies target IDs and WorkOS mappings to these
+builders.
 
 ## Production target preflight
 
@@ -83,8 +81,8 @@ Production was checked from the laptop with this read-only query:
 
 ```sh
 pnpm exec convex run \
-  --deployment \
-  'const practices = await ctx.db.query("practices").collect(); return practices.map((practice) => ({ _id: practice._id, currentActiveRuleSetId: practice.currentActiveRuleSetId, name: practice.name, slug: practice.slug, workOSOrganizationId: practice.workOSOrganizationId }));' < prod-convex-deployment > --inline-query
+  --deployment "$PROD_CONVEX_DEPLOYMENT" \
+  --inline-query 'const practices = await ctx.db.query("practices").collect(); return practices.map((practice) => ({ _id: practice._id, currentActiveRuleSetId: practice.currentActiveRuleSetId, name: practice.name, slug: practice.slug, workOSOrganizationId: practice.workOSOrganizationId }));'
 ```
 
 It should return exactly one practice:

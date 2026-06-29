@@ -37,7 +37,7 @@ The current Convex schema requires appointments to reference `practiceId`, `loca
 
 ## Import mechanics
 
-Convex supports CLI imports from CSV, JSON, JSONL, and backup ZIPs with `npx convex import --table <tableName> <path>`. CSV is limited to strings and floating-point numbers, while JSONL can preserve nested object shape. Convex imports are atomic for table create/replace operations except `--append`. For this migration, use a generated Convex backup-style ZIP or trusted Convex mutations/actions for bulk writes. Do not use single-table JSONL for final imports into tables with `v.int64()` fields: a local rehearsal showed JSONL numeric timestamps fail schema validation for `createdAt` / `lastModified`, while ZIP imports with `generated_schema.jsonl` can encode those fields as Convex `int64`.
+Convex supports CLI imports from CSV, JSON, JSONL, and backup ZIPs with `npx convex import --table <tableName> <path>`. CSV is limited to strings and floating-point numbers, while JSONL can preserve nested object shape. Convex imports are atomic for table create/replace operations except `--append`. For this migration, use a generated Convex backup-style ZIP or trusted Convex mutations/actions for bulk writes. Do not use single-table JSONL for final imports into tables with `v.int64()` fields: JSONL numeric timestamps fail schema validation for `createdAt` / `lastModified`, while ZIP imports with `generated_schema.jsonl` can encode those fields as Convex `int64`.
 
 Nushell is a good shaping tool here because it parses CSV to structured tables, can query SQLite with `open data.db | query db "..."`, and can emit JSON/NDJSON-like output after transformations. Use it for exploration and deterministic exports, but put final irreversible import logic in versioned scripts with tests.
 
@@ -56,8 +56,9 @@ Add tracked scripts only:
 - `scripts/migration/report-pvs-patient-name-changes.mts`
 - `scripts/migration/correlate-legacy-appointments.mts`
 - `scripts/migration/build-legacy-booking-step-replay.mts`
-- `scripts/migration/import-booking-identity-associations-local.mts`
-- `scripts/migration/build-local-rehearsal-import.mts` as a small executable rehearsal of the backup-ZIP import mechanics.
+- `scripts/migration/run-production-rehearsal.mts`
+- `scripts/migration/build-production-appointment-import.mts`
+- `scripts/migration/build-pvs-practitioner-associations.mts`
 
 Do not commit generated source data, generated JSONL containing patient data, SQLite extracts, or WorkOS import files.
 
@@ -69,7 +70,7 @@ Do not commit generated source data, generated JSONL containing patient data, SQ
    - rooms/resources from `old-appointments.csv.Raum` -> site mapping and optional resource metadata, not `locations`
    - appointment types from `old-appointments.csv.Terminart` -> existing/new `appointmentTypes.title`
 3. Resolve aliases deliberately before importing appointments. The CSV has more raw labels than the current app probably wants long-term.
-4. Insert or update the corresponding versioned reference rows in the active rule set and capture lineage keys for appointment import. The local rehearsal currently imports 93 appointment types, 25 practitioners/resources, and exactly two locations.
+4. Insert or update the corresponding versioned reference rows in the active rule set and capture lineage keys for appointment import. The production rehearsal imports 93 appointment types, 18 practitioners, and exactly two locations.
 
 ## Phase 2: PVS patients
 
@@ -106,7 +107,7 @@ Validation:
 
 - every row resolves required reference keys
 - every non-empty Praxistimer patient `ID` resolves or appears in an exception report
-- `start < end`; the local rehearsal found Praxistimer rows where `Beginn == Ende`, so the importer must infer duration from the resolved appointment type, and if that is unavailable, use a small explicit fallback duration and report every affected source row
+- `start < end`; the source contains Praxistimer rows where `Beginn == Ende`, so the importer must infer duration from the resolved appointment type, and if that is unavailable, use a small explicit fallback duration and report every affected source row
 - imported day/range counts match source counts after any documented exclusions
 
 ## Phase 4: legacy WorkOS users
@@ -186,10 +187,9 @@ Only non-conflicting identity-to-PVS associations belong in the append-only asso
 
 ## Phase 7: rehearsal and import order
 
-Run the migration against a disposable Convex dev or preview deployment first.
-For the live pre-production website rehearsal, use the production runbook in
-[`docs/migration-production-rehearsal.md`](./migration-production-rehearsal.md)
-instead of the local-only command sequence below.
+Run the migration against the live pre-production website rehearsal using the
+production runbook in
+[`docs/migration-production-rehearsal.md`](./migration-production-rehearsal.md).
 
 Order:
 
@@ -201,38 +201,9 @@ Order:
 6. Praxistimer appointments
 7. correlated legacy appointments and booking records
 
-Use `npx convex import --replace` only on rehearsal deployments. For a final cutover, use a fresh target deployment or a tightly reviewed import set; avoid appending until duplicate detection reports are clean.
-
-For local rehearsal, the current Convex CLI flow is:
-
-```sh
-pnpm exec convex deployment create local
-pnpm exec convex deployment select local
-pnpm exec convex env set WORKOS_CLIENT_ID client_local_migration_rehearsal
-pnpm exec convex env set WORKOS_API_KEY local-workos-api-key-placeholder
-pnpm exec convex env set WORKOS_WEBHOOK_SECRET local-workos-webhook-secret-placeholder
-pnpm exec convex env set MIGRATION_REHEARSAL_ENABLED true
-pnpm exec convex env set MIGRATION_OPERATOR_WORKOS_USER_IDS dev-admin
-pnpm exec convex dev
-```
-
-Keep `pnpm exec convex dev` running in one terminal. In another terminal:
-
-```sh
-pnpm migration:convert-praxistimer
-pnpm migration:build-patients
-pnpm migration:report-name-changes
-pnpm seed:preview
-pnpm exec convex import --replace-all .cache/seed/preview.zip
-node scripts/migration/import-local-reference-rehearsal.mts
-node scripts/migration/build-local-rehearsal-import.mts patients
-pnpm exec convex import --replace .cache/migration/rehearsal/patients-rehearsal.zip
-node scripts/migration/build-local-rehearsal-import.mts appointments
-pnpm exec convex import --replace .cache/migration/rehearsal/appointments-rehearsal.zip
-node scripts/migration/correlate-legacy-appointments.mts
-node scripts/migration/build-legacy-booking-step-replay.mts
-node scripts/migration/import-booking-identity-associations-local.mts
-```
+Use `npx convex import --replace` only for explicitly selected imported tables.
+For a final cutover, use a fresh target deployment or a tightly reviewed import
+set; avoid appending until duplicate detection reports are clean.
 
 ## Example Nushell shaping commands
 

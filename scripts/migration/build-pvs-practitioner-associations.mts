@@ -5,7 +5,7 @@ import { createInterface } from "node:readline";
 const workspaceRoot = new URL("../../", import.meta.url).pathname;
 const appointmentDocumentsPath = join(
   workspaceRoot,
-  ".cache/migration/rehearsal/zip/appointments/documents.jsonl",
+  ".cache/migration/reports/production-appointments.documents.jsonl",
 );
 const reportRoot = join(workspaceRoot, ".cache/migration/reports");
 const associationPath = join(

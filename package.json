@@ -27,7 +27,6 @@
     "migration:build-patients": "node scripts/migration/build-pvs-patients-from-appointments.mts",
     "migration:convert-praxistimer": "node scripts/migration/convert-praxistimer-export.mts",
     "migration:correlate-legacy": "node scripts/migration/correlate-legacy-appointments.mts",
-    "migration:import-local-identities": "node scripts/migration/import-booking-identity-associations-local.mts",
     "migration:production-patients": "node scripts/migration/run-production-rehearsal.mts patients",
     "migration:production-plan": "node scripts/migration/run-production-rehearsal.mts plan",
     "migration:production-references": "node scripts/migration/run-production-rehearsal.mts references",
