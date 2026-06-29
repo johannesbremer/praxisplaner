@@ -2274,18 +2274,53 @@ export const getAppointmentsInRange = query({
       args,
       scope,
     ).filter((appointment) => isTimeRangeOverlap(appointment, args));
+    const seriesRootAppointments =
+      scope === "simulation"
+        ? await getSeriesRootAppointments(
+            ctx,
+            scopedAppointments
+              .filter(
+                (appointment) =>
+                  appointment.isSimulation !== true &&
+                  appointment.seriesId !== undefined,
+              )
+              .map((appointment) => appointment.seriesId)
+              .filter((seriesId): seriesId is string => seriesId !== undefined),
+          )
+        : [];
+    const simulationReplacementAppointments =
+      scope === "simulation"
+        ? filterAppointmentsForScope(
+            await getSimulationAppointmentReplacements(
+              ctx,
+              args.practiceId,
+              [...scopedAppointments, ...seriesRootAppointments]
+                .filter((appointment) => appointment.isSimulation !== true)
+                .map((appointment) => appointment._id),
+            ),
+            args,
+            scope,
+          )
+        : [];
+    const candidateAppointments = dedupeById([
+      ...scopedAppointments,
+      ...seriesRootAppointments,
+      ...simulationReplacementAppointments,
+    ]);
+    const visibleAppointments =
+      scope === "simulation"
+        ? combineForSimulationScope(candidateAppointments).filter(
+            (appointment) => isTimeRangeOverlap(appointment, args),
+          )
+        : candidateAppointments;
 
     const displayScope = await resolveAppointmentDisplayScope(ctx.db, args);
     const displayRuleSetId = getDisplayRuleSetIdFromScope(displayScope);
     const appointments: AppointmentListItem[] = displayRuleSetId
-      ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
-      : scopedAppointments.map((appointment) =>
+      ? await remapAppointmentIds(ctx, visibleAppointments, displayRuleSetId)
+      : visibleAppointments.map((appointment) =>
           toAppointmentListItem(appointment),
         );
-
-    if (scope === "simulation") {
-      return combineForSimulationScope(appointments);
-    }
 
     if (scope === "all") {
       return appointments.toSorted((a, b) => a.start.localeCompare(b.start));

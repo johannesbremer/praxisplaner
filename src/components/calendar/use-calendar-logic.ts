@@ -166,6 +166,10 @@ export function useCalendarLogic({
   const [dragExcludedAppointmentIds, setDragExcludedAppointmentIds] = useState<
     Id<"appointments">[]
   >([]);
+  const [
+    draggedSchedulingAppointmentTypeLineageKey,
+    setDraggedSchedulingAppointmentTypeLineageKey,
+  ] = useState<AppointmentTypeLineageKey | undefined>();
   const [draggedBlockedSlotId, setDraggedBlockedSlotId] = useState<
     null | string
   >(null);
@@ -205,6 +209,7 @@ export function useCalendarLogic({
   const selectedLocationId =
     externalSelectedLocationId ?? internalSelectedLocationId;
   const draggedAppointmentTypeLineageKey =
+    draggedSchedulingAppointmentTypeLineageKey ??
     draggedAppointment?.record.appointmentTypeLineageKey;
 
   const {
@@ -1044,6 +1049,15 @@ export function useCalendarLogic({
         : [...allPracticeAppointmentDocMap.values()].filter(
             (entry) => entry.seriesId === appointment.record.seriesId,
           );
+    const rootSeriesAppointment = sameSeriesAppointments.find(
+      (entry) => entry.seriesStepIndex === 0n,
+    );
+    const schedulingAppointmentTypeLineageKey =
+      appointment.record.seriesId !== undefined &&
+      appointment.record.seriesStepIndex !== undefined &&
+      appointment.record.seriesStepIndex !== 0n
+        ? rootSeriesAppointment?.appointmentTypeLineageKey
+        : appointment.record.appointmentTypeLineageKey;
     const excludedIds =
       appointment.record.seriesId === undefined
         ? [appointment.record._id]
@@ -1056,6 +1070,9 @@ export function useCalendarLogic({
               )
               .map((entry) => entry.record._id);
     setDragExcludedAppointmentIds(excludedIds);
+    setDraggedSchedulingAppointmentTypeLineageKey(
+      schedulingAppointmentTypeLineageKey,
+    );
     setDraggedAppointment(appointment);
   };
 
@@ -1476,6 +1493,7 @@ export function useCalendarLogic({
         // Convex optimistic updates will handle successful UI updates.
         setDraggedAppointment(null);
         setDragExcludedAppointmentIds([]);
+        setDraggedSchedulingAppointmentTypeLineageKey(undefined);
         setDragPreview(emptyDragPreview);
       }
     },
@@ -1511,6 +1529,7 @@ export function useCalendarLogic({
     setDraggedAppointment(null);
     setDraggedBlockedSlotId(null);
     setDragExcludedAppointmentIds([]);
+    setDraggedSchedulingAppointmentTypeLineageKey(undefined);
     setDragPreview(emptyDragPreview);
   }, [clearPointerDragListeners, emptyDragPreview, stopAutoScroll]);
 
