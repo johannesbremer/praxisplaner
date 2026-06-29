@@ -544,6 +544,28 @@ async function validateNoAppointmentPlansReferenceTarget(
     ruleSetId: Id<"ruleSets">;
   },
 ) {
+  await validateNoAppointmentPlansReferenceTargets(db, {
+    excludedReferencingAppointmentTypeIds: new Set([
+      args.currentAppointmentTypeId,
+    ]),
+    message: () => args.message,
+    ruleSetId: args.ruleSetId,
+    targetLineageKeys: new Set([args.currentAppointmentTypeLineageKey]),
+  });
+}
+
+async function validateNoAppointmentPlansReferenceTargets(
+  db: GenericDatabaseReader<DataModel>,
+  args: {
+    excludedReferencingAppointmentTypeIds: ReadonlySet<Id<"appointmentTypes">>;
+    message: (
+      targetLineageKey: AppointmentTypeLineageKey,
+      referencingAppointmentType: Doc<"appointmentTypes">,
+    ) => string;
+    ruleSetId: Id<"ruleSets">;
+    targetLineageKeys: ReadonlySet<AppointmentTypeLineageKey>;
+  },
+) {
   const appointmentTypes = await db
     .query("appointmentTypes")
     .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
@@ -551,23 +573,29 @@ async function validateNoAppointmentPlansReferenceTarget(
 
   for (const appointmentType of appointmentTypes) {
     if (
-      appointmentType._id === args.currentAppointmentTypeId ||
+      args.excludedReferencingAppointmentTypeIds.has(appointmentType._id) ||
       isDeletedRuleSetEntity(appointmentType) ||
       !hasAppointmentPlan(appointmentType)
     ) {
       continue;
     }
 
-    const referencesUpdatedType = appointmentType.appointmentPlan.steps.some(
+    const referencedTarget = appointmentType.appointmentPlan.steps.find(
       (step) =>
-        step.appointmentTypeLineageKey ===
-        args.currentAppointmentTypeLineageKey,
+        args.targetLineageKeys.has(
+          asAppointmentTypeLineageKey(step.appointmentTypeLineageKey),
+        ),
     );
-    if (!referencesUpdatedType) {
+    if (referencedTarget === undefined) {
       continue;
     }
 
-    throw new Error(args.message);
+    throw new Error(
+      args.message(
+        asAppointmentTypeLineageKey(referencedTarget.appointmentTypeLineageKey),
+        appointmentType,
+      ),
+    );
   }
 }
 
@@ -1652,6 +1680,27 @@ export const deleteAppointmentTypeFolder = mutation({
         }
       }
     }
+    const appointmentTypesToDelete = appointmentTypes.filter(
+      (appointmentType) =>
+        appointmentType.treeFolderId !== undefined &&
+        folderIdsToDelete.has(appointmentType.treeFolderId) &&
+        !isDeletedRuleSetEntity(appointmentType),
+    );
+    const appointmentTypeIdsToDelete = new Set(
+      appointmentTypesToDelete.map((appointmentType) => appointmentType._id),
+    );
+    const appointmentTypeLineageKeysToDelete = new Set(
+      appointmentTypesToDelete.map((appointmentType) =>
+        requireAppointmentTypeLineageKey(appointmentType),
+      ),
+    );
+    await validateNoAppointmentPlansReferenceTargets(ctx.db, {
+      excludedReferencingAppointmentTypeIds: appointmentTypeIdsToDelete,
+      message: (targetLineageKey) =>
+        `Terminart ${targetLineageKey} wird als Kettentermin-Schritt verwendet und kann deshalb nicht gelöscht werden.`,
+      ruleSetId,
+      targetLineageKeys: appointmentTypeLineageKeysToDelete,
+    });
 
     const now = BigInt(Date.now());
     await Promise.all([
@@ -1667,19 +1716,12 @@ export const deleteAppointmentTypeFolder = mutation({
             lastModified: now,
           }),
         ),
-      ...appointmentTypes
-        .filter(
-          (appointmentType) =>
-            appointmentType.treeFolderId !== undefined &&
-            folderIdsToDelete.has(appointmentType.treeFolderId) &&
-            !isDeletedRuleSetEntity(appointmentType),
-        )
-        .map((appointmentType) =>
-          ctx.db.patch("appointmentTypes", appointmentType._id, {
-            deleted: true,
-            lastModified: now,
-          }),
-        ),
+      ...appointmentTypesToDelete.map((appointmentType) =>
+        ctx.db.patch("appointmentTypes", appointmentType._id, {
+          deleted: true,
+          lastModified: now,
+        }),
+      ),
     ]);
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
