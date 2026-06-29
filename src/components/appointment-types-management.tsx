@@ -177,6 +177,16 @@ interface AppointmentTypeFormValues {
 }
 type AppointmentTypeQueryResult =
   (typeof api.entities.getAppointmentTypes)["_returnType"];
+
+const withoutAppointmentTypeColor = (
+  appointmentType: AppointmentType,
+): Omit<AppointmentType, "color"> => {
+  const { color: omittedColor, ...appointmentTypeWithoutColor } =
+    appointmentType;
+  void omittedColor;
+  return appointmentTypeWithoutColor;
+};
+
 interface AppointmentTypesManagementProps {
   onDraftMutation?: (result: DraftMutationResult) => void;
   onRecordCommand?: RecordRuleSetCommand;
@@ -233,6 +243,10 @@ const appointmentTypeColorMutationValue = (
 const colorSnapshotValue = (
   color: AppointmentColorSelection,
 ): AppointmentColor | undefined => (color === "inherit" ? undefined : color);
+
+const storedAppointmentTypeColor = (
+  color: AppointmentColor | null | undefined,
+): AppointmentColor | undefined => color ?? undefined;
 
 const appointmentColorSelectionOptions = (
   includeInherit: boolean,
@@ -1504,7 +1518,7 @@ export function AppointmentTypesManagement({
           const appointmentTypeLineageKey = editingAppointmentType.lineageKey;
           const beforeState = {
             appointmentPlan: editingAppointmentType.appointmentPlan,
-            color: editingAppointmentType.color,
+            color: storedAppointmentTypeColor(editingAppointmentType.color),
             defaultOccupancy: editingAppointmentType.defaultOccupancy,
             duration: editingAppointmentType.duration,
             name: editingAppointmentType.name,
@@ -1515,7 +1529,9 @@ export function AppointmentTypesManagement({
           };
           const afterState = {
             appointmentPlan: { steps: normalizedAppointmentPlan },
-            color: appointmentTypeColorMutationValue(parsedValue.color),
+            color: storedAppointmentTypeColor(
+              appointmentTypeColorMutationValue(parsedValue.color),
+            ),
             defaultOccupancy: normalizedDefaultOccupancy,
             duration: parsedValue.duration,
             name: normalizedName,
@@ -1539,7 +1555,7 @@ export function AppointmentTypesManagement({
           // Update existing appointment type
           const updateResult = await updateAppointmentTypeMutation({
             appointmentTypeId: editingAppointmentType._id,
-            color: afterState.color,
+            color: afterState.color ?? null,
             defaultOccupancy: afterState.defaultOccupancy,
             duration: parsedValue.duration,
             name: normalizedName,
@@ -1551,12 +1567,14 @@ export function AppointmentTypesManagement({
           handleDraftMutationResult(updateResult);
           upsertAppointmentTypeRef(
             {
-              ...editingAppointmentType,
+              ...withoutAppointmentTypeColor(editingAppointmentType),
               _id: asAppointmentTypeId(updateResult.entityId),
               allowedPractitionerLineageKeys:
                 afterState.practitionerLineageKeys,
               appointmentPlan: afterState.appointmentPlan,
-              ...(afterState.color === null ? {} : { color: afterState.color }),
+              ...(afterState.color === undefined
+                ? {}
+                : { color: afterState.color }),
               defaultOccupancy: afterState.defaultOccupancy,
               duration: afterState.duration,
               name: afterState.name,
@@ -1584,7 +1602,7 @@ export function AppointmentTypesManagement({
 
               const redoResult = await updateAppointmentTypeMutation({
                 appointmentTypeId: currentAppointmentTypeId,
-                color: afterState.color,
+                color: afterState.color ?? null,
                 defaultOccupancy: afterState.defaultOccupancy,
                 duration: afterState.duration,
                 name: afterState.name,
@@ -1632,7 +1650,8 @@ export function AppointmentTypesManagement({
             validateRedo: (current) => {
               if (
                 current.name !== beforeState.name ||
-                current.color !== beforeState.color ||
+                storedAppointmentTypeColor(current.color) !==
+                  beforeState.color ||
                 current.duration !== beforeState.duration ||
                 !sameAppointmentTypeDefaultOccupancy(
                   current.defaultOccupancy,
@@ -1654,7 +1673,8 @@ export function AppointmentTypesManagement({
             validateUndo: (current) => {
               if (
                 current.name !== afterState.name ||
-                current.color !== afterState.color ||
+                storedAppointmentTypeColor(current.color) !==
+                  afterState.color ||
                 current.duration !== afterState.duration ||
                 !sameAppointmentTypeDefaultOccupancy(
                   current.defaultOccupancy,
