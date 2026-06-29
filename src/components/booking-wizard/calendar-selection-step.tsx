@@ -43,12 +43,12 @@ const APPOINTMENT_TYPE_ERROR_ID = "booking-appointment-type-error";
 const REASON_DESCRIPTION_ID = "reason-description";
 const REASON_DESCRIPTION_ERROR_ID = "reason-description-error";
 
-// Helper to format ISO date string from Date
-function formatDateISO(date: Temporal.PlainDate): string {
-  return date.toString();
+interface CalendarSelectionStepProps extends StepComponentProps {
+  onAppointmentCreated?: (args: {
+    appointmentTypeLineageKey: Id<"appointmentTypes">;
+  }) => void;
 }
 
-// Helper to convert Date to Temporal.PlainDate
 interface SlotInfo {
   practitionerLineageKey: Id<"practitioners">;
   practitionerName: string;
@@ -56,10 +56,11 @@ interface SlotInfo {
 }
 
 export function CalendarSelectionStep({
+  onAppointmentCreated,
   practiceId,
   ruleSetId,
   state,
-}: StepComponentProps) {
+}: CalendarSelectionStepProps) {
   const isCalendarState = isCalendarSelectionState(state);
   const isNewPatient = isCalendarState ? state.isNewPatient : false;
   const locationLineageKey = isCalendarState
@@ -199,7 +200,11 @@ export function CalendarSelectionStep({
           source: "CalendarSelectionStep.handleConfirmSlot",
         }),
     ).match(
-      () => void 0,
+      () => {
+        onAppointmentCreated?.({
+          appointmentTypeLineageKey: selectedAppointmentTypeLineageKey,
+        });
+      },
       (error) => {
         captureFrontendError(error, {
           appointmentTypeLineageKey: appointmentType.lineageKey,
@@ -569,6 +574,10 @@ function dateToTemporal(date: Date): Temporal.PlainDate {
     month: date.getMonth() + 1,
     year: date.getFullYear(),
   });
+}
+
+function formatDateISO(date: Temporal.PlainDate): string {
+  return date.toString();
 }
 
 function formatTime(isoString: string): string {
