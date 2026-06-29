@@ -1565,7 +1565,14 @@ export function useCalendarPlanningWorkbench(args: {
       const isSimulationReplacement =
         mutationArgs.isSimulation === true &&
         mutationArgs.replacesAppointmentId !== undefined;
-      const effect = isSimulationReplacement
+      const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
+        mutationArgs.appointmentTypeId,
+        "useCalendarPlanningWorkbench.createAppointment",
+      );
+      const shouldUseServerOnlyCreate =
+        isSimulationReplacement ||
+        appointmentTypeInfo?.hasAppointmentPlan === true;
+      const effect = shouldUseServerOnlyCreate
         ? await createAppointmentMutation(mutationArgs)
         : await runCreateAppointmentInternal(mutationArgs);
 
@@ -1614,6 +1621,7 @@ export function useCalendarPlanningWorkbench(args: {
     [
       createAppointmentMutation,
       createAppointmentMutationArgsFromCommand,
+      getRequiredAppointmentTypeInfo,
       rememberAppointmentHistoryDoc,
       rememberServerAppointmentSeriesHistoryDocs,
       recordCalendarCommand,
