@@ -12,6 +12,10 @@ import type { TypedDateTimeRange, ZonedDateTimeString } from "./typedDtos";
 
 import { mutation, query } from "./_generated/server";
 import {
+  DEFAULT_APPOINTMENT_COLOR,
+  resolveAppointmentColorForType,
+} from "./appointmentColors";
+import {
   type AppointmentBookingScope,
   findConflictingCalendarOccupancy,
   getOccupancyViewForBookingScope,
@@ -83,7 +87,12 @@ import {
   evaluateLoadedRulesHelper,
 } from "./ruleEngine";
 import { isRuleSetEntityDeleted } from "./ruleSetEntityDeletion";
-import { type AppointmentSmiley, appointmentSmileyValidator } from "./schema";
+import {
+  type AppointmentColor,
+  appointmentColorValidator,
+  type AppointmentSmiley,
+  appointmentSmileyValidator,
+} from "./schema";
 import {
   requireAppointmentTypeInPracticeRuleSet,
   requireBookingIdentityInPractice,
@@ -176,6 +185,7 @@ interface TrustedAppointmentInput {
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
   calendarResourceColumn?: "ekg" | "labor";
+  color?: AppointmentColor;
   end?: ZonedDateTimeString;
   isNewPatient?: boolean;
   isSimulation?: boolean;
@@ -204,6 +214,7 @@ const appointmentResultValidator = v.object({
   appointmentTypeTitle: v.string(),
   bookingIdentityId: v.optional(v.id("bookingIdentities")),
   cancelledByPhoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
+  color: appointmentColorValidator,
   createdAt: v.int64(),
   end: v.string(),
   isSimulation: v.optional(v.boolean()),
@@ -329,6 +340,7 @@ function asTrustedAppointmentInput(args: {
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
   calendarResourceColumn?: "ekg" | "labor";
+  color?: AppointmentColor;
   end?: string;
   isNewPatient?: boolean;
   isSimulation?: boolean;
@@ -1640,6 +1652,7 @@ function toAppointmentListItem(
     appointmentTypeId: appointment.appointmentTypeLineageKey,
     appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
     appointmentTypeTitle: appointment.appointmentTypeTitle,
+    color: appointment.color ?? DEFAULT_APPOINTMENT_COLOR,
     createdAt: appointment.createdAt,
     ...timeRange,
     lastModified: appointment.lastModified,
@@ -1982,6 +1995,7 @@ export async function createAppointmentFromTrustedSource(
     appointmentTypeId: Id<"appointmentTypes">;
     bookingIdentityId?: Id<"bookingIdentities">;
     calendarResourceColumn?: "ekg" | "labor";
+    color?: AppointmentColor;
     end?: string;
     isNewPatient?: boolean;
     isSimulation?: boolean;
@@ -2010,6 +2024,7 @@ export async function createAppointmentFromTrustedSource(
     allowUnrelatedUserId,
     appointmentTypeId,
     calendarResourceColumn,
+    color: requestedColor,
     end: requestedEnd,
     isNewPatient,
     isSimulation,
@@ -2225,6 +2240,9 @@ export async function createAppointmentFromTrustedSource(
     ...(ownerRefs.bookingIdentityId !== undefined && {
       bookingIdentityId: ownerRefs.bookingIdentityId,
     }),
+    color:
+      requestedColor ??
+      (await resolveAppointmentColorForType(ctx.db, activeAppointmentType)),
     createdAt: now,
     end,
     isSimulation: isSimulation ?? false,
@@ -3333,6 +3351,13 @@ async function updateAppointmentByMode(
           locationId: asLocationId(step.locationId),
           practitionerId: asPractitionerId(step.practitionerId),
         });
+      const stepAppointmentType = await ctx.db.get(
+        "appointmentTypes",
+        step.appointmentTypeId,
+      );
+      if (!stepAppointmentType) {
+        throw new Error("Terminart fuer Kettentermin nicht gefunden.");
+      }
       const insertedAppointmentId = await ctx.db.insert("appointments", {
         appointmentTypeLineageKey:
           stepStoredReferences.appointmentTypeLineageKey,
@@ -3346,6 +3371,10 @@ async function updateAppointmentByMode(
                 existingAppointment.bookingIdentityId,
             }
           : {}),
+        color: await resolveAppointmentColorForType(
+          ctx.db,
+          stepAppointmentType,
+        ),
         createdAt: now,
         end: step.end,
         lastModified: now,

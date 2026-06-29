@@ -21,6 +21,21 @@ import {
 import { followUpPlanValidator, followUpStepValidator } from "./followUpPlans";
 
 export const appointmentSmileyValidator = v.string();
+export const appointmentColorValidator = v.union(
+  v.literal("blue"),
+  v.literal("teal"),
+  v.literal("green"),
+  v.literal("lime"),
+  v.literal("yellow"),
+  v.literal("orange"),
+  v.literal("red"),
+  v.literal("rose"),
+  v.literal("fuchsia"),
+  v.literal("violet"),
+  v.literal("indigo"),
+  v.literal("slate"),
+);
+export type AppointmentColor = Infer<typeof appointmentColorValidator>;
 export const appointmentSmileyOptionValidator = v.object({
   emoji: appointmentSmileyValidator,
   id: v.string(),
@@ -372,6 +387,7 @@ export default defineSchema({
       v.id("phoneBookingIdentities"),
     ),
     cancelledByUserId: v.optional(v.id("users")),
+    color: v.optional(appointmentColorValidator),
     isSimulation: v.optional(v.boolean()),
     locationLineageKey: v.id("locations"), // Stable reference across rule set versions
     occupancyScope: appointmentOccupancyScopeValidator,
@@ -496,6 +512,7 @@ export default defineSchema({
   // ================================================================
 
   appointmentTypeFolders: defineTable({
+    color: v.optional(appointmentColorValidator),
     createdAt: v.int64(),
     deleted: v.optional(v.boolean()),
     lastModified: v.int64(),
@@ -515,6 +532,7 @@ export default defineSchema({
 
   appointmentTypes: defineTable({
     allowedPractitionerLineageKeys: v.array(v.id("practitioners")),
+    color: v.optional(appointmentColorValidator),
     createdAt: v.int64(),
     deleted: v.optional(v.boolean()),
     duration: v.number(), // duration in minutes (simplified - no more separate durations table)

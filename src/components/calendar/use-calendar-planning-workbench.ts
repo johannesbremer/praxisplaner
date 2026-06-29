@@ -25,6 +25,7 @@ import type {
 } from "./types";
 
 import { api } from "../../../convex/_generated/api";
+import { DEFAULT_APPOINTMENT_COLOR } from "../../../lib/appointment-colors";
 import {
   createCalendarPlacement,
   getCalendarResourceColumnFromOccupancy,
@@ -550,6 +551,7 @@ export function useCalendarPlanningWorkbench(args: {
         appointmentTypeLineageKey: args.appointmentTypeLineageKey,
         appointmentTypeTitle: args.appointmentTypeTitle,
         ...getAppointmentOwnerRefs(args),
+        color: DEFAULT_APPOINTMENT_COLOR,
         createdAt: BigInt(args.now),
         end: args.end,
         isSimulation: args.isSimulation,
@@ -1039,6 +1041,7 @@ export function useCalendarPlanningWorkbench(args: {
             appointmentTypeLineageKey: lineageRefs.appointmentTypeLineageKey,
             appointmentTypeTitle: appointmentTypeInfo.name,
             ...getAppointmentOwnerRefs(optimisticArgs),
+            color: DEFAULT_APPOINTMENT_COLOR,
             createdAt: BigInt(now),
             end: typedEnd,
             isSimulation: optimisticArgs.isSimulation ?? false,

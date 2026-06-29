@@ -42,7 +42,7 @@ describe("CalendarAppointment", () => {
     startTime: "09:00",
   };
   const mockAppointment: CalendarAppointmentView = {
-    color: "bg-blue-500",
+    color: "blue",
     layout: mockLayout,
   };
 
@@ -80,10 +80,14 @@ describe("CalendarAppointment", () => {
     expect(screen.getByText("09:00")).toBeInTheDocument();
   });
 
-  test("applies correct color class", () => {
-    const { container } = render(<CalendarAppointment {...defaultProps} />);
-    const appointmentElement = container.querySelector(".bg-blue-500");
-    expect(appointmentElement).toBeInTheDocument();
+  test("applies appointment color styles", () => {
+    render(<CalendarAppointment {...defaultProps} />);
+    const appointmentElement = screen.getByRole("button", {
+      name: "Termin Test Appointment, 09:00. Bearbeiten",
+    });
+    expect(appointmentElement).toHaveStyle({
+      backgroundColor: "#1d4ed8",
+    });
   });
 
   test("calls onEdit when clicked", () => {
@@ -340,18 +344,19 @@ describe("CalendarAppointment", () => {
   });
 
   test("renders with different colors", () => {
-    const colors = ["bg-blue-500", "bg-green-500", "bg-red-500"];
+    const colors: CalendarAppointmentView["color"][] = ["blue", "green", "red"];
 
     for (const color of colors) {
-      const { container } = render(
+      const { container, unmount } = render(
         <CalendarAppointment
           {...defaultProps}
           appointment={{ ...mockAppointment, color }}
         />,
       );
 
-      const appointmentElement = container.querySelector(`.${color}`);
+      const appointmentElement = container.querySelector("button");
       expect(appointmentElement).toBeInTheDocument();
+      unmount();
     }
   });
 

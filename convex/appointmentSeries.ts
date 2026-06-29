@@ -9,6 +9,7 @@ import type { AppointmentSmiley } from "./schema";
 import type { ZonedDateTimeString } from "./typedDtos";
 
 import { internal } from "./_generated/api";
+import { resolveAppointmentColorForType } from "./appointmentColors";
 import {
   type AppointmentBookingScope,
   findConflictingAppointment,
@@ -268,12 +269,24 @@ export async function createAppointmentSeries(
       );
     }
 
+    const stepAppointmentType = await ctx.db.get(
+      "appointmentTypes",
+      step.appointmentTypeId,
+    );
+    if (!stepAppointmentType) {
+      throw appointmentSeriesError(
+        "CHAIN_REPLAN_FAILED",
+        "Die Terminart fuer einen Kettentermin existiert nicht mehr.",
+      );
+    }
+
     const appointmentId = await ctx.db.insert("appointments", {
       appointmentTypeLineageKey: step.appointmentTypeLineageKey,
       appointmentTypeTitle: step.appointmentTypeTitle,
       ...(args.bookingIdentityId && {
         bookingIdentityId: args.bookingIdentityId,
       }),
+      color: await resolveAppointmentColorForType(ctx.db, stepAppointmentType),
       createdAt: now,
       end: step.end,
       ...(scope === "simulation" && {

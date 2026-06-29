@@ -10,6 +10,7 @@ import type {
   CalendarColumnId,
 } from "./types";
 
+import { APPOINTMENT_COLOR_BY_VALUE } from "../../../lib/appointment-colors";
 import {
   calendarColumnScopeKey,
   sameCalendarColumnScope,
@@ -185,18 +186,22 @@ export function CalendarGrid({
     if (draggedAppointment) {
       const height = (draggedAppointment.layout.duration / slotDuration) * 16;
       const top = dragPreview.slot * 16;
+      const color = APPOINTMENT_COLOR_BY_VALUE[draggedAppointment.color];
 
       return (
         <div
-          className={`absolute left-1 right-1 ${draggedAppointment.color} opacity-50 border-2 border-background border-dashed rounded z-20 h-(--calendar-appointment-height) min-h-4 top-(--calendar-appointment-top)`}
+          className="absolute left-1 right-1 opacity-50 border-2 border-dashed rounded z-20 h-(--calendar-appointment-height) min-h-4 top-(--calendar-appointment-top)"
           style={
             {
               "--calendar-appointment-height": `${height}px`,
               "--calendar-appointment-top": `${top}px`,
+              backgroundColor: color.background,
+              borderColor: color.border,
+              color: color.foreground,
             } as React.CSSProperties
           }
         >
-          <div className="p-1 text-white text-xs">
+          <div className="p-1 text-xs">
             <div className="text-xs opacity-90">
               {slotToTime(dragPreview.slot)}
             </div>

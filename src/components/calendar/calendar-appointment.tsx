@@ -4,6 +4,7 @@ import { useRef } from "react";
 
 import type { CalendarAppointmentView } from "./types";
 
+import { APPOINTMENT_COLOR_BY_VALUE } from "../../../lib/appointment-colors";
 import { CalendarItemContent } from "./calendar-item-content";
 
 const DRAG_CLICK_SUPPRESSION_THRESHOLD_PX = 3;
@@ -58,6 +59,7 @@ export function CalendarAppointment({
   const slotCount = appointment.layout.duration / slotDuration;
   const pointerDragClickStateRef = useRef<null | PointerDragClickState>(null);
   const suppressNextClickRef = useRef(false);
+  const color = APPOINTMENT_COLOR_BY_VALUE[appointment.color];
   const appointmentLabel = [
     `Termin ${appointment.layout.record.title}`,
     appointment.layout.startTime,
@@ -76,7 +78,7 @@ export function CalendarAppointment({
   return (
     <button
       aria-label={`${appointmentLabel}. Bearbeiten`}
-      className={`pointer-events-auto absolute left-1 right-1 ${appointment.color} border-0 p-0 text-left text-white text-xs rounded shadow-sm hover:shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background transition-[opacity,box-shadow] z-10 ${canDrag ? "cursor-move" : "cursor-pointer"} ${
+      className={`pointer-events-auto absolute left-1 right-1 border p-0 text-left text-xs rounded shadow-sm hover:shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background transition-[opacity,box-shadow] z-10 ${canDrag ? "cursor-move" : "cursor-pointer"} ${
         isDragging ? "opacity-0" : "opacity-100"
       } ${borderClass} h-(--calendar-appointment-height) min-h-4 before:absolute before:inset-x-0 before:top-1/2 before:min-h-6 before:-translate-y-1/2 before:content-[''] top-(--calendar-appointment-top)`}
       onClick={(e) => {
@@ -142,6 +144,9 @@ export function CalendarAppointment({
         {
           "--calendar-appointment-height": `${height}px`,
           "--calendar-appointment-top": `${top}px`,
+          backgroundColor: color.background,
+          borderColor: color.border,
+          color: color.foreground,
         } as React.CSSProperties
       }
       type="button"
@@ -157,7 +162,7 @@ export function CalendarAppointment({
 
       {onResizeStart && (
         <div
-          className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-white/20 flex items-center justify-center"
+          className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-current/20 flex items-center justify-center"
           onMouseDown={(e) => {
             e.stopPropagation();
             onResizeStart(
@@ -170,7 +175,7 @@ export function CalendarAppointment({
             e.stopPropagation();
           }}
         >
-          <div className="w-8 h-0.5 bg-white/60 rounded" />
+          <div className="w-8 h-0.5 rounded bg-current/60" />
         </div>
       )}
     </button>

@@ -24,6 +24,7 @@ import type {
   AppointmentTypeLineageKey,
   PractitionerLineageKey,
 } from "@/convex/identity";
+import type { AppointmentColor } from "@/convex/schema";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,6 +67,10 @@ import {
   asPractitionerId,
   asPractitionerLineageKey,
 } from "@/convex/identity";
+import {
+  APPOINTMENT_COLOR_OPTIONS,
+  APPOINTMENT_COLOR_VALUES,
+} from "@/lib/appointment-colors";
 import { APPOINTMENT_TYPE_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
 import type {
@@ -101,6 +106,7 @@ import {
 } from "../utils/frontend-lineage";
 import { createRuleSetSnapshotCommand } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
+type AppointmentColorSelection = "inherit" | AppointmentColor;
 type AppointmentTreeItem =
   | {
       appointmentType: AppointmentType;
@@ -112,13 +118,13 @@ type AppointmentTreeItem =
       id: Id<"appointmentTypeFolders">;
       kind: "folder";
     };
+
 interface AppointmentTreeModel {
   expandedPaths: string[];
   itemByPath: ReadonlyMap<string, AppointmentTreeItem>;
   paths: string[];
   rootPath: string;
 }
-
 type AppointmentTreeStyle = CSSProperties & Record<`--trees-${string}`, string>;
 type AppointmentType = FrontendLineageEntity<
   "appointmentTypes",
@@ -132,6 +138,7 @@ type AppointmentTypeFolderLineageKey = Id<"appointmentTypeFolders">;
 type AppointmentTypeFolderQueryResult =
   (typeof api.entities.getAppointmentTypeFolders)["_returnType"];
 interface AppointmentTypeFormValues {
+  color: AppointmentColorSelection;
   duration: number;
   followUpPlan: FollowUpPlanFormStep[];
   name: string;
@@ -148,12 +155,14 @@ interface AppointmentTypesManagementProps {
 }
 
 interface DeletedAppointmentTypeFolderSnapshot {
+  color: AppointmentColor;
   lineageKey: AppointmentTypeFolderLineageKey;
   name: string;
   parentLineageKey: AppointmentTypeFolderLineageKey | undefined;
 }
 
 interface DeletedAppointmentTypeSnapshot {
+  color: AppointmentColor | undefined;
   duration: number;
   followUpPlan: AppointmentType["followUpPlan"];
   lineageKey: AppointmentTypeLineageKey;
@@ -187,11 +196,65 @@ type PractitionerQueryResult =
   (typeof api.entities.getPractitioners)["_returnType"];
 
 const defaultAppointmentTypeFormValues: AppointmentTypeFormValues = {
+  color: "inherit",
   duration: 30,
   followUpPlan: [],
   name: "",
   practitionerIds: [],
 };
+
+const appointmentTypeColorMutationValue = (
+  color: AppointmentColorSelection,
+): AppointmentColor | null => (color === "inherit" ? null : color);
+
+function AppointmentColorSwatches({
+  includeInherit = false,
+  onChange,
+  value,
+}: {
+  includeInherit?: boolean;
+  onChange: (value: AppointmentColorSelection) => void;
+  value: AppointmentColorSelection;
+}) {
+  return (
+    <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+      {includeInherit && (
+        <Button
+          aria-pressed={value === "inherit"}
+          className="h-10 justify-start px-2"
+          onClick={() => {
+            onChange("inherit");
+          }}
+          type="button"
+          variant={value === "inherit" ? "default" : "outline"}
+        >
+          Erben
+        </Button>
+      )}
+      {APPOINTMENT_COLOR_OPTIONS.map((option) => (
+        <button
+          aria-label={option.label}
+          aria-pressed={value === option.value}
+          className="h-10 rounded-md border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          key={option.value}
+          onClick={() => {
+            onChange(option.value);
+          }}
+          style={{
+            backgroundColor: option.background,
+            borderColor:
+              value === option.value ? "var(--foreground)" : option.border,
+            color: option.foreground,
+          }}
+          title={option.label}
+          type="button"
+        >
+          <span className="sr-only">{option.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 const createEmptyFollowUpStep = (): FollowUpPlanFormStep => ({
   appointmentTypeLineageKey: "",
@@ -318,6 +381,7 @@ function createAppointmentTypeFormSchema(params: {
   practitionerIds: readonly Id<"practitioners">[];
 }) {
   return z.object({
+    color: z.union([z.literal("inherit"), z.enum(APPOINTMENT_COLOR_VALUES)]),
     duration: z
       .number()
       .min(5, "Dauer muss mindestens 5 Minuten betragen")
@@ -600,6 +664,8 @@ export function AppointmentTypesManagement({
     Id<"appointmentTypeFolders"> | undefined
   >();
   const [createFolderName, setCreateFolderName] = useState("");
+  const [createFolderColor, setCreateFolderColor] =
+    useState<AppointmentColor>("blue");
   const [newAppointmentTypeFolderId, setNewAppointmentTypeFolderId] = useState<
     Id<"appointmentTypeFolders"> | undefined
   >();
@@ -861,6 +927,7 @@ export function AppointmentTypesManagement({
   );
   const removeAppointmentTypeFolderFromRef = useCallback(
     (params: {
+      color?: AppointmentColor | undefined;
       id: Id<"appointmentTypeFolders">;
       lineageKey?: AppointmentTypeFolderLineageKey | undefined;
     }) => {
@@ -876,6 +943,7 @@ export function AppointmentTypesManagement({
   );
   const createAppointmentTypeFolderRefSnapshot = useCallback(
     (params: {
+      color?: AppointmentColor | undefined;
       id: Id<"appointmentTypeFolders">;
       lineageKey: AppointmentTypeFolderLineageKey;
       name: string;
@@ -884,6 +952,7 @@ export function AppointmentTypesManagement({
     }): AppointmentTypeFolder => ({
       _creationTime: 0,
       _id: params.id,
+      ...(params.color === undefined ? {} : { color: params.color }),
       createdAt: 0n,
       lastModified: 0n,
       lineageKey: params.lineageKey,
@@ -899,6 +968,7 @@ export function AppointmentTypesManagement({
   const createAppointmentTypeRefSnapshot = useCallback(
     (params: {
       allowedPractitionerLineageKeys: AppointmentType["allowedPractitionerLineageKeys"];
+      color?: AppointmentColor | undefined;
       duration: number;
       followUpPlan: NonNullable<AppointmentType["followUpPlan"]>;
       id: AppointmentTypeId;
@@ -910,6 +980,7 @@ export function AppointmentTypesManagement({
       _creationTime: 0,
       _id: params.id,
       allowedPractitionerLineageKeys: params.allowedPractitionerLineageKeys,
+      ...(params.color === undefined ? {} : { color: params.color }),
       createdAt: 0n,
       duration: params.duration,
       followUpPlan: params.followUpPlan,
@@ -1173,6 +1244,7 @@ export function AppointmentTypesManagement({
         if (editingAppointmentType) {
           const appointmentTypeLineageKey = editingAppointmentType.lineageKey;
           const beforeState = {
+            color: editingAppointmentType.color,
             duration: editingAppointmentType.duration,
             followUpPlan: editingAppointmentType.followUpPlan,
             name: editingAppointmentType.name,
@@ -1182,6 +1254,7 @@ export function AppointmentTypesManagement({
               ),
           };
           const afterState = {
+            color: appointmentTypeColorMutationValue(parsedValue.color),
             duration: parsedValue.duration,
             followUpPlan: normalizedFollowUpPlan,
             name: normalizedName,
@@ -1205,6 +1278,7 @@ export function AppointmentTypesManagement({
           // Update existing appointment type
           const updateResult = await updateAppointmentTypeMutation({
             appointmentTypeId: editingAppointmentType._id,
+            color: afterState.color,
             duration: parsedValue.duration,
             name: normalizedName,
             practiceId,
@@ -1213,9 +1287,14 @@ export function AppointmentTypesManagement({
             ...createFollowUpPlanUpdateArgs(normalizedFollowUpPlan),
           });
           handleDraftMutationResult(updateResult);
+          const {
+            color: _previousColor,
+            ...editingAppointmentTypeWithoutColor
+          } = editingAppointmentType;
+          void _previousColor;
           upsertAppointmentTypeRef(
             {
-              ...editingAppointmentType,
+              ...editingAppointmentTypeWithoutColor,
               _id: asAppointmentTypeId(updateResult.entityId),
               allowedPractitionerLineageKeys:
                 afterState.practitionerLineageKeys,
@@ -1223,6 +1302,7 @@ export function AppointmentTypesManagement({
               followUpPlan: afterState.followUpPlan ?? [],
               name: afterState.name,
               ruleSetId: updateResult.ruleSetId,
+              ...(afterState.color === null ? {} : { color: afterState.color }),
             },
             { previousLineageKey: appointmentTypeLineageKey },
           );
@@ -1246,6 +1326,7 @@ export function AppointmentTypesManagement({
 
               const redoResult = await updateAppointmentTypeMutation({
                 appointmentTypeId: currentAppointmentTypeId,
+                color: afterState.color,
                 duration: afterState.duration,
                 name: afterState.name,
                 practiceId,
@@ -1267,6 +1348,7 @@ export function AppointmentTypesManagement({
 
               const undoResult = await updateAppointmentTypeMutation({
                 appointmentTypeId: currentAppointmentTypeId,
+                color: beforeState.color ?? null,
                 duration: beforeState.duration,
                 name: beforeState.name,
                 practiceId,
@@ -1286,6 +1368,7 @@ export function AppointmentTypesManagement({
             validateRedo: (current) => {
               if (
                 current.name !== beforeState.name ||
+                current.color !== beforeState.color ||
                 current.duration !== beforeState.duration ||
                 serializeFollowUpPlan(current.followUpPlan) !==
                   serializeFollowUpPlan(beforeState.followUpPlan) ||
@@ -1303,6 +1386,7 @@ export function AppointmentTypesManagement({
             validateUndo: (current) => {
               if (
                 current.name !== afterState.name ||
+                current.color !== (afterState.color ?? undefined) ||
                 current.duration !== afterState.duration ||
                 serializeFollowUpPlan(current.followUpPlan) !==
                   serializeFollowUpPlan(afterState.followUpPlan) ||
@@ -1329,6 +1413,7 @@ export function AppointmentTypesManagement({
         } else {
           // Create new appointment type
           const createResult = await createAppointmentTypeMutation({
+            color: appointmentTypeColorMutationValue(parsedValue.color),
             duration: parsedValue.duration,
             name: normalizedName,
             practiceId,
@@ -1345,6 +1430,9 @@ export function AppointmentTypesManagement({
             allowedPractitionerLineageKeys: toSnapshotLineageIds(
               formPractitionerSnapshots,
             ),
+            ...(parsedValue.color === "inherit"
+              ? {}
+              : { color: parsedValue.color }),
             duration: parsedValue.duration,
             followUpPlan: normalizedFollowUpPlan ?? [],
             id: asAppointmentTypeId(createResult.entityId),
@@ -1356,6 +1444,7 @@ export function AppointmentTypesManagement({
           upsertAppointmentTypeRef(createdAppointmentType);
           const { entityId } = createResult;
           const createdSnapshot = encodeRuleSetSnapshot({
+            color: appointmentTypeColorMutationValue(parsedValue.color),
             duration: parsedValue.duration,
             followUpPlan: normalizedFollowUpPlan,
             name: normalizedName,
@@ -1402,6 +1491,7 @@ export function AppointmentTypesManagement({
                 return { message: createConflict, status: "conflict" };
               }
               const recreateResult = await createAppointmentTypeMutation({
+                color: appointmentTypeColorMutationValue(parsedValue.color),
                 duration: parsedValue.duration,
                 lineageKey: appointmentTypeLineageKey,
                 name: normalizedName,
@@ -1423,6 +1513,9 @@ export function AppointmentTypesManagement({
                 name: normalizedName,
                 ruleSetId: recreateResult.ruleSetId,
                 treeFolderId: resolvedFolder.folderId,
+                ...(parsedValue.color === "inherit"
+                  ? {}
+                  : { color: parsedValue.color }),
               });
               upsertAppointmentTypeRef(restoredAppointmentType, {
                 previousLineageKey: appointmentTypeLineageKey,
@@ -1478,6 +1571,9 @@ export function AppointmentTypesManagement({
               );
               if (
                 existing.name !== normalizedName ||
+                existing.color !==
+                  (appointmentTypeColorMutationValue(parsedValue.color) ??
+                    undefined) ||
                 existing.duration !== parsedValue.duration ||
                 serializeFollowUpPlan(existing.followUpPlan) !==
                   serializeFollowUpPlan(normalizedFollowUpPlan) ||
@@ -1548,6 +1644,7 @@ export function AppointmentTypesManagement({
 
       setEditingAppointmentType(appointmentType);
       setNewAppointmentTypeFolderId(undefined);
+      form.setFieldValue("color", appointmentType.color ?? "inherit");
       form.setFieldValue("name", appointmentType.name);
       form.setFieldValue("duration", appointmentType.duration);
       form.setFieldValue(
@@ -1594,6 +1691,7 @@ export function AppointmentTypesManagement({
   const openEditFolderDialog = useCallback((folder: AppointmentTypeFolder) => {
     setEditingAppointmentTypeFolder(folder);
     setCreateFolderParentId(folder.parentFolderId);
+    setCreateFolderColor(folder.color ?? "blue");
     setCreateFolderName(folder.name);
     setIsFolderDialogOpen(true);
   }, []);
@@ -1720,6 +1818,7 @@ export function AppointmentTypesManagement({
   ) {
     setEditingAppointmentTypeFolder(null);
     setCreateFolderParentId(parentFolderId);
+    setCreateFolderColor("blue");
     setCreateFolderName("");
     setIsFolderDialogOpen(true);
   }
@@ -1753,9 +1852,11 @@ export function AppointmentTypesManagement({
         const folderBefore = editingAppointmentTypeFolder;
         const folderLineageKey =
           getAppointmentTypeFolderLineageKey(folderBefore);
+        const previousColor = folderBefore.color ?? "blue";
         const previousName = folderBefore.name;
         const parentFolderId = folderBefore.parentFolderId;
         const result = await updateAppointmentTypeFolderMutation({
+          color: createFolderColor,
           folderId: folderBefore._id,
           name,
           practiceId,
@@ -1764,6 +1865,7 @@ export function AppointmentTypesManagement({
         handleDraftMutationResult(result);
         upsertAppointmentTypeFolderRef(
           createAppointmentTypeFolderRefSnapshot({
+            color: createFolderColor,
             id: result.entityId,
             lineageKey: folderLineageKey,
             name,
@@ -1773,6 +1875,7 @@ export function AppointmentTypesManagement({
           { previousLineageKey: folderLineageKey },
         );
         const previousFolderSnapshot = encodeRuleSetSnapshot({
+          color: previousColor,
           lineageKey: folderLineageKey,
           name: previousName,
           parent: createAppointmentTypeFolderHistoryTarget(
@@ -1784,6 +1887,7 @@ export function AppointmentTypesManagement({
           ),
         });
         const renamedFolderSnapshot = encodeRuleSetSnapshot({
+          color: createFolderColor,
           lineageKey: folderLineageKey,
           name,
           parent: createAppointmentTypeFolderHistoryTarget(
@@ -1805,6 +1909,7 @@ export function AppointmentTypesManagement({
             "Der Ordner wurde bereits gelöscht und kann nicht erneut umbenannt werden.",
           runRedo: async (currentFolderId) => {
             const redoResult = await updateAppointmentTypeFolderMutation({
+              color: createFolderColor,
               folderId: currentFolderId,
               name,
               practiceId,
@@ -1813,6 +1918,7 @@ export function AppointmentTypesManagement({
             handleDraftMutationResult(redoResult);
             upsertAppointmentTypeFolderRef(
               createAppointmentTypeFolderRefSnapshot({
+                color: createFolderColor,
                 id: redoResult.entityId,
                 lineageKey: folderLineageKey,
                 name,
@@ -1825,6 +1931,7 @@ export function AppointmentTypesManagement({
           },
           runUndo: async (currentFolderId) => {
             const undoResult = await updateAppointmentTypeFolderMutation({
+              color: previousColor,
               folderId: currentFolderId,
               name: previousName,
               practiceId,
@@ -1833,6 +1940,7 @@ export function AppointmentTypesManagement({
             handleDraftMutationResult(undoResult);
             upsertAppointmentTypeFolderRef(
               createAppointmentTypeFolderRefSnapshot({
+                color: previousColor,
                 id: undoResult.entityId,
                 lineageKey: folderLineageKey,
                 name: previousName,
@@ -1850,7 +1958,10 @@ export function AppointmentTypesManagement({
           undoMissingMessage:
             "Der Ordner wurde bereits gelöscht und kann nicht zurückgesetzt werden.",
           validateRedo: (current) => {
-            if (current.name !== previousName) {
+            if (
+              current.name !== previousName ||
+              current.color !== previousColor
+            ) {
               return "Der Ordner wurde zwischenzeitlich geändert und kann nicht erneut angewendet werden.";
             }
             return validateTreeChildNameForHistory({
@@ -1860,7 +1971,7 @@ export function AppointmentTypesManagement({
             });
           },
           validateUndo: (current) => {
-            if (current.name !== name) {
+            if (current.name !== name || current.color !== createFolderColor) {
               return "Der Ordner wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
             }
             return validateTreeChildNameForHistory({
@@ -1880,6 +1991,7 @@ export function AppointmentTypesManagement({
             : undefined,
         );
         const result = await createAppointmentTypeFolderMutation({
+          color: createFolderColor,
           name,
           practiceId,
           ...createParentFolderArg(parentFolderId),
@@ -1889,6 +2001,7 @@ export function AppointmentTypesManagement({
         const folderLineageKey = result.entityId;
         upsertAppointmentTypeFolderRef(
           createAppointmentTypeFolderRefSnapshot({
+            color: createFolderColor,
             id: result.entityId,
             lineageKey: folderLineageKey,
             name,
@@ -1897,6 +2010,7 @@ export function AppointmentTypesManagement({
           }),
         );
         const createdFolderSnapshot = encodeRuleSetSnapshot({
+          color: createFolderColor,
           lineageKey: folderLineageKey,
           name,
           parent: parentFolderTarget,
@@ -1923,6 +2037,7 @@ export function AppointmentTypesManagement({
               return { message: createConflict, status: "conflict" as const };
             }
             const recreateResult = await createAppointmentTypeFolderMutation({
+              color: createFolderColor,
               lineageKey: folderLineageKey,
               name,
               practiceId,
@@ -1931,6 +2046,7 @@ export function AppointmentTypesManagement({
             });
             handleDraftMutationResult(recreateResult);
             const restoredFolder = createAppointmentTypeFolderRefSnapshot({
+              color: createFolderColor,
               id: recreateResult.entityId,
               lineageKey: folderLineageKey,
               name,
@@ -1981,6 +2097,7 @@ export function AppointmentTypesManagement({
             }
             if (
               existing.name !== name ||
+              existing.color !== createFolderColor ||
               existing.parentFolderId !== resolvedParent.folderId
             ) {
               return `[HISTORY:APPOINTMENT_TYPE_FOLDER_LINEAGE_CONFLICT] Der Ordner mit lineageKey ${folderLineageKey} existiert bereits, hat aber abweichende Einstellungen.`;
@@ -1990,6 +2107,7 @@ export function AppointmentTypesManagement({
         });
       }
       setIsFolderDialogOpen(false);
+      setCreateFolderColor("blue");
       setCreateFolderName("");
       setCreateFolderParentId(undefined);
       setEditingAppointmentTypeFolder(null);
@@ -2061,6 +2179,7 @@ export function AppointmentTypesManagement({
                 )
               : undefined;
             return {
+              color: candidate.color ?? "blue",
               lineageKey: getAppointmentTypeFolderLineageKey(candidate),
               name: candidate.name,
               parentLineageKey: parentFolder
@@ -2089,6 +2208,7 @@ export function AppointmentTypesManagement({
               return;
             }
             return {
+              color: appointmentType.color,
               duration: appointmentType.duration,
               followUpPlan: appointmentType.followUpPlan,
               lineageKey: appointmentType.lineageKey,
@@ -2212,6 +2332,7 @@ export function AppointmentTypesManagement({
               if (
                 existingByLineage &&
                 (existingByLineage.name !== snapshot.name ||
+                  existingByLineage.color !== snapshot.color ||
                   existingByLineage.duration !== snapshot.duration ||
                   serializeFollowUpPlan(existingByLineage.followUpPlan) !==
                     serializeFollowUpPlan(snapshot.followUpPlan))
@@ -2278,6 +2399,7 @@ export function AppointmentTypesManagement({
               if (
                 existingFolderByLineage !== undefined &&
                 (existingFolderByLineage.name !== snapshot.name ||
+                  existingFolderByLineage.color !== snapshot.color ||
                   existingFolderByLineage.parentFolderId !== parentFolderId)
               ) {
                 return {
@@ -2308,6 +2430,7 @@ export function AppointmentTypesManagement({
                 plannedFolderIds.set(snapshot.lineageKey, snapshot.lineageKey);
                 plannedFolders.push(
                   createAppointmentTypeFolderRefSnapshot({
+                    color: snapshot.color,
                     id: snapshot.lineageKey,
                     lineageKey: snapshot.lineageKey,
                     name: snapshot.name,
@@ -2328,6 +2451,7 @@ export function AppointmentTypesManagement({
                   ? undefined
                   : optimisticFolderIds.get(snapshot.parentLineageKey);
               return createAppointmentTypeFolderRefSnapshot({
+                color: snapshot.color,
                 id: snapshot.lineageKey,
                 lineageKey: snapshot.lineageKey,
                 name: snapshot.name,
@@ -2358,6 +2482,9 @@ export function AppointmentTypesManagement({
                       snapshot.practitionerSnapshots,
                     ),
                     createdAt: 0n,
+                    ...(snapshot.color === undefined
+                      ? {}
+                      : { color: snapshot.color }),
                     duration: snapshot.duration,
                     followUpPlan: snapshot.followUpPlan ?? [],
                     lastModified: 0n,
@@ -2404,6 +2531,7 @@ export function AppointmentTypesManagement({
                 }
                 const recreateResult =
                   await createAppointmentTypeFolderMutation({
+                    color: snapshot.color,
                     lineageKey: snapshot.lineageKey,
                     name: snapshot.name,
                     practiceId,
@@ -2417,6 +2545,7 @@ export function AppointmentTypesManagement({
                 );
                 upsertAppointmentTypeFolderRef(
                   createAppointmentTypeFolderRefSnapshot({
+                    color: snapshot.color,
                     id: recreateResult.entityId,
                     lineageKey: snapshot.lineageKey,
                     name: snapshot.name,
@@ -2451,6 +2580,7 @@ export function AppointmentTypesManagement({
                   };
                 }
                 const recreateResult = await createAppointmentTypeMutation({
+                  color: snapshot.color ?? null,
                   duration: snapshot.duration,
                   lineageKey: snapshot.lineageKey,
                   name: snapshot.name,
@@ -2468,6 +2598,9 @@ export function AppointmentTypesManagement({
                     snapshot.practitionerSnapshots,
                   ),
                   createdAt: 0n,
+                  ...(snapshot.color === undefined
+                    ? {}
+                    : { color: snapshot.color }),
                   duration: snapshot.duration,
                   followUpPlan: snapshot.followUpPlan ?? [],
                   lastModified: 0n,
@@ -2816,6 +2949,7 @@ export function AppointmentTypesManagement({
   const handleDelete = async (appointmentType: AppointmentType) => {
     try {
       const deletedSnapshot = {
+        color: appointmentType.color,
         duration: appointmentType.duration,
         followUpPlan: appointmentType.followUpPlan,
         lineageKey: appointmentType.lineageKey,
@@ -2876,6 +3010,7 @@ export function AppointmentTypesManagement({
           treeFolderId: Id<"appointmentTypeFolders"> | null,
         ) => {
           const recreateResult = await createAppointmentTypeMutation({
+            color: snapshot.color ?? null,
             duration: snapshot.duration,
             lineageKey: snapshot.lineageKey,
             name: snapshot.name,
@@ -2923,6 +3058,7 @@ export function AppointmentTypesManagement({
           );
           return (
             existingByLineage.name === snapshot.name &&
+            existingByLineage.color === snapshot.color &&
             existingByLineage.treeFolderId === resolvedFolder.folderId &&
             existingByLineage.duration === snapshot.duration &&
             serializeFollowUpPlan(existingByLineage.followUpPlan) ===
@@ -2973,6 +3109,7 @@ export function AppointmentTypesManagement({
           allowedPractitionerLineageKeys: toSnapshotLineageIds(
             deletedPractitionerSnapshots,
           ),
+          ...(snapshot.color === undefined ? {} : { color: snapshot.color }),
           createdAt: 0n,
           duration: snapshot.duration,
           followUpPlan: snapshot.followUpPlan ?? [],
@@ -3086,6 +3223,19 @@ export function AppointmentTypesManagement({
                             </Field>
                           );
                         }}
+                      </form.Field>
+
+                      <form.Field name="color">
+                        {(field) => (
+                          <Field>
+                            <FieldLabel>Farbe</FieldLabel>
+                            <AppointmentColorSwatches
+                              includeInherit
+                              onChange={field.handleChange}
+                              value={field.state.value}
+                            />
+                          </Field>
+                        )}
                       </form.Field>
 
                       <form.Field name="duration">
@@ -3531,6 +3681,7 @@ export function AppointmentTypesManagement({
               if (!open) {
                 setEditingAppointmentTypeFolder(null);
                 setCreateFolderParentId(undefined);
+                setCreateFolderColor("blue");
                 setCreateFolderName("");
               }
             }}
@@ -3568,12 +3719,24 @@ export function AppointmentTypesManagement({
                     value={createFolderName}
                   />
                 </Field>
+                <Field className="mt-4">
+                  <FieldLabel>Farbe</FieldLabel>
+                  <AppointmentColorSwatches
+                    onChange={(value) => {
+                      if (value !== "inherit") {
+                        setCreateFolderColor(value);
+                      }
+                    }}
+                    value={createFolderColor}
+                  />
+                </Field>
                 <DialogFooter className="mt-6">
                   <Button
                     onClick={() => {
                       setIsFolderDialogOpen(false);
                       setEditingAppointmentTypeFolder(null);
                       setCreateFolderParentId(undefined);
+                      setCreateFolderColor("blue");
                       setCreateFolderName("");
                     }}
                     type="button"

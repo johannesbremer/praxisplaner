@@ -90,6 +90,7 @@ export function buildCalendarAppointmentRecord(args: {
     _id: args._id,
     appointmentTypeLineageKey: args.appointmentTypeLineageKey,
     appointmentTypeTitle: args.appointmentTypeTitle ?? "Checkup",
+    color: "blue",
     createdAt: 0n,
     end: args.end,
     lastModified: 0n,

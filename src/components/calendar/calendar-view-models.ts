@@ -17,10 +17,6 @@ import {
 } from "../../../convex/identity";
 import { calendarColumnScopeFromAppointmentOccupancy } from "../../../lib/calendar-occupancy";
 import { formatTime, safeParseISOToZoned } from "../../utils/time-calculations";
-import {
-  APPOINTMENT_COLORS,
-  CALENDAR_APPOINTMENT_COLOR_CLASSES,
-} from "./types";
 
 export function buildCalendarAppointmentLayouts(args: {
   appointments: readonly CalendarAppointmentRecord[];
@@ -67,7 +63,7 @@ export function buildCalendarAppointmentViews(args: {
     | undefined;
 }): CalendarAppointmentView[] {
   return args.appointments
-    .map((appointment, index): CalendarAppointmentView | null => {
+    .map((appointment): CalendarAppointmentView | null => {
       let patientName: string | undefined;
       if (appointment.record.patientId && args.patientData) {
         const patientInfo = args.patientData[appointment.record.patientId];
@@ -89,9 +85,7 @@ export function buildCalendarAppointmentViews(args: {
       }
 
       return {
-        color:
-          APPOINTMENT_COLORS[index % APPOINTMENT_COLORS.length] ??
-          CALENDAR_APPOINTMENT_COLOR_CLASSES.slate,
+        color: appointment.record.color,
         layout: appointment,
         ...(patientName && { patientName }),
       };
