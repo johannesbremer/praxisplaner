@@ -136,5 +136,5 @@ else
   pnpm exec convex env set AUTH_BYPASS_ENABLED false
   AUTH_BYPASS_ENABLED=false pnpm exec convex deploy \
     --env-file "$deploy_env_file" \
-    --cmd "pnpm run build && pnpm exec posthog-cli sourcemap inject --directory .output/public && pnpm exec posthog-cli --host https://eu.posthog.com sourcemap upload --directory .output/public --release-name praxisplaner --delete-after"
+    --cmd "pnpm run build && pnpm exec posthog-cli sourcemap inject --directory .vercel/output/static && pnpm exec posthog-cli --host https://eu.posthog.com sourcemap upload --directory .vercel/output/static --release-name praxisplaner --delete-after"
 fi
