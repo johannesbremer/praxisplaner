@@ -106,6 +106,7 @@ import {
 } from "../utils/frontend-lineage";
 import { createRuleSetSnapshotCommand } from "../utils/rule-set-replay";
 import { encodeRuleSetSnapshot } from "../utils/rule-set-snapshot-codecs";
+import { Combobox, type ComboboxOption } from "./combobox";
 type AppointmentColorSelection = "inherit" | AppointmentColor;
 type AppointmentTreeItem =
   | {
@@ -211,7 +212,37 @@ const colorSnapshotValue = (
   color: AppointmentColorSelection,
 ): AppointmentColor | undefined => (color === "inherit" ? undefined : color);
 
-function AppointmentColorSwatches({
+const appointmentColorSelectionOptions = (
+  includeInherit: boolean,
+): ComboboxOption[] => [
+  ...(includeInherit
+    ? [
+        {
+          label: "Erben",
+          searchText: "inherit erben inherited geerbt",
+          value: "inherit",
+        },
+      ]
+    : []),
+  ...APPOINTMENT_COLOR_OPTIONS.map((option) => ({
+    label: option.label,
+    searchText: `${option.label} ${option.value}`,
+    value: option.value,
+  })),
+];
+
+const parseAppointmentColorSelection = (
+  value: string,
+): AppointmentColorSelection | undefined => {
+  if (value === "inherit") {
+    return "inherit";
+  }
+
+  return APPOINTMENT_COLOR_OPTIONS.find((option) => option.value === value)
+    ?.value;
+};
+
+function AppointmentColorCombobox({
   includeInherit = false,
   onChange,
   value,
@@ -221,42 +252,24 @@ function AppointmentColorSwatches({
   value: AppointmentColorSelection;
 }) {
   return (
-    <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
-      {includeInherit && (
-        <Button
-          aria-pressed={value === "inherit"}
-          className="h-10 justify-start px-2"
-          onClick={() => {
-            onChange("inherit");
-          }}
-          type="button"
-          variant={value === "inherit" ? "default" : "outline"}
-        >
-          Erben
-        </Button>
-      )}
-      {APPOINTMENT_COLOR_OPTIONS.map((option) => (
-        <button
-          aria-label={option.label}
-          aria-pressed={value === option.value}
-          className="h-10 rounded-md border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          key={option.value}
-          onClick={() => {
-            onChange(option.value);
-          }}
-          style={{
-            backgroundColor: option.background,
-            borderColor:
-              value === option.value ? "var(--foreground)" : option.border,
-            color: option.foreground,
-          }}
-          title={option.label}
-          type="button"
-        >
-          <span className="sr-only">{option.label}</span>
-        </button>
-      ))}
-    </div>
+    <Combobox
+      className="w-full"
+      emptyMessage="Keine Farbe gefunden."
+      onValueChange={(nextValue) => {
+        const parsedValue = parseAppointmentColorSelection(nextValue);
+        if (parsedValue === undefined) {
+          return;
+        }
+        if (!includeInherit && parsedValue === "inherit") {
+          return;
+        }
+        onChange(parsedValue);
+      }}
+      options={appointmentColorSelectionOptions(includeInherit)}
+      placeholder="Farbe auswählen"
+      searchPlaceholder="Farbe suchen..."
+      value={value}
+    />
   );
 }
 
@@ -3243,7 +3256,7 @@ export function AppointmentTypesManagement({
                         {(field) => (
                           <Field>
                             <FieldLabel>Farbe</FieldLabel>
-                            <AppointmentColorSwatches
+                            <AppointmentColorCombobox
                               includeInherit
                               onChange={field.handleChange}
                               value={field.state.value}
@@ -3735,7 +3748,7 @@ export function AppointmentTypesManagement({
                 </Field>
                 <Field className="mt-4">
                   <FieldLabel>Farbe</FieldLabel>
-                  <AppointmentColorSwatches
+                  <AppointmentColorCombobox
                     includeInherit
                     onChange={setCreateFolderColor}
                     value={createFolderColor}
