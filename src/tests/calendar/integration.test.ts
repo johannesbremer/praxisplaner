@@ -43,6 +43,10 @@ const appointmentType1 = asAppointmentTypeLineageKey(
 
 const resolveBlockedSlotDisplayRefs = () => ({
   locationId: location1,
+  occupancyScope: {
+    kind: "practitioner" as const,
+    practitionerId: practitioner1,
+  },
   practitionerId: practitioner1,
 });
 

@@ -21,6 +21,7 @@ import { buildCalendarAppointmentRecord } from "./test-records";
 
 describe("CalendarGrid", () => {
   const doctorHeaderRegex = regex.as(String.raw`Dr\.`);
+  const previewBlockRegex = regex.as("Preview block");
   const appointmentType1 = asAppointmentTypeLineageKey(
     toTableId<"appointmentTypes">("appointment_type_1"),
   );
@@ -496,7 +497,7 @@ describe("CalendarGrid", () => {
       expect(indicators.length).toBeGreaterThanOrEqual(mockColumns.length);
     });
 
-    test("renders column current time indicators below appointments", () => {
+    test("renders column current time indicators above appointments", () => {
       const { container } = render(
         <CalendarGrid {...defaultProps} currentTimeSlot={108} />,
       );
@@ -506,12 +507,46 @@ describe("CalendarGrid", () => {
       );
       expect(columnIndicators).toHaveLength(mockColumns.length);
       for (const indicator of columnIndicators) {
-        expect(indicator).toHaveClass("z-0");
+        expect(indicator).toHaveClass("z-30");
       }
 
       const appointment = container.querySelector(".cursor-move");
       assertElement(appointment);
       expect(appointment).toHaveClass("z-10");
+    });
+
+    test("renders column current time indicators above manual blocked slots", () => {
+      const { container } = render(
+        <CalendarGrid
+          {...defaultProps}
+          appointments={[]}
+          blockedSlots={[
+            {
+              column: practitionerColumn1,
+              duration: 30,
+              id: "blocked-slot-1",
+              isManual: true,
+              slot: 108,
+              startSlot: 108,
+              title: "Preview block",
+            },
+          ]}
+          currentTimeSlot={108}
+        />,
+      );
+
+      const columnIndicators = container.querySelectorAll(
+        '[data-calendar-current-time-column-indicator="true"]',
+      );
+      expect(columnIndicators).toHaveLength(mockColumns.length);
+      for (const indicator of columnIndicators) {
+        expect(indicator).toHaveClass("z-30");
+      }
+
+      const blockedSlot = screen.getByRole("button", {
+        name: previewBlockRegex,
+      });
+      expect(blockedSlot).toHaveClass("z-10");
     });
 
     test("positions current time indicator correctly", () => {
@@ -552,6 +587,43 @@ describe("CalendarGrid", () => {
 
       const resizeHandles = container.querySelectorAll(".cursor-ns-resize");
       expect(resizeHandles.length).toBe(mockAppointments.length);
+    });
+
+    test("renders manual blocked-slot height from grouped visible slots", () => {
+      render(
+        <CalendarGrid
+          {...defaultProps}
+          appointments={[]}
+          blockedSlots={[
+            {
+              column: practitionerColumn1,
+              duration: 30,
+              id: "blocked-slot-1",
+              isManual: true,
+              slot: 12,
+              startSlot: 12,
+              title: "Preview block",
+            },
+            {
+              column: practitionerColumn1,
+              duration: 30,
+              id: "blocked-slot-1",
+              isManual: true,
+              slot: 13,
+              startSlot: 12,
+              title: "Preview block",
+            },
+          ]}
+        />,
+      );
+
+      const blockedSlot = screen.getByRole("button", {
+        name: previewBlockRegex,
+      });
+
+      expect(blockedSlot).toHaveStyle({
+        "--blocked-height": "32px",
+      });
     });
   });
 

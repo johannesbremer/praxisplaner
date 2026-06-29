@@ -6,6 +6,7 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { SimulatedContextInput } from "../../../convex/typedDtos";
+import type { BlockedSlotDisplayOccupancyScope } from "./calendar-reference-adapters";
 import type {
   CalendarAppointmentLayout,
   CalendarBlockedSlotRecord,
@@ -19,6 +20,7 @@ import type {
 import {
   calendarColumnScopeFromPractitioner,
   calendarColumnScopeFromResourceColumn,
+  getCalendarResourceColumnFromOccupancy,
   getPractitionerLineageKeyFromOccupancy,
 } from "../../../lib/calendar-occupancy";
 import { captureErrorGlobal } from "../../utils/error-tracking";
@@ -99,6 +101,7 @@ export function useCalendarInteractions({
   convertRealBlockedSlotToSimulation: (
     blockedSlotId: string,
     options: {
+      calendarResourceColumn?: "ekg" | "labor";
       endISO?: string;
       locationId?: Id<"locations">;
       practitionerId?: Id<"practitioners">;
@@ -109,6 +112,7 @@ export function useCalendarInteractions({
   isNonRootSeriesAppointment: (appointmentId?: string) => boolean;
   resolveBlockedSlotDisplayRefs: (blockedSlot: BlockedSlotRecord) => null | {
     locationId: Id<"locations">;
+    occupancyScope: BlockedSlotDisplayOccupancyScope;
     practitionerId?: Id<"practitioners">;
   };
   runUpdateAppointment: (args: {
@@ -503,9 +507,15 @@ export function useCalendarInteractions({
                 {
                   endISO: blockedSlotDoc.end,
                   locationId: displayRefs.locationId,
-                  ...(displayRefs.practitionerId
-                    ? { practitionerId: displayRefs.practitionerId }
-                    : {}),
+                  ...(displayRefs.occupancyScope.kind === "practitioner"
+                    ? {
+                        practitionerId:
+                          displayRefs.occupancyScope.practitionerId,
+                      }
+                    : {
+                        calendarResourceColumn:
+                          displayRefs.occupancyScope.calendarResourceColumn,
+                      }),
                   startISO: blockedSlotDoc.start,
                   title:
                     blockedSlotDoc.title ||
@@ -523,13 +533,24 @@ export function useCalendarInteractions({
                 getPractitionerLineageKeyFromOccupancy(
                   blockedSlotDoc.placement.occupancyScope,
                 );
+              const calendarResourceColumn =
+                getCalendarResourceColumnFromOccupancy(
+                  blockedSlotDoc.placement.occupancyScope,
+                );
               const column =
                 manualBlockedSlot?.column ??
-                (practitionerLineageKey === undefined
-                  ? calendarColumnScopeFromResourceColumn("ekg")
-                  : calendarColumnScopeFromPractitioner(
-                      practitionerLineageKey,
+                (calendarResourceColumn === undefined
+                  ? practitionerLineageKey === undefined
+                    ? undefined
+                    : calendarColumnScopeFromPractitioner(
+                        practitionerLineageKey,
+                      )
+                  : calendarColumnScopeFromResourceColumn(
+                      calendarResourceColumn,
                     ));
+              if (column === undefined) {
+                return;
+              }
               startResizing({
                 column,
                 commitBlockedSlotId: convertedId.id,

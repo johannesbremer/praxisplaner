@@ -47,7 +47,7 @@ interface BlockedSlotEditModalProps {
     isSimulation?: boolean;
     locationId: Id<"locations">;
     occupancyScope:
-      | { kind: "location-wide" }
+      | { calendarResourceColumn: "ekg" | "labor"; kind: "resource" }
       | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
     practiceId: Id<"practices">;
     replacesBlockedSlotId?: Id<"blockedSlots">;
@@ -116,13 +116,7 @@ export function BlockedSlotEditModal({
             end: slotData.end,
             isSimulation: true,
             locationId: slotData.locationId,
-            occupancyScope:
-              slotData.practitionerId === undefined
-                ? { kind: "location-wide" }
-                : {
-                    kind: "practitioner",
-                    practitionerId: slotData.practitionerId,
-                  },
+            occupancyScope: slotData.occupancyScope,
             practiceId: slotData.practiceId,
             replacesBlockedSlotId: blockedSlotId,
             start: slotData.start,

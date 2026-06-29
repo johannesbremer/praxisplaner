@@ -248,11 +248,12 @@ const blockedSlotListItemValidator = v.object({
 
 const blockedSlotMutationOccupancyScopeValidator = v.union(
   v.object({
-    kind: v.literal("location-wide"),
-  }),
-  v.object({
     kind: v.literal("practitioner"),
     practitionerId: v.id("practitioners"),
+  }),
+  v.object({
+    calendarResourceColumn: calendarResourceColumnValidator,
+    kind: v.literal("resource"),
   }),
 );
 
@@ -4145,8 +4146,11 @@ export const createBlockedSlot = mutation({
       location.lineageKey ?? location._id,
     );
     const occupancyScope =
-      rest.occupancyScope.kind === "location-wide"
-        ? { kind: "location-wide" as const }
+      rest.occupancyScope.kind === "resource"
+        ? {
+            calendarResourceColumn: rest.occupancyScope.calendarResourceColumn,
+            kind: "resource" as const,
+          }
         : {
             kind: "practitioner" as const,
             practitionerLineageKey: await requirePractitionerInPractice(
@@ -4223,8 +4227,12 @@ export const updateBlockedSlot = mutation({
             occupancyScope:
               occupancyScope === undefined
                 ? existingBlockedSlot.occupancyScope
-                : occupancyScope.kind === "location-wide"
-                  ? { kind: "location-wide" as const }
+                : occupancyScope.kind === "resource"
+                  ? {
+                      calendarResourceColumn:
+                        occupancyScope.calendarResourceColumn,
+                      kind: "resource" as const,
+                    }
                   : {
                       kind: "practitioner" as const,
                       practitionerLineageKey:

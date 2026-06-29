@@ -173,6 +173,48 @@ export function useCalendarVisibleDay({
       collectAppointmentRangesByPractitioner(appointmentsForSelectedDate);
     const appointmentRangesByResourceColumn =
       collectAppointmentRangesByResourceColumn(appointmentsForSelectedDate);
+    const blockedSlotsForSelectedDate = blockedSlotsData.filter(
+      (blockedSlot) =>
+        Temporal.PlainDate.compare(
+          Temporal.ZonedDateTime.from(blockedSlot.start).toPlainDate(),
+          selectedDate,
+        ) === 0 &&
+        (effectiveLocationLineageKey === undefined ||
+          blockedSlot.placement.locationLineageKey ===
+            effectiveLocationLineageKey),
+    );
+    const blockedSlotRangesByPractitioner =
+      collectBlockedSlotRangesByPractitioner(blockedSlotsForSelectedDate);
+    const blockedSlotResourceColumns = new Set(
+      blockedSlotsForSelectedDate
+        .map((blockedSlot) =>
+          getCalendarResourceColumnFromOccupancy(
+            blockedSlot.placement.occupancyScope,
+          ),
+        )
+        .filter((resourceColumn) => resourceColumn !== undefined),
+    );
+    const blockedSlotResourceRanges = blockedSlotsForSelectedDate.flatMap(
+      (blockedSlot) => {
+        if (
+          getCalendarResourceColumnFromOccupancy(
+            blockedSlot.placement.occupancyScope,
+          ) === undefined
+        ) {
+          return [];
+        }
+
+        const start = Temporal.ZonedDateTime.from(blockedSlot.start);
+        const end = Temporal.ZonedDateTime.from(blockedSlot.end);
+
+        return [
+          {
+            endMinutes: end.hour * 60 + end.minute,
+            startMinutes: start.hour * 60 + start.minute,
+          },
+        ];
+      },
+    );
     const deletedPractitionerIds = new Set(
       practitionersData
         .filter((practitioner) => practitioner.deleted === true)
@@ -199,7 +241,9 @@ export function useCalendarVisibleDay({
     if (
       daySchedules.length === 0 &&
       appointmentRangesByPractitioner.size === 0 &&
+      blockedSlotRangesByPractitioner.size === 0 &&
       appointmentRangesByResourceColumn.size === 0 &&
+      blockedSlotResourceColumns.size === 0 &&
       deletedPractitionerIdsWithCalendarItems.size === 0
     ) {
       return emptyVisibleDay();
@@ -315,10 +359,10 @@ export function useCalendarVisibleDay({
       working.map((practitioner) => practitioner.lineageKey),
     );
 
-    for (const [
-      practitionerLineageKey,
-      range,
-    ] of appointmentRangesByPractitioner) {
+    for (const [practitionerLineageKey, range] of mergeMinuteRangeMaps(
+      appointmentRangesByPractitioner,
+      blockedSlotRangesByPractitioner,
+    )) {
       if (workingPractitionerIds.has(practitionerLineageKey)) {
         continue;
       }
@@ -406,7 +450,9 @@ export function useCalendarVisibleDay({
     const visibleRanges = [
       ...effectiveWorkingRanges,
       ...appointmentRanges,
+      ...blockedSlotRangesByPractitioner.values(),
       ...appointmentRangesByResourceColumn.values(),
+      ...blockedSlotResourceRanges,
       ...deletedPractitionerCalendarItemRanges,
     ];
 
@@ -466,7 +512,9 @@ export function useCalendarVisibleDay({
     );
 
     const shouldShowSpecialColumns =
-      working.length > 0 || appointmentRangesByResourceColumn.size > 0;
+      working.length > 0 ||
+      appointmentRangesByResourceColumn.size > 0 ||
+      blockedSlotResourceColumns.size > 0;
     const specialColumns: CalendarColumn[] = shouldShowSpecialColumns
       ? [
           {
@@ -590,6 +638,33 @@ function collectAppointmentRangesByResourceColumn(
   return ranges;
 }
 
+function collectBlockedSlotRangesByPractitioner(
+  blockedSlots: readonly CalendarBlockedSlotRecord[],
+): Map<PractitionerLineageKey, { endMinutes: number; startMinutes: number }> {
+  const ranges = new Map<
+    PractitionerLineageKey,
+    { endMinutes: number; startMinutes: number }
+  >();
+
+  for (const blockedSlot of blockedSlots) {
+    const practitionerLineageKey = getPractitionerLineageKeyFromOccupancy(
+      blockedSlot.placement.occupancyScope,
+    );
+    if (practitionerLineageKey === undefined) {
+      continue;
+    }
+
+    const start = Temporal.ZonedDateTime.from(blockedSlot.start);
+    const end = Temporal.ZonedDateTime.from(blockedSlot.end);
+    mergeMinuteRange(ranges, practitionerLineageKey, {
+      endMinutes: end.hour * 60 + end.minute,
+      startMinutes: start.hour * 60 + start.minute,
+    });
+  }
+
+  return ranges;
+}
+
 function emptyVisibleDay() {
   return {
     businessEndHour: 0,
@@ -604,4 +679,38 @@ function formatMinutesAsTime(minutes: number) {
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
   return `${String(hours).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+function mergeMinuteRange<TKey>(
+  ranges: Map<TKey, { endMinutes: number; startMinutes: number }>,
+  key: TKey,
+  range: { endMinutes: number; startMinutes: number },
+) {
+  const existing = ranges.get(key);
+  ranges.set(key, {
+    endMinutes:
+      existing === undefined
+        ? range.endMinutes
+        : Math.max(existing.endMinutes, range.endMinutes),
+    startMinutes:
+      existing === undefined
+        ? range.startMinutes
+        : Math.min(existing.startMinutes, range.startMinutes),
+  });
+}
+
+function mergeMinuteRangeMaps<TKey>(
+  first: ReadonlyMap<TKey, { endMinutes: number; startMinutes: number }>,
+  second: ReadonlyMap<TKey, { endMinutes: number; startMinutes: number }>,
+): Map<TKey, { endMinutes: number; startMinutes: number }> {
+  const merged = new Map<TKey, { endMinutes: number; startMinutes: number }>();
+
+  for (const [key, range] of first) {
+    mergeMinuteRange(merged, key, range);
+  }
+  for (const [key, range] of second) {
+    mergeMinuteRange(merged, key, range);
+  }
+
+  return merged;
 }

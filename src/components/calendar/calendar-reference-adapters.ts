@@ -17,7 +17,7 @@ export type AppointmentDisplayOccupancyScope =
   | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
 
 export type BlockedSlotDisplayOccupancyScope =
-  | { kind: "location-wide" }
+  | { calendarResourceColumn: CalendarResourceColumn; kind: "resource" }
   | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
 
 export interface CalendarReferenceMaps {
@@ -183,6 +183,7 @@ export function resolveBlockedSlotDisplayRefs(
   maps: CalendarReferenceMaps,
 ): null | {
   locationId: Id<"locations">;
+  occupancyScope: BlockedSlotDisplayOccupancyScope;
   practitionerId?: Id<"practitioners">;
 } {
   const displayRefs = resolveBlockedSlotPlacementDisplayRefs(placement, maps);
@@ -192,6 +193,7 @@ export function resolveBlockedSlotDisplayRefs(
 
   return {
     locationId: displayRefs.locationId,
+    occupancyScope: displayRefs.occupancyScope,
     ...(displayRefs.occupancyScope.kind === "practitioner"
       ? { practitionerId: displayRefs.occupancyScope.practitionerId }
       : {}),
@@ -229,21 +231,24 @@ export function resolveBlockedSlotPlacementDisplayRefs(
     return null;
   }
 
-  const practitionerLineageKey =
-    placement.occupancyScope.kind === "practitioner"
-      ? placement.occupancyScope.practitionerLineageKey
-      : undefined;
-  const practitionerId = resolvePractitionerId(practitionerLineageKey, maps);
-  if (practitionerLineageKey !== undefined && practitionerId === undefined) {
+  if (placement.occupancyScope.kind === "resource") {
+    return {
+      locationId,
+      occupancyScope: placement.occupancyScope,
+    };
+  }
+
+  const practitionerId = resolvePractitionerId(
+    placement.occupancyScope.practitionerLineageKey,
+    maps,
+  );
+  if (practitionerId === undefined) {
     return null;
   }
 
   return {
     locationId,
-    occupancyScope:
-      practitionerId === undefined
-        ? { kind: "location-wide" }
-        : { kind: "practitioner", practitionerId },
+    occupancyScope: { kind: "practitioner", practitionerId },
   };
 }
 
@@ -259,10 +264,10 @@ export function resolveBlockedSlotPlacementLineageRefs(
     return null;
   }
 
-  if (args.occupancyScope.kind === "location-wide") {
+  if (args.occupancyScope.kind === "resource") {
     return {
       locationLineageKey,
-      occupancyScope: { kind: "location-wide" },
+      occupancyScope: args.occupancyScope,
     };
   }
 
@@ -298,6 +303,7 @@ export function toBlockedSlotEditorRecord(
   return {
     end: blockedSlot.end,
     locationId: displayRefs.locationId,
+    occupancyScope: displayRefs.occupancyScope,
     practiceId: blockedSlot.practiceId,
     ...(displayRefs.occupancyScope.kind === "practitioner"
       ? { practitionerId: displayRefs.occupancyScope.practitionerId }

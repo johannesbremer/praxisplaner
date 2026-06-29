@@ -48,6 +48,45 @@ describe("scheduling availability monotonicity properties", () => {
       "scheduling availability is monotone under added blockers",
     );
   });
+
+  test("resource-scoped manual blocks do not block practitioner booking slots", async () => {
+    const t = createPropertyTestContext();
+    const fixture = await createPropertySchedulingFixture(t, {
+      scheduleEnd: "09:05",
+      scheduleStart: "09:00",
+    });
+    const window = zonedWindow(fixture.date, { hour: 9, minute: 0 });
+
+    await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      await ctx.db.insert("blockedSlots", {
+        createdAt: now,
+        end: window.end,
+        lastModified: now,
+        locationLineageKey: fixture.locationId,
+        occupancyScope: { calendarResourceColumn: "labor", kind: "resource" },
+        practiceId: fixture.practiceId,
+        start: window.start,
+        title: "Labor block",
+      });
+    });
+
+    const result = await t.query(api.scheduling.getSlotsForDay, {
+      date: fixture.date,
+      enforceFutureOnly: false,
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+      simulatedContext: {
+        appointmentTypeLineageKey: fixture.appointmentTypeId,
+        clientType: "MFA",
+        locationLineageKey: fixture.locationId,
+        patient: { isNew: true },
+      },
+    });
+
+    expect(result.slots).toHaveLength(1);
+    expect(result.slots[0]?.status).toBe("AVAILABLE");
+  });
 });
 
 async function querySlotStatus(blockers: ReadonlySet<BlockerKind>) {

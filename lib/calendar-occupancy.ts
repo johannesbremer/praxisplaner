@@ -2,7 +2,7 @@ export type AppointmentOccupancyScope<PractitionerKey extends string = string> =
   Exclude<CalendarOccupancyScope<PractitionerKey>, LocationWideOccupancyScope>;
 
 export type BlockedSlotOccupancyScope<PractitionerKey extends string = string> =
-  Exclude<CalendarOccupancyScope<PractitionerKey>, ResourceOccupancyScope>;
+  AppointmentOccupancyScope<PractitionerKey>;
 
 export type CalendarColumnScope<PractitionerKey extends string = string> =
   AppointmentOccupancyScope<PractitionerKey>;
@@ -49,11 +49,9 @@ export function appointmentOccupancyFromCalendarColumn<
 export function blockedSlotOccupancyScopeFromPractitioner<
   PractitionerKey extends string,
 >(
-  practitionerLineageKey: PractitionerKey | undefined,
+  practitionerLineageKey: PractitionerKey,
 ): BlockedSlotOccupancyScope<PractitionerKey> {
-  return practitionerLineageKey === undefined
-    ? { kind: "location-wide" }
-    : { kind: "practitioner", practitionerLineageKey };
+  return { kind: "practitioner", practitionerLineageKey };
 }
 
 export function calendarColumnScopeFromAppointmentOccupancy<

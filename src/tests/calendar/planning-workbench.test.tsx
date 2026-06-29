@@ -12,6 +12,7 @@ import type { CalendarPlanningCommandExecutor } from "../../components/calendar/
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
+  asPractitionerLineageKey,
   toTableId,
 } from "../../../convex/identity";
 import { createCalendarPlacement } from "../../../lib/calendar-occupancy";
@@ -666,11 +667,16 @@ describe("calendar planning workbench", () => {
       toTableId<"locations">("location_lineage_1"),
     );
     const practiceId = toTableId<"practices">("practice_1");
+    const practitionerLineageKey = asPractitionerLineageKey(
+      toTableId<"practitioners">("practitioner_lineage_1"),
+    );
+    const practitionerId = toTableId<"practitioners">("practitioner_1");
     const blockedSlot = buildCalendarBlockedSlotRecord({
       _id: toTableId<"blockedSlots">("blocked_slot_1"),
       end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
       locationLineageKey,
       practiceId,
+      practitionerLineageKey,
       start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
       title: "Team meeting",
     });
@@ -708,8 +714,12 @@ describe("calendar planning workbench", () => {
           appointmentTypeLineageKeyById: new Map(),
           locationIdByLineageKey: new Map([[locationLineageKey, locationId]]),
           locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
-          practitionerIdByLineageKey: new Map(),
-          practitionerLineageKeyById: new Map(),
+          practitionerIdByLineageKey: new Map([
+            [practitionerLineageKey, practitionerId],
+          ]),
+          practitionerLineageKeyById: new Map([
+            [practitionerId, practitionerLineageKey],
+          ]),
         },
         refreshAllPracticeConflictData: vi.fn(() => Promise.resolve()),
       }),
@@ -753,6 +763,80 @@ describe("calendar planning workbench", () => {
     expect(secondCommand.payload.beforeState.start).toBe(
       firstCommand.payload.afterState.start,
     );
+  });
+
+  it("records resource scope in Blocked Slot delete undo create args", async () => {
+    const locationId = toTableId<"locations">("location_1");
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const blockedSlot = buildCalendarBlockedSlotRecord({
+      _id: toTableId<"blockedSlots">("blocked_slot_1"),
+      calendarResourceColumn: "ekg",
+      end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      locationLineageKey,
+      practiceId,
+      start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+      title: "EKG Wartung",
+    });
+    const activeBlockedSlots = new Map([[blockedSlot._id, blockedSlot]]);
+    const deleteBlockedSlotMutation = makeMutation(null);
+    mutationQueue.push(
+      makeMutation(toTableId<"appointments">("appointment_unused")),
+      makeMutation(toTableId<"appointments">("appointment_restore_unused")),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(null),
+      makeMutation(toTableId<"blockedSlots">("blocked_slot_unused")),
+      deleteBlockedSlotMutation,
+      makeMutation(null),
+    );
+
+    const { result } = renderHook(() =>
+      useCalendarPlanningWorkbench({
+        activeDayAppointmentMapRef: { current: new Map() },
+        activeDayBlockedSlotMapRef: { current: activeBlockedSlots },
+        allPracticeAppointmentMap: new Map(),
+        allPracticeAppointmentMapRef: { current: new Map() },
+        allPracticeAppointmentsLoaded: true,
+        allPracticeBlockedSlotMap: activeBlockedSlots,
+        allPracticeBlockedSlotMapRef: { current: activeBlockedSlots },
+        allPracticeBlockedSlotsLoaded: true,
+        blockedSlotsQueryArgs: null,
+        calendarDayQueryArgs: null,
+        getRequiredAppointmentTypeInfo: () => null,
+        parseZonedDateTime,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map(),
+          appointmentTypeLineageKeyById: new Map(),
+          locationIdByLineageKey: new Map([[locationLineageKey, locationId]]),
+          locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        refreshAllPracticeConflictData: vi.fn(() => Promise.resolve()),
+      }),
+    );
+
+    await act(async () => {
+      await result.current.commands.deleteBlockedSlot({ id: blockedSlot._id });
+    });
+
+    expect(deleteBlockedSlotMutation).toHaveBeenCalledWith({
+      id: blockedSlot._id,
+    });
+    const command = recordCalendarCommand.mock.calls[0]?.[0];
+    expect(command?.kind).toBe("blockedSlot.delete");
+    if (command?.kind !== "blockedSlot.delete") {
+      throw new Error("Expected a blocked slot delete command.");
+    }
+    expect(command.payload.createArgs.occupancyScope).toEqual({
+      calendarResourceColumn: "ekg",
+      kind: "resource",
+    });
   });
 
   it("checks Blocked Slot conflict preflight through the Workbench history Interface", async () => {
@@ -825,7 +909,7 @@ describe("calendar planning workbench", () => {
       await result.current.commands.createBlockedSlot({
         end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
         locationId,
-        occupancyScope: { kind: "location-wide" },
+        occupancyScope: { calendarResourceColumn: "ekg", kind: "resource" },
         practiceId,
         start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
         title: "Team meeting",
@@ -854,12 +938,17 @@ describe("calendar planning workbench", () => {
       toTableId<"locations">("location_lineage_1"),
     );
     const practiceId = toTableId<"practices">("practice_1");
+    const practitionerLineageKey = asPractitionerLineageKey(
+      toTableId<"practitioners">("practitioner_lineage_1"),
+    );
+    const practitionerId = toTableId<"practitioners">("practitioner_1");
     const blockedSlot: CalendarBlockedSlotRecord = {
       ...buildCalendarBlockedSlotRecord({
         _id: toTableId<"blockedSlots">("blocked_slot_1"),
         end: "2026-04-25T10:00:00+02:00[Europe/Berlin]",
         locationLineageKey,
         practiceId,
+        practitionerLineageKey,
         start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
         title: "Team meeting",
       }),
@@ -899,8 +988,12 @@ describe("calendar planning workbench", () => {
           appointmentTypeLineageKeyById: new Map(),
           locationIdByLineageKey: new Map([[locationLineageKey, locationId]]),
           locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
-          practitionerIdByLineageKey: new Map(),
-          practitionerLineageKeyById: new Map(),
+          practitionerIdByLineageKey: new Map([
+            [practitionerLineageKey, practitionerId],
+          ]),
+          practitionerLineageKeyById: new Map([
+            [practitionerId, practitionerLineageKey],
+          ]),
         },
         refreshAllPracticeConflictData: vi.fn(() => Promise.resolve()),
       }),
@@ -912,7 +1005,9 @@ describe("calendar planning workbench", () => {
       slotData: {
         end: blockedSlot.end,
         locationId,
+        occupancyScope: { kind: "practitioner", practitionerId },
         practiceId,
+        practitionerId,
         start: blockedSlot.start,
         title: "Team meeting",
       },

@@ -11,6 +11,7 @@ import type {
   PractitionerLineageKey,
 } from "../../../convex/identity";
 import type {
+  CalendarResourceColumn,
   AppointmentOccupancyScope as SharedAppointmentOccupancyScope,
   BlockedSlotOccupancyScope as SharedBlockedSlotOccupancyScope,
   CalendarColumnScope as SharedCalendarColumnScope,
@@ -63,6 +64,9 @@ export interface CalendarAppointmentView {
 export interface CalendarBlockedSlotEditorRecord {
   end: CalendarBlockedSlotRecord["end"];
   locationId: Id<"locations">;
+  occupancyScope:
+    | { calendarResourceColumn: CalendarResourceColumn; kind: "resource" }
+    | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
   practiceId: Id<"practices">;
   practitionerId?: Id<"practitioners">;
   start: CalendarBlockedSlotRecord["start"];

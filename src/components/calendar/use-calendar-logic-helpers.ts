@@ -4,7 +4,12 @@ import { err, ok, type Result } from "neverthrow";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { CalendarAppointmentRecord, CalendarColumnId } from "./types";
+import type { CalendarResourceColumn } from "../../../lib/calendar-occupancy";
+import type {
+  CalendarAppointmentRecord,
+  CalendarBlockedSlotRecord,
+  CalendarColumnId,
+} from "./types";
 
 import {
   getAppointmentPractitionerLineageKey,
@@ -15,6 +20,7 @@ import { invalidStateError } from "../../utils/frontend-errors";
 export const TIMEZONE = "Europe/Berlin";
 
 export interface BlockedSlotConversionOptions {
+  calendarResourceColumn?: CalendarResourceColumn;
   endISO?: string;
   locationId?: Id<"locations">;
   practitionerId?: Id<"practitioners">;
@@ -23,20 +29,8 @@ export interface BlockedSlotConversionOptions {
 }
 
 export type BlockedSlotDropResolution =
-  | { kind: "location-wide" }
-  | { kind: "practitioner"; practitionerId: Id<"practitioners"> }
-  | { kind: "reject-resource-column" };
-
-export interface CalendarBlockedSlotRecord {
-  end: string;
-  placement: {
-    locationLineageKey: Id<"locations">;
-    occupancyScope:
-      | { kind: "location-wide" }
-      | { kind: "practitioner"; practitionerLineageKey: Id<"practitioners"> };
-  };
-  start: string;
-}
+  | { calendarResourceColumn: CalendarResourceColumn; kind: "resource" }
+  | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
 
 export interface DeletedPractitionerCalendarRange {
   endMinutes: number;
@@ -226,17 +220,20 @@ export function resolveBlockedSlotDropOccupancyScope(args: {
   getPractitionerIdForColumn: (
     column: CalendarColumnId,
   ) => Id<"practitioners"> | undefined;
-}): BlockedSlotDropResolution {
+}): BlockedSlotDropResolution | null {
   const practitionerId = args.getPractitionerIdForColumn(args.column);
   if (practitionerId !== undefined) {
     return { kind: "practitioner", practitionerId };
   }
 
   if (args.column.kind === "resource") {
-    return { kind: "reject-resource-column" };
+    return {
+      calendarResourceColumn: args.column.calendarResourceColumn,
+      kind: "resource",
+    };
   }
 
-  return { kind: "location-wide" };
+  return null;
 }
 
 export function resolveDragPreviewSlot(args: {

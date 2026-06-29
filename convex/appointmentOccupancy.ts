@@ -53,7 +53,8 @@ export const blockedSlotOccupancyScopeValidator = v.union(
     practitionerLineageKey: v.id("practitioners"),
   }),
   v.object({
-    kind: v.literal("location-wide"),
+    calendarResourceColumn: calendarResourceColumnValidator,
+    kind: v.literal("resource"),
   }),
 );
 
@@ -90,7 +91,7 @@ export function appointmentOccupancyScopeFromRefs(args: {
 }
 
 export function blockedSlotOccupancyScopeFromPractitionerRef(
-  practitionerLineageKey?: Id<"practitioners">,
+  practitionerLineageKey: Id<"practitioners">,
 ): BlockedSlotOccupancyScope {
   return blockedSlotOccupancyScopeFromPractitioner(practitionerLineageKey);
 }
@@ -108,6 +109,14 @@ export function getAppointmentPractitionerLineageKey(
 ): Id<"practitioners"> | undefined {
   return scope !== undefined && isPractitionerOccupancyScope(scope)
     ? scope.practitionerLineageKey
+    : undefined;
+}
+
+export function getBlockedSlotCalendarResourceColumn(
+  scope: BlockedSlotOccupancyScope | undefined,
+): CalendarResourceColumn | undefined {
+  return scope !== undefined && isResourceOccupancyScope(scope)
+    ? scope.calendarResourceColumn
     : undefined;
 }
 

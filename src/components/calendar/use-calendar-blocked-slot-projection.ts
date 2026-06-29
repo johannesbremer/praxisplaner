@@ -21,6 +21,8 @@ import {
 } from "../../../convex/appointmentOccupancy";
 import {
   calendarColumnScopeFromPractitioner,
+  calendarColumnScopeFromResourceColumn,
+  getCalendarResourceColumnFromOccupancy,
   sameCalendarColumnScope,
 } from "../../../lib/calendar-occupancy";
 import { getPractitionerVacationRangesForDate } from "../../../lib/vacation-utils";
@@ -216,10 +218,6 @@ export function useCalendarBlockedSlotProjection({
   ]);
 
   const baseManualBlockedSlots = useMemo<CalendarManualBlockedSlot[]>(() => {
-    if (workingPractitioners.length === 0) {
-      return [];
-    }
-
     const manual: CalendarManualBlockedSlot[] = [];
     const effectiveLocationLineageKey =
       simulatedContext?.locationLineageKey ??
@@ -237,6 +235,9 @@ export function useCalendarBlockedSlotProjection({
         getBlockedSlotPractitionerLineageKey(
           blockedSlot.placement.occupancyScope,
         );
+      const blockedSlotResourceColumn = getCalendarResourceColumnFromOccupancy(
+        blockedSlot.placement.occupancyScope,
+      );
       const resolvedPractitionerColumn =
         blockedSlotPractitionerLineageKey === undefined
           ? undefined
@@ -244,8 +245,25 @@ export function useCalendarBlockedSlotProjection({
               (practitioner) =>
                 practitioner.lineageKey === blockedSlotPractitionerLineageKey,
             );
+      const resolvedResourceColumn =
+        blockedSlotResourceColumn === undefined
+          ? undefined
+          : columns.find((column) =>
+              sameCalendarColumnScope(
+                column.id,
+                calendarColumnScopeFromResourceColumn(
+                  blockedSlotResourceColumn,
+                ),
+              ),
+            );
+      const resolvedColumn =
+        resolvedPractitionerColumn === undefined
+          ? resolvedResourceColumn?.id
+          : calendarColumnScopeFromPractitioner(
+              resolvedPractitionerColumn.lineageKey,
+            );
 
-      if (resolvedPractitionerColumn) {
+      if (resolvedColumn !== undefined) {
         const startTime = Temporal.ZonedDateTime.from(
           blockedSlot.start,
         ).toPlainTime();
@@ -276,9 +294,7 @@ export function useCalendarBlockedSlotProjection({
 
         for (let slot = startSlot; slot < endSlot; slot++) {
           manual.push({
-            column: calendarColumnScopeFromPractitioner(
-              resolvedPractitionerColumn.lineageKey,
-            ),
+            column: resolvedColumn,
             duration: durationMinutes,
             id: blockedSlot._id,
             isManual: true,
@@ -302,12 +318,27 @@ export function useCalendarBlockedSlotProjection({
           },
           `manualBlockedSlotMissingColumn:${blockedSlot._id}`,
         );
+      } else if (blockedSlotResourceColumn) {
+        captureFrontendError(
+          invalidStateError(
+            "Manual blocked slot resource column is not visible.",
+            "useCalendarBlockedSlotProjection.manualBlockedSlots",
+          ),
+          {
+            blockedSlotId: blockedSlot._id,
+            calendarResourceColumn: blockedSlotResourceColumn,
+            locationLineageKey: blockedSlot.placement.locationLineageKey,
+            selectedDate: selectedDate.toString(),
+          },
+          `manualBlockedSlotMissingResourceColumn:${blockedSlot._id}`,
+        );
       }
     }
 
     return manual;
   }, [
     blockedSlotsData,
+    columns,
     locationLineageKeyById,
     selectedDate,
     selectedLocationId,

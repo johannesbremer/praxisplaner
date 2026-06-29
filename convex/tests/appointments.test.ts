@@ -257,7 +257,7 @@ async function insertBlockedSlotRecord(
     isSimulation?: boolean;
     locationId: Id<"locations">;
     practiceId: Id<"practices">;
-    practitionerId?: Id<"practitioners">;
+    practitionerId: Id<"practitioners">;
     replacesBlockedSlotId?: Id<"blockedSlots">;
     title: string;
     window: SlotWindow;
@@ -266,11 +266,9 @@ async function insertBlockedSlotRecord(
   return await t.run(async (ctx) => {
     const now = BigInt(Date.now());
     const location = await ctx.db.get("locations", args.locationId);
-    const practitioner = args.practitionerId
-      ? await ctx.db.get("practitioners", args.practitionerId)
-      : null;
+    const practitioner = await ctx.db.get("practitioners", args.practitionerId);
 
-    if (!location || (args.practitionerId && !practitioner)) {
+    if (!location || !practitioner) {
       throw new Error(
         "Blocked slot test fixture is missing referenced entities",
       );
@@ -287,18 +285,15 @@ async function insertBlockedSlotRecord(
         lineageKey: location.lineageKey,
         ruleSetId: location.ruleSetId,
       }),
-      occupancyScope:
-        practitioner === null
-          ? { kind: "location-wide" }
-          : {
-              kind: "practitioner",
-              practitionerLineageKey: requireLineageKey({
-                entityId: practitioner._id,
-                entityType: "practitioner",
-                lineageKey: practitioner.lineageKey,
-                ruleSetId: practitioner.ruleSetId,
-              }),
-            },
+      occupancyScope: {
+        kind: "practitioner",
+        practitionerLineageKey: requireLineageKey({
+          entityId: practitioner._id,
+          entityType: "practitioner",
+          lineageKey: practitioner.lineageKey,
+          ruleSetId: practitioner.ruleSetId,
+        }),
+      },
       practiceId: args.practiceId,
       ...(args.replacesBlockedSlotId === undefined
         ? {}
@@ -1843,50 +1838,6 @@ describe("appointments update safety", () => {
     ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
   });
 
-  test("createAppointment rejects creating an appointment on a location-wide blocked slot", async () => {
-    const t = createTestContext();
-    const baseData = await createAppointmentBaseData(t);
-    const authId = "workos_create_location_wide_blocked_slot_collision";
-    const userId = await createUser(
-      t,
-      authId,
-      "create-location-wide-blocked-slot-collision@example.com",
-    );
-    const authed = t.withIdentity({
-      email: "create-location-wide-blocked-slot-collision@example.com",
-      subject: authId,
-    });
-
-    await t.run(async (ctx) => {
-      await ctx.db.insert("organizationMembers", {
-        createdAt: BigInt(Date.now()),
-        practiceId: baseData.practiceId,
-        role: "owner",
-        userId,
-      });
-    });
-
-    const window = makeSlotWindow(5);
-    await insertBlockedSlotRecord(t, {
-      locationId: baseData.locationId,
-      practiceId: baseData.practiceId,
-      title: "Standortweite Sperrung",
-      window,
-    });
-
-    await expect(
-      authed.mutation(api.appointments.createAppointment, {
-        appointmentTypeId: baseData.appointmentTypeId,
-        locationId: baseData.locationId,
-        practiceId: baseData.practiceId,
-        practitionerId: baseData.practitionerId,
-        start: window.start,
-        title: "Termin kollidiert mit standortweiter Sperrung",
-        userId,
-      }),
-    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
-  });
-
   test("updateAppointment rejects moving an appointment onto an occupied blocked slot", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
@@ -1921,51 +1872,6 @@ describe("appointments update safety", () => {
       practiceId: baseData.practiceId,
       practitionerId: baseData.practitionerId,
       title: "Sperrung",
-      window: blockedWindow,
-    });
-
-    await expect(
-      authed.mutation(api.appointments.updateAppointment, {
-        end: blockedWindow.end,
-        id: appointmentToMove,
-        start: blockedWindow.start,
-      }),
-    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
-  });
-
-  test("updateAppointment rejects moving an appointment onto a location-wide blocked slot", async () => {
-    const t = createTestContext();
-    const baseData = await createAppointmentBaseData(t);
-    const authId = "workos_update_location_wide_blocked_slot_collision";
-    const userId = await createUser(
-      t,
-      authId,
-      "update-location-wide-blocked-slot-collision@example.com",
-    );
-    const authed = t.withIdentity({
-      email: "update-location-wide-blocked-slot-collision@example.com",
-      subject: authId,
-    });
-
-    await t.run(async (ctx) => {
-      await ctx.db.insert("organizationMembers", {
-        createdAt: BigInt(Date.now()),
-        practiceId: baseData.practiceId,
-        role: "owner",
-        userId,
-      });
-    });
-
-    const appointmentToMove = await insertAppointment(t, {
-      ...baseData,
-      userId,
-      window: makeSlotWindow(6),
-    });
-    const blockedWindow = makeSlotWindow(7);
-    await insertBlockedSlotRecord(t, {
-      locationId: baseData.locationId,
-      practiceId: baseData.practiceId,
-      title: "Standortweite Sperrung",
       window: blockedWindow,
     });
 

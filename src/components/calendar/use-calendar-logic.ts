@@ -1015,10 +1015,8 @@ export function useCalendarLogic({
             column,
             getPractitionerIdForColumn,
           });
-          if (dropOccupancyScope.kind === "reject-resource-column") {
-            toast.error(
-              "Gesperrte Zeitraeume koennen nicht auf EKG- oder Labor-Spalten verschoben werden.",
-            );
+          if (dropOccupancyScope === null) {
+            toast.error("Ungültige Ressource");
             return;
           }
 
@@ -1054,14 +1052,13 @@ export function useCalendarLogic({
                     blockedSlotDoc.title ||
                     blockedSlot.title ||
                     "Gesperrter Zeitraum",
-                  ...(dropOccupancyScope.kind === "practitioner" ||
-                  blockedSlotDisplayRefs.practitionerId
+                  ...(dropOccupancyScope.kind === "practitioner"
+                    ? { practitionerId: dropOccupancyScope.practitionerId }
+                    : {}),
+                  ...(dropOccupancyScope.kind === "resource"
                     ? {
-                        practitionerId:
-                          (dropOccupancyScope.kind === "practitioner"
-                            ? dropOccupancyScope.practitionerId
-                            : undefined) ||
-                          blockedSlotDisplayRefs.practitionerId,
+                        calendarResourceColumn:
+                          dropOccupancyScope.calendarResourceColumn,
                       }
                     : {}),
                 },

@@ -22,7 +22,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { api } from "@/convex/_generated/api";
-import { calendarColumnScopeKey } from "@/lib/calendar-occupancy";
+import {
+  calendarColumnScopeKey,
+  getCalendarResourceColumnFromColumn,
+} from "@/lib/calendar-occupancy";
 
 import type {
   CalendarAppointmentView,
@@ -290,7 +293,9 @@ export function NewCalendar({
   const [isBlockingModeActive, setIsBlockingModeActive] = useState(false);
   const [blockedSlotModalOpen, setBlockedSlotModalOpen] = useState(false);
   const [blockedSlotModalData, setBlockedSlotModalData] = useState<null | {
-    practitionerId: Id<"practitioners">;
+    occupancyScope:
+      | { calendarResourceColumn: "ekg" | "labor"; kind: "resource" }
+      | { kind: "practitioner"; practitionerId: Id<"practitioners"> };
     slotStart: string;
   }>(null);
 
@@ -678,8 +683,22 @@ export function NewCalendar({
         return;
       }
 
-      const practitionerId = getPractitionerIdForColumn(column);
-      if (practitionerId === undefined) {
+      const resourceColumn = getCalendarResourceColumnFromColumn(column);
+      const practitionerId =
+        resourceColumn === undefined
+          ? getPractitionerIdForColumn(column)
+          : undefined;
+      const occupancyScope =
+        resourceColumn === undefined
+          ? practitionerId === undefined
+            ? null
+            : ({ kind: "practitioner", practitionerId } as const)
+          : ({
+              calendarResourceColumn: resourceColumn,
+              kind: "resource",
+            } as const);
+      if (occupancyScope === null) {
+        toast.error("Ungültige Ressource");
         return;
       }
 
@@ -693,7 +712,7 @@ export function NewCalendar({
       });
 
       setBlockedSlotModalData({
-        practitionerId,
+        occupancyScope,
         slotStart: slotStartZoned.toString(),
       });
       setBlockedSlotModalOpen(true);
@@ -1012,6 +1031,7 @@ export function NewCalendar({
             initialSlotStart={blockedSlotModalData.slotStart}
             isSimulation={simulatedContext !== undefined}
             locationId={selectedLocationId}
+            occupancyScope={blockedSlotModalData.occupancyScope}
             onOpenChange={(open) => {
               setBlockedSlotModalOpen(open);
               if (!open) {
@@ -1020,7 +1040,6 @@ export function NewCalendar({
             }}
             open={blockedSlotModalOpen}
             practiceId={practiceId}
-            practitionerId={blockedSlotModalData.practitionerId}
             runCreateBlockedSlot={runCreateBlockedSlot}
           />
         )}
