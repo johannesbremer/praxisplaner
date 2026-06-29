@@ -13,6 +13,8 @@ import type {
 
 import { api } from "../../../convex/_generated/api";
 
+export type AppointmentLedgerEffectResult = CreateAppointmentMutationResult;
+
 export type AppointmentSeriesRestoreSnapshot = NonNullable<
   FunctionReturnType<
     typeof api.appointments.getAppointmentSeriesRestoreSnapshotByRootId
@@ -68,6 +70,20 @@ export interface CalendarAppointmentSeriesDeleteCommand extends CalendarPlanning
   };
 }
 
+export interface CalendarAppointmentSeriesUpdateCommand extends CalendarPlanningCommandBase {
+  kind: "appointmentSeries.update";
+  payload: {
+    after: {
+      currentRootAppointmentId: Id<"appointments">;
+      snapshot: AppointmentSeriesRestoreSnapshot;
+    };
+    before: {
+      currentRootAppointmentId: Id<"appointments">;
+      snapshot: AppointmentSeriesRestoreSnapshot;
+    };
+  };
+}
+
 export interface CalendarAppointmentUpdateCommand extends CalendarPlanningCommandBase {
   kind: "appointment.update";
   payload: {
@@ -114,6 +130,7 @@ export type CalendarPlanningCommand =
   | CalendarAppointmentDeleteCommand
   | CalendarAppointmentSeriesCreateCommand
   | CalendarAppointmentSeriesDeleteCommand
+  | CalendarAppointmentSeriesUpdateCommand
   | CalendarAppointmentUpdateCommand
   | CalendarBlockedSlotCreateCommand
   | CalendarBlockedSlotDeleteCommand
@@ -125,11 +142,19 @@ export type CreateAppointmentMutationArgs = FunctionArgs<
   typeof api.appointments.createAppointment
 >;
 
+export type CreateAppointmentMutationResult = FunctionReturnType<
+  typeof api.appointments.createAppointment
+>;
+
 export type CreateBlockedSlotMutationArgs = FunctionArgs<
   typeof api.appointments.createBlockedSlot
 >;
 
 export type DeleteAppointmentMutationArgs = FunctionArgs<
+  typeof api.appointments.deleteAppointment
+>;
+
+export type DeleteAppointmentMutationResult = FunctionReturnType<
   typeof api.appointments.deleteAppointment
 >;
 
@@ -149,7 +174,15 @@ export type RestoreDeletedAppointmentMutationArgs = FunctionArgs<
   typeof api.appointments.restoreDeletedAppointment
 >;
 
+export type RestoreDeletedAppointmentMutationResult = FunctionReturnType<
+  typeof api.appointments.restoreDeletedAppointment
+>;
+
 export type UpdateAppointmentMutationArgs = FunctionArgs<
+  typeof api.appointments.updateAppointment
+>;
+
+export type UpdateAppointmentMutationResult = FunctionReturnType<
   typeof api.appointments.updateAppointment
 >;
 

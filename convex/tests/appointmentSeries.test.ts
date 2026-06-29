@@ -1,3 +1,5 @@
+import type { FunctionReturnType } from "convex/server";
+
 import { convexTest } from "convex-test";
 import { Temporal } from "temporal-polyfill";
 import { describe, expect, test } from "vitest";
@@ -14,10 +16,33 @@ import { assertDefined } from "./test_utils";
 
 const TIMEZONE = "Europe/Berlin";
 
+type CreateAppointmentEffect = FunctionReturnType<
+  typeof api.appointments.createAppointment
+>;
+
 type LineageTable = Extract<
   TableNames,
   "appointmentTypes" | "baseSchedules" | "locations" | "practitioners"
 >;
+
+function appointmentIdFromCreateEffect(
+  effect: CreateAppointmentEffect,
+): Id<"appointments"> {
+  switch (effect.kind) {
+    case "appointment.created": {
+      return effect.appointment._id;
+    }
+    case "appointmentSeries.created": {
+      return effect.series.rootAppointmentId;
+    }
+    case "appointment.deleted":
+    case "appointment.updated":
+    case "appointmentSeries.deleted":
+    case "appointmentSeries.updated": {
+      throw new Error(`Unexpected create effect: ${effect.kind}`);
+    }
+  }
+}
 
 let basePracticeSequence = 0;
 
@@ -4553,15 +4578,17 @@ describe("appointment series", () => {
         timeZone: TIMEZONE,
       })
       .toString();
-    const appointmentId = await t.mutation(api.appointments.createAppointment, {
-      appointmentTypeId: standaloneTypeId,
-      locationId,
-      practiceId,
-      practitionerId,
-      start,
-      title: "Standalone",
-      userId,
-    });
+    const appointmentId = appointmentIdFromCreateEffect(
+      await t.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: standaloneTypeId,
+        locationId,
+        practiceId,
+        practitionerId,
+        start,
+        title: "Standalone",
+        userId,
+      }),
+    );
 
     await expect(
       t.mutation(api.appointments.updateAppointment, {
@@ -4814,7 +4841,7 @@ describe("appointment series", () => {
         id: createdSeries.rootAppointmentId,
         start: shiftedRootStart,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointmentSeries.updated" });
 
     const updatedAppointments = await t.run(async (ctx) => {
       return await ctx.db
@@ -4952,7 +4979,7 @@ describe("appointment series", () => {
         id: createdSeries.rootAppointmentId,
         start: shiftedRootStart,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointmentSeries.updated" });
   });
 
   test("exact follow-up rule blocks surface as ruleBlock and can be manager-overridden", async () => {

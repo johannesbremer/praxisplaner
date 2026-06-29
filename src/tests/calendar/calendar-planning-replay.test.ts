@@ -10,6 +10,7 @@ import {
 } from "../../../convex/identity";
 import { createCalendarPlacement } from "../../../lib/calendar-occupancy";
 import { executeCalendarPlanningCommand } from "../../components/calendar/calendar-planning-replay";
+import { toCalendarAppointmentResult } from "../../components/calendar/calendar-view-models";
 import {
   buildCalendarAppointmentRecord,
   buildCalendarBlockedSlotRecord,
@@ -26,10 +27,10 @@ describe("calendar planning replay", () => {
     const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
       toTableId<"appointmentTypes">("type_lineage_1"),
     );
-    const locationId = toTableId<"locations">("location_1");
     const locationLineageKey = asLocationLineageKey(
       toTableId<"locations">("location_lineage_1"),
     );
+    const locationId = toTableId<"locations">("location_1");
     const practiceId = toTableId<"practices">("practice_1");
     const placement = createCalendarPlacement({
       locationLineageKey,
@@ -48,7 +49,6 @@ describe("calendar planning replay", () => {
           payload: {
             appointmentTypeLineageKey,
             appointmentTypeTitle: "Check-up",
-            color: "blue",
             createArgs: {
               appointmentTypeId,
               isSimulation: false,
@@ -82,7 +82,6 @@ describe("calendar planning replay", () => {
           },
           rememberAppointmentHistoryDoc: vi.fn(),
           rememberBlockedSlotHistoryDoc: vi.fn(),
-          rememberCreatedAppointmentFromStrings: vi.fn(),
           rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
           rememberRecreatedAppointmentId: vi.fn(),
           rememberRecreatedBlockedSlotId: vi.fn(),
@@ -165,7 +164,6 @@ describe("calendar planning replay", () => {
           },
           rememberAppointmentHistoryDoc: vi.fn(),
           rememberBlockedSlotHistoryDoc: vi.fn(),
-          rememberCreatedAppointmentFromStrings: vi.fn(),
           rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
           rememberRecreatedAppointmentId: vi.fn(),
           rememberRecreatedBlockedSlotId: vi.fn(),
@@ -212,7 +210,6 @@ describe("calendar planning replay", () => {
           payload: {
             appointmentTypeLineageKey,
             appointmentTypeTitle: "Check-up",
-            color: "blue",
             createArgs: {
               appointmentTypeId,
               isSimulation: false,
@@ -246,7 +243,6 @@ describe("calendar planning replay", () => {
           },
           rememberAppointmentHistoryDoc: vi.fn(),
           rememberBlockedSlotHistoryDoc: vi.fn(),
-          rememberCreatedAppointmentFromStrings: vi.fn(),
           rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
           rememberRecreatedAppointmentId: vi.fn(),
           rememberRecreatedBlockedSlotId: vi.fn(),
@@ -363,7 +359,6 @@ describe("calendar planning replay", () => {
         },
         rememberAppointmentHistoryDoc,
         rememberBlockedSlotHistoryDoc: vi.fn(),
-        rememberCreatedAppointmentFromStrings: vi.fn(),
         rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
         rememberRecreatedAppointmentId: vi.fn(),
         rememberRecreatedBlockedSlotId: vi.fn(),
@@ -474,7 +469,6 @@ describe("calendar planning replay", () => {
         },
         rememberAppointmentHistoryDoc: vi.fn(),
         rememberBlockedSlotHistoryDoc: vi.fn(),
-        rememberCreatedAppointmentFromStrings: vi.fn(),
         rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
         rememberRecreatedAppointmentId: vi.fn(),
         rememberRecreatedBlockedSlotId: vi.fn(),
@@ -569,7 +563,6 @@ describe("calendar planning replay", () => {
         },
         rememberAppointmentHistoryDoc: vi.fn(),
         rememberBlockedSlotHistoryDoc: vi.fn(),
-        rememberCreatedAppointmentFromStrings: vi.fn(),
         rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
         rememberRecreatedAppointmentId: vi.fn(),
         rememberRecreatedBlockedSlotId: vi.fn(),
@@ -669,7 +662,6 @@ describe("calendar planning replay", () => {
         },
         rememberAppointmentHistoryDoc: vi.fn(),
         rememberBlockedSlotHistoryDoc: vi.fn(),
-        rememberCreatedAppointmentFromStrings: vi.fn(),
         rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
         rememberRecreatedAppointmentId: vi.fn(),
         rememberRecreatedBlockedSlotId: vi.fn(),
@@ -740,8 +732,6 @@ describe("calendar planning replay", () => {
       vi.fn<
         CalendarPlanningCommandExecutorContext["rememberAppointmentHistoryDoc"]
       >();
-    const getAppointmentColor = vi.fn(() => Promise.resolve("green" as const));
-    const rememberCreatedAppointmentFromStrings = vi.fn(() => true);
     const runUpdateAppointmentInternal = vi.fn(() => Promise.resolve(null));
     const createCommand = {
       kind: "appointment.create" as const,
@@ -749,7 +739,6 @@ describe("calendar planning replay", () => {
       payload: {
         appointmentTypeLineageKey,
         appointmentTypeTitle: "Check-up",
-        color: "yellow" as const,
         createArgs: {
           appointmentTypeId,
           isSimulation: false,
@@ -786,7 +775,6 @@ describe("calendar planning replay", () => {
       ensureLatestConflictData: vi.fn(() => Promise.resolve()),
       forgetAppointmentHistoryDoc: vi.fn(),
       forgetBlockedSlotHistoryDoc: vi.fn(),
-      getAppointmentColor,
       getCurrentAppointmentDoc: (id) =>
         id === recreatedAppointmentId ? currentAppointmentDoc : undefined,
       getCurrentBlockedSlotDoc: vi.fn(),
@@ -806,7 +794,6 @@ describe("calendar planning replay", () => {
       },
       rememberAppointmentHistoryDoc,
       rememberBlockedSlotHistoryDoc: vi.fn(),
-      rememberCreatedAppointmentFromStrings,
       rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
       rememberRecreatedAppointmentId,
       rememberRecreatedBlockedSlotId: vi.fn(),
@@ -821,7 +808,14 @@ describe("calendar planning replay", () => {
       resolveCurrentAppointmentId: (id) => idMap.get(id) ?? id,
       resolveCurrentBlockedSlotId: (id) => id,
       runCreateAppointmentInternal: vi.fn(() =>
-        Promise.resolve(recreatedAppointmentId),
+        Promise.resolve({
+          appointment: toCalendarAppointmentResult({
+            appointmentTypeId,
+            locationId,
+            record: recreatedBefore,
+          }),
+          kind: "appointment.created" as const,
+        }),
       ),
       runCreateBlockedSlotInternal: vi.fn(),
       runDeleteAppointmentInternal: vi.fn(),
@@ -850,13 +844,6 @@ describe("calendar planning replay", () => {
       currentId: recreatedAppointmentId,
       originalId: originalAppointmentId,
     });
-    expect(getAppointmentColor).toHaveBeenCalledWith(recreatedAppointmentId);
-    expect(rememberCreatedAppointmentFromStrings).toHaveBeenCalledWith(
-      expect.objectContaining({
-        color: "green",
-        createdId: recreatedAppointmentId,
-      }),
-    );
     expect(runUpdateAppointmentInternal).toHaveBeenCalledWith(
       expect.objectContaining({ id: recreatedAppointmentId }),
     );
@@ -980,7 +967,6 @@ describe("calendar planning replay", () => {
       },
       rememberAppointmentHistoryDoc: vi.fn(),
       rememberBlockedSlotHistoryDoc,
-      rememberCreatedAppointmentFromStrings: vi.fn(),
       rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
       rememberRecreatedAppointmentId: vi.fn(),
       rememberRecreatedBlockedSlotId,
@@ -1104,7 +1090,6 @@ describe("calendar planning replay", () => {
         },
         rememberAppointmentHistoryDoc: vi.fn(),
         rememberBlockedSlotHistoryDoc: vi.fn(),
-        rememberCreatedAppointmentFromStrings: vi.fn(),
         rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
         rememberRecreatedAppointmentId,
         rememberRecreatedBlockedSlotId: vi.fn(),
@@ -1117,7 +1102,17 @@ describe("calendar planning replay", () => {
         runDeleteBlockedSlotInternal: vi.fn(),
         runRestoreAppointmentSeriesSnapshotInternal: vi.fn(),
         runRestoreDeletedAppointmentInternal: vi.fn(() =>
-          Promise.resolve(recreatedAppointmentId),
+          Promise.resolve({
+            appointment: toCalendarAppointmentResult({
+              appointmentTypeId,
+              locationId,
+              record: {
+                ...deleted,
+                _id: recreatedAppointmentId,
+              },
+            }),
+            kind: "appointment.created" as const,
+          }),
         ),
         runUpdateAppointmentInternal: vi.fn(),
         runUpdateBlockedSlotInternal: vi.fn(),
@@ -1203,7 +1198,6 @@ describe("calendar planning replay", () => {
         },
         rememberAppointmentHistoryDoc: vi.fn(),
         rememberBlockedSlotHistoryDoc: vi.fn(),
-        rememberCreatedAppointmentFromStrings: vi.fn(),
         rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
         rememberRecreatedAppointmentId: vi.fn(),
         rememberRecreatedBlockedSlotId,
@@ -1238,6 +1232,7 @@ describe("calendar planning replay", () => {
     const restoredRootAppointmentId = toTableId<"appointments">("root_new");
     const restoredStepAppointmentId = toTableId<"appointments">("step_new");
     const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
+    const locationId = toTableId<"locations">("location_1");
     const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
       toTableId<"appointmentTypes">("type_lineage_1"),
     );
@@ -1312,6 +1307,41 @@ describe("calendar planning replay", () => {
       >();
     const runRestoreAppointmentSeriesSnapshotInternal = vi.fn(() =>
       Promise.resolve({
+        appointmentHistoryDocs: [
+          toCalendarAppointmentResult({
+            appointmentTypeId,
+            locationId,
+            record: buildCalendarAppointmentRecord({
+              _id: restoredRootAppointmentId,
+              appointmentTypeLineageKey,
+              appointmentTypeTitle: "Check-up",
+              calendarResourceColumn: "ekg",
+              end: "2026-04-25T09:10:00+02:00[Europe/Berlin]",
+              locationLineageKey,
+              practiceId,
+              start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+              title: "Check-up",
+            }),
+          }),
+          {
+            ...toCalendarAppointmentResult({
+              appointmentTypeId,
+              locationId,
+              record: buildCalendarAppointmentRecord({
+                _id: restoredStepAppointmentId,
+                appointmentTypeLineageKey,
+                appointmentTypeTitle: "BE",
+                calendarResourceColumn: "labor",
+                end: "2026-04-25T09:20:00+02:00[Europe/Berlin]",
+                locationLineageKey,
+                practiceId,
+                start: "2026-04-25T09:10:00+02:00[Europe/Berlin]",
+                title: "BE",
+              }),
+            }),
+            cancelledAt: 2n,
+          },
+        ],
         appointments: [
           {
             appointmentId: restoredRootAppointmentId,
@@ -1364,7 +1394,6 @@ describe("calendar planning replay", () => {
         },
         rememberAppointmentHistoryDoc,
         rememberBlockedSlotHistoryDoc: vi.fn(),
-        rememberCreatedAppointmentFromStrings: vi.fn(),
         rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
         rememberRecreatedAppointmentId,
         rememberRecreatedBlockedSlotId: vi.fn(),
@@ -1424,6 +1453,7 @@ describe("calendar planning replay", () => {
     const restoredRootAppointmentId = toTableId<"appointments">("root_new");
     const restoredStepAppointmentId = toTableId<"appointments">("step_new");
     const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
+    const locationId = toTableId<"locations">("location_1");
     const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
       toTableId<"appointmentTypes">("type_lineage_1"),
     );
@@ -1490,7 +1520,48 @@ describe("calendar planning replay", () => {
       vi.fn<
         CalendarPlanningCommandExecutorContext["forgetAppointmentHistoryDoc"]
       >();
-    const runDeleteAppointmentInternal = vi.fn(() => Promise.resolve());
+    const runDeleteAppointmentInternal = vi.fn(() =>
+      Promise.resolve({
+        kind: "appointmentSeries.deleted" as const,
+        series: {
+          appointments: [
+            toCalendarAppointmentResult({
+              appointmentTypeId,
+              locationId,
+              record: buildCalendarAppointmentRecord({
+                _id: restoredRootAppointmentId,
+                appointmentTypeLineageKey,
+                appointmentTypeTitle: "Check-up",
+                calendarResourceColumn: "ekg",
+                end: "2026-04-25T09:10:00+02:00[Europe/Berlin]",
+                locationLineageKey,
+                practiceId,
+                start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+                title: "Check-up",
+              }),
+            }),
+            toCalendarAppointmentResult({
+              appointmentTypeId,
+              locationId,
+              record: buildCalendarAppointmentRecord({
+                _id: restoredStepAppointmentId,
+                appointmentTypeLineageKey,
+                appointmentTypeTitle: "BE",
+                calendarResourceColumn: "labor",
+                end: "2026-04-25T09:20:00+02:00[Europe/Berlin]",
+                locationLineageKey,
+                practiceId,
+                start: "2026-04-25T09:10:00+02:00[Europe/Berlin]",
+                title: "BE",
+              }),
+            }),
+          ],
+          rootAppointmentId: restoredRootAppointmentId,
+          seriesId: "series_1",
+          snapshot,
+        },
+      }),
+    );
 
     const result = await executeCalendarPlanningCommand(
       {
@@ -1520,7 +1591,6 @@ describe("calendar planning replay", () => {
         },
         rememberAppointmentHistoryDoc: vi.fn(),
         rememberBlockedSlotHistoryDoc: vi.fn(),
-        rememberCreatedAppointmentFromStrings: vi.fn(),
         rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
         rememberRecreatedAppointmentId: vi.fn(),
         rememberRecreatedBlockedSlotId: vi.fn(),

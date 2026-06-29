@@ -1,5 +1,7 @@
 "use client";
 
+import type { FunctionReturnType } from "convex/server";
+
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "convex/react";
@@ -43,6 +45,10 @@ import {
   PatientSelectionPanel,
 } from "./patient-selection-panel";
 
+type CreateAppointmentEffect = FunctionReturnType<
+  typeof api.appointments.createAppointment
+>;
+
 type CreateTarget =
   | {
       patientId: Id<"patients">;
@@ -56,6 +62,25 @@ type CreateTarget =
       temporaryPatientName: string;
       temporaryPatientPhoneNumber: string;
     };
+
+const rootAppointmentIdFromCreateEffect = (
+  effect: CreateAppointmentEffect,
+): Id<"appointments"> | null => {
+  switch (effect.kind) {
+    case "appointment.created": {
+      return effect.appointment._id;
+    }
+    case "appointment.deleted":
+    case "appointment.updated":
+    case "appointmentSeries.deleted":
+    case "appointmentSeries.updated": {
+      return null;
+    }
+    case "appointmentSeries.created": {
+      return effect.series.rootAppointmentId;
+    }
+  }
+};
 
 interface StaffAppointmentCreationModalProps {
   appointmentTypeId: Id<"appointmentTypes">;
@@ -147,12 +172,13 @@ export function StaffAppointmentCreationModal({
         }
 
         if (placement.occupancyScope.kind === "resource") {
-          return await createAppointmentMutation({
+          const effect = await createAppointmentMutation({
             ...mutationBaseArgs,
             calendarResourceColumn:
               placement.occupancyScope.calendarResourceColumn,
             locationId: fallbackLocation._id,
           });
+          return rootAppointmentIdFromCreateEffect(effect) ?? undefined;
         }
 
         const practitionerOccupancyScope = placement.occupancyScope;
@@ -167,11 +193,12 @@ export function StaffAppointmentCreationModal({
           );
         }
 
-        return await createAppointmentMutation({
+        const effect = await createAppointmentMutation({
           ...mutationBaseArgs,
           locationId: fallbackLocation._id,
           practitionerId: fallbackPractitioner._id,
         });
+        return rootAppointmentIdFromCreateEffect(effect) ?? undefined;
       }),
     [
       createAppointmentMutation,

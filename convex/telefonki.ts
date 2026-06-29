@@ -18,7 +18,10 @@ import {
   resolveLocationIdForRuleSetByLineage,
   resolvePractitionerIdForRuleSetByLineage,
 } from "./appointmentReferences";
-import { createAppointmentFromTrustedSource } from "./appointments";
+import {
+  createAppointmentFromTrustedSource,
+  rootAppointmentIdFromCreateEffect,
+} from "./appointments";
 import { normalizeE164PhoneNumber } from "./e164PhoneNumber";
 import {
   asAppointmentTypeLineageKey,
@@ -825,7 +828,7 @@ export const book = mutation({
       phoneNumber: patientPhoneNumber,
       practiceId: active.practiceId,
     });
-    const appointmentId = await createAppointmentFromTrustedSource(ctx, {
+    const appointmentEffect = await createAppointmentFromTrustedSource(ctx, {
       appointmentTypeId,
       isNewPatient: args.patient.isNew,
       locationId,
@@ -839,6 +842,7 @@ export const book = mutation({
       start: args.startTime,
       title: `TelefonKI-Termin: ${appointmentType.name} - ${args.reasonDescription.trim()}`,
     });
+    const appointmentId = rootAppointmentIdFromCreateEffect(appointmentEffect);
 
     const now = BigInt(Date.now());
     await ctx.db.patch("phoneBookingIdentities", args.phoneBookingIdentityId, {

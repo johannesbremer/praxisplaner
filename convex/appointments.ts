@@ -164,17 +164,6 @@ type OptionalKeys<T> = {
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 const STAFF_PLANNER_CLIENT_TYPE = "MFA";
 
-const appointmentSeriesRestoreResultValidator = v.object({
-  appointments: v.array(
-    v.object({
-      appointmentId: v.id("appointments"),
-      originalAppointmentId: v.id("appointments"),
-    }),
-  ),
-  rootAppointmentId: v.id("appointments"),
-  seriesId: v.string(),
-});
-
 type AppointmentOwner = LinkedAppointmentOwner | TemporaryAppointmentOwner;
 
 interface AppointmentOwnerInput {
@@ -299,6 +288,59 @@ const appointmentResultValidator = v.object({
   start: v.string(),
   title: v.string(),
   userId: v.optional(v.id("users")),
+});
+
+const appointmentHistoryDocValidator = v.object({
+  ...appointmentResultValidator.fields,
+  cancelledAt: v.optional(v.int64()),
+});
+
+const appointmentLedgerSeriesPayloadValidator = v.object({
+  appointments: v.array(appointmentHistoryDocValidator),
+  rootAppointmentId: v.id("appointments"),
+  seriesId: v.string(),
+  snapshot: appointmentSeriesRestoreSnapshotValidator,
+});
+
+const appointmentLedgerEffectValidator = v.union(
+  v.object({
+    appointment: appointmentHistoryDocValidator,
+    kind: v.literal("appointment.created"),
+  }),
+  v.object({
+    kind: v.literal("appointment.deleted"),
+    snapshot: appointmentHistoryDocValidator,
+  }),
+  v.object({
+    after: appointmentHistoryDocValidator,
+    before: appointmentHistoryDocValidator,
+    kind: v.literal("appointment.updated"),
+  }),
+  v.object({
+    kind: v.literal("appointmentSeries.created"),
+    series: appointmentLedgerSeriesPayloadValidator,
+  }),
+  v.object({
+    kind: v.literal("appointmentSeries.deleted"),
+    series: appointmentLedgerSeriesPayloadValidator,
+  }),
+  v.object({
+    after: appointmentLedgerSeriesPayloadValidator,
+    before: appointmentLedgerSeriesPayloadValidator,
+    kind: v.literal("appointmentSeries.updated"),
+  }),
+);
+
+const appointmentSeriesRestoreResultValidator = v.object({
+  appointmentHistoryDocs: v.array(appointmentHistoryDocValidator),
+  appointments: v.array(
+    v.object({
+      appointmentId: v.id("appointments"),
+      originalAppointmentId: v.id("appointments"),
+    }),
+  ),
+  rootAppointmentId: v.id("appointments"),
+  seriesId: v.string(),
 });
 
 const blockedSlotListItemValidator = v.object({
@@ -1393,6 +1435,45 @@ interface RequiredDisplayRuleSetArgs {
   selectedRuleSetId?: Id<"ruleSets">;
 }
 
+async function appointmentLedgerCreatedEffect(
+  db: DatabaseReader,
+  appointmentId: Id<"appointments">,
+): Promise<Infer<typeof appointmentLedgerEffectValidator>> {
+  const appointment = await db.get("appointments", appointmentId);
+  if (!appointment) {
+    throw appointmentChainError(
+      "CHAIN_NOT_FOUND",
+      "Created appointment was not found.",
+    );
+  }
+  return {
+    appointment: toAppointmentListItem(appointment),
+    kind: "appointment.created",
+  };
+}
+
+async function appointmentSeriesLedgerPayload(
+  db: DatabaseReader,
+  seriesId: string,
+): Promise<Infer<typeof appointmentLedgerSeriesPayloadValidator>> {
+  const series = await getAppointmentSeriesRecord(db, seriesId);
+  if (!series) {
+    throw appointmentChainError(
+      "CHAIN_NOT_FOUND",
+      "Die gespeicherte Kettentermin-Serie wurde nicht gefunden.",
+    );
+  }
+  const appointments = await getSeriesAppointments(db, seriesId);
+  return {
+    appointments: appointments.map((appointment) =>
+      toAppointmentListItem(appointment),
+    ),
+    rootAppointmentId: series.rootAppointmentId,
+    seriesId: series.seriesId,
+    snapshot: toAppointmentSeriesRestoreSnapshot({ appointments, series }),
+  };
+}
+
 function combineBlockedSlotsForSimulation(
   blockedSlots: BlockedSlotDoc[],
 ): BlockedSlotDoc[] {
@@ -1899,6 +1980,27 @@ async function resolveAppointmentDisplayScope(
     practiceId: displayRuleSet.practiceId,
     ruleSetId: displayRuleSetId,
   };
+}
+
+export { rootAppointmentIdFromCreateEffect };
+
+function rootAppointmentIdFromCreateEffect(
+  effect: Infer<typeof appointmentLedgerEffectValidator>,
+): Id<"appointments"> {
+  switch (effect.kind) {
+    case "appointment.created": {
+      return effect.appointment._id;
+    }
+    case "appointmentSeries.created": {
+      return effect.series.rootAppointmentId;
+    }
+    case "appointment.deleted":
+    case "appointment.updated":
+    case "appointmentSeries.deleted":
+    case "appointmentSeries.updated": {
+      throw new Error("Ledger effect is not an appointment creation.");
+    }
+  }
 }
 
 function toAppointmentListItem(
@@ -3349,7 +3451,10 @@ export async function createAppointmentFromTrustedSource(
       ...(ownerRefs.userId !== undefined && { userId: ownerRefs.userId }),
     });
 
-    return result.rootAppointmentId;
+    return {
+      kind: "appointmentSeries.created" as const,
+      series: await appointmentSeriesLedgerPayload(ctx.db, result.seriesId),
+    };
   }
 
   const storedReferences = await resolveStoredAppointmentReferencesForWrite(
@@ -3471,7 +3576,8 @@ export async function createAppointmentFromTrustedSource(
     ...(smiley !== undefined && { smiley }),
     title,
   };
-  return await ctx.db.insert("appointments", insertData);
+  const appointmentId = await ctx.db.insert("appointments", insertData);
+  return await appointmentLedgerCreatedEffect(ctx.db, appointmentId);
 }
 
 async function resolveAppointmentOwnerRefs(
@@ -3642,7 +3748,7 @@ export const createAppointment = mutation({
         : {}),
     });
   },
-  returns: v.id("appointments"),
+  returns: appointmentLedgerEffectValidator,
 });
 
 export const getAppointmentColor = query({
@@ -3958,7 +4064,15 @@ export const restoreAppointmentSeriesSnapshot = mutation({
       storedSnapshot._id,
     );
 
+    const restoredSeriesAppointments = await getSeriesAppointments(
+      ctx.db,
+      series.seriesId,
+    );
+
     return {
+      appointmentHistoryDocs: restoredSeriesAppointments.map((appointment) =>
+        toAppointmentListItem(appointment),
+      ),
       appointments: restoredAppointments,
       rootAppointmentId: restoredRootAppointmentId,
       seriesId: series.seriesId,
@@ -3998,7 +4112,7 @@ export const restoreDeletedAppointment = mutation({
         : { practitionerId: snapshot.practitionerId }),
       start: snapshot.start,
     });
-    const restoredAppointmentId = await createAppointmentFromTrustedSource(
+    const restoredAppointmentEffect = await createAppointmentFromTrustedSource(
       ctx,
       {
         appointmentTypeId: snapshot.appointmentTypeId,
@@ -4050,9 +4164,9 @@ export const restoreDeletedAppointment = mutation({
       },
     );
     await ctx.db.delete("appointmentRestoreSnapshots", snapshot._id);
-    return restoredAppointmentId;
+    return restoredAppointmentEffect;
   },
-  returns: v.id("appointments"),
+  returns: appointmentLedgerEffectValidator,
 });
 
 function getAppointmentBookingScope(
@@ -4328,6 +4442,7 @@ async function updateAppointmentByMode(
   if (!existingAppointment) {
     throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
   }
+  const beforeAppointmentSnapshot = toAppointmentListItem(existingAppointment);
   await requirePracticeStaffForMutation(ctx, existingAppointment.practiceId);
   const existingPracticeScope = await requireTrustedPracticeScope(
     ctx,
@@ -4359,7 +4474,15 @@ async function updateAppointmentByMode(
       lastModified: BigInt(Date.now()),
       smiley: filteredUpdateData.smiley ?? undefined,
     });
-    return null;
+    const afterAppointment = await ctx.db.get("appointments", id);
+    if (!afterAppointment) {
+      throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+    }
+    return {
+      after: toAppointmentListItem(afterAppointment),
+      before: beforeAppointmentSnapshot,
+      kind: "appointment.updated" as const,
+    };
   }
 
   if (patientId) {
@@ -4882,7 +5005,15 @@ async function updateAppointmentByMode(
         await ctx.db.patch("appointmentSeries", seriesRecord._id, {
           lastModified: now,
         });
-        return null;
+        const beforeSeriesPayload = await appointmentSeriesLedgerPayload(
+          ctx.db,
+          seriesId,
+        );
+        return {
+          after: await appointmentSeriesLedgerPayload(ctx.db, seriesId),
+          before: beforeSeriesPayload,
+          kind: "appointmentSeries.updated" as const,
+        };
       }
 
       throw appointmentChainError(
@@ -5192,7 +5323,15 @@ async function updateAppointmentByMode(
       ...(resolvedUserId && { userId: resolvedUserId }),
     });
 
-    return null;
+    const beforeSeriesPayload = await appointmentSeriesLedgerPayload(
+      ctx.db,
+      seriesId,
+    );
+    return {
+      after: await appointmentSeriesLedgerPayload(ctx.db, seriesId),
+      before: beforeSeriesPayload,
+      kind: "appointmentSeries.updated" as const,
+    };
   }
 
   const persistedUpdateData =
@@ -5295,7 +5434,15 @@ async function updateAppointmentByMode(
     occupancyScope: resolvedOccupancyScope,
   });
 
-  return null;
+  const afterAppointment = await ctx.db.get("appointments", id);
+  if (!afterAppointment) {
+    throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+  }
+  return {
+    after: toAppointmentListItem(afterAppointment),
+    before: beforeAppointmentSnapshot,
+    kind: "appointment.updated" as const,
+  };
 }
 
 // Mutation to update an existing real appointment
@@ -5305,7 +5452,7 @@ export const updateAppointment = mutation({
     await ensureAuthenticatedIdentity(ctx);
     return await updateAppointmentByMode(ctx, args, "real");
   },
-  returns: v.null(),
+  returns: appointmentLedgerEffectValidator,
 });
 
 export const updateSimulationAppointment = mutation({
@@ -5314,7 +5461,7 @@ export const updateSimulationAppointment = mutation({
     await ensureAuthenticatedIdentity(ctx);
     return await updateAppointmentByMode(ctx, args, "simulation");
   },
-  returns: v.null(),
+  returns: appointmentLedgerEffectValidator,
 });
 
 export const updateVacationReassignmentAppointment = mutation({
@@ -5323,7 +5470,7 @@ export const updateVacationReassignmentAppointment = mutation({
     await ensureAuthenticatedIdentity(ctx);
     return await updateAppointmentByMode(ctx, args, "activationReassignment");
   },
-  returns: v.null(),
+  returns: appointmentLedgerEffectValidator,
 });
 
 export const updateAppointmentSmiley = mutation({
@@ -5345,13 +5492,23 @@ export const updateAppointmentSmiley = mutation({
       });
     }
 
+    const beforeAppointmentSnapshot =
+      toAppointmentListItem(existingAppointment);
     await ctx.db.patch("appointments", args.id, {
       lastModified: BigInt(Date.now()),
       smiley: args.smiley ?? undefined,
     });
-    return null;
+    const afterAppointment = await ctx.db.get("appointments", args.id);
+    if (!afterAppointment) {
+      throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+    }
+    return {
+      after: toAppointmentListItem(afterAppointment),
+      before: beforeAppointmentSnapshot,
+      kind: "appointment.updated" as const,
+    };
   },
-  returns: v.null(),
+  returns: appointmentLedgerEffectValidator,
 });
 
 export const updateSimulationAppointmentSmiley = mutation({
@@ -5401,15 +5558,29 @@ export const updateSimulationAppointmentSmiley = mutation({
             replacementSmiley,
           )
         ) {
+          const deletedSnapshot = toAppointmentListItem(existingAppointment);
           await ctx.db.delete("appointments", args.id);
-          return null;
+          return {
+            kind: "appointment.deleted" as const,
+            snapshot: deletedSnapshot,
+          };
         }
       }
+      const beforeAppointmentSnapshot =
+        toAppointmentListItem(existingAppointment);
       await ctx.db.patch("appointments", args.id, {
         lastModified: now,
         smiley: replacementSmiley,
       });
-      return null;
+      const afterAppointment = await ctx.db.get("appointments", args.id);
+      if (!afterAppointment) {
+        throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+      }
+      return {
+        after: toAppointmentListItem(afterAppointment),
+        before: beforeAppointmentSnapshot,
+        kind: "appointment.updated" as const,
+      };
     }
 
     const existingReplacementsForAppointment = await ctx.db
@@ -5432,22 +5603,42 @@ export const updateSimulationAppointmentSmiley = mutation({
           replacementSmiley,
         )
       ) {
+        const deletedSnapshot = toAppointmentListItem(replacement);
         await ctx.db.delete("appointments", replacement._id);
-        return null;
+        return {
+          kind: "appointment.deleted" as const,
+          snapshot: deletedSnapshot,
+        };
       }
+      const beforeAppointmentSnapshot = toAppointmentListItem(replacement);
       await ctx.db.patch("appointments", replacement._id, {
         lastModified: now,
         smiley: replacementSmiley,
       });
-      return null;
+      const afterAppointment = await ctx.db.get(
+        "appointments",
+        replacement._id,
+      );
+      if (!afterAppointment) {
+        throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+      }
+      return {
+        after: toAppointmentListItem(afterAppointment),
+        before: beforeAppointmentSnapshot,
+        kind: "appointment.updated" as const,
+      };
     }
 
     const requestedSmiley = args.smiley ?? undefined;
     if (requestedSmiley === existingAppointment.smiley) {
-      return null;
+      return {
+        after: toAppointmentListItem(existingAppointment),
+        before: toAppointmentListItem(existingAppointment),
+        kind: "appointment.updated" as const,
+      };
     }
 
-    await ctx.db.insert("appointments", {
+    const appointmentId = await ctx.db.insert("appointments", {
       ...appointmentReplacementInsertFields(existingAppointment, {
         smiley: requestedSmiley,
       }),
@@ -5459,9 +5650,9 @@ export const updateSimulationAppointmentSmiley = mutation({
       simulationRuleSetId: args.simulationRuleSetId,
       simulationValidatedAt: now,
     });
-    return null;
+    return await appointmentLedgerCreatedEffect(ctx.db, appointmentId);
   },
-  returns: v.null(),
+  returns: appointmentLedgerEffectValidator,
 });
 
 // Mutation to delete an appointment
@@ -5487,6 +5678,19 @@ export const deleteAppointment = mutation({
       }
       const seriesAppointments = await getSeriesAppointments(ctx.db, seriesId);
       const seriesRecord = await getAppointmentSeriesRecord(ctx.db, seriesId);
+      const seriesPayload = seriesRecord
+        ? {
+            appointments: seriesAppointments.map((appointment) =>
+              toAppointmentListItem(appointment),
+            ),
+            rootAppointmentId: seriesRecord.rootAppointmentId,
+            seriesId: seriesRecord.seriesId,
+            snapshot: toAppointmentSeriesRestoreSnapshot({
+              appointments: seriesAppointments,
+              series: seriesRecord,
+            }),
+          }
+        : undefined;
       if (seriesRecord) {
         await saveAppointmentSeriesRestoreSnapshot(ctx, {
           appointments: seriesAppointments,
@@ -5500,15 +5704,28 @@ export const deleteAppointment = mutation({
       if (seriesRecord) {
         await ctx.db.delete("appointmentSeries", seriesRecord._id);
       }
-      return null;
+      if (!seriesPayload) {
+        throw appointmentChainError(
+          "CHAIN_NOT_FOUND",
+          "Die gespeicherte Kettentermin-Serie wurde nicht gefunden.",
+        );
+      }
+      return {
+        kind: "appointmentSeries.deleted" as const,
+        series: seriesPayload,
+      };
     }
 
     const now = BigInt(Date.now());
+    const snapshot = toAppointmentListItem(existingAppointment);
     await saveAppointmentRestoreSnapshot(ctx, existingAppointment, now);
     await ctx.db.delete("appointments", args.id);
-    return null;
+    return {
+      kind: "appointment.deleted" as const,
+      snapshot,
+    };
   },
-  returns: v.null(),
+  returns: appointmentLedgerEffectValidator,
 });
 
 // Mutation for user self-service cancellation (soft-delete)

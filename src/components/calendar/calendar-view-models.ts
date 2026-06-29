@@ -15,6 +15,7 @@ import {
   asLocationLineageKey,
   asPractitionerLineageKey,
 } from "../../../convex/identity";
+import { asZonedDateTimeString } from "../../../convex/typedDtos";
 import { calendarColumnScopeFromAppointmentOccupancy } from "../../../lib/calendar-occupancy";
 import { formatTime, safeParseISOToZoned } from "../../utils/time-calculations";
 
@@ -139,6 +140,19 @@ export function toCalendarAppointmentRecord(
       occupancyScope: placementOccupancyScope,
     },
   };
+}
+
+export function toCalendarAppointmentRecordFromServerLedger(
+  appointment: Omit<AppointmentResult, "end" | "start"> & {
+    end: string;
+    start: string;
+  },
+): CalendarAppointmentRecord {
+  return toCalendarAppointmentRecord({
+    ...appointment,
+    end: asZonedDateTimeString(appointment.end),
+    start: asZonedDateTimeString(appointment.start),
+  });
 }
 
 export function toCalendarAppointmentResult(args: {

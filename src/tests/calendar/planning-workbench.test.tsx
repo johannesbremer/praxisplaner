@@ -16,6 +16,7 @@ import {
   toTableId,
 } from "../../../convex/identity";
 import { createCalendarPlacement } from "../../../lib/calendar-occupancy";
+import { toCalendarAppointmentResult } from "../../components/calendar/calendar-view-models";
 import {
   rememberRecreatedAliasId,
   resolveCurrentAliasId,
@@ -74,6 +75,101 @@ const makeMutation = (result: unknown) => {
         mutation(args),
   });
 };
+
+const appointmentCreatedEffect = (args: {
+  appointmentTypeId: Id<"appointmentTypes">;
+  locationId: Id<"locations">;
+  record: CalendarAppointmentRecord;
+}) => ({
+  appointment: toCalendarAppointmentResult(args),
+  kind: "appointment.created" as const,
+});
+
+const appointmentDeletedEffect = (args: {
+  appointmentTypeId: Id<"appointmentTypes">;
+  locationId: Id<"locations">;
+  record: CalendarAppointmentRecord;
+}) => ({
+  kind: "appointment.deleted" as const,
+  snapshot: toCalendarAppointmentResult(args),
+});
+
+const appointmentUpdatedEffect = (args: {
+  after: CalendarAppointmentRecord;
+  appointmentTypeId: Id<"appointmentTypes">;
+  before: CalendarAppointmentRecord;
+  locationId: Id<"locations">;
+}) => ({
+  after: toCalendarAppointmentResult({
+    appointmentTypeId: args.appointmentTypeId,
+    locationId: args.locationId,
+    record: args.after,
+  }),
+  before: toCalendarAppointmentResult({
+    appointmentTypeId: args.appointmentTypeId,
+    locationId: args.locationId,
+    record: args.before,
+  }),
+  kind: "appointment.updated" as const,
+});
+
+const requireZonedDateTime = (value: string) =>
+  zonedDateTimeStringResult(value, "planning-workbench.test").match(
+    (typedValue) => typedValue,
+    (error) => {
+      throw new Error(error.message);
+    },
+  );
+
+const appointmentSeriesEffectPayload = (args: {
+  appointmentTypeId: Id<"appointmentTypes">;
+  locationId: Id<"locations">;
+  rootAppointmentId: Id<"appointments">;
+  seriesId: string;
+  snapshot: NonNullable<
+    Extract<
+      CalendarPlanningCommand,
+      { kind: "appointmentSeries.create" }
+    >["payload"]["snapshot"]
+  >;
+}) => ({
+  appointments: args.snapshot.appointments.map((appointment) =>
+    toCalendarAppointmentResult({
+      appointmentTypeId: args.appointmentTypeId,
+      locationId: args.locationId,
+      record: buildCalendarAppointmentRecord({
+        _id: appointment.originalAppointmentId,
+        appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+          appointment.appointmentTypeLineageKey,
+        ),
+        appointmentTypeTitle: appointment.appointmentTypeTitle,
+        end: requireZonedDateTime(appointment.end),
+        locationLineageKey: asLocationLineageKey(
+          appointment.locationLineageKey,
+        ),
+        practiceId: appointment.practiceId,
+        ...(appointment.occupancyScope.kind === "resource"
+          ? {
+              calendarResourceColumn:
+                appointment.occupancyScope.calendarResourceColumn,
+            }
+          : {}),
+        ...(appointment.occupancyScope.kind === "practitioner"
+          ? {
+              practitionerLineageKey: asPractitionerLineageKey(
+                appointment.occupancyScope.practitionerLineageKey,
+              ),
+            }
+          : {}),
+        start: requireZonedDateTime(appointment.start),
+        title: appointment.title,
+      }),
+    }),
+  ),
+  rootAppointmentId: args.rootAppointmentId,
+  seriesId: args.seriesId,
+  snapshot: args.snapshot,
+});
 
 const makeDeferredMutation = () => {
   let resolve: ((value: unknown) => void) | undefined;
@@ -188,7 +284,24 @@ describe("calendar planning workbench", () => {
     const practiceId = toTableId<"practices">("practice_1");
     const appointmentId = toTableId<"appointments">("appointment_1");
 
-    const createAppointmentMutation = makeMutation(appointmentId);
+    const createdAppointmentRecord = buildCalendarAppointmentRecord({
+      _id: appointmentId,
+      appointmentTypeLineageKey,
+      appointmentTypeTitle: "Check-up",
+      calendarResourceColumn: "ekg",
+      end: "2026-04-25T09:30:00+02:00[Europe/Berlin]",
+      locationLineageKey,
+      practiceId,
+      start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+      title: "Check-up",
+    });
+    const createAppointmentMutation = makeMutation(
+      appointmentCreatedEffect({
+        appointmentTypeId,
+        locationId,
+        record: createdAppointmentRecord,
+      }),
+    );
     mutationQueue.push(
       createAppointmentMutation,
       makeMutation(toTableId<"appointments">("appointment_restore_unused")),
@@ -284,7 +397,6 @@ describe("calendar planning workbench", () => {
     const seriesId = "series_1";
     const ruleSetId = toTableId<"ruleSets">("rule_set_1");
 
-    const createAppointmentMutation = makeMutation(appointmentId);
     const seriesSnapshot = {
       appointments: [
         {
@@ -320,7 +432,16 @@ describe("calendar planning workbench", () => {
         seriesId,
       },
     };
-    convexQuery.mockResolvedValue(seriesSnapshot);
+    const createAppointmentMutation = makeMutation({
+      kind: "appointmentSeries.created" as const,
+      series: appointmentSeriesEffectPayload({
+        appointmentTypeId,
+        locationId,
+        rootAppointmentId: appointmentId,
+        seriesId,
+        snapshot: seriesSnapshot,
+      }),
+    });
     mutationQueue.push(
       createAppointmentMutation,
       makeMutation(toTableId<"appointments">("appointment_restore_unused")),
@@ -387,9 +508,7 @@ describe("calendar planning workbench", () => {
 
     expect(createdId).toBe(appointmentId);
     expect(createAppointmentMutation).toHaveBeenCalledOnce();
-    expect(convexQuery).toHaveBeenCalledWith(expect.anything(), {
-      rootAppointmentId: appointmentId,
-    });
+    expect(convexQuery).not.toHaveBeenCalled();
     expect(recordCalendarCommand).toHaveBeenCalledWith({
       kind: "appointmentSeries.create",
       label: "Kettentermine erstellt",
@@ -466,8 +585,16 @@ describe("calendar planning workbench", () => {
         seriesId,
       },
     };
-    const deleteAppointmentMutation = makeMutation(null);
-    convexQuery.mockResolvedValue(seriesSnapshot);
+    const deleteAppointmentMutation = makeMutation({
+      kind: "appointmentSeries.deleted" as const,
+      series: appointmentSeriesEffectPayload({
+        appointmentTypeId,
+        locationId,
+        rootAppointmentId: appointmentId,
+        seriesId,
+        snapshot: seriesSnapshot,
+      }),
+    });
     mutationQueue.push(
       makeMutation(toTableId<"appointments">("appointment_unused")),
       makeMutation(toTableId<"appointments">("appointment_restore_unused")),
@@ -519,9 +646,7 @@ describe("calendar planning workbench", () => {
       await result.current.commands.deleteAppointment({ id: appointmentId });
     });
 
-    expect(convexQuery).toHaveBeenCalledWith(expect.anything(), {
-      appointmentId,
-    });
+    expect(convexQuery).not.toHaveBeenCalled();
     expect(deleteAppointmentMutation).toHaveBeenCalledWith({
       id: appointmentId,
     });
@@ -561,7 +686,13 @@ describe("calendar planning workbench", () => {
       smiley: "👍",
     } satisfies CalendarAppointmentRecord;
     const appointmentMap = new Map([[appointment._id, appointment]]);
-    const deleteAppointmentMutation = makeMutation(null);
+    const deleteAppointmentMutation = makeMutation(
+      appointmentDeletedEffect({
+        appointmentTypeId,
+        locationId,
+        record: appointment,
+      }),
+    );
     mutationQueue.push(
       makeMutation(toTableId<"appointments">("appointment_unused")),
       makeMutation(toTableId<"appointments">("appointment_restore_unused")),
@@ -659,7 +790,14 @@ describe("calendar planning workbench", () => {
     } satisfies CalendarAppointmentRecord;
     const appointmentMap = new Map([[appointment._id, appointment]]);
     const updateAppointmentMutation = makeMutation(null);
-    const updateSimulationSmileyMutation = makeMutation(null);
+    const updateSimulationSmileyMutation = makeMutation(
+      appointmentUpdatedEffect({
+        after: { ...appointment, smiley: "👍" },
+        appointmentTypeId,
+        before: appointment,
+        locationId,
+      }),
+    );
     mutationQueue.push(
       makeMutation(toTableId<"appointments">("appointment_unused")),
       makeMutation(toTableId<"appointments">("appointment_restore_unused")),
@@ -768,7 +906,71 @@ describe("calendar planning workbench", () => {
       seriesStepIndex: 0n,
     } satisfies CalendarAppointmentRecord;
     const appointmentMap = new Map([[appointment._id, appointment]]);
-    const updateAppointmentMutation = makeMutation(null);
+    const movedAppointment = {
+      ...appointment,
+      end: "2026-04-25T09:40:00+02:00[Europe/Berlin]" as const,
+      start: "2026-04-25T09:10:00+02:00[Europe/Berlin]" as const,
+    };
+    const seriesSnapshot = (
+      record: CalendarAppointmentRecord,
+    ): Extract<
+      CalendarPlanningCommand,
+      { kind: "appointmentSeries.create" }
+    >["payload"]["snapshot"] => ({
+      appointments: [
+        {
+          appointmentTypeLineageKey,
+          appointmentTypeTitle: "Check-up",
+          createdAt: 1n,
+          end: record.end,
+          isSimulation: false,
+          lastModified: 1n,
+          locationLineageKey,
+          occupancyScope: {
+            kind: "practitioner" as const,
+            practitionerLineageKey,
+          },
+          originalAppointmentId: appointmentId,
+          practiceId,
+          seriesStepId: "root",
+          seriesStepIndex: 0n,
+          start: record.start,
+          title: "Check-up",
+        },
+      ],
+      series: {
+        appointmentPlanSnapshot: [],
+        createdAt: 1n,
+        lastModified: 1n,
+        practiceId,
+        rootAppointmentId: appointmentId,
+        rootAppointmentTypeId: appointmentTypeId,
+        rootAppointmentTypeLineageKey: appointmentTypeLineageKey,
+        rootDurationMinutes: 30,
+        ruleSetIdAtBooking: toTableId<"ruleSets">("rule_set_1"),
+        scope: "real" as const,
+        seriesId: "series-1",
+      },
+    });
+    const beforeSeriesSnapshot = seriesSnapshot(appointment);
+    const afterSeriesSnapshot = seriesSnapshot(movedAppointment);
+    const updateAppointmentMutation = makeMutation({
+      after: appointmentSeriesEffectPayload({
+        appointmentTypeId,
+        locationId,
+        rootAppointmentId: appointmentId,
+        seriesId: "series-1",
+        snapshot: afterSeriesSnapshot,
+      }),
+      before: appointmentSeriesEffectPayload({
+        appointmentTypeId,
+        locationId,
+        rootAppointmentId: appointmentId,
+        seriesId: "series-1",
+        snapshot: beforeSeriesSnapshot,
+      }),
+      kind: "appointmentSeries.updated" as const,
+    });
     mutationQueue.push(
       makeMutation(toTableId<"appointments">("appointment_unused")),
       makeMutation(toTableId<"appointments">("appointment_restore_unused")),
@@ -833,17 +1035,20 @@ describe("calendar planning workbench", () => {
       id: appointmentId,
       start: "2026-04-25T09:10:00+02:00[Europe/Berlin]",
     });
-    const command = recordCalendarCommand.mock.calls[0]?.[0];
-    expect(command?.kind).toBe("appointment.update");
-    if (command?.kind !== "appointment.update") {
-      throw new Error("Expected an appointment update command.");
-    }
-    expect(command.payload.beforeState.start).toBe(
-      "2026-04-25T09:00:00+02:00[Europe/Berlin]",
-    );
-    expect(command.payload.afterState.start).toBe(
-      "2026-04-25T09:10:00+02:00[Europe/Berlin]",
-    );
+    expect(recordCalendarCommand).toHaveBeenCalledWith({
+      kind: "appointmentSeries.update",
+      label: "Kettentermine aktualisiert",
+      payload: {
+        after: {
+          currentRootAppointmentId: appointmentId,
+          snapshot: afterSeriesSnapshot,
+        },
+        before: {
+          currentRootAppointmentId: appointmentId,
+          snapshot: beforeSeriesSnapshot,
+        },
+      },
+    });
   });
 
   it("skips no-op smiley updates before calling mutations or recording commands", async () => {
@@ -961,11 +1166,50 @@ describe("calendar planning workbench", () => {
       title: "Check-up",
     });
     const activeAppointments = new Map([[appointment._id, appointment]]);
-    const firstUpdate = makeDeferredMutation();
+    const firstUpdatedAppointment = {
+      ...appointment,
+      end: "2026-04-25T10:00:00+02:00[Europe/Berlin]" as const,
+      start: "2026-04-25T09:30:00+02:00[Europe/Berlin]" as const,
+    };
+    const secondUpdatedAppointment = {
+      ...appointment,
+      end: "2026-04-25T10:30:00+02:00[Europe/Berlin]" as const,
+      start: "2026-04-25T10:00:00+02:00[Europe/Berlin]" as const,
+    };
+    let firstUpdateResolve: ((value: unknown) => void) | undefined;
+    const firstUpdatePromise = new Promise<unknown>((resolve) => {
+      firstUpdateResolve = resolve;
+    });
+    const updateAppointmentMutation = vi
+      .fn()
+      .mockImplementationOnce(() => firstUpdatePromise)
+      .mockImplementationOnce(() =>
+        Promise.resolve(
+          appointmentUpdatedEffect({
+            after: secondUpdatedAppointment,
+            appointmentTypeId,
+            before: firstUpdatedAppointment,
+            locationId,
+          }),
+        ),
+      );
+    const runUpdateAppointmentMutation = (args: unknown): Promise<unknown> => {
+      const result: unknown = updateAppointmentMutation(args);
+      return Promise.resolve(result);
+    };
+    const updateAppointmentMutationWithOptimisticUpdate = Object.assign(
+      updateAppointmentMutation,
+      {
+        withOptimisticUpdate:
+          () =>
+          (args: unknown): Promise<unknown> =>
+            runUpdateAppointmentMutation(args),
+      },
+    );
     mutationQueue.push(
       makeMutation(toTableId<"appointments">("appointment_unused")),
       makeMutation(toTableId<"appointments">("appointment_restore_unused")),
-      firstUpdate.mutation,
+      updateAppointmentMutationWithOptimisticUpdate,
       makeMutation(null),
       makeMutation(null),
       makeMutation(null),
@@ -1029,7 +1273,17 @@ describe("calendar planning workbench", () => {
     expect(recordCalendarCommand).not.toHaveBeenCalled();
 
     await act(async () => {
-      firstUpdate.resolve(null);
+      if (!firstUpdateResolve) {
+        throw new Error("Deferred mutation resolver was not initialized.");
+      }
+      firstUpdateResolve(
+        appointmentUpdatedEffect({
+          after: firstUpdatedAppointment,
+          appointmentTypeId,
+          before: appointment,
+          locationId,
+        }),
+      );
       await firstPromise;
       await secondPromise;
     });

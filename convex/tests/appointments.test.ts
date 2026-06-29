@@ -1,3 +1,5 @@
+import type { FunctionReturnType } from "convex/server";
+
 import { convexTest } from "convex-test";
 import { Temporal } from "temporal-polyfill";
 import { describe, expect, test } from "vitest";
@@ -9,12 +11,46 @@ import { insertSelfLineageEntity, requireLineageKey } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
 
+type CreateAppointmentEffect = FunctionReturnType<
+  typeof api.appointments.createAppointment
+>;
+
+type RestoreDeletedAppointmentEffect = FunctionReturnType<
+  typeof api.appointments.restoreDeletedAppointment
+>;
 interface SlotWindow {
   end: string;
   start: string;
 }
-
 type TestContext = ReturnType<typeof createTestContext>;
+
+function appointmentIdFromCreateEffect(
+  effect: CreateAppointmentEffect,
+): Id<"appointments"> {
+  switch (effect.kind) {
+    case "appointment.created": {
+      return effect.appointment._id;
+    }
+    case "appointmentSeries.created": {
+      return effect.series.rootAppointmentId;
+    }
+    case "appointment.deleted":
+    case "appointment.updated":
+    case "appointmentSeries.deleted":
+    case "appointmentSeries.updated": {
+      throw new Error(`Unexpected create effect: ${effect.kind}`);
+    }
+  }
+}
+
+function appointmentIdFromRestoreEffect(
+  effect: RestoreDeletedAppointmentEffect,
+): Id<"appointments"> {
+  if (effect.kind !== "appointment.created") {
+    throw new Error(`Unexpected restore effect: ${effect.kind}`);
+  }
+  return effect.appointment._id;
+}
 
 async function createAppointmentBaseData(t: TestContext) {
   return await t.run(async (ctx) => {
@@ -813,9 +849,8 @@ describe("appointments self-service cancellation", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: true,
         locationId: baseData.locationId,
@@ -824,7 +859,7 @@ describe("appointments self-service cancellation", () => {
         start: makeSlotWindow(4).start,
         title: "Scoped simulation",
         userId,
-      },
+      }),
     );
 
     const appointment = await t.run(async (ctx) =>
@@ -855,9 +890,8 @@ describe("appointments self-service cancellation", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -866,7 +900,7 @@ describe("appointments self-service cancellation", () => {
         temporaryPatientName: "Alex Beispiel",
         temporaryPatientPhoneNumber: "+491701234567",
         title: "Temporärer Termin",
-      },
+      }),
     );
 
     const { appointment, bookingIdentity, patient } = await t.run(
@@ -923,9 +957,8 @@ describe("appointments self-service cancellation", () => {
         practiceId: baseData.practiceId,
       },
     );
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         patientId: temporaryPatientId,
@@ -933,7 +966,7 @@ describe("appointments self-service cancellation", () => {
         practitionerId: baseData.practitionerId,
         start: makeSlotWindow(7).start,
         title: "Persistierter temporärer Termin",
-      },
+      }),
     );
     const pvsPatientResult = await authed.mutation(
       api.patients.createOrUpdatePatient,
@@ -1009,9 +1042,8 @@ describe("appointments self-service cancellation", () => {
       .add({ minutes: 45 })
       .toString();
 
-    const replacementId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const replacementId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         end,
         isSimulation: true,
@@ -1022,7 +1054,7 @@ describe("appointments self-service cancellation", () => {
         start,
         title: "Simulierter Ersatztermin",
         userId,
-      },
+      }),
     );
 
     const replacement = await t.run(async (ctx) =>
@@ -1379,9 +1411,8 @@ describe("appointments self-service cancellation", () => {
     });
     const window = makeSlotWindow(4);
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -1390,7 +1421,7 @@ describe("appointments self-service cancellation", () => {
         temporaryPatientName: "Server Duration",
         temporaryPatientPhoneNumber: "+491700000000",
         title: "Server duration",
-      },
+      }),
     );
 
     const createdAppointment = await t.run(async (ctx) => {
@@ -1430,9 +1461,8 @@ describe("appointments self-service cancellation", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -1441,7 +1471,7 @@ describe("appointments self-service cancellation", () => {
         temporaryPatientName: "Resource Default",
         temporaryPatientPhoneNumber: "+491700000101",
         title: "EKG",
-      },
+      }),
     );
 
     const createdAppointment = await t.run(async (ctx) => {
@@ -1484,9 +1514,8 @@ describe("appointments self-service cancellation", () => {
     });
 
     const window = makeSlotWindow(5);
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -1494,7 +1523,7 @@ describe("appointments self-service cancellation", () => {
         temporaryPatientName: "Labor Default",
         temporaryPatientPhoneNumber: "+491700000102",
         title: "Labor",
-      },
+      }),
     );
 
     const createdAppointment = await t.run(async (ctx) => {
@@ -1914,7 +1943,7 @@ describe("appointments update safety", () => {
         end: resizedEnd,
         id: resourceAppointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
   });
 
   test("updateAppointment moves practitioner appointments into resource columns", async () => {
@@ -1952,7 +1981,7 @@ describe("appointments update safety", () => {
         calendarResourceColumn: "ekg",
         id: appointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
 
     const updatedAppointment = await t.run(async (ctx) => {
       return await ctx.db.get("appointments", appointmentId);
@@ -2086,7 +2115,7 @@ describe("appointments update safety", () => {
         appointmentTypeId: resourceAppointmentTypeId,
         id: appointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
 
     const updatedAppointment = await t.run(async (ctx) => {
       return await ctx.db.get("appointments", appointmentId);
@@ -2435,9 +2464,8 @@ describe("appointments update safety", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: true,
         locationId: baseData.locationId,
@@ -2447,7 +2475,7 @@ describe("appointments update safety", () => {
         start: makeSlotWindow(10).start,
         title: "Simulation vor Änderung",
         userId,
-      },
+      }),
     );
 
     await expect(
@@ -2510,9 +2538,8 @@ describe("appointments update safety", () => {
       });
     });
 
-    const realAppointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const realAppointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: false,
         locationId: baseData.locationId,
@@ -2521,7 +2548,7 @@ describe("appointments update safety", () => {
         start: makeSlotWindow(11).start,
         title: "Echter Termin",
         userId,
-      },
+      }),
     );
 
     await authed.mutation(api.appointments.createAppointment, {
@@ -2645,9 +2672,8 @@ describe("appointments update safety", () => {
       });
     });
 
-    const realAppointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const realAppointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: false,
         locationId: baseData.locationId,
@@ -2656,7 +2682,7 @@ describe("appointments update safety", () => {
         start: makeSlotWindow(8).start,
         title: "Real appointment",
         userId,
-      },
+      }),
     );
 
     await authed.mutation(api.appointments.createAppointment, {
@@ -2890,9 +2916,8 @@ describe("appointments update safety", () => {
       return { patientId, unsavedRuleSetId };
     });
 
-    const realAppointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const realAppointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: false,
         locationId: baseData.locationId,
@@ -2901,16 +2926,15 @@ describe("appointments update safety", () => {
         practitionerId: baseData.practitionerId,
         start: makeSlotWindow(8).start,
         title: "Real appointment",
-      },
+      }),
     );
 
     await t.run(async (ctx) => {
       await ctx.db.delete("patients", patientId);
     });
 
-    const simulatedReplacementId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const simulatedReplacementId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: true,
         locationId: baseData.locationId,
@@ -2921,7 +2945,7 @@ describe("appointments update safety", () => {
         simulationRuleSetId: unsavedRuleSetId,
         start: makeSlotWindow(8).start,
         title: "Sim replacement",
-      },
+      }),
     );
 
     const simulatedReplacement = await t.run(async (ctx) => {
@@ -5500,9 +5524,8 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: true,
         locationId: baseData.locationId,
@@ -5512,7 +5535,7 @@ describe("calendar day appointment queries", () => {
         start: makeSlotWindow(35).start,
         title: "Simulation",
         userId,
-      },
+      }),
     );
 
     await expect(
@@ -5521,7 +5544,7 @@ describe("calendar day appointment queries", () => {
         simulationRuleSetId: draftRuleSetId,
         smiley: "🧪",
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
   });
 
   test("full simulation appointment updates validate smileys against the simulation rule set", async () => {
@@ -5557,9 +5580,8 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: true,
         locationId: baseData.locationId,
@@ -5569,7 +5591,7 @@ describe("calendar day appointment queries", () => {
         start: makeSlotWindow(36).start,
         title: "Simulation",
         userId,
-      },
+      }),
     );
 
     await expect(
@@ -5578,7 +5600,7 @@ describe("calendar day appointment queries", () => {
         smiley: "🧪",
         title: "Simulation updated",
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
 
     const appointment = await t.run(async (ctx) => {
       return await ctx.db.get("appointments", appointmentId);
@@ -5750,14 +5772,14 @@ describe("calendar day appointment queries", () => {
         simulationRuleSetId: baseData.ruleSetId,
         smiley: "🧪",
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.created" });
     await expect(
       authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
         id: appointmentId,
         simulationRuleSetId: baseData.ruleSetId,
         smiley: null,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
 
     const replacements = await t.run(async (ctx) => {
       return await ctx.db
@@ -5814,7 +5836,7 @@ describe("calendar day appointment queries", () => {
         simulationRuleSetId: baseData.ruleSetId,
         smiley: "🧪",
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
 
     const replacements = await t.run(async (ctx) => {
       return await ctx.db
@@ -5856,9 +5878,8 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -5867,7 +5888,7 @@ describe("calendar day appointment queries", () => {
         start: makeSlotWindow(36).start,
         title: "Restored",
         userId,
-      },
+      }),
     );
     await t.run(async (ctx) => {
       await ctx.db.patch("practices", baseData.practiceId, {
@@ -5898,12 +5919,12 @@ describe("calendar day appointment queries", () => {
       authed.mutation(api.appointments.deleteAppointment, {
         id: appointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
     await expect(
       authed.mutation(api.appointments.restoreDeletedAppointment, {
         originalAppointmentId: appointmentId,
       }),
-    ).resolves.toEqual(expect.any(String));
+    ).resolves.toMatchObject({ kind: "appointment.created" });
   });
 
   test("deleteAppointment does not require restore snapshot references in the active rule set", async () => {
@@ -5950,7 +5971,7 @@ describe("calendar day appointment queries", () => {
       authed.mutation(api.appointments.deleteAppointment, {
         id: appointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
 
     const [appointment, snapshot] = await t.run(async (ctx) => {
       const snapshot = await ctx.db
@@ -5988,9 +6009,8 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -5998,26 +6018,25 @@ describe("calendar day appointment queries", () => {
         start: window.start,
         title: "Resized restore",
         userId,
-      },
+      }),
     );
     await expect(
       authed.mutation(api.appointments.updateAppointment, {
         end: resizedEnd,
         id: appointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
 
     await expect(
       authed.mutation(api.appointments.deleteAppointment, {
         id: appointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
 
-    const restoredAppointmentId = await authed.mutation(
-      api.appointments.restoreDeletedAppointment,
-      {
+    const restoredAppointmentId = appointmentIdFromRestoreEffect(
+      await authed.mutation(api.appointments.restoreDeletedAppointment, {
         originalAppointmentId: appointmentId,
-      },
+      }),
     );
     const restoredAppointment = await t.run(async (ctx) => {
       return await ctx.db.get("appointments", restoredAppointmentId);
