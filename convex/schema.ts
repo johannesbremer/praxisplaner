@@ -350,6 +350,7 @@ export default defineSchema({
     calendarResourceColumn: v.optional(
       v.union(v.literal("ekg"), v.literal("labor")),
     ),
+    color: v.optional(appointmentColorValidator),
     deletedAt: v.int64(),
     end: v.optional(v.string()),
     isNewPatient: v.optional(v.boolean()),

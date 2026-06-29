@@ -1019,6 +1019,7 @@ async function saveAppointmentRestoreSnapshot(
             appointment.occupancyScope.calendarResourceColumn,
         }
       : {}),
+    ...(appointment.color === undefined ? {} : { color: appointment.color }),
     deletedAt,
     end: appointment.end,
     ...(appointment.isSimulation === undefined
@@ -2477,6 +2478,7 @@ export const restoreDeletedAppointment = mutation({
         ...(snapshot.calendarResourceColumn === undefined
           ? {}
           : { calendarResourceColumn: snapshot.calendarResourceColumn }),
+        ...(snapshot.color === undefined ? {} : { color: snapshot.color }),
         ...(snapshot.end === undefined
           ? {}
           : { allowRestoredEnd: true, end: snapshot.end }),

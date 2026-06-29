@@ -155,7 +155,7 @@ interface AppointmentTypesManagementProps {
 }
 
 interface DeletedAppointmentTypeFolderSnapshot {
-  color: AppointmentColor;
+  color: AppointmentColor | undefined;
   lineageKey: AppointmentTypeFolderLineageKey;
   name: string;
   parentLineageKey: AppointmentTypeFolderLineageKey | undefined;
@@ -206,6 +206,10 @@ const defaultAppointmentTypeFormValues: AppointmentTypeFormValues = {
 const appointmentTypeColorMutationValue = (
   color: AppointmentColorSelection,
 ): AppointmentColor | null => (color === "inherit" ? null : color);
+
+const colorSnapshotValue = (
+  color: AppointmentColorSelection,
+): AppointmentColor | undefined => (color === "inherit" ? undefined : color);
 
 function AppointmentColorSwatches({
   includeInherit = false,
@@ -665,7 +669,7 @@ export function AppointmentTypesManagement({
   >();
   const [createFolderName, setCreateFolderName] = useState("");
   const [createFolderColor, setCreateFolderColor] =
-    useState<AppointmentColor>("blue");
+    useState<AppointmentColorSelection>("blue");
   const [newAppointmentTypeFolderId, setNewAppointmentTypeFolderId] = useState<
     Id<"appointmentTypeFolders"> | undefined
   >();
@@ -1691,7 +1695,7 @@ export function AppointmentTypesManagement({
   const openEditFolderDialog = useCallback((folder: AppointmentTypeFolder) => {
     setEditingAppointmentTypeFolder(folder);
     setCreateFolderParentId(folder.parentFolderId);
-    setCreateFolderColor(folder.color ?? "blue");
+    setCreateFolderColor(folder.color ?? "inherit");
     setCreateFolderName(folder.name);
     setIsFolderDialogOpen(true);
   }, []);
@@ -1852,11 +1856,12 @@ export function AppointmentTypesManagement({
         const folderBefore = editingAppointmentTypeFolder;
         const folderLineageKey =
           getAppointmentTypeFolderLineageKey(folderBefore);
-        const previousColor = folderBefore.color ?? "blue";
+        const previousColor = folderBefore.color;
+        const nextColor = colorSnapshotValue(createFolderColor);
         const previousName = folderBefore.name;
         const parentFolderId = folderBefore.parentFolderId;
         const result = await updateAppointmentTypeFolderMutation({
-          color: createFolderColor,
+          color: appointmentTypeColorMutationValue(createFolderColor),
           folderId: folderBefore._id,
           name,
           practiceId,
@@ -1865,7 +1870,7 @@ export function AppointmentTypesManagement({
         handleDraftMutationResult(result);
         upsertAppointmentTypeFolderRef(
           createAppointmentTypeFolderRefSnapshot({
-            color: createFolderColor,
+            ...(nextColor === undefined ? {} : { color: nextColor }),
             id: result.entityId,
             lineageKey: folderLineageKey,
             name,
@@ -1875,7 +1880,7 @@ export function AppointmentTypesManagement({
           { previousLineageKey: folderLineageKey },
         );
         const previousFolderSnapshot = encodeRuleSetSnapshot({
-          color: previousColor,
+          ...(previousColor === undefined ? {} : { color: previousColor }),
           lineageKey: folderLineageKey,
           name: previousName,
           parent: createAppointmentTypeFolderHistoryTarget(
@@ -1887,7 +1892,7 @@ export function AppointmentTypesManagement({
           ),
         });
         const renamedFolderSnapshot = encodeRuleSetSnapshot({
-          color: createFolderColor,
+          ...(nextColor === undefined ? {} : { color: nextColor }),
           lineageKey: folderLineageKey,
           name,
           parent: createAppointmentTypeFolderHistoryTarget(
@@ -1909,7 +1914,7 @@ export function AppointmentTypesManagement({
             "Der Ordner wurde bereits gelöscht und kann nicht erneut umbenannt werden.",
           runRedo: async (currentFolderId) => {
             const redoResult = await updateAppointmentTypeFolderMutation({
-              color: createFolderColor,
+              color: appointmentTypeColorMutationValue(createFolderColor),
               folderId: currentFolderId,
               name,
               practiceId,
@@ -1918,7 +1923,7 @@ export function AppointmentTypesManagement({
             handleDraftMutationResult(redoResult);
             upsertAppointmentTypeFolderRef(
               createAppointmentTypeFolderRefSnapshot({
-                color: createFolderColor,
+                ...(nextColor === undefined ? {} : { color: nextColor }),
                 id: redoResult.entityId,
                 lineageKey: folderLineageKey,
                 name,
@@ -1931,7 +1936,7 @@ export function AppointmentTypesManagement({
           },
           runUndo: async (currentFolderId) => {
             const undoResult = await updateAppointmentTypeFolderMutation({
-              color: previousColor,
+              color: previousColor ?? null,
               folderId: currentFolderId,
               name: previousName,
               practiceId,
@@ -1940,7 +1945,9 @@ export function AppointmentTypesManagement({
             handleDraftMutationResult(undoResult);
             upsertAppointmentTypeFolderRef(
               createAppointmentTypeFolderRefSnapshot({
-                color: previousColor,
+                ...(previousColor === undefined
+                  ? {}
+                  : { color: previousColor }),
                 id: undoResult.entityId,
                 lineageKey: folderLineageKey,
                 name: previousName,
@@ -1971,7 +1978,7 @@ export function AppointmentTypesManagement({
             });
           },
           validateUndo: (current) => {
-            if (current.name !== name || current.color !== createFolderColor) {
+            if (current.name !== name || current.color !== nextColor) {
               return "Der Ordner wurde zwischenzeitlich geändert und kann nicht zurückgesetzt werden.";
             }
             return validateTreeChildNameForHistory({
@@ -1982,6 +1989,7 @@ export function AppointmentTypesManagement({
           },
         });
       } else {
+        const createdColor = colorSnapshotValue(createFolderColor);
         const parentFolderId = createFolderParentId;
         const parentFolderTarget = createAppointmentTypeFolderHistoryTarget(
           parentFolderId
@@ -1991,7 +1999,7 @@ export function AppointmentTypesManagement({
             : undefined,
         );
         const result = await createAppointmentTypeFolderMutation({
-          color: createFolderColor,
+          color: appointmentTypeColorMutationValue(createFolderColor),
           name,
           practiceId,
           ...createParentFolderArg(parentFolderId),
@@ -2001,7 +2009,7 @@ export function AppointmentTypesManagement({
         const folderLineageKey = result.entityId;
         upsertAppointmentTypeFolderRef(
           createAppointmentTypeFolderRefSnapshot({
-            color: createFolderColor,
+            ...(createdColor === undefined ? {} : { color: createdColor }),
             id: result.entityId,
             lineageKey: folderLineageKey,
             name,
@@ -2010,7 +2018,7 @@ export function AppointmentTypesManagement({
           }),
         );
         const createdFolderSnapshot = encodeRuleSetSnapshot({
-          color: createFolderColor,
+          ...(createdColor === undefined ? {} : { color: createdColor }),
           lineageKey: folderLineageKey,
           name,
           parent: parentFolderTarget,
@@ -2037,7 +2045,7 @@ export function AppointmentTypesManagement({
               return { message: createConflict, status: "conflict" as const };
             }
             const recreateResult = await createAppointmentTypeFolderMutation({
-              color: createFolderColor,
+              color: appointmentTypeColorMutationValue(createFolderColor),
               lineageKey: folderLineageKey,
               name,
               practiceId,
@@ -2046,7 +2054,7 @@ export function AppointmentTypesManagement({
             });
             handleDraftMutationResult(recreateResult);
             const restoredFolder = createAppointmentTypeFolderRefSnapshot({
-              color: createFolderColor,
+              ...(createdColor === undefined ? {} : { color: createdColor }),
               id: recreateResult.entityId,
               lineageKey: folderLineageKey,
               name,
@@ -2097,7 +2105,7 @@ export function AppointmentTypesManagement({
             }
             if (
               existing.name !== name ||
-              existing.color !== createFolderColor ||
+              existing.color !== createdColor ||
               existing.parentFolderId !== resolvedParent.folderId
             ) {
               return `[HISTORY:APPOINTMENT_TYPE_FOLDER_LINEAGE_CONFLICT] Der Ordner mit lineageKey ${folderLineageKey} existiert bereits, hat aber abweichende Einstellungen.`;
@@ -2179,7 +2187,7 @@ export function AppointmentTypesManagement({
                 )
               : undefined;
             return {
-              color: candidate.color ?? "blue",
+              color: candidate.color,
               lineageKey: getAppointmentTypeFolderLineageKey(candidate),
               name: candidate.name,
               parentLineageKey: parentFolder
@@ -2430,7 +2438,9 @@ export function AppointmentTypesManagement({
                 plannedFolderIds.set(snapshot.lineageKey, snapshot.lineageKey);
                 plannedFolders.push(
                   createAppointmentTypeFolderRefSnapshot({
-                    color: snapshot.color,
+                    ...(snapshot.color === undefined
+                      ? {}
+                      : { color: snapshot.color }),
                     id: snapshot.lineageKey,
                     lineageKey: snapshot.lineageKey,
                     name: snapshot.name,
@@ -2451,7 +2461,9 @@ export function AppointmentTypesManagement({
                   ? undefined
                   : optimisticFolderIds.get(snapshot.parentLineageKey);
               return createAppointmentTypeFolderRefSnapshot({
-                color: snapshot.color,
+                ...(snapshot.color === undefined
+                  ? {}
+                  : { color: snapshot.color }),
                 id: snapshot.lineageKey,
                 lineageKey: snapshot.lineageKey,
                 name: snapshot.name,
@@ -2531,7 +2543,7 @@ export function AppointmentTypesManagement({
                 }
                 const recreateResult =
                   await createAppointmentTypeFolderMutation({
-                    color: snapshot.color,
+                    color: snapshot.color ?? null,
                     lineageKey: snapshot.lineageKey,
                     name: snapshot.name,
                     practiceId,
@@ -2545,7 +2557,9 @@ export function AppointmentTypesManagement({
                 );
                 upsertAppointmentTypeFolderRef(
                   createAppointmentTypeFolderRefSnapshot({
-                    color: snapshot.color,
+                    ...(snapshot.color === undefined
+                      ? {}
+                      : { color: snapshot.color }),
                     id: recreateResult.entityId,
                     lineageKey: snapshot.lineageKey,
                     name: snapshot.name,
@@ -3722,11 +3736,8 @@ export function AppointmentTypesManagement({
                 <Field className="mt-4">
                   <FieldLabel>Farbe</FieldLabel>
                   <AppointmentColorSwatches
-                    onChange={(value) => {
-                      if (value !== "inherit") {
-                        setCreateFolderColor(value);
-                      }
-                    }}
+                    includeInherit
+                    onChange={setCreateFolderColor}
                     value={createFolderColor}
                   />
                 </Field>

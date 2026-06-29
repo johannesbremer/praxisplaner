@@ -5592,4 +5592,63 @@ describe("calendar day appointment queries", () => {
     expect(restoredAppointment?.start).toBe(window.start);
     expect(restoredAppointment?.end).toBe(resizedEnd);
   });
+
+  test("restoreDeletedAppointment preserves the deleted appointment color", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_restore_color";
+    const userId = await createUser(t, authId, "restore-color@example.com");
+    const authed = t.withIdentity({
+      email: "restore-color@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        color: "yellow",
+      });
+    });
+
+    const appointmentId = await authed.mutation(
+      api.appointments.createAppointment,
+      {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(39).start,
+        title: "Color restore",
+        userId,
+      },
+    );
+    await expect(
+      authed.mutation(api.appointments.deleteAppointment, {
+        id: appointmentId,
+      }),
+    ).resolves.toBeNull();
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        color: "green",
+      });
+    });
+
+    const restoredAppointmentId = await authed.mutation(
+      api.appointments.restoreDeletedAppointment,
+      {
+        originalAppointmentId: appointmentId,
+      },
+    );
+    const restoredAppointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", restoredAppointmentId);
+    });
+
+    expect(restoredAppointment?.color).toBe("yellow");
+  });
 });
