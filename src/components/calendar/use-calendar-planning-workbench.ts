@@ -29,6 +29,11 @@ import type {
 
 import { api } from "../../../convex/_generated/api";
 import {
+  asAppointmentTypeLineageKey,
+  asLocationLineageKey,
+  asPractitionerLineageKey,
+} from "../../../convex/identity";
+import {
   createCalendarPlacement,
   getCalendarResourceColumnFromOccupancy,
   getPractitionerLineageKeyFromOccupancy,
@@ -87,6 +92,18 @@ import { useCalendarPlanningHistory } from "./use-calendar-planning-history";
 
 const appointmentQueryRef = api.appointments.getCalendarDayAppointments;
 const blockedSlotQueryRef = api.appointments.getCalendarDayBlockedSlots;
+
+export type OptimisticAppointmentSeriesBlueprint = NonNullable<
+  StaffPlacementCandidateSlotDecision["seriesBlueprint"]
+>;
+
+export type StaffPlacementCandidateSlotDecision = FunctionReturnType<
+  typeof api.appointments.getCandidateSlotDecisionsForStaffPlacement
+>[number];
+
+type CalendarDayAppointmentResult = FunctionReturnType<
+  typeof api.appointments.getCalendarDayAppointments
+>[number];
 
 export const resolveCurrentAliasId = <TId extends string>(
   aliasesByOriginalId: ReadonlyMap<TId, TId>,
@@ -182,6 +199,7 @@ type CalendarAppointmentCreateCommandBase = AppointmentOwnerRefs &
     | "practitionerId"
     | "replacesAppointmentId"
   > & {
+    optimisticSeriesBlueprint?: OptimisticAppointmentSeriesBlueprint;
     placement: CalendarAppointmentPlacement;
   };
 
@@ -866,7 +884,14 @@ export function useCalendarPlanningWorkbench(args: {
     (
       commandArgs: CalendarAppointmentCreateCommandArgs,
     ): CreateAppointmentMutationArgs | null => {
-      const { end, placement, replacesAppointmentId, ...rest } = commandArgs;
+      const {
+        end,
+        optimisticSeriesBlueprint: _optimisticSeriesBlueprint,
+        placement,
+        replacesAppointmentId,
+        ...rest
+      } = commandArgs;
+      void _optimisticSeriesBlueprint;
       const displayRefs = resolveAppointmentPlacementDisplayRefs(
         placement,
         referenceMaps,
@@ -928,7 +953,10 @@ export function useCalendarPlanningWorkbench(args: {
   );
 
   const runCreateAppointmentInternal = useCallback(
-    async (args: Parameters<typeof createAppointmentMutation>[0]) => {
+    async (
+      args: Parameters<typeof createAppointmentMutation>[0],
+      optimisticSeriesBlueprint?: OptimisticAppointmentSeriesBlueprint,
+    ) => {
       return await createAppointmentMutation.withOptimisticUpdate(
         (localStore, optimisticArgs) => {
           if (!calendarDayQueryArgs) {
@@ -945,6 +973,106 @@ export function useCalendarPlanningWorkbench(args: {
 
           const now = Date.now();
           const tempId = createOptimisticId<"appointments">();
+          const optimisticSeriesId = `optimistic-series:${tempId}`;
+          const appointmentOwnerRefs = getAppointmentOwnerRefs(optimisticArgs);
+
+          if (optimisticSeriesBlueprint !== undefined) {
+            const optimisticAppointments: CalendarDayAppointmentResult[] = [];
+
+            for (const step of optimisticSeriesBlueprint) {
+              const typedStart = parseZonedDateTime(
+                step.start,
+                "useCalendarPlanningWorkbench.optimisticSeriesCreate.start",
+              );
+              const typedEnd = parseZonedDateTime(
+                step.end,
+                "useCalendarPlanningWorkbench.optimisticSeriesCreate.end",
+              );
+              if (!typedStart || !typedEnd) {
+                return;
+              }
+
+              const stepId =
+                step.seriesStepIndex === 0
+                  ? tempId
+                  : createOptimisticId<"appointments">();
+              const stepPlacement = createCalendarPlacement({
+                locationLineageKey: asLocationLineageKey(
+                  step.locationLineageKey,
+                ),
+                occupancyScope:
+                  step.occupancyScope.kind === "practitioner"
+                    ? {
+                        kind: "practitioner",
+                        practitionerLineageKey: asPractitionerLineageKey(
+                          step.occupancyScope.practitionerLineageKey,
+                        ),
+                      }
+                    : step.occupancyScope,
+              });
+              const newAppointmentRecord: CalendarAppointmentRecord = {
+                _creationTime: now,
+                _id: stepId,
+                appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+                  step.appointmentTypeLineageKey,
+                ),
+                appointmentTypeTitle: step.appointmentTypeTitle,
+                ...appointmentOwnerRefs,
+                createdAt: BigInt(now),
+                end: typedEnd,
+                isSimulation: optimisticArgs.isSimulation ?? false,
+                lastModified: BigInt(now),
+                placement: stepPlacement,
+                practiceId: optimisticArgs.practiceId,
+                seriesId: optimisticSeriesId,
+                seriesStepId: step.stepId,
+                seriesStepIndex: BigInt(step.seriesStepIndex),
+                start: typedStart,
+                title:
+                  step.seriesStepIndex === 0
+                    ? optimisticArgs.title
+                    : `Folgetermin: ${step.appointmentTypeTitle}`,
+                ...(step.seriesStepIndex === 0 &&
+                optimisticArgs.smiley !== undefined
+                  ? { smiley: optimisticArgs.smiley }
+                  : {}),
+                ...(optimisticArgs.isSimulation === true
+                  ? {
+                      simulationKind: "draft" as const,
+                      simulationValidatedAt: BigInt(now),
+                    }
+                  : {}),
+              };
+
+              const newAppointment = toCalendarAppointmentResult({
+                appointmentTypeId: step.appointmentTypeId,
+                locationId: step.locationId,
+                ...(step.practitionerId === undefined
+                  ? {}
+                  : { practitionerId: step.practitionerId }),
+                record: newAppointmentRecord,
+              });
+
+              if (
+                matchesCalendarDayQueryEntity(
+                  calendarDayQueryArgs,
+                  newAppointment,
+                )
+              ) {
+                optimisticAppointments.push(newAppointment);
+              }
+            }
+
+            if (optimisticAppointments.length === 0) {
+              return;
+            }
+
+            localStore.setQuery(appointmentQueryRef, calendarDayQueryArgs, [
+              ...existingAppointments,
+              ...optimisticAppointments,
+            ]);
+            return;
+          }
 
           const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
             optimisticArgs.appointmentTypeId,
@@ -1008,7 +1136,7 @@ export function useCalendarPlanningWorkbench(args: {
             _id: tempId,
             appointmentTypeLineageKey: lineageRefs.appointmentTypeLineageKey,
             appointmentTypeTitle: appointmentTypeInfo.name,
-            ...getAppointmentOwnerRefs(optimisticArgs),
+            ...appointmentOwnerRefs,
             createdAt: BigInt(now),
             end: typedEnd,
             isSimulation: optimisticArgs.isSimulation ?? false,
@@ -1576,10 +1704,14 @@ export function useCalendarPlanningWorkbench(args: {
       );
       const shouldUseServerOnlyCreate =
         isSimulationReplacement ||
-        appointmentTypeInfo?.hasAppointmentPlan === true;
+        (appointmentTypeInfo?.hasAppointmentPlan === true &&
+          args.optimisticSeriesBlueprint === undefined);
       const effect = shouldUseServerOnlyCreate
         ? await createAppointmentMutation(mutationArgs)
-        : await runCreateAppointmentInternal(mutationArgs);
+        : await runCreateAppointmentInternal(
+            mutationArgs,
+            args.optimisticSeriesBlueprint,
+          );
 
       const createArgs = {
         ...mutationArgs,

@@ -413,6 +413,9 @@ export function StaffAppointmentCreationModal({
               ...(effectivePatient?.dateOfBirth && {
                 patientDateOfBirth: effectivePatient.dateOfBirth,
               }),
+              ...(availableSeriesBlueprint === undefined
+                ? {}
+                : { optimisticSeriesBlueprint: availableSeriesBlueprint }),
               patientId: createTarget.patientId,
               placement,
               practiceId,
@@ -427,6 +430,9 @@ export function StaffAppointmentCreationModal({
                 ...(effectivePatient?.dateOfBirth && {
                   patientDateOfBirth: effectivePatient.dateOfBirth,
                 }),
+                ...(availableSeriesBlueprint === undefined
+                  ? {}
+                  : { optimisticSeriesBlueprint: availableSeriesBlueprint }),
                 placement,
                 practiceId,
                 start,
@@ -440,6 +446,9 @@ export function StaffAppointmentCreationModal({
                 ...(effectivePatient?.dateOfBirth && {
                   patientDateOfBirth: effectivePatient.dateOfBirth,
                 }),
+                ...(availableSeriesBlueprint === undefined
+                  ? {}
+                  : { optimisticSeriesBlueprint: availableSeriesBlueprint }),
                 placement,
                 practiceId,
                 start,

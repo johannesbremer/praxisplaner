@@ -1,3 +1,5 @@
+import type { FunctionReturnType } from "convex/server";
+
 import { useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -9,6 +11,7 @@ import type {
   PractitionerLineageKey,
 } from "../../../convex/identity";
 import type { ZonedDateTimeString } from "../../../convex/typedDtos";
+import type { OptimisticAppointmentSeriesBlueprint } from "./use-calendar-planning-workbench";
 
 import { api } from "../../../convex/_generated/api";
 import {
@@ -80,6 +83,40 @@ interface ActiveCalendarDragPointer {
   pointerId: number;
   startClientX: number;
   startClientY: number;
+}
+
+type StaffPlacementCandidateSlotDecision = FunctionReturnType<
+  typeof api.appointments.getCandidateSlotDecisionsForStaffPlacement
+>[number];
+
+function findOptimisticSeriesBlueprintForPlacement(args: {
+  decisions: readonly StaffPlacementCandidateSlotDecision[] | undefined;
+  placement: CalendarAppointmentPlacement;
+  start: string;
+}): OptimisticAppointmentSeriesBlueprint | undefined {
+  const matchingDecision = args.decisions?.find((decision) => {
+    if (
+      decision.status !== "available" ||
+      decision.startTime !== args.start ||
+      decision.locationLineageKey !== args.placement.locationLineageKey
+    ) {
+      return false;
+    }
+
+    if (args.placement.occupancyScope.kind === "resource") {
+      return (
+        decision.calendarResourceColumn ===
+        args.placement.occupancyScope.calendarResourceColumn
+      );
+    }
+
+    return (
+      decision.practitionerLineageKey ===
+      args.placement.occupancyScope.practitionerLineageKey
+    );
+  });
+
+  return matchingDecision?.seriesBlueprint;
 }
 
 function hasMovedPastCalendarDragThreshold(
@@ -1761,8 +1798,23 @@ export function useCalendarLogic({
       return;
     }
 
+    const optimisticSeriesBlueprint = findOptimisticSeriesBlueprintForPlacement(
+      {
+        decisions: appointmentSeriesRootBlockedSlots,
+        placement: requestResult.request.placement,
+        start: requestResult.request.start,
+      },
+    );
+
     void planningCommands
-      .createAppointment(requestResult.request)
+      .createAppointment(
+        optimisticSeriesBlueprint === undefined
+          ? requestResult.request
+          : {
+              ...requestResult.request,
+              optimisticSeriesBlueprint,
+            },
+      )
       .then((createdAppointmentId) => {
         if (createdAppointmentId) {
           onAppointmentCreated?.(createdAppointmentId);
