@@ -68,8 +68,10 @@ import {
   asPractitionerLineageKey,
 } from "@/convex/identity";
 import {
+  APPOINTMENT_COLOR_BY_VALUE,
   APPOINTMENT_COLOR_OPTIONS,
   APPOINTMENT_COLOR_VALUES,
+  DEFAULT_APPOINTMENT_COLOR,
 } from "@/lib/appointment-colors";
 import { APPOINTMENT_TYPE_MISSING_ENTITY_REGEX } from "@/lib/typed-regex";
 
@@ -654,6 +656,49 @@ const createAppointmentTypeFolderHistoryTarget = (
         lineageKey: getAppointmentTypeFolderLineageKey(folder),
       };
 
+const resolveAppointmentTypeFolderColor = (
+  folder: AppointmentTypeFolder,
+  folderById: ReadonlyMap<Id<"appointmentTypeFolders">, AppointmentTypeFolder>,
+): AppointmentColor => {
+  let cursor: AppointmentTypeFolder | undefined = folder;
+  const visited = new Set<Id<"appointmentTypeFolders">>();
+
+  while (cursor !== undefined && !visited.has(cursor._id)) {
+    visited.add(cursor._id);
+    if (cursor.color !== undefined) {
+      return cursor.color;
+    }
+    cursor =
+      cursor.parentFolderId === undefined
+        ? undefined
+        : folderById.get(cursor.parentFolderId);
+  }
+
+  return DEFAULT_APPOINTMENT_COLOR;
+};
+
+const resolveAppointmentTreeItemColor = (
+  item: AppointmentTreeItem,
+  folderById: ReadonlyMap<Id<"appointmentTypeFolders">, AppointmentTypeFolder>,
+): AppointmentColor => {
+  if (item.kind === "folder") {
+    return resolveAppointmentTypeFolderColor(item.folder, folderById);
+  }
+
+  if (item.appointmentType.color !== undefined) {
+    return item.appointmentType.color;
+  }
+
+  if (item.appointmentType.treeFolderId === undefined) {
+    return DEFAULT_APPOINTMENT_COLOR;
+  }
+
+  const folder = folderById.get(item.appointmentType.treeFolderId);
+  return folder === undefined
+    ? DEFAULT_APPOINTMENT_COLOR
+    : resolveAppointmentTypeFolderColor(folder, folderById);
+};
+
 const appointmentTreeStyle: AppointmentTreeStyle = {
   "--trees-accent-override": "var(--primary)",
   "--trees-bg-muted-override": "var(--accent)",
@@ -675,6 +720,18 @@ const appointmentTreeStyle: AppointmentTreeStyle = {
   "--trees-selected-fg-override": "var(--accent-foreground)",
   "--trees-selected-focused-border-color-override": "var(--ring)",
 };
+
+const appointmentTreeIconColorCss = `
+  [data-item-appointment-color='true'] > [data-item-section='icon'] {
+    color: var(--appointment-type-tree-icon-color);
+    fill: currentColor;
+  }
+
+  [data-item-appointment-color='true'] > [data-item-section='icon'] svg {
+    color: inherit;
+    fill: currentColor;
+  }
+`;
 
 export function AppointmentTypesManagement({
   onDraftMutation,
@@ -808,6 +865,18 @@ export function AppointmentTypesManagement({
     () => buildAppointmentTreeModel(appointmentTypes, appointmentTypeFolders),
     [appointmentTypeFolders, appointmentTypes],
   );
+  const appointmentTreeHostRef = useRef<HTMLDivElement | null>(null);
+  const appointmentTypeTreeColorByPath = useMemo(() => {
+    const folderById = new Map(
+      appointmentTypeFolders.map((folder) => [folder._id, folder]),
+    );
+    const colorByPath = new Map<string, string>();
+    for (const [path, item] of treeModel.itemByPath) {
+      const color = resolveAppointmentTreeItemColor(item, folderById);
+      colorByPath.set(path, APPOINTMENT_COLOR_BY_VALUE[color].background);
+    }
+    return colorByPath;
+  }, [appointmentTypeFolders, treeModel.itemByPath]);
   const treeModelRef = useRef(treeModel);
   useEffect(() => {
     treeModelRef.current = treeModel;
@@ -845,12 +914,51 @@ export function AppointmentTypesManagement({
     },
     paths: treeModel.paths,
     search: true,
+    unsafeCSS: appointmentTreeIconColorCss,
   });
   useEffect(() => {
     fileTree.model.resetPaths(treeModel.paths, {
       initialExpandedPaths: treeModel.expandedPaths,
     });
   }, [fileTree.model, treeModel.expandedPaths, treeModel.paths]);
+  useEffect(() => {
+    const host = appointmentTreeHostRef.current?.querySelector(
+      "file-tree-container",
+    );
+    const shadowRoot = host?.shadowRoot;
+    if (shadowRoot === undefined || shadowRoot === null) {
+      return;
+    }
+
+    const syncTreeIconColors = () => {
+      for (const row of shadowRoot.querySelectorAll<HTMLElement>(
+        "[data-item-path]",
+      )) {
+        const itemPath = normalizeTreeLookupPath(row.dataset["itemPath"]);
+        const color = itemPath
+          ? appointmentTypeTreeColorByPath.get(itemPath)
+          : undefined;
+        if (color === undefined) {
+          row.style.removeProperty("--appointment-type-tree-icon-color");
+          delete row.dataset["itemAppointmentColor"];
+          continue;
+        }
+
+        row.style.setProperty("--appointment-type-tree-icon-color", color);
+        row.dataset["itemAppointmentColor"] = "true";
+      }
+    };
+
+    syncTreeIconColors();
+    const animationFrame = globalThis.requestAnimationFrame(syncTreeIconColors);
+    const observer = new MutationObserver(syncTreeIconColors);
+    observer.observe(shadowRoot, { childList: true, subtree: true });
+
+    return () => {
+      globalThis.cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+    };
+  }, [appointmentTypeTreeColorByPath, treeModel.paths]);
   const formSchema = useMemo(
     () =>
       createAppointmentTypeFormSchema({
@@ -3810,7 +3918,7 @@ export function AppointmentTypesManagement({
               {appointmentTypeFolders.length} Ordnern
             </div>
 
-            <div className="rounded-md border">
+            <div className="rounded-md border" ref={appointmentTreeHostRef}>
               <FileTree
                 className="h-[420px] bg-card text-card-foreground"
                 model={fileTree.model}
