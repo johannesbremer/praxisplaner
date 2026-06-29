@@ -635,7 +635,7 @@ export function CalendarGrid({
             />
             {currentTimeSlot >= 0 && (
               <div
-                className="pointer-events-none absolute left-0 right-0 z-0 h-0.5 bg-calendar-current-time top-(--calendar-current-time-top)"
+                className="pointer-events-none absolute left-0 right-0 z-30 h-0.5 bg-calendar-current-time top-(--calendar-current-time-top)"
                 data-calendar-current-time-column-indicator="true"
                 style={
                   {
