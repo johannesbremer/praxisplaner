@@ -90,6 +90,26 @@ describe("CalendarAppointment", () => {
     });
   });
 
+  test("uses readable text on lime appointment cards", () => {
+    render(
+      <CalendarAppointment
+        {...defaultProps}
+        appointment={{
+          ...mockAppointment,
+          color: "lime",
+        }}
+      />,
+    );
+    const appointmentElement = screen.getByRole("button", {
+      name: "Termin Test Appointment, 09:00. Bearbeiten",
+    });
+
+    expect(appointmentElement).toHaveStyle({
+      backgroundColor: "#65a30d",
+      color: "#111827",
+    });
+  });
+
   test("calls onEdit when clicked", () => {
     render(<CalendarAppointment {...defaultProps} />);
     fireEvent.click(

@@ -757,6 +757,14 @@ export function useCalendarPlanningWorkbench(args: {
     [parseZonedDateTime, rememberCreatedAppointmentHistoryDoc],
   );
 
+  const getAppointmentColor = useCallback(
+    async (appointmentId: Id<"appointments">) =>
+      await convex.query(api.appointments.getAppointmentColor, {
+        appointmentId,
+      }),
+    [convex],
+  );
+
   const getBlockedSlotEditorData = useCallback(
     (
       blockedSlotId: string,
@@ -2124,6 +2132,7 @@ export function useCalendarPlanningWorkbench(args: {
       ensureLatestConflictData,
       forgetAppointmentHistoryDoc,
       forgetBlockedSlotHistoryDoc,
+      getAppointmentColor,
       getCurrentAppointmentDoc,
       getCurrentBlockedSlotDoc,
       hasAppointmentConflict,
@@ -2153,6 +2162,7 @@ export function useCalendarPlanningWorkbench(args: {
     forgetAppointmentHistoryDoc,
     forgetBlockedSlotHistoryDoc,
     getCurrentAppointmentDoc,
+    getAppointmentColor,
     getCurrentBlockedSlotDoc,
     hasAppointmentConflict,
     hasBlockedSlotConflict,

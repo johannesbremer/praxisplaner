@@ -42,6 +42,7 @@ export interface CalendarPlanningCommandExecutorContext {
   ensureLatestConflictData: () => Promise<void>;
   forgetAppointmentHistoryDoc: (id: Id<"appointments">) => void;
   forgetBlockedSlotHistoryDoc: (id: Id<"blockedSlots">) => void;
+  getAppointmentColor?: (id: Id<"appointments">) => Promise<AppointmentColor>;
   getCurrentAppointmentDoc: (
     id: Id<"appointments">,
   ) => CalendarAppointmentRecord | undefined;
@@ -315,10 +316,12 @@ async function executeAppointmentCreateCommand(
       currentId: recreatedId,
       originalId: originalAppointmentId,
     });
+    const persistedColor =
+      (await context.getAppointmentColor?.(recreatedId)) ?? payload.color;
     context.rememberCreatedAppointmentFromStrings({
       appointmentTypeLineageKey: payload.appointmentTypeLineageKey,
       appointmentTypeTitle: payload.appointmentTypeTitle,
-      color: payload.color,
+      color: persistedColor,
       ...getAppointmentOwnerRefs(payload.createArgs),
       createdId: recreatedId,
       createEnd: payload.createEnd,

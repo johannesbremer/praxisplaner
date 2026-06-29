@@ -727,6 +727,8 @@ describe("calendar planning replay", () => {
       vi.fn<
         CalendarPlanningCommandExecutorContext["rememberAppointmentHistoryDoc"]
       >();
+    const getAppointmentColor = vi.fn(() => Promise.resolve("green" as const));
+    const rememberCreatedAppointmentFromStrings = vi.fn(() => true);
     const runUpdateAppointmentInternal = vi.fn(() => Promise.resolve(null));
     const createCommand = {
       kind: "appointment.create" as const,
@@ -734,7 +736,7 @@ describe("calendar planning replay", () => {
       payload: {
         appointmentTypeLineageKey,
         appointmentTypeTitle: "Check-up",
-        color: "blue" as const,
+        color: "yellow" as const,
         createArgs: {
           appointmentTypeId,
           isSimulation: false,
@@ -771,6 +773,7 @@ describe("calendar planning replay", () => {
       ensureLatestConflictData: vi.fn(() => Promise.resolve()),
       forgetAppointmentHistoryDoc: vi.fn(),
       forgetBlockedSlotHistoryDoc: vi.fn(),
+      getAppointmentColor,
       getCurrentAppointmentDoc: (id) =>
         id === recreatedAppointmentId ? currentAppointmentDoc : undefined,
       getCurrentBlockedSlotDoc: vi.fn(),
@@ -790,7 +793,7 @@ describe("calendar planning replay", () => {
       },
       rememberAppointmentHistoryDoc,
       rememberBlockedSlotHistoryDoc: vi.fn(),
-      rememberCreatedAppointmentFromStrings: vi.fn(() => true),
+      rememberCreatedAppointmentFromStrings,
       rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
       rememberRecreatedAppointmentId,
       rememberRecreatedBlockedSlotId: vi.fn(),
@@ -833,6 +836,13 @@ describe("calendar planning replay", () => {
       currentId: recreatedAppointmentId,
       originalId: originalAppointmentId,
     });
+    expect(getAppointmentColor).toHaveBeenCalledWith(recreatedAppointmentId);
+    expect(rememberCreatedAppointmentFromStrings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        color: "green",
+        createdId: recreatedAppointmentId,
+      }),
+    );
     expect(runUpdateAppointmentInternal).toHaveBeenCalledWith(
       expect.objectContaining({ id: recreatedAppointmentId }),
     );

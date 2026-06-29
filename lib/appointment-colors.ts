@@ -42,7 +42,7 @@ export const APPOINTMENT_COLOR_OPTIONS = [
   {
     background: "#65a30d",
     border: "#4d7c0f",
-    foreground: "#ffffff",
+    foreground: "#111827",
     label: "Limette",
     value: "lime",
   },
