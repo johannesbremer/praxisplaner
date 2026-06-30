@@ -1246,10 +1246,12 @@ function simulationReplacementMatchesRealAppointment(
   replacement: AppointmentDoc,
   real: AppointmentDoc,
   replacementSmiley: AppointmentSmiley | undefined,
+  options?: { compareSeriesMembership: boolean },
 ) {
   return appointmentReplacementStatesEqual(
     appointmentReplacementState(replacement, { smiley: replacementSmiley }),
     appointmentReplacementState(real),
+    options,
   );
 }
 
@@ -5811,6 +5813,7 @@ export const updateSimulationAppointmentSmiley = mutation({
             existingAppointment,
             realAppointment,
             replacementSmiley,
+            { compareSeriesMembership: false },
           )
         ) {
           const deletedSnapshot = toAppointmentListItem(existingAppointment);
@@ -5856,6 +5859,7 @@ export const updateSimulationAppointmentSmiley = mutation({
           replacement,
           existingAppointment,
           replacementSmiley,
+          { compareSeriesMembership: false },
         )
       ) {
         const deletedSnapshot = toAppointmentListItem(replacement);
@@ -5894,9 +5898,13 @@ export const updateSimulationAppointmentSmiley = mutation({
     }
 
     const appointmentId = await ctx.db.insert("appointments", {
-      ...appointmentReplacementInsertFields(existingAppointment, {
-        smiley: requestedSmiley,
-      }),
+      ...appointmentReplacementInsertFields(
+        existingAppointment,
+        {
+          smiley: requestedSmiley,
+        },
+        { includeSeriesMembership: false },
+      ),
       createdAt: now,
       isSimulation: true,
       lastModified: now,

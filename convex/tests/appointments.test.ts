@@ -5804,6 +5804,131 @@ describe("calendar day appointment queries", () => {
     expect(replacements).toEqual([]);
   });
 
+  test("simulation smiley replacements for series appointments do not join the real series", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_simulation_smiley_series_replacement";
+    const userId = await createUser(
+      t,
+      authId,
+      "sim-smiley-series-replacement@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "sim-smiley-series-replacement@example.com",
+      subject: authId,
+    });
+    const rootWindow = makeSlotWindow(40);
+    const followUpStart = Temporal.ZonedDateTime.from(
+      rootWindow.end,
+    ).toString();
+    const followUpEnd = Temporal.ZonedDateTime.from(followUpStart)
+      .add({ minutes: 5 })
+      .toString();
+    const seriesId = "series_simulation_smiley_replacement";
+
+    const rootAppointmentId = await t.run(async (ctx) => {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("ruleSets", baseData.ruleSetId, {
+        appointmentSmileyOptions: [
+          { emoji: "🧪", id: "simulation-marker", name: "Simulation marker" },
+        ],
+      });
+      const now = BigInt(Date.now());
+      const rootAppointmentId = await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
+        appointmentTypeTitle: "Checkup",
+        createdAt: now,
+        end: rootWindow.end,
+        lastModified: now,
+        locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
+        practiceId: baseData.practiceId,
+        seriesId,
+        seriesStepIndex: 0n,
+        start: rootWindow.start,
+        title: "Root",
+        userId,
+      });
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
+        appointmentTypeTitle: "Checkup",
+        createdAt: now,
+        end: followUpEnd,
+        lastModified: now,
+        locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
+        practiceId: baseData.practiceId,
+        seriesId,
+        seriesStepIndex: 1n,
+        start: followUpStart,
+        title: "Follow-up",
+        userId,
+      });
+      return rootAppointmentId;
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: rootAppointmentId,
+        simulationRuleSetId: baseData.ruleSetId,
+        smiley: "🧪",
+      }),
+    ).resolves.toMatchObject({ kind: "appointment.created" });
+
+    const replacementState = await t.run(async (ctx) => {
+      const replacements = await ctx.db
+        .query("appointments")
+        .withIndex("by_replacesAppointmentId", (q) =>
+          q.eq("replacesAppointmentId", rootAppointmentId),
+        )
+        .collect();
+      const realSeriesMembers = await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) => q.eq("seriesId", seriesId))
+        .collect();
+      return {
+        realSeriesMemberCount: realSeriesMembers.length,
+        replacement: replacements[0],
+        replacementCount: replacements.length,
+      };
+    });
+    expect(replacementState.replacementCount).toBe(1);
+    expect(replacementState.replacement?.isSimulation).toBe(true);
+    expect(replacementState.replacement?.seriesId).toBeUndefined();
+    expect(replacementState.replacement?.seriesStepId).toBeUndefined();
+    expect(replacementState.replacement?.seriesStepIndex).toBeUndefined();
+    expect(replacementState.realSeriesMemberCount).toBe(2);
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: rootAppointmentId,
+        simulationRuleSetId: baseData.ruleSetId,
+        smiley: null,
+      }),
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
+
+    const remainingReplacements = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_replacesAppointmentId", (q) =>
+          q.eq("replacesAppointmentId", rootAppointmentId),
+        )
+        .collect();
+    });
+    expect(remainingReplacements).toEqual([]);
+  });
+
   test("selecting an unchanged real appointment smiley does not create a simulation replacement", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
