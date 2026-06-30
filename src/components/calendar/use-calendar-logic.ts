@@ -1311,6 +1311,14 @@ export function useCalendarLogic({
         return;
       }
 
+      if (!dragPreview.visible) {
+        setDraggedAppointment(null);
+        setDragExcludedAppointmentIds([]);
+        setDraggedSchedulingAppointmentTypeLineageKey(undefined);
+        setDragPreview(emptyDragPreview);
+        return;
+      }
+
       const newTime = slotToTime(finalSlot);
 
       try {
