@@ -337,6 +337,7 @@ export function CalendarSidebar() {
       {/* Only render modal when we have all required IDs */}
       {practiceId &&
         ruleSetId &&
+        runCreateAppointment &&
         creationModalAppointmentTypeId &&
         creationModalLocationId && (
           <StaffAppointmentCreationModal
@@ -356,7 +357,7 @@ export function CalendarSidebar() {
             selectedDate={selectedDate.toString()}
             selectedPatientId={selectedPatientId}
             {...(onAppointmentCreated && { onAppointmentCreated })}
-            {...(runCreateAppointment && { runCreateAppointment })}
+            runCreateAppointment={runCreateAppointment}
           />
         )}
     </>

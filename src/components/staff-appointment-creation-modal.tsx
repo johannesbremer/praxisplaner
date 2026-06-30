@@ -1,13 +1,11 @@
 "use client";
 
-import type { FunctionReturnType } from "convex/server";
-
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useForm } from "@tanstack/react-form";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { CalendarIcon, User } from "lucide-react";
 import { ResultAsync } from "neverthrow";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
 
@@ -45,10 +43,6 @@ import {
   PatientSelectionPanel,
 } from "./patient-selection-panel";
 
-type CreateAppointmentEffect = FunctionReturnType<
-  typeof api.appointments.createAppointment
->;
-
 type CreateTarget =
   | {
       patientId: Id<"patients">;
@@ -62,25 +56,6 @@ type CreateTarget =
       temporaryPatientName: string;
       temporaryPatientPhoneNumber: string;
     };
-
-const rootAppointmentIdFromCreateEffect = (
-  effect: CreateAppointmentEffect,
-): Id<"appointments"> | null => {
-  switch (effect.kind) {
-    case "appointment.created": {
-      return effect.appointment._id;
-    }
-    case "appointment.deleted":
-    case "appointment.updated":
-    case "appointmentSeries.deleted":
-    case "appointmentSeries.updated": {
-      return null;
-    }
-    case "appointmentSeries.created": {
-      return effect.series.rootAppointmentId;
-    }
-  }
-};
 
 interface StaffAppointmentCreationModalProps {
   appointmentTypeId: Id<"appointmentTypes">;
@@ -102,7 +77,7 @@ interface StaffAppointmentCreationModalProps {
   patient?: PatientInfo | undefined;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets">;
-  runCreateAppointment?: (
+  runCreateAppointment: (
     args: CalendarAppointmentCreateCommandArgs,
   ) => Promise<Id<"appointments"> | undefined>;
   selectedDate: string;
@@ -122,7 +97,7 @@ export function StaffAppointmentCreationModal({
   patient,
   practiceId,
   ruleSetId,
-  runCreateAppointment: runCreateAppointmentProp,
+  runCreateAppointment,
   selectedDate,
   selectedPatientId,
 }: StaffAppointmentCreationModalProps) {
@@ -132,10 +107,6 @@ export function StaffAppointmentCreationModal({
   >();
   const [title, setTitle] = useState("");
 
-  const createAppointmentMutation = useMutation(
-    api.appointments.createAppointment,
-  );
-
   // Get appointment type name for display - only query when modal is open
   const appointmentTypes = useQuery(
     api.entities.getAppointmentTypes,
@@ -144,75 +115,6 @@ export function StaffAppointmentCreationModal({
   const locations = useQuery(
     api.entities.getLocations,
     open ? { ruleSetId } : "skip",
-  );
-  const practitioners = useQuery(
-    api.entities.getPractitioners,
-    open ? { ruleSetId } : "skip",
-  );
-  // Use the optimistic update wrapper if provided, otherwise fall back to direct mutation.
-  const runCreateAppointment = useMemo(
-    () =>
-      runCreateAppointmentProp ??
-      (async (args: CalendarAppointmentCreateCommandArgs) => {
-        const {
-          end,
-          optimisticSeriesBlueprint,
-          placement,
-          replacesAppointmentId,
-          ...rest
-        } = args;
-        void optimisticSeriesBlueprint;
-        const mutationBaseArgs = {
-          ...rest,
-          ...(end === undefined ? {} : { end }),
-          ...(replacesAppointmentId === undefined
-            ? {}
-            : { replacesAppointmentId }),
-        };
-        const fallbackLocation = locations?.find(
-          (entry) => entry.lineageKey === placement.locationLineageKey,
-        );
-        if (fallbackLocation === undefined) {
-          return await Promise.reject(
-            new Error("Termin-Referenzen konnten nicht aufgelöst werden."),
-          );
-        }
-
-        if (placement.occupancyScope.kind === "resource") {
-          const effect = await createAppointmentMutation({
-            ...mutationBaseArgs,
-            calendarResourceColumn:
-              placement.occupancyScope.calendarResourceColumn,
-            locationId: fallbackLocation._id,
-          });
-          return rootAppointmentIdFromCreateEffect(effect) ?? undefined;
-        }
-
-        const practitionerOccupancyScope = placement.occupancyScope;
-        const fallbackPractitioner = practitioners?.find(
-          (practitioner) =>
-            practitioner.lineageKey ===
-            practitionerOccupancyScope.practitionerLineageKey,
-        );
-        if (fallbackPractitioner === undefined) {
-          return await Promise.reject(
-            new Error("Termin-Referenzen konnten nicht aufgelöst werden."),
-          );
-        }
-
-        const effect = await createAppointmentMutation({
-          ...mutationBaseArgs,
-          locationId: fallbackLocation._id,
-          practitionerId: fallbackPractitioner._id,
-        });
-        return rootAppointmentIdFromCreateEffect(effect) ?? undefined;
-      }),
-    [
-      createAppointmentMutation,
-      locations,
-      practitioners,
-      runCreateAppointmentProp,
-    ],
   );
   const appointmentType = appointmentTypes?.find(
     (type) => type._id === appointmentTypeId,
