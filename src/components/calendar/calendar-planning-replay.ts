@@ -380,8 +380,8 @@ async function deleteAppointmentSeriesRoot(
     forgetSnapshotAppointments();
     return { status: "applied" };
   } catch (error: unknown) {
-    forgetSnapshotAppointments();
     if (context.isMissingAppointmentError?.(error)) {
+      forgetSnapshotAppointments();
       return { status: "applied" };
     }
     return {
@@ -448,8 +448,8 @@ async function executeAppointmentCreateCommand(
     context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
     return { status: "applied" };
   } catch (error: unknown) {
-    context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
     if (context.isMissingAppointmentError?.(error)) {
+      context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
       return { status: "applied" };
     }
     return {
@@ -477,8 +477,8 @@ async function executeAppointmentDeleteCommand(
       context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
       return { status: "applied" };
     } catch (error: unknown) {
-      context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
       if (context.isMissingAppointmentError?.(error)) {
+        context.forgetAppointmentHistoryDoc(payload.currentAppointmentId);
         return { status: "applied" };
       }
       return {

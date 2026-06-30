@@ -1921,4 +1921,128 @@ describe("calendar planning replay", () => {
       originalStepAppointmentId,
     );
   });
+
+  it("keeps series history docs when deleting a series fails with a non-missing error", async () => {
+    const appointmentTypeId = toTableId<"appointmentTypes">("type_1");
+    const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+      toTableId<"appointmentTypes">("type_lineage_1"),
+    );
+    const locationLineageKey = asLocationLineageKey(
+      toTableId<"locations">("location_lineage_1"),
+    );
+    const practiceId = toTableId<"practices">("practice_1");
+    const ruleSetId = toTableId<"ruleSets">("rule_set_1");
+    const rootAppointmentId = toTableId<"appointments">("series_root_1");
+    const stepAppointmentId = toTableId<"appointments">("series_step_1");
+    const snapshot = {
+      appointments: [
+        {
+          appointmentTypeLineageKey,
+          appointmentTypeTitle: "Check-up",
+          createdAt: 1n,
+          end: "2026-04-25T09:10:00+02:00[Europe/Berlin]",
+          lastModified: 1n,
+          locationLineageKey,
+          occupancyScope: {
+            calendarResourceColumn: "ekg" as const,
+            kind: "resource" as const,
+          },
+          originalAppointmentId: rootAppointmentId,
+          practiceId,
+          seriesStepIndex: 0n,
+          start: "2026-04-25T09:00:00+02:00[Europe/Berlin]",
+          title: "Check-up",
+        },
+        {
+          appointmentTypeLineageKey,
+          appointmentTypeTitle: "BE",
+          createdAt: 1n,
+          end: "2026-04-25T09:20:00+02:00[Europe/Berlin]",
+          lastModified: 1n,
+          locationLineageKey,
+          occupancyScope: {
+            calendarResourceColumn: "labor" as const,
+            kind: "resource" as const,
+          },
+          originalAppointmentId: stepAppointmentId,
+          practiceId,
+          seriesStepId: "step-1",
+          seriesStepIndex: 1n,
+          start: "2026-04-25T09:10:00+02:00[Europe/Berlin]",
+          title: "BE",
+        },
+      ],
+      series: {
+        appointmentPlanSnapshot: [],
+        createdAt: 1n,
+        lastModified: 1n,
+        practiceId,
+        rootAppointmentId,
+        rootAppointmentTypeId: appointmentTypeId,
+        rootAppointmentTypeLineageKey: appointmentTypeLineageKey,
+        rootDurationMinutes: 10,
+        ruleSetIdAtBooking: ruleSetId,
+        scope: "real" as const,
+        seriesId: "series_1",
+      },
+    };
+    const forgetAppointmentHistoryDoc =
+      vi.fn<
+        CalendarPlanningCommandExecutorContext["forgetAppointmentHistoryDoc"]
+      >();
+
+    const result = await executeCalendarPlanningCommand(
+      {
+        kind: "appointmentSeries.delete",
+        label: "Kettentermine gelöscht",
+        payload: {
+          currentRootAppointmentId: rootAppointmentId,
+          snapshot,
+        },
+      },
+      "redo",
+      {
+        ensureLatestConflictData: vi.fn(() => Promise.resolve()),
+        forgetAppointmentHistoryDoc,
+        forgetBlockedSlotHistoryDoc: vi.fn(),
+        getCurrentAppointmentDoc: vi.fn(),
+        getCurrentBlockedSlotDoc: vi.fn(),
+        hasAppointmentConflict: () => false,
+        hasBlockedSlotConflict: () => false,
+        isMissingAppointmentError: () => false,
+        referenceMaps: {
+          appointmentTypeIdByLineageKey: new Map(),
+          appointmentTypeLineageKeyById: new Map(),
+          locationIdByLineageKey: new Map(),
+          locationLineageKeyById: new Map(),
+          practitionerIdByLineageKey: new Map(),
+          practitionerLineageKeyById: new Map(),
+        },
+        rememberAppointmentHistoryDoc: vi.fn(),
+        rememberBlockedSlotHistoryDoc: vi.fn(),
+        rememberCreatedBlockedSlotHistoryDoc: vi.fn(),
+        rememberRecreatedAppointmentId: vi.fn(),
+        rememberRecreatedBlockedSlotId: vi.fn(),
+        resolveAppointmentReferenceDisplayIds: vi.fn(),
+        resolveCurrentAppointmentId: (id) => id,
+        resolveCurrentBlockedSlotId: (id) => id,
+        runCreateAppointmentInternal: vi.fn(),
+        runCreateBlockedSlotInternal: vi.fn(),
+        runDeleteAppointmentInternal: vi.fn(() =>
+          Promise.reject(new Error("permission denied")),
+        ),
+        runDeleteBlockedSlotInternal: vi.fn(),
+        runRestoreAppointmentSeriesSnapshotInternal: vi.fn(),
+        runRestoreDeletedAppointmentInternal: vi.fn(),
+        runUpdateAppointmentInternal: vi.fn(),
+        runUpdateBlockedSlotInternal: vi.fn(),
+      },
+    );
+
+    expect(result).toEqual({
+      message: "permission denied",
+      status: "conflict",
+    });
+    expect(forgetAppointmentHistoryDoc).not.toHaveBeenCalled();
+  });
 });
