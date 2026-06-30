@@ -154,7 +154,14 @@ export function StaffAppointmentCreationModal({
     () =>
       runCreateAppointmentProp ??
       (async (args: CalendarAppointmentCreateCommandArgs) => {
-        const { end, placement, replacesAppointmentId, ...rest } = args;
+        const {
+          end,
+          optimisticSeriesBlueprint,
+          placement,
+          replacesAppointmentId,
+          ...rest
+        } = args;
+        void optimisticSeriesBlueprint;
         const mutationBaseArgs = {
           ...rest,
           ...(end === undefined ? {} : { end }),
