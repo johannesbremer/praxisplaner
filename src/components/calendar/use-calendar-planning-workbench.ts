@@ -1749,10 +1749,6 @@ export function useCalendarPlanningWorkbench(args: {
       const createdAppointment = toCalendarAppointmentRecordFromServerLedger(
         effect.appointment,
       );
-      const serverCreateArgs = {
-        ...createArgs,
-        end: createdAppointment.end,
-      };
       rememberAppointmentHistoryDoc(createdAppointment);
       recordCalendarCommand({
         kind: "appointment.create",
@@ -1762,7 +1758,7 @@ export function useCalendarPlanningWorkbench(args: {
             createdAppointment.appointmentTypeLineageKey,
           appointmentTypeTitle: createdAppointment.appointmentTypeTitle,
           color: createdAppointment.color,
-          createArgs: serverCreateArgs,
+          createArgs,
           createEnd: createdAppointment.end,
           currentAppointmentId: createdAppointment._id,
           placement: createdAppointment.placement,
@@ -1816,7 +1812,6 @@ export function useCalendarPlanningWorkbench(args: {
         ...(appointment.smiley === undefined
           ? {}
           : { smiley: appointment.smiley }),
-        end: appointment.end,
         start: appointment.start,
         title: appointment.title,
       };

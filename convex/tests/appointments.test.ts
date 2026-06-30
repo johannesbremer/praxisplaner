@@ -6241,7 +6241,7 @@ describe("calendar day appointment queries", () => {
     expect(restoredAppointment?.color).toBe("yellow");
   });
 
-  test("restoreDeletedAppointment preserves the deleted color for restored series roots", async () => {
+  test("restoreDeletedAppointment keeps a single snapshot single after its type gains a plan", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
     const authId = "workos_restore_series_color";
@@ -6354,10 +6354,24 @@ describe("calendar day appointment queries", () => {
       }),
     );
     const restoredAppointment = await t.run(async (ctx) => {
-      return await ctx.db.get("appointments", restoredAppointmentId);
+      const restoredAppointment = await ctx.db.get(
+        "appointments",
+        restoredAppointmentId,
+      );
+      const appointments = await ctx.db
+        .query("appointments")
+        .withIndex("by_practiceId", (q) =>
+          q.eq("practiceId", baseData.practiceId),
+        )
+        .collect();
+      return { appointments, restoredAppointment };
     });
 
-    expect(restoredAppointment?.color).toBe("yellow");
-    expect(restoredAppointment?.seriesStepIndex).toBe(0n);
+    expect(restoredAppointment.restoredAppointment?.color).toBe("yellow");
+    expect(restoredAppointment.restoredAppointment?.seriesId).toBeUndefined();
+    expect(
+      restoredAppointment.restoredAppointment?.seriesStepIndex,
+    ).toBeUndefined();
+    expect(restoredAppointment.appointments).toHaveLength(1);
   });
 });

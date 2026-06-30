@@ -200,6 +200,7 @@ interface TrustedAppointmentInput {
   allowHistoricalSmiley?: boolean;
   allowPlannerRuleOverride?: boolean;
   allowRestoredEnd?: boolean;
+  allowSingleAppointmentRestore?: boolean;
   allowUnrelatedUserId?: boolean;
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
@@ -441,6 +442,7 @@ function asTrustedAppointmentInput(args: {
   allowHistoricalSmiley?: boolean;
   allowPlannerRuleOverride?: boolean;
   allowRestoredEnd?: boolean;
+  allowSingleAppointmentRestore?: boolean;
   allowUnrelatedUserId?: boolean;
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
@@ -3500,6 +3502,7 @@ export async function createAppointmentFromTrustedSource(
     allowHistoricalSmiley?: boolean;
     allowPlannerRuleOverride?: boolean;
     allowRestoredEnd?: boolean;
+    allowSingleAppointmentRestore?: boolean;
     allowUnrelatedUserId?: boolean;
     appointmentTypeId: Id<"appointmentTypes">;
     bookingIdentityId?: Id<"bookingIdentities">;
@@ -3531,6 +3534,7 @@ export async function createAppointmentFromTrustedSource(
     allowHistoricalSmiley,
     allowPlannerRuleOverride,
     allowRestoredEnd,
+    allowSingleAppointmentRestore,
     allowUnrelatedUserId,
     appointmentTypeId,
     calendarResourceColumn,
@@ -3648,7 +3652,10 @@ export async function createAppointmentFromTrustedSource(
     }
   }
 
-  if (hasAppointmentPlan(activeAppointmentType)) {
+  if (
+    hasAppointmentPlan(activeAppointmentType) &&
+    allowSingleAppointmentRestore !== true
+  ) {
     if (ownerRefs.phoneBookingIdentityId !== undefined) {
       throw new Error("TelefonKI can only book a single appointment.");
     }
@@ -4371,6 +4378,7 @@ export const restoreDeletedAppointment = mutation({
     const restoredAppointmentEffect = await createAppointmentFromTrustedSource(
       ctx,
       {
+        allowSingleAppointmentRestore: true,
         appointmentTypeId: snapshot.appointmentTypeId,
         ...(snapshot.bookingIdentityId === undefined
           ? {}
@@ -4381,7 +4389,10 @@ export const restoreDeletedAppointment = mutation({
         ...(snapshot.color === undefined ? {} : { color: snapshot.color }),
         ...(snapshot.end === undefined
           ? {}
-          : { allowRestoredEnd: true, end: snapshot.end }),
+          : {
+              allowRestoredEnd: true,
+              end: snapshot.end,
+            }),
         ...(snapshot.isNewPatient === undefined
           ? {}
           : { isNewPatient: snapshot.isNewPatient }),

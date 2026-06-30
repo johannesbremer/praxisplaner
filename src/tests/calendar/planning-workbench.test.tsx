@@ -386,9 +386,7 @@ describe("calendar planning workbench", () => {
     if (command?.kind !== "appointment.create") {
       throw new Error("Expected an appointment create command.");
     }
-    expect(command.payload.createArgs.end).toBe(
-      "2026-04-25T09:20:00+02:00[Europe/Berlin]",
-    );
+    expect(command.payload.createArgs.end).toBeUndefined();
     expect(command.payload.createEnd).toBe(
       "2026-04-25T09:20:00+02:00[Europe/Berlin]",
     );
