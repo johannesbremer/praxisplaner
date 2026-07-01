@@ -2500,4 +2500,47 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     expect(copied.copiedFolder?.color).toBe("green");
     expect(copied.copiedAppointmentType?.color).toBe("yellow");
   });
+
+  test("appointment type folder colors can be updated and cleared", async () => {
+    const t = createAuthedTestContext();
+    const practiceId = await createPractice(t);
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
+
+    const created = await t.mutation(api.entities.createAppointmentTypeFolder, {
+      color: "green",
+      expectedDraftRevision: null,
+      name: "Color Folder",
+      practiceId,
+      selectedRuleSetId: initialRuleSetId,
+    });
+
+    const recolored = await t.mutation(
+      api.entities.updateAppointmentTypeFolder,
+      {
+        color: "yellow",
+        expectedDraftRevision: created.draftRevision,
+        folderId: created.entityId,
+        practiceId,
+        selectedRuleSetId: created.ruleSetId,
+      },
+    );
+
+    const folderAfterRecolor = await t.run(async (ctx) => {
+      return await ctx.db.get("appointmentTypeFolders", created.entityId);
+    });
+    expect(folderAfterRecolor?.color).toBe("yellow");
+
+    await t.mutation(api.entities.updateAppointmentTypeFolder, {
+      color: null,
+      expectedDraftRevision: recolored.draftRevision,
+      folderId: created.entityId,
+      practiceId,
+      selectedRuleSetId: recolored.ruleSetId,
+    });
+
+    const folderAfterClear = await t.run(async (ctx) => {
+      return await ctx.db.get("appointmentTypeFolders", created.entityId);
+    });
+    expect(folderAfterClear?.color).toBeUndefined();
+  });
 });

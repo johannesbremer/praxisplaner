@@ -1563,6 +1563,7 @@ export const createAppointmentTypeFolder = mutation({
 
 export const updateAppointmentTypeFolder = mutation({
   args: {
+    color: v.optional(v.union(appointmentColorValidator, v.null())),
     expectedDraftRevision: expectedDraftRevisionValidator,
     folderId: v.id("appointmentTypeFolders"),
     name: v.optional(v.string()),
@@ -1617,6 +1618,7 @@ export const updateAppointmentTypeFolder = mutation({
 
     await ctx.db.patch("appointmentTypeFolders", folder._id, {
       lastModified: BigInt(Date.now()),
+      ...(args.color !== undefined && { color: args.color ?? undefined }),
       ...(name !== undefined && { name }),
       ...(args.parentFolderId !== undefined && { parentFolderId }),
     });
