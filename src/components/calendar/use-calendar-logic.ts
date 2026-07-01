@@ -1,6 +1,6 @@
 import type { FunctionReturnType } from "convex/server";
 
-import { useQuery } from "convex/react";
+import { useConvex, useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
@@ -40,10 +40,12 @@ import {
   buildCalendarAppointmentLayouts,
   buildCalendarAppointmentViews,
   getCalendarAppointmentColumn,
+  toCalendarAppointmentRecord,
 } from "./calendar-view-models";
 import {
   type CalendarAppointmentLayout,
   type CalendarAppointmentPlacement,
+  type CalendarAppointmentRecord,
   type CalendarColumn,
   type CalendarColumnId,
   type NewCalendarProps,
@@ -159,12 +161,16 @@ export function useCalendarLogic({
   const [currentTime, setCurrentTime] = useState<Temporal.ZonedDateTime>(() =>
     Temporal.Now.zonedDateTimeISO(TIMEZONE),
   );
+  const convex = useConvex();
   const practiceId = propPracticeId;
 
   const [draggedAppointment, setDraggedAppointment] =
     useState<CalendarAppointmentLayout | null>(null);
   const [dragExcludedAppointmentIds, setDragExcludedAppointmentIds] = useState<
     Id<"appointments">[]
+  >([]);
+  const [draggedSeriesAppointments, setDraggedSeriesAppointments] = useState<
+    CalendarAppointmentRecord[]
   >([]);
   const [
     draggedSchedulingAppointmentTypeLineageKey,
@@ -1055,37 +1061,68 @@ export function useCalendarLogic({
       startClientX: e.clientX,
       startClientY: e.clientY,
     };
-    const sameSeriesAppointments =
-      appointment.record.seriesId === undefined
-        ? []
-        : [...allPracticeAppointmentDocMap.values()].filter(
-            (entry) => entry.seriesId === appointment.record.seriesId,
+    const startDrag = async () => {
+      let sameSeriesAppointments: CalendarAppointmentRecord[] = [];
+      if (appointment.record.seriesId !== undefined) {
+        try {
+          const seriesAppointments = await convex.query(
+            api.appointments.getAppointmentSeriesAppointments,
+            {
+              practiceId,
+              seriesId: appointment.record.seriesId,
+            },
           );
-    const rootSeriesAppointment = sameSeriesAppointments.find(
-      (entry) => entry.seriesStepIndex === 0n,
-    );
-    const schedulingAppointmentTypeLineageKey =
-      appointment.record.seriesId !== undefined &&
-      appointment.record.seriesStepIndex !== undefined &&
-      appointment.record.seriesStepIndex !== 0n
-        ? rootSeriesAppointment?.appointmentTypeLineageKey
-        : appointment.record.appointmentTypeLineageKey;
-    const excludedIds =
-      appointment.record.seriesId === undefined
-        ? [appointment.record._id]
-        : sameSeriesAppointments.length > 0
-          ? sameSeriesAppointments.map((entry) => entry._id)
-          : appointmentLayouts
-              .filter(
-                (entry) =>
-                  entry.record.seriesId === appointment.record.seriesId,
-              )
-              .map((entry) => entry.record._id);
-    setDragExcludedAppointmentIds(excludedIds);
-    setDraggedSchedulingAppointmentTypeLineageKey(
-      schedulingAppointmentTypeLineageKey,
-    );
-    setDraggedAppointment(appointment);
+          sameSeriesAppointments = seriesAppointments.map((seriesAppointment) =>
+            toCalendarAppointmentRecord(seriesAppointment),
+          );
+        } catch (error) {
+          captureErrorGlobal(error, {
+            appointmentId: appointment.record._id,
+            context: "NewCalendar - Failed to load appointment series for drag",
+            seriesId: appointment.record.seriesId,
+          });
+          toast.error(
+            "Die Kettentermine konnten nicht geladen werden. Bitte erneut versuchen.",
+          );
+          activeDragPointerRef.current = null;
+          setDragExcludedAppointmentIds([]);
+          setDraggedSchedulingAppointmentTypeLineageKey(undefined);
+          setDraggedSeriesAppointments([]);
+          return;
+        }
+      }
+      const rootSeriesAppointment = sameSeriesAppointments.find(
+        (entry) => entry.seriesStepIndex === 0n,
+      );
+      if (activeDragPointerRef.current?.pointerId !== e.pointerId) {
+        return;
+      }
+      const schedulingAppointmentTypeLineageKey =
+        appointment.record.seriesId !== undefined &&
+        appointment.record.seriesStepIndex !== undefined &&
+        appointment.record.seriesStepIndex !== 0n
+          ? rootSeriesAppointment?.appointmentTypeLineageKey
+          : appointment.record.appointmentTypeLineageKey;
+      const excludedIds =
+        appointment.record.seriesId === undefined
+          ? [appointment.record._id]
+          : sameSeriesAppointments.length > 0
+            ? sameSeriesAppointments.map((entry) => entry._id)
+            : appointmentLayouts
+                .filter(
+                  (entry) =>
+                    entry.record.seriesId === appointment.record.seriesId,
+                )
+                .map((entry) => entry.record._id);
+      setDragExcludedAppointmentIds(excludedIds);
+      setDraggedSchedulingAppointmentTypeLineageKey(
+        schedulingAppointmentTypeLineageKey,
+      );
+      setDraggedSeriesAppointments(sameSeriesAppointments);
+      setDraggedAppointment(appointment);
+    };
+
+    void startDrag();
   };
 
   const handleDragOver = useCallback(
@@ -1327,6 +1364,7 @@ export function useCalendarLogic({
         setDraggedAppointment(null);
         setDragExcludedAppointmentIds([]);
         setDraggedSchedulingAppointmentTypeLineageKey(undefined);
+        setDraggedSeriesAppointments([]);
         setDragPreview(emptyDragPreview);
         return;
       }
@@ -1347,7 +1385,7 @@ export function useCalendarLogic({
         const rootSeriesAppointment =
           draggedAppointment.record.seriesId === undefined
             ? undefined
-            : [...allPracticeAppointmentDocMap.values()].find(
+            : draggedSeriesAppointments.find(
                 (appointment) =>
                   appointment.seriesId === draggedAppointment.record.seriesId &&
                   appointment.seriesStepIndex === 0n,
@@ -1514,6 +1552,7 @@ export function useCalendarLogic({
         setDraggedAppointment(null);
         setDragExcludedAppointmentIds([]);
         setDraggedSchedulingAppointmentTypeLineageKey(undefined);
+        setDraggedSeriesAppointments([]);
         setDragPreview(emptyDragPreview);
       }
     },
@@ -1525,8 +1564,8 @@ export function useCalendarLogic({
       draggedBlockedSlotId,
       emptyDragPreview,
       excludedAppointmentIdsForAvailability,
-      allPracticeAppointmentDocMap,
       appointmentLayouts,
+      draggedSeriesAppointments,
       findBlockedSlotForAppointmentMove,
       getPractitionerIdForColumn,
       isNonRootSeriesAppointment,
@@ -1550,6 +1589,7 @@ export function useCalendarLogic({
     setDraggedBlockedSlotId(null);
     setDragExcludedAppointmentIds([]);
     setDraggedSchedulingAppointmentTypeLineageKey(undefined);
+    setDraggedSeriesAppointments([]);
     setDragPreview(emptyDragPreview);
   }, [clearPointerDragListeners, emptyDragPreview, stopAutoScroll]);
 

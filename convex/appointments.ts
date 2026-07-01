@@ -2439,6 +2439,37 @@ export const getCalendarDayAppointments = query({
   returns: v.array(appointmentResultValidator),
 });
 
+export const getAppointmentSeriesAppointments = query({
+  args: {
+    practiceId: v.id("practices"),
+    seriesId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await requirePracticeStaff(ctx, args.practiceId);
+
+    const appointments = await getSeriesAppointments(ctx.db, args.seriesId);
+    const visibleAppointments = appointments
+      .filter(
+        (appointment) =>
+          appointment.practiceId === args.practiceId &&
+          isVisibleAppointment(appointment),
+      )
+      .toSorted((left, right) => {
+        const leftIndex = left.seriesStepIndex ?? 0n;
+        const rightIndex = right.seriesStepIndex ?? 0n;
+        return leftIndex === rightIndex
+          ? left.start.localeCompare(right.start)
+          : Number(leftIndex - rightIndex);
+      });
+
+    return visibleAppointments.map((appointment) =>
+      toAppointmentListItem(appointment),
+    );
+  },
+  returns: v.array(appointmentResultValidator),
+});
+
 // Query to get appointments in a date range
 export const getAppointmentsInRange = query({
   args: {

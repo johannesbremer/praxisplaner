@@ -6823,6 +6823,108 @@ describe("appointment series", () => {
       ),
     ).toBe(true);
   });
+
+  test("getAppointmentSeriesAppointments returns full multi-day series membership", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_full_series_membership_user",
+      "full-series-membership@example.com",
+    );
+
+    const rootAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const stepTypeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
+        createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
+        duration: 30,
+        lastModified: now,
+        name: "Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", stepTypeId, {
+        lineageKey: stepTypeId,
+      });
+
+      const rootId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: stepTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "days",
+                offsetValue: 7,
+              },
+            },
+          ],
+        },
+        createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
+        duration: 30,
+        lastModified: now,
+        name: "Ersttermin",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", rootId, {
+        lineageKey: rootId,
+      });
+
+      return rootId;
+    });
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const createdSeries = await t.mutation(
+      api.appointments.createAppointmentSeries,
+      {
+        locationId,
+        practiceId,
+        practitionerId,
+        rootAppointmentTypeId,
+        rootTitle: "Ersttermin",
+        ruleSetId,
+        start: rootStart,
+        userId,
+      },
+    );
+
+    const seriesAppointments = await t.query(
+      api.appointments.getAppointmentSeriesAppointments,
+      {
+        practiceId,
+        seriesId: createdSeries.seriesId,
+      },
+    );
+
+    expect(seriesAppointments.map((appointment) => appointment._id)).toEqual([
+      createdSeries.rootAppointmentId,
+      createdSeries.steps[1]?.appointmentId,
+    ]);
+    expect(
+      new Set(
+        seriesAppointments.map((appointment) =>
+          Temporal.ZonedDateTime.from(appointment.start)
+            .toPlainDate()
+            .toString(),
+        ),
+      ).size,
+    ).toBe(2);
+  });
 });
 
 function calculateDurationMinutes(end: string, start: string) {
