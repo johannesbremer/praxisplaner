@@ -6671,6 +6671,156 @@ describe("appointment series", () => {
     });
   });
 
+  test("restoreAppointmentSeriesSnapshot resolves copied appointment type lineage in the booking rule set", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_restore_copied_lineage_series_user",
+      "restore-copied-lineage-series@example.com",
+    );
+
+    const {
+      copiedRootAppointmentTypeId,
+      originalRootAppointmentTypeId,
+      originalStepAppointmentTypeId,
+    } = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const originalStepAppointmentTypeId = await ctx.db.insert(
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
+          createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+          duration: 10,
+          lastModified: now,
+          name: "Original Kontrolle",
+          practiceId,
+          ruleSetId,
+        },
+      );
+      await ctx.db.patch("appointmentTypes", originalStepAppointmentTypeId, {
+        lineageKey: originalStepAppointmentTypeId,
+      });
+      const originalRootAppointmentTypeId = await ctx.db.insert(
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: originalStepAppointmentTypeId,
+                occupancy: { kind: "inheritRootPractitioner" },
+                required: true,
+                stepId: "step-1",
+                timing: {
+                  kind: "afterPreviousEnd",
+                  offsetUnit: "minutes",
+                  offsetValue: 0,
+                },
+              },
+            ],
+          },
+          createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+          duration: 10,
+          lastModified: now,
+          name: "Original Kette",
+          practiceId,
+          ruleSetId,
+        },
+      );
+      await ctx.db.patch("appointmentTypes", originalRootAppointmentTypeId, {
+        lineageKey: originalRootAppointmentTypeId,
+      });
+      await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
+        createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
+        duration: 10,
+        lastModified: now,
+        lineageKey: originalStepAppointmentTypeId,
+        name: "Copied Kontrolle",
+        practiceId,
+        ruleSetId,
+      });
+      const copiedRootAppointmentTypeId = await ctx.db.insert(
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: originalStepAppointmentTypeId,
+                occupancy: { kind: "inheritRootPractitioner" },
+                required: true,
+                stepId: "step-1",
+                timing: {
+                  kind: "afterPreviousEnd",
+                  offsetUnit: "minutes",
+                  offsetValue: 0,
+                },
+              },
+            ],
+          },
+          createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+          duration: 10,
+          lastModified: now,
+          lineageKey: originalRootAppointmentTypeId,
+          name: "Copied Kette",
+          practiceId,
+          ruleSetId,
+        },
+      );
+
+      return {
+        copiedRootAppointmentTypeId,
+        originalRootAppointmentTypeId,
+        originalStepAppointmentTypeId,
+      };
+    });
+
+    const start = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const created = await t.mutation(api.appointments.createAppointment, {
+      appointmentTypeId: copiedRootAppointmentTypeId,
+      locationId,
+      practiceId,
+      practitionerId,
+      start,
+      title: "Copied Kette",
+      userId,
+    });
+    if (created.kind !== "appointmentSeries.created") {
+      throw new Error("Expected appointment series creation.");
+    }
+
+    await t.mutation(api.appointments.deleteAppointment, {
+      id: created.series.rootAppointmentId,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.delete("appointmentTypes", originalRootAppointmentTypeId);
+      await ctx.db.delete("appointmentTypes", originalStepAppointmentTypeId);
+    });
+
+    await expect(
+      t.mutation(api.appointments.restoreAppointmentSeriesSnapshot, {
+        seriesId: created.series.seriesId,
+        snapshotId: created.series.snapshotId,
+      }),
+    ).resolves.toMatchObject({
+      seriesId: created.series.seriesId,
+    });
+  });
+
   test("restoreAppointmentSeriesSnapshot ignores cancelled snapshot appointments when checking occupancy", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =

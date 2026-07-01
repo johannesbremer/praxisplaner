@@ -1000,6 +1000,51 @@ async function requireManagerForPlannerRuleOverride(
   }
 }
 
+async function requireSnapshotAppointmentTypeLineageDocument(
+  db: DatabaseReader,
+  args: {
+    label: string;
+    lineageKey: AppointmentTypeLineageKey;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const appointmentTypeId =
+    await tryResolveAppointmentTypeIdForRuleSetByLineage(db, {
+      lineageKey: args.lineageKey,
+      ruleSetId: args.ruleSetId,
+    });
+  return await requireSnapshotPracticeDocument(
+    appointmentTypeId === undefined
+      ? Promise.resolve(null)
+      : db.get("appointmentTypes", appointmentTypeId),
+    args.practiceId,
+    args.label,
+  );
+}
+
+async function requireSnapshotLocationLineageDocument(
+  db: DatabaseReader,
+  args: {
+    label: string;
+    lineageKey: LocationLineageKey;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const locationId = await tryResolveLocationIdForRuleSetByLineage(db, {
+    lineageKey: args.lineageKey,
+    ruleSetId: args.ruleSetId,
+  });
+  return await requireSnapshotPracticeDocument(
+    locationId === undefined
+      ? Promise.resolve(null)
+      : db.get("locations", locationId),
+    args.practiceId,
+    args.label,
+  );
+}
+
 async function requireSnapshotPracticeDocument<
   TDocument extends { practiceId: Id<"practices"> },
 >(
@@ -1015,6 +1060,28 @@ async function requireSnapshotPracticeDocument<
     );
   }
   return doc;
+}
+
+async function requireSnapshotPractitionerLineageDocument(
+  db: DatabaseReader,
+  args: {
+    label: string;
+    lineageKey: PractitionerLineageKey;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const practitionerId = await tryResolvePractitionerIdForRuleSetByLineage(db, {
+    lineageKey: args.lineageKey,
+    ruleSetId: args.ruleSetId,
+  });
+  return await requireSnapshotPracticeDocument(
+    practitionerId === undefined
+      ? Promise.resolve(null)
+      : db.get("practitioners", practitionerId),
+    args.practiceId,
+    args.label,
+  );
 }
 
 async function requireSnapshotUserPracticeMembership(
@@ -1472,11 +1539,14 @@ async function validateAppointmentSeriesRestoreSnapshotReferences(
     practiceId,
     "Start-Terminart der Kettentermin-Serie",
   );
-  await requireSnapshotPracticeDocument(
-    ctx.db.get("appointmentTypes", series.rootAppointmentTypeLineageKey),
+  await requireSnapshotAppointmentTypeLineageDocument(ctx.db, {
+    label: "Start-Terminart-Linie der Kettentermin-Serie",
+    lineageKey: asAppointmentTypeLineageKey(
+      series.rootAppointmentTypeLineageKey,
+    ),
     practiceId,
-    "Start-Terminart-Linie der Kettentermin-Serie",
-  );
+    ruleSetId: series.ruleSetIdAtBooking,
+  });
   if (series.bookingIdentityId !== undefined) {
     await requireSnapshotPracticeDocument(
       ctx.db.get("bookingIdentities", series.bookingIdentityId),
@@ -1501,34 +1571,40 @@ async function validateAppointmentSeriesRestoreSnapshotReferences(
   }
 
   for (const step of series.appointmentPlanSnapshot) {
-    await requireSnapshotPracticeDocument(
-      ctx.db.get("appointmentTypes", step.appointmentTypeLineageKey),
+    await requireSnapshotAppointmentTypeLineageDocument(ctx.db, {
+      label: "Terminart eines Kettentermin-Schritts",
+      lineageKey: asAppointmentTypeLineageKey(step.appointmentTypeLineageKey),
       practiceId,
-      "Terminart eines Kettentermin-Schritts",
-    );
+      ruleSetId: series.ruleSetIdAtBooking,
+    });
   }
 
   for (const appointment of appointments) {
-    await requireSnapshotPracticeDocument(
-      ctx.db.get("appointmentTypes", appointment.appointmentTypeLineageKey),
+    await requireSnapshotAppointmentTypeLineageDocument(ctx.db, {
+      label: "Terminart eines gespeicherten Kettentermins",
+      lineageKey: asAppointmentTypeLineageKey(
+        appointment.appointmentTypeLineageKey,
+      ),
       practiceId,
-      "Terminart eines gespeicherten Kettentermins",
-    );
-    await requireSnapshotPracticeDocument(
-      ctx.db.get("locations", appointment.locationLineageKey),
+      ruleSetId: series.ruleSetIdAtBooking,
+    });
+    await requireSnapshotLocationLineageDocument(ctx.db, {
+      label: "Standort eines gespeicherten Kettentermins",
+      lineageKey: asLocationLineageKey(appointment.locationLineageKey),
       practiceId,
-      "Standort eines gespeicherten Kettentermins",
-    );
+      ruleSetId: series.ruleSetIdAtBooking,
+    });
 
     const practitionerLineageKey = getAppointmentPractitionerLineageKey(
       appointment.occupancyScope,
     );
     if (practitionerLineageKey !== undefined) {
-      await requireSnapshotPracticeDocument(
-        ctx.db.get("practitioners", practitionerLineageKey),
+      await requireSnapshotPractitionerLineageDocument(ctx.db, {
+        label: "Behandler eines gespeicherten Kettentermins",
+        lineageKey: asPractitionerLineageKey(practitionerLineageKey),
         practiceId,
-        "Behandler eines gespeicherten Kettentermins",
-      );
+        ruleSetId: series.ruleSetIdAtBooking,
+      });
     }
     if (appointment.bookingIdentityId !== undefined) {
       await requireSnapshotPracticeDocument(
