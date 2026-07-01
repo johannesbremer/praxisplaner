@@ -39,6 +39,7 @@ import type * as legacyUnmatchedFutureBookingHolds from "../legacyUnmatchedFutur
 import type * as lineage from "../lineage.js";
 import type * as mfas from "../mfas.js";
 import type * as migrationRehearsal from "../migrationRehearsal.js";
+import type * as onlineAccountBlocks from "../onlineAccountBlocks.js";
 import type * as patientSearch from "../patientSearch.js";
 import type * as patients from "../patients.js";
 import type * as practiceAccess from "../practiceAccess.js";
@@ -105,6 +106,7 @@ declare const fullApi: ApiFromModules<{
   lineage: typeof lineage;
   mfas: typeof mfas;
   migrationRehearsal: typeof migrationRehearsal;
+  onlineAccountBlocks: typeof onlineAccountBlocks;
   patientSearch: typeof patientSearch;
   patients: typeof patients;
   practiceAccess: typeof practiceAccess;

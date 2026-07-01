@@ -114,6 +114,9 @@ export function patientDocToInfo(
     }
 
     return {
+      ...(patient.bookingIdentityId !== undefined && {
+        bookingIdentityId: patient.bookingIdentityId,
+      }),
       ...(patient.city !== undefined && { city: patient.city }),
       convexPatientId: patient._id,
       ...(dateOfBirth !== undefined && { dateOfBirth }),

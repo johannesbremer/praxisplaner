@@ -1136,14 +1136,17 @@ export default defineSchema({
    *          └─ Leaf: location IS 'Dissen'
    */
   onlineAccountBlocks: defineTable({
+    bookingIdentityId: v.optional(v.id("bookingIdentities")),
     createdAt: v.int64(),
-    legacyUserId: v.string(),
+    legacyUserId: v.optional(v.string()),
     practiceId: v.id("practices"),
     reason: v.string(),
-    sourceSystem: v.literal("legacy-online"),
+    sourceSystem: v.union(v.literal("legacy-online"), v.literal("online")),
     userId: v.id("users"),
   })
     .index("by_userId_practiceId", ["userId", "practiceId"])
+    .index("by_practiceId", ["practiceId"])
+    .index("by_bookingIdentityId", ["bookingIdentityId"])
     .index("by_legacyUserId", ["legacyUserId"]),
 
   ruleConditions: defineTable({
