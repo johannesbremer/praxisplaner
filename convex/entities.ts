@@ -2149,13 +2149,11 @@ export const deletePractitionerWithDependencies = mutation({
       .collect();
 
     const appointmentTypePatches: {
-      action: "delete" | "patch";
+      action: "patch";
       afterAllowedPractitionerLineageKeys: PractitionerLineageKey[];
       appointmentTypeId: Id<"appointmentTypes">;
       beforeAllowedPractitionerLineageKeys: PractitionerLineageKey[];
-      duration?: number;
       lineageKey: AppointmentTypeLineageKey;
-      name?: string;
     }[] = appointmentTypes
       .filter((appointmentType) =>
         appointmentType.allowedPractitionerLineageKeys.includes(
@@ -2170,19 +2168,15 @@ export const deletePractitionerWithDependencies = mutation({
                 lineageKey !== requirePractitionerLineageKey(practitioner),
             )
             .map((lineageKey) => asPractitionerLineageKey(lineageKey));
-        const action: "delete" | "patch" = "patch";
-
         return {
-          action,
+          action: "patch" as const,
           afterAllowedPractitionerLineageKeys,
           appointmentTypeId: appointmentType._id,
           beforeAllowedPractitionerLineageKeys:
             appointmentType.allowedPractitionerLineageKeys.map((lineageKey) =>
               asPractitionerLineageKey(lineageKey),
             ),
-          duration: appointmentType.duration,
           lineageKey: requireAppointmentTypeLineageKey(appointmentType),
-          name: appointmentType.name,
         };
       });
 
@@ -2417,55 +2411,6 @@ export const restorePractitionerWithDependencies = mutation({
           q.eq("ruleSetId", ruleSetId).eq("lineageKey", patch.lineageKey),
         )
         .first();
-
-      if (patch.action === "delete") {
-        const patchName = patch.name;
-        if (!patchName) {
-          throw new Error(
-            "Gelöschte Terminart konnte nicht wiederhergestellt werden (fehlender Name).",
-          );
-        }
-        const patchDuration = patch.duration;
-        if (patchDuration === undefined) {
-          throw new Error(
-            "Gelöschte Terminart konnte nicht wiederhergestellt werden (fehlende Dauer).",
-          );
-        }
-
-        if (existingByLineage) {
-          const mergedAllowedPractitionerLineageKeys = [
-            ...new Set<PractitionerLineageKey>([
-              ...existingByLineage.allowedPractitionerLineageKeys.map(
-                (lineageKey) => asPractitionerLineageKey(lineageKey),
-              ),
-              ...restoredAllowedPractitionerLineageKeys,
-            ]),
-          ];
-          await ctx.db.patch("appointmentTypes", existingByLineage._id, {
-            allowedPractitionerLineageKeys:
-              mergedAllowedPractitionerLineageKeys,
-            duration: patchDuration,
-            lastModified: now,
-            name: patchName,
-          });
-          continue;
-        }
-
-        await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
-          allowedPractitionerLineageKeys:
-            restoredAllowedPractitionerLineageKeys,
-          appointmentPlan: { steps: [] },
-          createdAt: now,
-          defaultOccupancy: { kind: "selectedPractitioner" },
-          duration: patchDuration,
-          lastModified: now,
-          lineageKey: patch.lineageKey,
-          name: patchName,
-          practiceId: args.practiceId,
-          ruleSetId,
-        });
-        continue;
-      }
 
       if (!existingByLineage) {
         throw new Error(

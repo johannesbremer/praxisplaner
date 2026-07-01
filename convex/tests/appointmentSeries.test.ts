@@ -2873,6 +2873,216 @@ describe("appointment series", () => {
     );
   });
 
+  test("simulated series replacements reject missing replacement roots", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_missing_series_replacement_user",
+      "missing-series-replacement@example.com",
+    );
+
+    const { missingAppointmentId, rootAppointmentTypeId } = await t.run(
+      async (ctx) => {
+        const now = BigInt(Date.now());
+        const stepTypeId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
+          createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+          duration: 30,
+          lastModified: now,
+          name: "Kontrolle",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", stepTypeId, {
+          lineageKey: stepTypeId,
+        });
+        const rootId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: stepTypeId,
+                occupancy: { kind: "inheritRootPractitioner" },
+                required: true,
+                stepId: "step-1",
+                timing: {
+                  kind: "afterPreviousEnd",
+                  offsetUnit: "minutes",
+                  offsetValue: 0,
+                },
+              },
+            ],
+          },
+          createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+          duration: 30,
+          lastModified: now,
+          name: "Ersttermin",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", rootId, {
+          lineageKey: rootId,
+        });
+
+        const rootStart = nextWeekday(1).toZonedDateTime({
+          plainTime: { hour: 9, minute: 0 },
+          timeZone: TIMEZONE,
+        });
+        const missingAppointmentId = await ctx.db.insert("appointments", {
+          appointmentTypeLineageKey: rootId,
+          appointmentTypeTitle: "Ersttermin",
+          createdAt: now,
+          end: rootStart.add({ minutes: 30 }).toString(),
+          lastModified: now,
+          locationLineageKey: locationId,
+          occupancyScope: {
+            kind: "practitioner",
+            practitionerLineageKey: practitionerId,
+          },
+          practiceId,
+          start: rootStart.toString(),
+          title: "Zu ersetzender Termin",
+          userId,
+        });
+        await ctx.db.delete("appointments", missingAppointmentId);
+
+        return { missingAppointmentId, rootAppointmentTypeId: rootId };
+      },
+    );
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    await expect(
+      t.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: rootAppointmentTypeId,
+        isSimulation: true,
+        locationId,
+        practiceId,
+        practitionerId,
+        replacesAppointmentId: missingAppointmentId,
+        start: rootStart,
+        title: "Ersttermin",
+        userId,
+      }),
+    ).rejects.toThrow("Der zu ersetzende Termin wurde nicht gefunden.");
+  });
+
+  test("simulated series replacements reject foreign replacement roots", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const foreignPractice = await createBasePractice(t);
+    const userId = await createUser(
+      t,
+      "workos_foreign_series_replacement_user",
+      "foreign-series-replacement@example.com",
+    );
+
+    const { foreignAppointmentId, rootAppointmentTypeId } = await t.run(
+      async (ctx) => {
+        const now = BigInt(Date.now());
+        const stepTypeId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
+          createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+          duration: 30,
+          lastModified: now,
+          name: "Kontrolle",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", stepTypeId, {
+          lineageKey: stepTypeId,
+        });
+        const rootId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: stepTypeId,
+                occupancy: { kind: "inheritRootPractitioner" },
+                required: true,
+                stepId: "step-1",
+                timing: {
+                  kind: "afterPreviousEnd",
+                  offsetUnit: "minutes",
+                  offsetValue: 0,
+                },
+              },
+            ],
+          },
+          createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+          duration: 30,
+          lastModified: now,
+          name: "Ersttermin",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", rootId, {
+          lineageKey: rootId,
+        });
+
+        const rootStart = nextWeekday(1).toZonedDateTime({
+          plainTime: { hour: 9, minute: 0 },
+          timeZone: TIMEZONE,
+        });
+        const foreignAppointmentId = await ctx.db.insert("appointments", {
+          appointmentTypeLineageKey: rootId,
+          appointmentTypeTitle: "Fremder Termin",
+          createdAt: now,
+          end: rootStart.add({ minutes: 30 }).toString(),
+          lastModified: now,
+          locationLineageKey: foreignPractice.locationId,
+          occupancyScope: {
+            kind: "practitioner",
+            practitionerLineageKey: foreignPractice.practitionerId,
+          },
+          practiceId: foreignPractice.practiceId,
+          start: rootStart.toString(),
+          title: "Fremder Termin",
+          userId,
+        });
+
+        return { foreignAppointmentId, rootAppointmentTypeId: rootId };
+      },
+    );
+
+    const rootStart = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    await expect(
+      t.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: rootAppointmentTypeId,
+        isSimulation: true,
+        locationId,
+        practiceId,
+        practitionerId,
+        replacesAppointmentId: foreignAppointmentId,
+        start: rootStart,
+        title: "Ersttermin",
+        userId,
+      }),
+    ).rejects.toThrow(
+      "Der zu ersetzende Termin gehört zu einer anderen Praxis.",
+    );
+  });
+
   test("simulated series replacements exclude the whole replaced series", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =

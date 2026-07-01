@@ -205,10 +205,10 @@ export async function createAppointmentSeries(
     rootAppointmentTypeId: args.rootAppointmentTypeId,
     ruleSetId: args.ruleSetId,
   });
-  const replacementContext = await resolveReplacementContext(
-    ctx.db,
-    args.rootReplacesAppointmentId,
-  );
+  const replacementContext = await resolveReplacementContext(ctx.db, {
+    practiceId: args.practiceId,
+    rootReplacesAppointmentId: args.rootReplacesAppointmentId,
+  });
   const planningState = createSeriesPlanningState();
   const preview = await previewAppointmentSeries(
     ctx,
@@ -2188,7 +2188,10 @@ async function resolvePractitionerOccupancy(
 
 async function resolveReplacementContext(
   db: DatabaseReader,
-  rootReplacesAppointmentId: Id<"appointments"> | undefined,
+  args: {
+    practiceId: Id<"practices">;
+    rootReplacesAppointmentId: Id<"appointments"> | undefined;
+  },
 ): Promise<
   | undefined
   | {
@@ -2196,21 +2199,39 @@ async function resolveReplacementContext(
       replacedAppointmentIdByStepKey: Map<string, Id<"appointments">>;
     }
 > {
-  if (rootReplacesAppointmentId === undefined) {
+  if (args.rootReplacesAppointmentId === undefined) {
     return undefined;
   }
 
   const replacedAppointment = await db.get(
     "appointments",
-    rootReplacesAppointmentId,
+    args.rootReplacesAppointmentId,
   );
-  if (replacedAppointment?.seriesId === undefined) {
+  if (!replacedAppointment) {
+    throw appointmentSeriesError(
+      "CHAIN_REPLAN_FAILED",
+      "Der zu ersetzende Termin wurde nicht gefunden.",
+    );
+  }
+  if (replacedAppointment.practiceId !== args.practiceId) {
+    throw appointmentSeriesError(
+      "CHAIN_REPLAN_FAILED",
+      "Der zu ersetzende Termin gehört zu einer anderen Praxis.",
+    );
+  }
+  if (replacedAppointment.isSimulation === true) {
+    throw appointmentSeriesError(
+      "CHAIN_REPLAN_FAILED",
+      "Simulierte Termine können nicht durch Kettentermine ersetzt werden.",
+    );
+  }
+  if (replacedAppointment.seriesId === undefined) {
     return {
-      excludedAppointmentIds: [rootReplacesAppointmentId],
+      excludedAppointmentIds: [args.rootReplacesAppointmentId],
       replacedAppointmentIdByStepKey: new Map([
         [
           replacementStepKey({ seriesStepId: "root", seriesStepIndex: 0n }),
-          rootReplacesAppointmentId,
+          args.rootReplacesAppointmentId,
         ],
       ]),
     };

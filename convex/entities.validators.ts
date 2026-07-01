@@ -134,13 +134,11 @@ export const practitionerSnapshotValidator = v.object({
 });
 
 export const practitionerAppointmentTypePatchValidator = v.object({
-  action: v.union(v.literal("delete"), v.literal("patch")),
+  action: v.literal("patch"),
   afterAllowedPractitionerLineageKeys: v.array(v.id("practitioners")),
   appointmentTypeId: v.id("appointmentTypes"),
   beforeAllowedPractitionerLineageKeys: v.array(v.id("practitioners")),
-  duration: v.optional(v.number()),
   lineageKey: v.id("appointmentTypes"),
-  name: v.optional(v.string()),
 });
 
 export const practitionerConditionPatchValidator = v.object({
