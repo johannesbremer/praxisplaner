@@ -4065,7 +4065,10 @@ export const restoreAppointmentSeriesSnapshot = mutation({
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const storedSnapshot = await ctx.db.get(args.snapshotId);
+    const storedSnapshot = await ctx.db.get(
+      "appointmentSeriesRestoreSnapshots",
+      args.snapshotId,
+    );
     if (!storedSnapshot) {
       throw appointmentChainError(
         "CHAIN_NOT_FOUND",
@@ -4312,7 +4315,10 @@ export const restoreAppointmentSeriesSnapshot = mutation({
       seriesId: series.seriesId,
       ...(series.userId === undefined ? {} : { userId: series.userId }),
     });
-    await ctx.db.delete("appointmentSeriesRestoreSnapshots", storedSnapshot._id);
+    await ctx.db.delete(
+      "appointmentSeriesRestoreSnapshots",
+      storedSnapshot._id,
+    );
 
     const restoredSeriesAppointments = await getSeriesAppointments(
       ctx.db,
