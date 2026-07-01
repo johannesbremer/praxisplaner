@@ -105,6 +105,7 @@ interface UseCalendarBlockedSlotProjectionArgs {
     Id<"practitioners">,
     PractitionerLineageKey
   >;
+  resourceDefaultCalendarResourceColumn?: "ekg" | "labor" | undefined;
   selectedDate: Temporal.PlainDate;
   selectedLocationId: Id<"locations"> | undefined;
   simulatedContext:
@@ -139,6 +140,7 @@ export function useCalendarBlockedSlotProjection({
   getPractitionerIdForLineageKey,
   locationLineageKeyById,
   practitionerLineageKeyById,
+  resourceDefaultCalendarResourceColumn,
   selectedDate,
   selectedLocationId,
   simulatedContext,
@@ -529,6 +531,32 @@ export function useCalendarBlockedSlotProjection({
     [appointmentSeriesRootBlockedSlots, projectAppointmentSeriesRootSlots],
   );
 
+  const resourceDefaultWrongColumnBlockedSlots = useMemo(() => {
+    if (resourceDefaultCalendarResourceColumn === undefined) {
+      return [];
+    }
+
+    return columns.flatMap((column) => {
+      const columnResource = getCalendarResourceColumnFromOccupancy(column.id);
+      if (columnResource === resourceDefaultCalendarResourceColumn) {
+        return [];
+      }
+
+      const reason =
+        resourceDefaultCalendarResourceColumn === "ekg"
+          ? "Diese Terminart kann nur in der EKG-Spalte gebucht werden."
+          : "Diese Terminart kann nur in der Labor-Spalte gebucht werden.";
+
+      return Array.from({ length: totalSlots }, (_, slot) => ({
+        blocksPlacementStartOnly: true,
+        canOverride: false,
+        column: column.id,
+        reason,
+        slot,
+      }));
+    });
+  }, [columns, resourceDefaultCalendarResourceColumn, totalSlots]);
+
   return {
     baseAppointmentTypeUnavailableBlockedSlots: createBlockedSlotsForColumns(
       "Behandler nicht für Terminart freigegeben",
@@ -546,6 +574,7 @@ export function useCalendarBlockedSlotProjection({
       (column) => column.isUnavailable === true,
     ),
     baseVacationBlockedSlots,
+    resourceDefaultWrongColumnBlockedSlots,
     serverAppointmentSeriesRootBlockedSlots,
   };
 }

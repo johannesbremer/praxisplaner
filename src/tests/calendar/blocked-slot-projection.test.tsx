@@ -64,6 +64,7 @@ describe("useCalendarBlockedSlotProjection", () => {
       startTime: string;
       status: string;
     }[];
+    resourceDefaultCalendarResourceColumn?: "ekg" | "labor";
     slots?: {
       practitionerLineageKey?: typeof practitionerLineageKey;
       reason?: string;
@@ -96,6 +97,8 @@ describe("useCalendarBlockedSlotProjection", () => {
         practitionerLineageKeyById: new Map([
           [practitionerId, practitionerLineageKey],
         ]),
+        resourceDefaultCalendarResourceColumn:
+          args.resourceDefaultCalendarResourceColumn,
         selectedDate,
         selectedLocationId: locationId,
         simulatedContext: undefined,
@@ -141,6 +144,7 @@ describe("useCalendarBlockedSlotProjection", () => {
         getPractitionerIdForLineageKey: noPractitionerIdForLineageKey,
         locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
         practitionerLineageKeyById: new Map(),
+        resourceDefaultCalendarResourceColumn: undefined,
         selectedDate: Temporal.PlainDate.from("2026-04-24"),
         selectedLocationId: locationId,
         simulatedContext: undefined,
@@ -284,6 +288,38 @@ describe("useCalendarBlockedSlotProjection", () => {
     });
 
     expect(result.current.serverAppointmentSeriesRootBlockedSlots).toEqual([]);
+  });
+
+  it("blocks non-default columns for resource-default appointment types", () => {
+    const ekgColumn = calendarColumnScopeFromResourceColumn("ekg");
+    const laborColumn = calendarColumnScopeFromResourceColumn("labor");
+    const { result } = renderProjection({
+      appointmentTypeSelected: true,
+      resourceDefaultCalendarResourceColumn: "ekg",
+    });
+
+    expect(
+      result.current.resourceDefaultWrongColumnBlockedSlots.filter((slot) =>
+        sameCalendarColumnScope(slot.column, ekgColumn),
+      ),
+    ).toEqual([]);
+    expect(
+      result.current.resourceDefaultWrongColumnBlockedSlots.filter((slot) =>
+        sameCalendarColumnScope(slot.column, practitionerColumn),
+      ),
+    ).toHaveLength(108);
+    expect(
+      result.current.resourceDefaultWrongColumnBlockedSlots.filter((slot) =>
+        sameCalendarColumnScope(slot.column, laborColumn),
+      ),
+    ).toHaveLength(108);
+    expect(result.current.resourceDefaultWrongColumnBlockedSlots[0]).toEqual({
+      blocksPlacementStartOnly: true,
+      canOverride: false,
+      column: practitionerColumn,
+      reason: "Diese Terminart kann nur in der EKG-Spalte gebucht werden.",
+      slot: 0,
+    });
   });
 
   it("uses server planner blocks instead of pending candidates after results arrive", () => {

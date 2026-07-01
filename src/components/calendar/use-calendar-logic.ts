@@ -347,6 +347,14 @@ export function useCalendarLogic({
       ? selectedLocationId
       : (getLocationIdForLineageKey(simulatedContext.locationLineageKey) ??
         selectedLocationId);
+  const placementAppointmentTypeInfo =
+    placementAppointmentTypeLineageKey === undefined
+      ? undefined
+      : appointmentTypeInfoByLineageKey.get(placementAppointmentTypeLineageKey);
+  const placementResourceDefaultColumn =
+    placementAppointmentTypeInfo?.defaultOccupancy.kind === "resourceColumn"
+      ? placementAppointmentTypeInfo.defaultOccupancy.calendarResourceColumn
+      : undefined;
   const getUnsupportedPractitionerIdsForAppointmentType = useCallback(
     (
       appointmentTypeLineageKey: AppointmentTypeLineageKey | undefined,
@@ -630,6 +638,7 @@ export function useCalendarLogic({
     baseManualBlockedSlots,
     baseUnavailablePractitionerBlockedSlots,
     baseVacationBlockedSlots,
+    resourceDefaultWrongColumnBlockedSlots,
     serverAppointmentSeriesRootBlockedSlots,
   } = useCalendarBlockedSlotProjection({
     appointmentsData,
@@ -644,6 +653,7 @@ export function useCalendarLogic({
     getPractitionerIdForLineageKey,
     locationLineageKeyById,
     practitionerLineageKeyById,
+    resourceDefaultCalendarResourceColumn: placementResourceDefaultColumn,
     selectedDate,
     selectedLocationId,
     simulatedContext,
@@ -807,6 +817,7 @@ export function useCalendarLogic({
     () => [
       ...baseBlockedSlots,
       ...baseBreakSlots,
+      ...resourceDefaultWrongColumnBlockedSlots,
       ...serverAppointmentSeriesRootBlockedSlots,
       ...baseAppointmentTypeUnavailableBlockedSlots,
       ...baseDragDisabledPractitionerBlockedSlots,
@@ -819,6 +830,7 @@ export function useCalendarLogic({
       serverAppointmentSeriesRootBlockedSlots,
       baseBlockedSlots,
       baseBreakSlots,
+      resourceDefaultWrongColumnBlockedSlots,
       baseDragDisabledPractitionerBlockedSlots,
       baseUnavailablePractitionerBlockedSlots,
       baseVacationBlockedSlots,
