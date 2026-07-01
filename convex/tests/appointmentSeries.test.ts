@@ -6446,6 +6446,19 @@ describe("appointment series", () => {
         .collect();
     });
     expect(restoredAppointments).toHaveLength(2);
+
+    await t.mutation(api.appointments.deleteAppointment, {
+      id: restoredSeries.rootAppointmentId,
+    });
+
+    await expect(
+      t.mutation(api.appointments.restoreAppointmentSeriesSnapshot, {
+        seriesId: createdSeries.seriesId,
+        snapshotId: storedSnapshot._id,
+      }),
+    ).resolves.toMatchObject({
+      seriesId: createdSeries.seriesId,
+    });
   });
 
   test("restoreAppointmentSeriesSnapshot ignores cancelled snapshot appointments when checking occupancy", async () => {

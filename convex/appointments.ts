@@ -4315,11 +4315,6 @@ export const restoreAppointmentSeriesSnapshot = mutation({
       seriesId: series.seriesId,
       ...(series.userId === undefined ? {} : { userId: series.userId }),
     });
-    await ctx.db.delete(
-      "appointmentSeriesRestoreSnapshots",
-      storedSnapshot._id,
-    );
-
     const restoredSeriesAppointments = await getSeriesAppointments(
       ctx.db,
       series.seriesId,
