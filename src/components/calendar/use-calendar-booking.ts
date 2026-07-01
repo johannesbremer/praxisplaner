@@ -28,6 +28,7 @@ export type CalendarAppointmentCreateResult =
     };
 
 interface CreateAppointmentArgs {
+  allowPlannerRuleOverride?: boolean;
   appointmentTypeId: Id<"appointmentTypes">;
   isNewPatient: boolean;
   isSimulation: boolean;
@@ -43,6 +44,7 @@ interface CreateAppointmentArgs {
 }
 
 export function buildCalendarAppointmentRequest(args: {
+  allowPlannerRuleOverride?: boolean;
   appointmentTypeId: Id<"appointmentTypes"> | undefined;
   appointmentTypeLineageKey: Id<"appointmentTypes"> | undefined;
   appointmentTypeName: string | undefined;
@@ -134,6 +136,9 @@ export function buildCalendarAppointmentRequest(args: {
   return {
     kind: "ok",
     request: {
+      ...(args.allowPlannerRuleOverride === undefined
+        ? {}
+        : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
       appointmentTypeId: args.appointmentTypeId,
       isNewPatient: args.isNewPatient,
       isSimulation: args.mode === "simulation",

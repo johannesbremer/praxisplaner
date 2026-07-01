@@ -37,6 +37,16 @@ import {
   getAppointmentPractitionerLineageKey,
 } from "./appointmentOccupancy";
 import {
+  type AppointmentPlan,
+  appointmentPlanValidator,
+  type AppointmentTypeDefaultOccupancy,
+  appointmentTypeDefaultOccupancyValidator,
+  hasAppointmentPlan,
+  normalizeDefaultOccupancy,
+  validateAppointmentPlan,
+  validateDefaultOccupancy,
+} from "./appointmentPlans";
+import {
   resolveLocationLineageKey,
   resolvePractitionerLineageKey,
   resolveStoredAppointmentReferencesForWrite,
@@ -68,11 +78,6 @@ import {
   restorePractitionerWithDependenciesResultValidator,
   ruleResultValidator,
 } from "./entities.validators";
-import {
-  type FollowUpPlan,
-  followUpStepValidator,
-  validateFollowUpPlan,
-} from "./followUpPlans";
 import {
   type AppointmentTypeLineageKey,
   asAppointmentTypeLineageKey,
@@ -461,6 +466,137 @@ async function resolveBaseScheduleDisplayReferences(params: {
     practitionerId,
     practitionerLineageKey: params.practitionerLineageKey,
   };
+}
+
+async function validateAppointmentPlansReferencingTargetDuration(
+  db: GenericDatabaseReader<DataModel>,
+  args: {
+    currentAppointmentTypeId: Id<"appointmentTypes">;
+    currentAppointmentTypeLineageKey: AppointmentTypeLineageKey;
+    nextDuration: number;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const appointmentTypes = await db
+    .query("appointmentTypes")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+    .collect();
+  const targetDurationOverrides = new Map<AppointmentTypeLineageKey, number>([
+    [args.currentAppointmentTypeLineageKey, args.nextDuration],
+  ]);
+
+  for (const appointmentType of appointmentTypes) {
+    if (
+      appointmentType._id === args.currentAppointmentTypeId ||
+      isDeletedRuleSetEntity(appointmentType) ||
+      !hasAppointmentPlan(appointmentType)
+    ) {
+      continue;
+    }
+
+    const referencesUpdatedType = appointmentType.appointmentPlan.steps.some(
+      (step) =>
+        step.appointmentTypeLineageKey ===
+        args.currentAppointmentTypeLineageKey,
+    );
+    if (!referencesUpdatedType) {
+      continue;
+    }
+
+    await validateAppointmentPlan(
+      db,
+      args.ruleSetId,
+      appointmentType.appointmentPlan,
+      requireAppointmentTypeLineageKey(appointmentType),
+      validateDefaultOccupancy(appointmentType.defaultOccupancy),
+      targetDurationOverrides,
+    );
+  }
+}
+
+async function validateNoAppointmentPlansReferenceChainTarget(
+  db: GenericDatabaseReader<DataModel>,
+  args: {
+    currentAppointmentTypeId: Id<"appointmentTypes">;
+    currentAppointmentTypeLineageKey: AppointmentTypeLineageKey;
+    nextHasAppointmentPlan: boolean;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  if (!args.nextHasAppointmentPlan) {
+    return;
+  }
+
+  await validateNoAppointmentPlansReferenceTarget(db, {
+    currentAppointmentTypeId: args.currentAppointmentTypeId,
+    currentAppointmentTypeLineageKey: args.currentAppointmentTypeLineageKey,
+    message: `Terminart ${args.currentAppointmentTypeLineageKey} wird bereits als Kettentermin-Schritt verwendet und darf deshalb nicht selbst ein Kettentermin sein.`,
+    ruleSetId: args.ruleSetId,
+  });
+}
+
+async function validateNoAppointmentPlansReferenceTarget(
+  db: GenericDatabaseReader<DataModel>,
+  args: {
+    currentAppointmentTypeId: Id<"appointmentTypes">;
+    currentAppointmentTypeLineageKey: AppointmentTypeLineageKey;
+    message: string;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  await validateNoAppointmentPlansReferenceTargets(db, {
+    excludedReferencingAppointmentTypeIds: new Set([
+      args.currentAppointmentTypeId,
+    ]),
+    message: () => args.message,
+    ruleSetId: args.ruleSetId,
+    targetLineageKeys: new Set([args.currentAppointmentTypeLineageKey]),
+  });
+}
+
+async function validateNoAppointmentPlansReferenceTargets(
+  db: GenericDatabaseReader<DataModel>,
+  args: {
+    excludedReferencingAppointmentTypeIds: ReadonlySet<Id<"appointmentTypes">>;
+    message: (
+      targetLineageKey: AppointmentTypeLineageKey,
+      referencingAppointmentType: Doc<"appointmentTypes">,
+    ) => string;
+    ruleSetId: Id<"ruleSets">;
+    targetLineageKeys: ReadonlySet<AppointmentTypeLineageKey>;
+  },
+) {
+  const appointmentTypes = await db
+    .query("appointmentTypes")
+    .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", args.ruleSetId))
+    .collect();
+
+  for (const appointmentType of appointmentTypes) {
+    if (
+      args.excludedReferencingAppointmentTypeIds.has(appointmentType._id) ||
+      isDeletedRuleSetEntity(appointmentType) ||
+      !hasAppointmentPlan(appointmentType)
+    ) {
+      continue;
+    }
+
+    const referencedTarget = appointmentType.appointmentPlan.steps.find(
+      (step) =>
+        args.targetLineageKeys.has(
+          asAppointmentTypeLineageKey(step.appointmentTypeLineageKey),
+        ),
+    );
+    if (referencedTarget === undefined) {
+      continue;
+    }
+
+    throw new Error(
+      args.message(
+        asAppointmentTypeLineageKey(referencedTarget.appointmentTypeLineageKey),
+        appointmentType,
+      ),
+    );
+  }
 }
 
 /**
@@ -914,10 +1050,11 @@ async function resolvePractitionerLineageKeys(
  */
 export const createAppointmentType = mutation({
   args: {
+    appointmentPlan: appointmentPlanValidator,
     color: v.optional(v.union(appointmentColorValidator, v.null())),
+    defaultOccupancy: appointmentTypeDefaultOccupancyValidator,
     duration: v.number(), // duration in minutes
     expectedDraftRevision: expectedDraftRevisionValidator,
-    followUpPlan: v.optional(v.array(followUpStepValidator)),
     lineageKey: v.optional(v.id("appointmentTypes")),
     name: v.string(),
     practiceId: v.id("practices"),
@@ -951,13 +1088,15 @@ export const createAppointmentType = mutation({
             practiceId: args.practiceId,
             ruleSetId,
           });
-    const followUpPlan = await validateFollowUpPlan(
+    const defaultOccupancy = validateDefaultOccupancy(args.defaultOccupancy);
+    const appointmentPlan = await validateAppointmentPlan(
       ctx.db,
       ruleSetId,
-      args.followUpPlan,
+      args.appointmentPlan,
       args.lineageKey
         ? asAppointmentTypeLineageKey(args.lineageKey)
         : undefined,
+      defaultOccupancy,
     );
 
     await assertAppointmentTypeNameIsUniqueInRuleSet(ctx.db, {
@@ -984,6 +1123,13 @@ export const createAppointmentType = mutation({
         );
       }
       if (existingByLineage) {
+        await validateNoAppointmentPlansReferenceChainTarget(ctx.db, {
+          currentAppointmentTypeId: existingByLineage._id,
+          currentAppointmentTypeLineageKey:
+            asAppointmentTypeLineageKey(lineageKey),
+          nextHasAppointmentPlan: appointmentPlan.steps.length > 0,
+          ruleSetId,
+        });
         await verifyEntityInUnsavedRuleSet(
           ctx.db,
           existingByLineage.ruleSetId,
@@ -992,10 +1138,11 @@ export const createAppointmentType = mutation({
         await ctx.db.patch("appointmentTypes", existingByLineage._id, {
           allowedPractitionerLineageKeys:
             normalizedAllowedPractitionerLineageKeys,
+          appointmentPlan,
+          defaultOccupancy,
           deleted: false,
           ...(args.color !== undefined && { color: args.color ?? undefined }),
           duration: args.duration,
-          followUpPlan: followUpPlan ?? [],
           lastModified: BigInt(Date.now()),
           name,
           ...(args.treeFolderId !== undefined && {
@@ -1018,9 +1165,10 @@ export const createAppointmentType = mutation({
       ...(args.color !== undefined && args.color !== null
         ? { color: args.color }
         : {}),
+      appointmentPlan,
       createdAt: BigInt(Date.now()),
+      defaultOccupancy,
       duration: args.duration,
-      ...(followUpPlan && { followUpPlan }),
       lastModified: BigInt(Date.now()),
       ...(args.lineageKey && { lineageKey: args.lineageKey }),
       name,
@@ -1040,11 +1188,12 @@ export const createAppointmentType = mutation({
  */
 export const updateAppointmentType = mutation({
   args: {
+    appointmentPlan: appointmentPlanValidator,
     appointmentTypeId: v.id("appointmentTypes"),
     color: v.optional(v.union(appointmentColorValidator, v.null())),
+    defaultOccupancy: appointmentTypeDefaultOccupancyValidator,
     duration: v.optional(v.number()),
     expectedDraftRevision: expectedDraftRevisionValidator,
-    followUpPlan: v.optional(v.array(followUpStepValidator)),
     name: v.optional(v.string()),
     practiceId: v.id("practices"),
     practitionerIds: v.optional(v.array(v.id("practitioners"))),
@@ -1085,9 +1234,10 @@ export const updateAppointmentType = mutation({
     // Build updates object
     const updates: Partial<{
       allowedPractitionerLineageKeys: PractitionerLineageKey[];
+      appointmentPlan: AppointmentPlan;
       color: AppointmentColor | undefined;
+      defaultOccupancy: AppointmentTypeDefaultOccupancy;
       duration: number;
-      followUpPlan: FollowUpPlan;
       lastModified: bigint;
       name: string;
     }> = {
@@ -1111,16 +1261,36 @@ export const updateAppointmentType = mutation({
       );
       updates.allowedPractitionerLineageKeys = resolved ?? [];
     }
-    if (args.followUpPlan !== undefined) {
-      const validatedFollowUpPlan = await validateFollowUpPlan(
-        ctx.db,
-        ruleSetId,
-        args.followUpPlan,
+    const effectiveDefaultOccupancy = validateDefaultOccupancy(
+      args.defaultOccupancy,
+    );
+    updates.appointmentPlan = await validateAppointmentPlan(
+      ctx.db,
+      ruleSetId,
+      args.appointmentPlan,
+      requireAppointmentTypeLineageKey(appointmentType),
+      effectiveDefaultOccupancy,
+    );
+    updates.defaultOccupancy = effectiveDefaultOccupancy;
+    await validateNoAppointmentPlansReferenceChainTarget(ctx.db, {
+      currentAppointmentTypeId: appointmentType._id,
+      currentAppointmentTypeLineageKey:
         requireAppointmentTypeLineageKey(appointmentType),
-      );
-      updates.followUpPlan = validatedFollowUpPlan ?? [];
+      nextHasAppointmentPlan: updates.appointmentPlan.steps.length > 0,
+      ruleSetId,
+    });
+    if (
+      args.duration !== undefined &&
+      args.duration !== appointmentType.duration
+    ) {
+      await validateAppointmentPlansReferencingTargetDuration(ctx.db, {
+        currentAppointmentTypeId: appointmentType._id,
+        currentAppointmentTypeLineageKey:
+          requireAppointmentTypeLineageKey(appointmentType),
+        nextDuration: args.duration,
+        ruleSetId,
+      });
     }
-
     // SAFETY: Verify entity belongs to unsaved rule set before patching
     await verifyEntityInUnsavedRuleSet(
       ctx.db,
@@ -1191,6 +1361,14 @@ export const deleteAppointmentType = mutation({
         `[LINEAGE:APPOINTMENT_TYPE_ALREADY_DELETED] Terminart ${appointmentType._id} ist in Regelset ${ruleSetId} bereits gelöscht.`,
       );
     }
+
+    await validateNoAppointmentPlansReferenceTarget(ctx.db, {
+      currentAppointmentTypeId: appointmentType._id,
+      currentAppointmentTypeLineageKey:
+        requireAppointmentTypeLineageKey(appointmentType),
+      message: `Terminart ${requireAppointmentTypeLineageKey(appointmentType)} wird als Kettentermin-Schritt verwendet und kann deshalb nicht gelöscht werden.`,
+      ruleSetId,
+    });
 
     // SAFETY: Verify entity belongs to unsaved rule set before deleting
     await verifyEntityInUnsavedRuleSet(
@@ -1264,6 +1442,12 @@ export const getBookingAppointmentTypes = query({
 
     return appointmentTypes
       .filter((appointmentType) => !isDeletedRuleSetEntity(appointmentType))
+      .filter((appointmentType) => !hasAppointmentPlan(appointmentType))
+      .filter(
+        (appointmentType) =>
+          normalizeDefaultOccupancy(appointmentType.defaultOccupancy).kind !==
+          "resourceColumn",
+      )
       .map((appointmentType) => patientFacingAppointmentType(appointmentType));
   },
 });
@@ -1287,31 +1471,9 @@ export const getAppointmentTypeFolders = query({
   },
 });
 
-export const getAppointmentTypeFoldersFromActive = query({
-  args: {
-    practiceId: v.id("practices"),
-  },
-  handler: async (ctx, args) => {
-    await ensureAuthenticatedIdentity(ctx);
-    await requirePracticeStaff(ctx, args.practiceId);
-    const practice = await ctx.db.get("practices", args.practiceId);
-    if (!practice?.currentActiveRuleSetId) {
-      return [];
-    }
-    const ruleSetId = practice.currentActiveRuleSetId;
-
-    const folders = await ctx.db
-      .query("appointmentTypeFolders")
-      .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
-      .collect();
-
-    return folders.filter((folder) => !isDeletedRuleSetEntity(folder));
-  },
-});
-
 export const createAppointmentTypeFolder = mutation({
   args: {
-    color: v.optional(v.union(appointmentColorValidator, v.null())),
+    color: v.optional(appointmentColorValidator),
     expectedDraftRevision: expectedDraftRevisionValidator,
     lineageKey: v.optional(v.id("appointmentTypeFolders")),
     name: v.string(),
@@ -1360,8 +1522,8 @@ export const createAppointmentTypeFolder = mutation({
         }
 
         await ctx.db.patch("appointmentTypeFolders", existingFolder._id, {
+          ...(args.color === undefined ? {} : { color: args.color }),
           deleted: false,
-          ...(args.color !== undefined && { color: args.color ?? undefined }),
           lastModified: BigInt(Date.now()),
           lineageKey: args.lineageKey,
           name,
@@ -1374,9 +1536,7 @@ export const createAppointmentTypeFolder = mutation({
     }
 
     const folderId = await ctx.db.insert("appointmentTypeFolders", {
-      ...(args.color !== undefined && args.color !== null
-        ? { color: args.color }
-        : {}),
+      ...(args.color === undefined ? {} : { color: args.color }),
       createdAt: BigInt(Date.now()),
       lastModified: BigInt(Date.now()),
       ...(args.lineageKey && { lineageKey: args.lineageKey }),
@@ -1457,8 +1617,8 @@ export const updateAppointmentTypeFolder = mutation({
     }
 
     await ctx.db.patch("appointmentTypeFolders", folder._id, {
-      ...(args.color !== undefined && { color: args.color ?? undefined }),
       lastModified: BigInt(Date.now()),
+      ...(args.color !== undefined && { color: args.color ?? undefined }),
       ...(name !== undefined && { name }),
       ...(args.parentFolderId !== undefined && { parentFolderId }),
     });
@@ -1522,6 +1682,27 @@ export const deleteAppointmentTypeFolder = mutation({
         }
       }
     }
+    const appointmentTypesToDelete = appointmentTypes.filter(
+      (appointmentType) =>
+        appointmentType.treeFolderId !== undefined &&
+        folderIdsToDelete.has(appointmentType.treeFolderId) &&
+        !isDeletedRuleSetEntity(appointmentType),
+    );
+    const appointmentTypeIdsToDelete = new Set(
+      appointmentTypesToDelete.map((appointmentType) => appointmentType._id),
+    );
+    const appointmentTypeLineageKeysToDelete = new Set(
+      appointmentTypesToDelete.map((appointmentType) =>
+        requireAppointmentTypeLineageKey(appointmentType),
+      ),
+    );
+    await validateNoAppointmentPlansReferenceTargets(ctx.db, {
+      excludedReferencingAppointmentTypeIds: appointmentTypeIdsToDelete,
+      message: (targetLineageKey) =>
+        `Terminart ${targetLineageKey} wird als Kettentermin-Schritt verwendet und kann deshalb nicht gelöscht werden.`,
+      ruleSetId,
+      targetLineageKeys: appointmentTypeLineageKeysToDelete,
+    });
 
     const now = BigInt(Date.now());
     await Promise.all([
@@ -1537,19 +1718,12 @@ export const deleteAppointmentTypeFolder = mutation({
             lastModified: now,
           }),
         ),
-      ...appointmentTypes
-        .filter(
-          (appointmentType) =>
-            appointmentType.treeFolderId !== undefined &&
-            folderIdsToDelete.has(appointmentType.treeFolderId) &&
-            !isDeletedRuleSetEntity(appointmentType),
-        )
-        .map((appointmentType) =>
-          ctx.db.patch("appointmentTypes", appointmentType._id, {
-            deleted: true,
-            lastModified: now,
-          }),
-        ),
+      ...appointmentTypesToDelete.map((appointmentType) =>
+        ctx.db.patch("appointmentTypes", appointmentType._id, {
+          deleted: true,
+          lastModified: now,
+        }),
+      ),
     ]);
 
     const draftRevision = await finalizeDraftMutation(ctx.db, ruleSetId);
@@ -1977,13 +2151,11 @@ export const deletePractitionerWithDependencies = mutation({
       .collect();
 
     const appointmentTypePatches: {
-      action: "delete" | "patch";
+      action: "patch";
       afterAllowedPractitionerLineageKeys: PractitionerLineageKey[];
       appointmentTypeId: Id<"appointmentTypes">;
       beforeAllowedPractitionerLineageKeys: PractitionerLineageKey[];
-      duration?: number;
       lineageKey: AppointmentTypeLineageKey;
-      name?: string;
     }[] = appointmentTypes
       .filter((appointmentType) =>
         appointmentType.allowedPractitionerLineageKeys.includes(
@@ -1998,19 +2170,15 @@ export const deletePractitionerWithDependencies = mutation({
                 lineageKey !== requirePractitionerLineageKey(practitioner),
             )
             .map((lineageKey) => asPractitionerLineageKey(lineageKey));
-        const action: "delete" | "patch" = "patch";
-
         return {
-          action,
+          action: "patch" as const,
           afterAllowedPractitionerLineageKeys,
           appointmentTypeId: appointmentType._id,
           beforeAllowedPractitionerLineageKeys:
             appointmentType.allowedPractitionerLineageKeys.map((lineageKey) =>
               asPractitionerLineageKey(lineageKey),
             ),
-          duration: appointmentType.duration,
           lineageKey: requireAppointmentTypeLineageKey(appointmentType),
-          name: appointmentType.name,
         };
       });
 
@@ -2245,53 +2413,6 @@ export const restorePractitionerWithDependencies = mutation({
           q.eq("ruleSetId", ruleSetId).eq("lineageKey", patch.lineageKey),
         )
         .first();
-
-      if (patch.action === "delete") {
-        const patchName = patch.name;
-        if (!patchName) {
-          throw new Error(
-            "Gelöschte Terminart konnte nicht wiederhergestellt werden (fehlender Name).",
-          );
-        }
-        const patchDuration = patch.duration;
-        if (patchDuration === undefined) {
-          throw new Error(
-            "Gelöschte Terminart konnte nicht wiederhergestellt werden (fehlende Dauer).",
-          );
-        }
-
-        if (existingByLineage) {
-          const mergedAllowedPractitionerLineageKeys = [
-            ...new Set<PractitionerLineageKey>([
-              ...existingByLineage.allowedPractitionerLineageKeys.map(
-                (lineageKey) => asPractitionerLineageKey(lineageKey),
-              ),
-              ...restoredAllowedPractitionerLineageKeys,
-            ]),
-          ];
-          await ctx.db.patch("appointmentTypes", existingByLineage._id, {
-            allowedPractitionerLineageKeys:
-              mergedAllowedPractitionerLineageKeys,
-            duration: patchDuration,
-            lastModified: now,
-            name: patchName,
-          });
-          continue;
-        }
-
-        await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
-          allowedPractitionerLineageKeys:
-            restoredAllowedPractitionerLineageKeys,
-          createdAt: now,
-          duration: patchDuration,
-          lastModified: now,
-          lineageKey: patch.lineageKey,
-          name: patchName,
-          practiceId: args.practiceId,
-          ruleSetId,
-        });
-        continue;
-      }
 
       if (!existingByLineage) {
         throw new Error(

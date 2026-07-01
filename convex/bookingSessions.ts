@@ -7,11 +7,18 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import {
+  hasAppointmentPlan,
+  normalizeDefaultOccupancy,
+} from "./appointmentPlans";
+import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
   resolvePractitionerIdForRuleSetByLineage,
 } from "./appointmentReferences";
-import { createAppointmentFromTrustedSource } from "./appointments";
+import {
+  createAppointmentFromTrustedSource,
+  rootAppointmentIdFromCreateEffect,
+} from "./appointments";
 import {
   APPOINTMENT_TIMEZONE,
   type BookingFlowKey,
@@ -1744,6 +1751,20 @@ async function requireOfferedPatientSlot(
   }
 }
 
+function requirePatientFacingSingleAppointmentType(
+  appointmentType: Doc<"appointmentTypes">,
+): void {
+  if (
+    hasAppointmentPlan(appointmentType) ||
+    normalizeDefaultOccupancy(appointmentType.defaultOccupancy).kind ===
+      "resourceColumn"
+  ) {
+    throw new Error(
+      "Diese Terminart ist online nicht buchbar. Bitte wenden Sie sich telefonisch an die Praxis.",
+    );
+  }
+}
+
 function requireSelectableRuleSetEntity<
   T extends {
     deleted?: boolean;
@@ -2621,6 +2642,7 @@ export const selectNewPatientSlot = mutation({
       entityLabel: "Terminart",
       expectedRuleSetId: flowKey.ruleSetId,
     });
+    requirePatientFacingSingleAppointmentType(appointmentType);
     await assertSlotAllowedByRules(ctx, {
       appointmentTypeId,
       locationLineageKey: asLocationLineageKey(
@@ -2657,7 +2679,7 @@ export const selectNewPatientSlot = mutation({
       }),
     ]);
 
-    const appointmentId = await createAppointmentFromTrustedSource(ctx, {
+    const appointmentEffect = await createAppointmentFromTrustedSource(ctx, {
       allowUnrelatedUserId: true,
       appointmentTypeId,
       isNewPatient: true,
@@ -2669,6 +2691,7 @@ export const selectNewPatientSlot = mutation({
       title: `Online-Termin: ${appointmentType.name}`,
       userId: flowKey.userId,
     });
+    const appointmentId = rootAppointmentIdFromCreateEffect(appointmentEffect);
     return { appointmentId };
   },
   returns: v.object({
@@ -2725,6 +2748,7 @@ export const selectExistingPatientSlot = mutation({
       entityLabel: "Terminart",
       expectedRuleSetId: flowKey.ruleSetId,
     });
+    requirePatientFacingSingleAppointmentType(appointmentType);
     await assertSlotAllowedByRules(ctx, {
       appointmentTypeId,
       locationLineageKey: asLocationLineageKey(
@@ -2765,7 +2789,7 @@ export const selectExistingPatientSlot = mutation({
       }),
     ]);
 
-    const appointmentId = await createAppointmentFromTrustedSource(ctx, {
+    const appointmentEffect = await createAppointmentFromTrustedSource(ctx, {
       allowUnrelatedUserId: true,
       appointmentTypeId,
       isNewPatient: false,
@@ -2777,6 +2801,7 @@ export const selectExistingPatientSlot = mutation({
       title: `Online-Termin: ${appointmentType.name}`,
       userId: flowKey.userId,
     });
+    const appointmentId = rootAppointmentIdFromCreateEffect(appointmentEffect);
     return { appointmentId };
   },
   returns: v.object({

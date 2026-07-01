@@ -95,13 +95,17 @@ export async function findConflictingCalendarOccupancy(
       )
       .collect(),
   ]);
+  const appointments = await loadAppointmentsForOccupancyView(db, {
+    ...(args.draftRuleSetId === undefined
+      ? {}
+      : { draftRuleSetId: args.draftRuleSetId }),
+    localAppointments: rawAppointments,
+    occupancyView: args.occupancyView,
+    practiceId: args.practiceId,
+  });
 
   return findFirstCalendarOccupancyConflict({
-    appointments: getEffectiveAppointmentsForOccupancyView(
-      rawAppointments,
-      args.occupancyView,
-      args.draftRuleSetId,
-    ),
+    appointments,
     blockedSlots: getEffectiveBlockedSlotsForOccupancyView(
       rawBlockedSlots,
       args.occupancyView,
@@ -143,10 +147,27 @@ export function getEffectiveAppointmentsForOccupancyView(
       .map((appointment) => appointment.replacesAppointmentId)
       .filter(Boolean),
   );
+  const appointmentsById = new Map(
+    visibleAppointments.map((appointment) => [appointment._id, appointment]),
+  );
+  const replacedSeriesIds = new Set<string>();
+  for (const simulationAppointment of simulationAppointments) {
+    const replacedAppointmentId = simulationAppointment.replacesAppointmentId;
+    if (replacedAppointmentId === undefined) {
+      continue;
+    }
+    const replacedAppointment = appointmentsById.get(replacedAppointmentId);
+    if (isWholeSeriesReplacement(simulationAppointment, replacedAppointment)) {
+      replacedSeriesIds.add(replacedAppointment.seriesId);
+    }
+  }
 
   const realAppointments = visibleAppointments.filter(
     (appointment) =>
-      appointment.isSimulation !== true && !replacedIds.has(appointment._id),
+      appointment.isSimulation !== true &&
+      !replacedIds.has(appointment._id) &&
+      (appointment.seriesId === undefined ||
+        !replacedSeriesIds.has(appointment.seriesId)),
   );
 
   return [...realAppointments, ...simulationAppointments].toSorted((a, b) =>
@@ -158,6 +179,16 @@ export function getOccupancyViewForBookingScope(
   scope: AppointmentBookingScope,
 ): AppointmentOccupancyView {
   return scope === "simulation" ? "draftEffective" : "live";
+}
+
+function dedupeAppointmentsById(
+  appointments: Doc<"appointments">[],
+): Doc<"appointments">[] {
+  return [
+    ...new Map(
+      appointments.map((appointment) => [appointment._id, appointment]),
+    ).values(),
+  ];
 }
 
 function findFirstCalendarOccupancyConflict(args: {
@@ -244,6 +275,75 @@ function getEffectiveBlockedSlotsForOccupancyView(
 
   return [...realBlockedSlots, ...simulationBlockedSlots].toSorted((a, b) =>
     a.start.localeCompare(b.start),
+  );
+}
+
+function isWholeSeriesReplacement(
+  simulationAppointment: Doc<"appointments">,
+  replacedAppointment: Doc<"appointments"> | undefined,
+): replacedAppointment is Doc<"appointments"> & { seriesId: string } {
+  return (
+    simulationAppointment.isSimulation === true &&
+    simulationAppointment.replacesAppointmentId !== undefined &&
+    simulationAppointment.seriesId !== undefined &&
+    replacedAppointment?.seriesId !== undefined &&
+    replacedAppointment.seriesStepIndex === 0n &&
+    simulationAppointment.seriesId !== replacedAppointment.seriesId
+  );
+}
+
+async function loadAppointmentsForOccupancyView(
+  db: DatabaseLike,
+  args: {
+    draftRuleSetId?: Id<"ruleSets">;
+    localAppointments: Doc<"appointments">[];
+    occupancyView: AppointmentOccupancyView;
+    practiceId: Id<"practices">;
+  },
+): Promise<Doc<"appointments">[]> {
+  if (args.occupancyView === "live") {
+    return getEffectiveAppointmentsForOccupancyView(
+      args.localAppointments,
+      args.occupancyView,
+      args.draftRuleSetId,
+    );
+  }
+
+  const rawSimulationAppointments = await db
+    .query("appointments")
+    .withIndex("by_practiceId_isSimulation", (q) =>
+      q.eq("practiceId", args.practiceId).eq("isSimulation", true),
+    )
+    .collect();
+  const simulationAppointments = rawSimulationAppointments.filter(
+    (appointment) =>
+      args.draftRuleSetId === undefined ||
+      appointment.simulationRuleSetId === args.draftRuleSetId,
+  );
+  const rawReplacedAppointments = await Promise.all(
+    simulationAppointments.map(async (appointment) => {
+      const replacedAppointmentId = appointment.replacesAppointmentId;
+      if (replacedAppointmentId === undefined) {
+        return null;
+      }
+      return await db.get("appointments", replacedAppointmentId);
+    }),
+  );
+  const replacedAppointments: Doc<"appointments">[] = [];
+  for (const appointment of rawReplacedAppointments) {
+    if (appointment !== null) {
+      replacedAppointments.push(appointment);
+    }
+  }
+
+  return getEffectiveAppointmentsForOccupancyView(
+    dedupeAppointmentsById([
+      ...args.localAppointments,
+      ...simulationAppointments,
+      ...replacedAppointments,
+    ]),
+    args.occupancyView,
+    args.draftRuleSetId,
   );
 }
 

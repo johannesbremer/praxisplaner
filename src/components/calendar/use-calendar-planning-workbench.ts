@@ -1,4 +1,4 @@
-import type { FunctionArgs } from "convex/server";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 
 import { useConvex, useMutation } from "convex/react";
 import { useCallback, useEffect, useRef } from "react";
@@ -14,7 +14,10 @@ import type {
 import type { AppointmentColor } from "../../../convex/schema";
 import type { ZonedDateTimeString } from "../../../convex/typedDtos";
 import type { LedgerOperation } from "../../utils/command-ledger";
-import type { CalendarPlanningCommand } from "./calendar-planning-command";
+import type {
+  AppointmentState,
+  CalendarPlanningCommand,
+} from "./calendar-planning-command";
 import type { CalendarDayQueryArgs } from "./calendar-query-args";
 import type { CalendarReferenceMaps } from "./calendar-reference-adapters";
 import type {
@@ -26,6 +29,11 @@ import type {
 } from "./types";
 
 import { api } from "../../../convex/_generated/api";
+import {
+  asAppointmentTypeLineageKey,
+  asLocationLineageKey,
+  asPractitionerLineageKey,
+} from "../../../convex/identity";
 import {
   createCalendarPlacement,
   getCalendarResourceColumnFromOccupancy,
@@ -76,6 +84,7 @@ import {
 } from "./calendar-reference-adapters";
 import {
   toCalendarAppointmentRecord,
+  toCalendarAppointmentRecordFromServerLedger,
   toCalendarAppointmentResult,
   toCalendarBlockedSlotRecord,
   toCalendarBlockedSlotResult,
@@ -84,6 +93,18 @@ import { useCalendarPlanningHistory } from "./use-calendar-planning-history";
 
 const appointmentQueryRef = api.appointments.getCalendarDayAppointments;
 const blockedSlotQueryRef = api.appointments.getCalendarDayBlockedSlots;
+
+export type OptimisticAppointmentSeriesBlueprint = NonNullable<
+  StaffPlacementCandidateSlotDecision["seriesBlueprint"]
+>;
+
+export type StaffPlacementCandidateSlotDecision = FunctionReturnType<
+  typeof api.appointments.getCandidateSlotDecisionsForStaffPlacement
+>[number];
+
+type CalendarDayAppointmentResult = FunctionReturnType<
+  typeof api.appointments.getCalendarDayAppointments
+>[number];
 
 export const resolveCurrentAliasId = <TId extends string>(
   aliasesByOriginalId: ReadonlyMap<TId, TId>,
@@ -159,7 +180,7 @@ interface AppointmentCandidate {
 interface AppointmentTypeInfo {
   color: AppointmentColor;
   duration: number;
-  hasFollowUpPlan: boolean;
+  hasAppointmentPlan: boolean;
   name: string;
 }
 
@@ -180,6 +201,7 @@ type CalendarAppointmentCreateCommandBase = AppointmentOwnerRefs &
     | "practitionerId"
     | "replacesAppointmentId"
   > & {
+    optimisticSeriesBlueprint?: OptimisticAppointmentSeriesBlueprint;
     placement: CalendarAppointmentPlacement;
   };
 
@@ -240,28 +262,16 @@ const blockedSlotHistoryMatchesQuery = (
 const clearQueuedAppointmentUpdate = () => void 0;
 const clearQueuedBlockedSlotUpdate = () => void 0;
 
-interface CalendarRecordRef<T> {
-  current: T;
-}
-
-type CreateAppointmentMutationArgs = FunctionArgs<
+type AppointmentLedgerEffect = FunctionReturnType<
   typeof api.appointments.createAppointment
 >;
 
-interface CreatedAppointmentHistoryArgs extends AppointmentOwnerRefs {
-  appointmentId: Id<"appointments">;
-  appointmentTypeLineageKey: AppointmentTypeLineageKey;
-  appointmentTypeTitle: string;
-  color: AppointmentColor;
-  end: CalendarAppointmentRecord["end"];
-  isSimulation: boolean;
-  now: number;
-  placement: CalendarAppointmentPlacement;
-  practiceId: Id<"practices">;
-  replacesAppointmentId?: Id<"appointments">;
-  start: CalendarAppointmentRecord["start"];
-  title: string;
+interface CalendarRecordRef<T> {
+  current: T;
 }
+type CreateAppointmentMutationArgs = FunctionArgs<
+  typeof api.appointments.createAppointment
+>;
 
 interface CreatedBlockedSlotHistoryArgs {
   blockedSlotId: Id<"blockedSlots">;
@@ -274,6 +284,15 @@ interface CreatedBlockedSlotHistoryArgs {
   start: CalendarBlockedSlotRecord["start"];
   title: string;
 }
+
+const appointmentStateFromRecord = (
+  appointment: CalendarAppointmentRecord,
+): AppointmentState => ({
+  end: appointment.end,
+  placement: appointment.placement,
+  start: appointment.start,
+  ...(appointment.smiley === undefined ? {} : { smiley: appointment.smiley }),
+});
 
 interface OptimisticAppointmentUpdateArgs {
   appointmentTypeId?: Id<"appointmentTypes">;
@@ -349,7 +368,6 @@ export function useCalendarPlanningWorkbench(args: {
   referenceMaps: CalendarReferenceMaps;
   refreshAllPracticeConflictData: () => Promise<void>;
 }) {
-  const convex = useConvex();
   const {
     blockedSlotsQueryArgs,
     calendarDayQueryArgs,
@@ -546,27 +564,18 @@ export function useCalendarPlanningWorkbench(args: {
     [],
   );
 
-  const rememberCreatedAppointmentHistoryDoc = useCallback(
-    (args: CreatedAppointmentHistoryArgs) => {
-      rememberAppointmentHistoryDoc({
-        _creationTime: args.now,
-        _id: args.appointmentId,
-        appointmentTypeLineageKey: args.appointmentTypeLineageKey,
-        appointmentTypeTitle: args.appointmentTypeTitle,
-        ...getAppointmentOwnerRefs(args),
-        color: args.color,
-        createdAt: BigInt(args.now),
-        end: args.end,
-        isSimulation: args.isSimulation,
-        lastModified: BigInt(args.now),
-        placement: args.placement,
-        practiceId: args.practiceId,
-        ...(args.replacesAppointmentId === undefined
-          ? {}
-          : { replacesAppointmentId: args.replacesAppointmentId }),
-        start: args.start,
-        title: args.title,
-      });
+  const rememberServerAppointmentSeriesHistoryDocs = useCallback(
+    (
+      appointments: Extract<
+        AppointmentLedgerEffect,
+        { kind: "appointmentSeries.created" }
+      >["series"]["appointments"],
+    ) => {
+      for (const appointment of appointments) {
+        rememberAppointmentHistoryDoc(
+          toCalendarAppointmentRecordFromServerLedger(appointment),
+        );
+      }
     },
     [rememberAppointmentHistoryDoc],
   );
@@ -575,6 +584,20 @@ export function useCalendarPlanningWorkbench(args: {
     deletedAppointmentIdsRef.current.add(id);
     appointmentHistoryDocMapRef.current.delete(id);
   }, []);
+
+  const forgetServerAppointmentSeriesHistoryDocs = useCallback(
+    (
+      appointments: Extract<
+        AppointmentLedgerEffect,
+        { kind: "appointmentSeries.created" }
+      >["series"]["appointments"],
+    ) => {
+      for (const appointment of appointments) {
+        forgetAppointmentHistoryDoc(appointment._id);
+      }
+    },
+    [forgetAppointmentHistoryDoc],
+  );
 
   const rememberBlockedSlotHistoryDoc = useCallback(
     (blockedSlot: CalendarBlockedSlotRecord) => {
@@ -619,7 +642,11 @@ export function useCalendarPlanningWorkbench(args: {
   );
 
   const hasAppointmentConflict = useCallback(
-    (candidate: AppointmentCandidate, excludeId?: Id<"appointments">) => {
+    (
+      candidate: AppointmentCandidate,
+      excludeId?: Id<"appointments">,
+      excludeIds?: ReadonlySet<Id<"appointments">>,
+    ) => {
       return hasCalendarOccupancyConflictInRecords({
         appointments: mergeCurrentConflictRecordsByIdExcluding({
           allPracticeMap: args.allPracticeAppointmentMapRef.current,
@@ -633,6 +660,7 @@ export function useCalendarPlanningWorkbench(args: {
         }),
         candidate,
         ...(excludeId === undefined ? {} : { excludeId }),
+        ...(excludeIds === undefined ? {} : { excludeIds }),
         toEpochMilliseconds,
       });
     },
@@ -707,64 +735,6 @@ export function useCalendarPlanningWorkbench(args: {
     [],
   );
 
-  const rememberCreatedAppointmentFromStrings = useCallback(
-    (
-      createdArgs: AppointmentOwnerRefs & {
-        appointmentTypeLineageKey: AppointmentTypeLineageKey;
-        appointmentTypeTitle: string;
-        color: AppointmentColor;
-        createdId: Id<"appointments">;
-        createEnd: string;
-        createStart: string;
-        isSimulation: boolean;
-        placement: CalendarAppointmentPlacement;
-        practiceId: Id<"practices">;
-        replacesAppointmentId?: Id<"appointments">;
-        title: string;
-      },
-    ): boolean => {
-      const start = parseZonedDateTime(
-        createdArgs.createStart,
-        "useCalendarPlanningWorkbench.rememberCreatedAppointmentFromStrings.start",
-      );
-      const end = parseZonedDateTime(
-        createdArgs.createEnd,
-        "useCalendarPlanningWorkbench.rememberCreatedAppointmentFromStrings.end",
-      );
-      if (!start || !end) {
-        return false;
-      }
-
-      rememberCreatedAppointmentHistoryDoc({
-        appointmentId: createdArgs.createdId,
-        appointmentTypeLineageKey: createdArgs.appointmentTypeLineageKey,
-        appointmentTypeTitle: createdArgs.appointmentTypeTitle,
-        color: createdArgs.color,
-        ...getAppointmentOwnerRefs(createdArgs),
-        end,
-        isSimulation: createdArgs.isSimulation,
-        now: Date.now(),
-        placement: createdArgs.placement,
-        practiceId: createdArgs.practiceId,
-        ...(createdArgs.replacesAppointmentId === undefined
-          ? {}
-          : { replacesAppointmentId: createdArgs.replacesAppointmentId }),
-        start,
-        title: createdArgs.title,
-      });
-      return true;
-    },
-    [parseZonedDateTime, rememberCreatedAppointmentHistoryDoc],
-  );
-
-  const getAppointmentColor = useCallback(
-    async (appointmentId: Id<"appointments">) =>
-      await convex.query(api.appointments.getAppointmentColor, {
-        appointmentId,
-      }),
-    [convex],
-  );
-
   const getBlockedSlotEditorData = useCallback(
     (
       blockedSlotId: string,
@@ -829,6 +799,8 @@ export function useCalendarPlanningWorkbench(args: {
       referenceMaps.practitionerLineageKeyById.get(practitionerId),
     [referenceMaps],
   );
+
+  const convex = useConvex();
 
   const resolveAppointmentReferenceDisplayIds = useCallback(
     (refs: {
@@ -914,7 +886,14 @@ export function useCalendarPlanningWorkbench(args: {
     (
       commandArgs: CalendarAppointmentCreateCommandArgs,
     ): CreateAppointmentMutationArgs | null => {
-      const { end, placement, replacesAppointmentId, ...rest } = commandArgs;
+      const {
+        end,
+        optimisticSeriesBlueprint: _optimisticSeriesBlueprint,
+        placement,
+        replacesAppointmentId,
+        ...rest
+      } = commandArgs;
+      void _optimisticSeriesBlueprint;
       const displayRefs = resolveAppointmentPlacementDisplayRefs(
         placement,
         referenceMaps,
@@ -976,7 +955,10 @@ export function useCalendarPlanningWorkbench(args: {
   );
 
   const runCreateAppointmentInternal = useCallback(
-    async (args: Parameters<typeof createAppointmentMutation>[0]) => {
+    async (
+      args: Parameters<typeof createAppointmentMutation>[0],
+      optimisticSeriesBlueprint?: OptimisticAppointmentSeriesBlueprint,
+    ) => {
       return await createAppointmentMutation.withOptimisticUpdate(
         (localStore, optimisticArgs) => {
           if (!calendarDayQueryArgs) {
@@ -993,6 +975,114 @@ export function useCalendarPlanningWorkbench(args: {
 
           const now = Date.now();
           const tempId = createOptimisticId<"appointments">();
+          const optimisticSeriesId = `optimistic-series:${tempId}`;
+          const appointmentOwnerRefs = getAppointmentOwnerRefs(optimisticArgs);
+
+          if (optimisticSeriesBlueprint !== undefined) {
+            const optimisticAppointments: CalendarDayAppointmentResult[] = [];
+
+            for (const step of optimisticSeriesBlueprint) {
+              const typedStart = parseZonedDateTime(
+                step.start,
+                "useCalendarPlanningWorkbench.optimisticSeriesCreate.start",
+              );
+              const typedEnd = parseZonedDateTime(
+                step.end,
+                "useCalendarPlanningWorkbench.optimisticSeriesCreate.end",
+              );
+              if (!typedStart || !typedEnd) {
+                return;
+              }
+
+              const stepId =
+                step.seriesStepIndex === 0
+                  ? tempId
+                  : createOptimisticId<"appointments">();
+              const stepPlacement = createCalendarPlacement({
+                locationLineageKey: asLocationLineageKey(
+                  step.locationLineageKey,
+                ),
+                occupancyScope:
+                  step.occupancyScope.kind === "practitioner"
+                    ? {
+                        kind: "practitioner",
+                        practitionerLineageKey: asPractitionerLineageKey(
+                          step.occupancyScope.practitionerLineageKey,
+                        ),
+                      }
+                    : step.occupancyScope,
+              });
+              const stepAppointmentTypeInfo = getRequiredAppointmentTypeInfo(
+                step.appointmentTypeId,
+                "useCalendarPlanningWorkbench.optimisticCreate.seriesStep",
+              );
+              if (!stepAppointmentTypeInfo) {
+                return;
+              }
+              const newAppointmentRecord: CalendarAppointmentRecord = {
+                _creationTime: now,
+                _id: stepId,
+                appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+                  step.appointmentTypeLineageKey,
+                ),
+                appointmentTypeTitle: step.appointmentTypeTitle,
+                ...appointmentOwnerRefs,
+                color: stepAppointmentTypeInfo.color,
+                createdAt: BigInt(now),
+                end: typedEnd,
+                isSimulation: optimisticArgs.isSimulation ?? false,
+                lastModified: BigInt(now),
+                placement: stepPlacement,
+                practiceId: optimisticArgs.practiceId,
+                seriesId: optimisticSeriesId,
+                seriesStepId: step.stepId,
+                seriesStepIndex: BigInt(step.seriesStepIndex),
+                start: typedStart,
+                title:
+                  step.seriesStepIndex === 0
+                    ? optimisticArgs.title
+                    : `Folgetermin: ${step.appointmentTypeTitle}`,
+                ...(step.seriesStepIndex === 0 &&
+                optimisticArgs.smiley !== undefined
+                  ? { smiley: optimisticArgs.smiley }
+                  : {}),
+                ...(optimisticArgs.isSimulation === true
+                  ? {
+                      simulationKind: "draft" as const,
+                      simulationValidatedAt: BigInt(now),
+                    }
+                  : {}),
+              };
+
+              const newAppointment = toCalendarAppointmentResult({
+                appointmentTypeId: step.appointmentTypeId,
+                locationId: step.locationId,
+                ...(step.practitionerId === undefined
+                  ? {}
+                  : { practitionerId: step.practitionerId }),
+                record: newAppointmentRecord,
+              });
+
+              if (
+                matchesCalendarDayQueryEntity(
+                  calendarDayQueryArgs,
+                  newAppointment,
+                )
+              ) {
+                optimisticAppointments.push(newAppointment);
+              }
+            }
+
+            if (optimisticAppointments.length === 0) {
+              return;
+            }
+
+            localStore.setQuery(appointmentQueryRef, calendarDayQueryArgs, [
+              ...existingAppointments,
+              ...optimisticAppointments,
+            ]);
+            return;
+          }
 
           const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
             optimisticArgs.appointmentTypeId,
@@ -1056,7 +1146,7 @@ export function useCalendarPlanningWorkbench(args: {
             _id: tempId,
             appointmentTypeLineageKey: lineageRefs.appointmentTypeLineageKey,
             appointmentTypeTitle: appointmentTypeInfo.name,
-            ...getAppointmentOwnerRefs(optimisticArgs),
+            ...appointmentOwnerRefs,
             color: appointmentTypeInfo.color,
             createdAt: BigInt(now),
             end: typedEnd,
@@ -1119,6 +1209,20 @@ export function useCalendarPlanningWorkbench(args: {
       parseZonedDateTime,
       resolveAppointmentReferenceLineageKeys,
     ],
+  );
+
+  const runRestoreAppointmentSeriesSnapshotInternal = useCallback(
+    async (
+      args: FunctionArgs<
+        typeof api.appointments.restoreAppointmentSeriesSnapshot
+      >,
+    ) => {
+      return await convex.mutation(
+        api.appointments.restoreAppointmentSeriesSnapshot,
+        args,
+      );
+    },
+    [convex],
   );
 
   const runRestoreDeletedAppointmentInternal = useCallback(
@@ -1602,98 +1706,130 @@ export function useCalendarPlanningWorkbench(args: {
         toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
         return;
       }
-      const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
-        args.appointmentTypeId,
-        "useCalendarPlanningWorkbench.runCreateAppointment",
-      );
-      if (!appointmentTypeInfo) {
-        toast.error("Die Terminart konnte nicht geladen werden.");
-        return;
-      }
-      if (appointmentTypeInfo.hasFollowUpPlan) {
-        return await createAppointmentMutation(mutationArgs);
-      }
-
       const isSimulationReplacement =
         mutationArgs.isSimulation === true &&
         mutationArgs.replacesAppointmentId !== undefined;
-      const createdId = isSimulationReplacement
+      const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
+        mutationArgs.appointmentTypeId,
+        "useCalendarPlanningWorkbench.createAppointment",
+      );
+      const shouldUseServerOnlyCreate =
+        isSimulationReplacement ||
+        (appointmentTypeInfo?.hasAppointmentPlan === true &&
+          args.optimisticSeriesBlueprint === undefined);
+      const effect = shouldUseServerOnlyCreate
         ? await createAppointmentMutation(mutationArgs)
-        : await runCreateAppointmentInternal(mutationArgs);
-      if (!createdId) {
-        return createdId;
-      }
+        : await runCreateAppointmentInternal(
+            mutationArgs,
+            args.optimisticSeriesBlueprint,
+          );
 
       const createArgs = {
         ...mutationArgs,
         isSimulation: mutationArgs.isSimulation ?? false,
       };
-      const createCommandArgs = {
-        ...args,
-        isSimulation: args.isSimulation ?? false,
-      };
-      const createEnd = getAppointmentCreationEnd({
-        durationMinutes: appointmentTypeInfo.duration,
-        start: createArgs.start,
-      });
-      const appointmentTypeLineageKey =
-        referenceMaps.appointmentTypeLineageKeyById.get(
-          createArgs.appointmentTypeId,
-        );
-      if (appointmentTypeLineageKey === undefined) {
-        toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
-        return createdId;
-      }
-      const persistedColor = await convex.query(
-        api.appointments.getAppointmentColor,
-        {
-          appointmentId: createdId,
-        },
-      );
-      rememberCreatedAppointmentFromStrings({
-        appointmentTypeLineageKey,
-        appointmentTypeTitle: appointmentTypeInfo.name,
-        color: persistedColor,
-        ...getAppointmentOwnerRefs(createArgs),
-        createdId,
-        createEnd,
-        createStart: createArgs.start,
-        isSimulation: createArgs.isSimulation,
-        placement: createCommandArgs.placement,
-        practiceId: createArgs.practiceId,
-        ...(createArgs.replacesAppointmentId && {
-          replacesAppointmentId: createArgs.replacesAppointmentId,
-        }),
-        title: createArgs.title,
-      });
 
+      if (effect.kind === "appointmentSeries.created") {
+        rememberServerAppointmentSeriesHistoryDocs(effect.series.appointments);
+        recordCalendarCommand({
+          kind: "appointmentSeries.create",
+          label: "Kettentermine erstellt",
+          payload: {
+            currentRootAppointmentId: effect.series.rootAppointmentId,
+            snapshot: effect.series.snapshot,
+            snapshotId: effect.series.snapshotId,
+          },
+        });
+        return effect.series.rootAppointmentId;
+      }
+
+      if (effect.kind !== "appointment.created") {
+        return;
+      }
+
+      const createdAppointment = toCalendarAppointmentRecordFromServerLedger(
+        effect.appointment,
+      );
+      rememberAppointmentHistoryDoc(createdAppointment);
       recordCalendarCommand({
         kind: "appointment.create",
         label: "Termin erstellt",
         payload: {
-          appointmentTypeLineageKey,
-          appointmentTypeTitle: appointmentTypeInfo.name,
-          color: persistedColor,
+          appointmentTypeLineageKey:
+            createdAppointment.appointmentTypeLineageKey,
+          appointmentTypeTitle: createdAppointment.appointmentTypeTitle,
+          color: createdAppointment.color,
           createArgs,
-          createEnd,
-          currentAppointmentId: createdId,
-          placement: createCommandArgs.placement,
+          createEnd: createdAppointment.end,
+          currentAppointmentId: createdAppointment._id,
+          placement: createdAppointment.placement,
         },
       });
 
-      return createdId;
+      return createdAppointment._id;
     },
     [
       createAppointmentMutation,
       createAppointmentMutationArgsFromCommand,
-      convex,
-      getAppointmentCreationEnd,
       getRequiredAppointmentTypeInfo,
+      rememberAppointmentHistoryDoc,
+      rememberServerAppointmentSeriesHistoryDocs,
       recordCalendarCommand,
-      rememberCreatedAppointmentFromStrings,
-      referenceMaps.appointmentTypeLineageKeyById,
       runCreateAppointmentInternal,
     ],
+  );
+
+  const appointmentCreatePayloadFromRecord = useCallback(
+    (appointment: CalendarAppointmentRecord) => {
+      const recreatedDisplayRefs = resolveAppointmentReferenceDisplayIds({
+        appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
+        placement: appointment.placement,
+      });
+      if (!recreatedDisplayRefs) {
+        toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
+        return null;
+      }
+
+      const createArgs: Parameters<typeof createAppointmentMutation>[0] & {
+        isSimulation: boolean;
+      } = {
+        appointmentTypeId: recreatedDisplayRefs.appointmentTypeId,
+        isSimulation: appointment.isSimulation ?? false,
+        locationId: recreatedDisplayRefs.locationId,
+        ...(recreatedDisplayRefs.occupancyScope.kind === "resource"
+          ? {
+              calendarResourceColumn:
+                recreatedDisplayRefs.occupancyScope.calendarResourceColumn,
+            }
+          : {
+              practitionerId:
+                recreatedDisplayRefs.occupancyScope.practitionerId,
+            }),
+        ...getAppointmentOwnerRefs(appointment),
+        practiceId: appointment.practiceId,
+        ...(appointment.replacesAppointmentId && {
+          replacesAppointmentId: appointment.replacesAppointmentId,
+        }),
+        ...(appointment.smiley === undefined
+          ? {}
+          : { smiley: appointment.smiley }),
+        start: appointment.start,
+        title: appointment.title,
+      };
+      const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
+        createArgs.appointmentTypeId,
+        "useCalendarPlanningWorkbench.appointmentCreatePayloadFromRecord",
+      );
+      if (!appointmentTypeInfo) {
+        return null;
+      }
+
+      return {
+        createArgs,
+        createEnd: appointment.end,
+      };
+    },
+    [getRequiredAppointmentTypeInfo, resolveAppointmentReferenceDisplayIds],
   );
 
   const runUpdateAppointment = useCallback(
@@ -1749,89 +1885,112 @@ export function useCalendarPlanningWorkbench(args: {
             return;
           }
         }
-        if (isSmileyOnlyAppointmentUpdate(mutationArgs)) {
-          await runUpdateAppointmentInternal(mutationArgs);
-        } else if (before?.seriesId) {
-          await getAppointmentUpdateMutation(before)(mutationArgs);
-          return;
-        } else {
-          await runUpdateAppointmentInternal(mutationArgs);
-        }
+        const effect = await runUpdateAppointmentInternal(mutationArgs);
 
-        if (!before) {
-          return;
+        switch (effect.kind) {
+          case "appointment.created": {
+            const createdAppointment =
+              toCalendarAppointmentRecordFromServerLedger(effect.appointment);
+            rememberAppointmentHistoryDoc(createdAppointment);
+            const createPayload =
+              appointmentCreatePayloadFromRecord(createdAppointment);
+            if (!createPayload) {
+              return;
+            }
+            recordCalendarCommand({
+              kind: "appointment.create",
+              label: "Termin erstellt",
+              payload: {
+                appointmentTypeLineageKey:
+                  createdAppointment.appointmentTypeLineageKey,
+                appointmentTypeTitle: createdAppointment.appointmentTypeTitle,
+                color: createdAppointment.color,
+                createArgs: createPayload.createArgs,
+                createEnd: createPayload.createEnd,
+                currentAppointmentId: createdAppointment._id,
+                placement: createdAppointment.placement,
+              },
+            });
+            return;
+          }
+          case "appointment.deleted": {
+            const deletedAppointment =
+              toCalendarAppointmentRecordFromServerLedger(effect.snapshot);
+            forgetAppointmentHistoryDoc(deletedAppointment._id);
+            const createPayload =
+              appointmentCreatePayloadFromRecord(deletedAppointment);
+            if (!createPayload) {
+              return;
+            }
+            recordCalendarCommand({
+              kind: "appointment.delete",
+              label: "Termin gelöscht",
+              payload: {
+                createArgs: createPayload.createArgs,
+                createEnd: createPayload.createEnd,
+                currentAppointmentId: deletedAppointment._id,
+                deleted: deletedAppointment,
+              },
+            });
+            return;
+          }
+          case "appointment.updated": {
+            const beforeAppointment =
+              toCalendarAppointmentRecordFromServerLedger(effect.before);
+            const afterAppointment =
+              toCalendarAppointmentRecordFromServerLedger(effect.after);
+            rememberAppointmentHistoryDoc(afterAppointment);
+            recordCalendarCommand({
+              kind: "appointment.update",
+              label: "Termin aktualisiert",
+              payload: {
+                afterSnapshot: afterAppointment,
+                afterState: appointmentStateFromRecord(afterAppointment),
+                appointmentId: afterAppointment._id,
+                before: beforeAppointment,
+                beforeState: appointmentStateFromRecord(beforeAppointment),
+              },
+            });
+            return;
+          }
+          case "appointmentSeries.created":
+          case "appointmentSeries.deleted": {
+            return;
+          }
+          case "appointmentSeries.updated": {
+            rememberServerAppointmentSeriesHistoryDocs(
+              effect.after.appointments,
+            );
+            recordCalendarCommand({
+              kind: "appointmentSeries.update",
+              label: "Kettentermine aktualisiert",
+              payload: {
+                after: {
+                  currentRootAppointmentId: effect.after.rootAppointmentId,
+                  snapshot: effect.after.snapshot,
+                  snapshotId: effect.after.snapshotId,
+                },
+                before: {
+                  currentRootAppointmentId: effect.before.rootAppointmentId,
+                  snapshot: effect.before.snapshot,
+                  snapshotId: effect.before.snapshotId,
+                },
+              },
+            });
+            return;
+          }
         }
-
-        const beforeState = {
-          end: before.end,
-          placement: before.placement,
-          start: before.start,
-          ...(before.smiley === undefined ? {} : { smiley: before.smiley }),
-        };
-        const typedEnd =
-          args.end === undefined
-            ? undefined
-            : parseZonedDateTime(
-                args.end,
-                "useCalendarPlanningWorkbench.afterState.end",
-              );
-        const typedStart =
-          args.start === undefined
-            ? undefined
-            : parseZonedDateTime(
-                args.start,
-                "useCalendarPlanningWorkbench.afterState.start",
-              );
-        if (
-          (args.end !== undefined && typedEnd === null) ||
-          (args.start !== undefined && typedStart === null)
-        ) {
-          return;
-        }
-        const afterSmiley =
-          args.smiley === undefined
-            ? before.smiley
-            : (args.smiley ?? undefined);
-        const afterState = {
-          end: typedEnd ?? before.end,
-          placement: args.placement ?? before.placement,
-          start: typedStart ?? before.start,
-          ...(afterSmiley === undefined ? {} : { smiley: afterSmiley }),
-        };
-        const { smiley: _removedSmiley, ...beforeWithoutSmiley } = before;
-        void _removedSmiley;
-        const afterSnapshot: CalendarAppointmentRecord = {
-          ...beforeWithoutSmiley,
-          end: afterState.end,
-          lastModified: BigInt(Date.now()),
-          placement: afterState.placement,
-          start: afterState.start,
-          ...(afterState.smiley === undefined
-            ? {}
-            : { smiley: afterState.smiley }),
-        };
-        rememberAppointmentHistoryDoc(afterSnapshot);
-
-        recordCalendarCommand({
-          kind: "appointment.update",
-          label: "Termin aktualisiert",
-          payload: {
-            afterSnapshot,
-            afterState,
-            appointmentId: args.id,
-            before,
-            beforeState,
-          },
-        });
       });
     },
     [
+      appointmentCreatePayloadFromRecord,
       enqueueAppointmentUpdate,
+      forgetAppointmentHistoryDoc,
       getAppointmentHistoryDoc,
-      getAppointmentUpdateMutation,
       parseZonedDateTime,
       recordCalendarCommand,
       rememberAppointmentHistoryDoc,
+      rememberServerAppointmentSeriesHistoryDocs,
       runUpdateAppointmentInternal,
       updateAppointmentMutationArgsFromCommand,
     ],
@@ -1839,81 +1998,46 @@ export function useCalendarPlanningWorkbench(args: {
 
   const runDeleteAppointment = useCallback(
     async (args: Parameters<typeof deleteAppointmentMutation>[0]) => {
-      const deleted = getAppointmentHistoryDoc(args.id);
-      if (deleted?.seriesId) {
-        await deleteAppointmentMutation(args);
+      const effect = await runDeleteAppointmentInternal(args);
+
+      if (effect.kind === "appointmentSeries.deleted") {
+        forgetServerAppointmentSeriesHistoryDocs(effect.series.appointments);
+        recordCalendarCommand({
+          kind: "appointmentSeries.delete",
+          label: "Kettentermine gelöscht",
+          payload: {
+            currentRootAppointmentId: effect.series.rootAppointmentId,
+            snapshot: effect.series.snapshot,
+            snapshotId: effect.series.snapshotId,
+          },
+        });
         return;
       }
 
-      await runDeleteAppointmentInternal(args);
-      forgetAppointmentHistoryDoc(args.id);
-
-      if (!deleted) {
-        return;
-      }
-
-      const recreatedDisplayRefs = resolveAppointmentReferenceDisplayIds({
-        appointmentTypeLineageKey: deleted.appointmentTypeLineageKey,
-        placement: deleted.placement,
-      });
-      if (!recreatedDisplayRefs) {
-        toast.error("Termin-Referenzen konnten nicht aufgelöst werden.");
-        return;
-      }
-
-      const createArgs: Parameters<typeof createAppointmentMutation>[0] = {
-        appointmentTypeId: recreatedDisplayRefs.appointmentTypeId,
-        isSimulation: deleted.isSimulation ?? false,
-        locationId: recreatedDisplayRefs.locationId,
-        ...(recreatedDisplayRefs.occupancyScope.kind === "resource"
-          ? {
-              calendarResourceColumn:
-                recreatedDisplayRefs.occupancyScope.calendarResourceColumn,
-            }
-          : {
-              practitionerId:
-                recreatedDisplayRefs.occupancyScope.practitionerId,
-            }),
-        ...getAppointmentOwnerRefs(deleted),
-        practiceId: deleted.practiceId,
-        ...(deleted.replacesAppointmentId && {
-          replacesAppointmentId: deleted.replacesAppointmentId,
-        }),
-        ...(deleted.smiley === undefined ? {} : { smiley: deleted.smiley }),
-        start: deleted.start,
-        title: deleted.title,
-      };
-      const appointmentTypeInfo = getRequiredAppointmentTypeInfo(
-        createArgs.appointmentTypeId,
-        "useCalendarPlanningWorkbench.runDeleteAppointment",
+      const deleted = toCalendarAppointmentRecordFromServerLedger(
+        effect.snapshot,
       );
-      if (!appointmentTypeInfo) {
+      forgetAppointmentHistoryDoc(deleted._id);
+      const createPayload = appointmentCreatePayloadFromRecord(deleted);
+      if (!createPayload) {
         return;
       }
-      const createEnd = getAppointmentCreationEnd({
-        durationMinutes: appointmentTypeInfo.duration,
-        start: createArgs.start,
-      });
-
       recordCalendarCommand({
         kind: "appointment.delete",
         label: "Termin gelöscht",
         payload: {
-          createArgs,
-          createEnd,
-          currentAppointmentId: args.id,
+          createArgs: createPayload.createArgs,
+          createEnd: createPayload.createEnd,
+          currentAppointmentId: deleted._id,
           deleted,
         },
       });
     },
     [
-      deleteAppointmentMutation,
+      appointmentCreatePayloadFromRecord,
+      forgetServerAppointmentSeriesHistoryDocs,
       forgetAppointmentHistoryDoc,
-      getAppointmentHistoryDoc,
-      getAppointmentCreationEnd,
-      getRequiredAppointmentTypeInfo,
       recordCalendarCommand,
-      resolveAppointmentReferenceDisplayIds,
       runDeleteAppointmentInternal,
     ],
   );
@@ -2130,7 +2254,6 @@ export function useCalendarPlanningWorkbench(args: {
       ensureLatestConflictData,
       forgetAppointmentHistoryDoc,
       forgetBlockedSlotHistoryDoc,
-      getAppointmentColor,
       getCurrentAppointmentDoc,
       getCurrentBlockedSlotDoc,
       hasAppointmentConflict,
@@ -2140,7 +2263,6 @@ export function useCalendarPlanningWorkbench(args: {
       referenceMaps,
       rememberAppointmentHistoryDoc,
       rememberBlockedSlotHistoryDoc,
-      rememberCreatedAppointmentFromStrings,
       rememberCreatedBlockedSlotHistoryDoc,
       rememberRecreatedAppointmentId,
       rememberRecreatedBlockedSlotId,
@@ -2151,6 +2273,7 @@ export function useCalendarPlanningWorkbench(args: {
       runCreateBlockedSlotInternal,
       runDeleteAppointmentInternal,
       runDeleteBlockedSlotInternal,
+      runRestoreAppointmentSeriesSnapshotInternal,
       runRestoreDeletedAppointmentInternal,
       runUpdateAppointmentInternal,
       runUpdateBlockedSlotInternal,
@@ -2160,7 +2283,6 @@ export function useCalendarPlanningWorkbench(args: {
     forgetAppointmentHistoryDoc,
     forgetBlockedSlotHistoryDoc,
     getCurrentAppointmentDoc,
-    getAppointmentColor,
     getCurrentBlockedSlotDoc,
     hasAppointmentConflict,
     hasBlockedSlotConflict,
@@ -2169,7 +2291,6 @@ export function useCalendarPlanningWorkbench(args: {
     rememberRecreatedAppointmentId,
     rememberRecreatedBlockedSlotId,
     rememberBlockedSlotHistoryDoc,
-    rememberCreatedAppointmentFromStrings,
     rememberCreatedBlockedSlotHistoryDoc,
     resolveAppointmentReferenceDisplayIds,
     resolveCurrentAppointmentId,
@@ -2179,6 +2300,7 @@ export function useCalendarPlanningWorkbench(args: {
     runCreateBlockedSlotInternal,
     runDeleteAppointmentInternal,
     runDeleteBlockedSlotInternal,
+    runRestoreAppointmentSeriesSnapshotInternal,
     runUpdateAppointmentInternal,
     runUpdateBlockedSlotInternal,
   ]);

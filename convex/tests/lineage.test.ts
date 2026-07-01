@@ -166,7 +166,9 @@ describe("lineage invariants", () => {
       });
       await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: BigInt(Date.now()),
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: BigInt(Date.now()),
         name: "Checkup",

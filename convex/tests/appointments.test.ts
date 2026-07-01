@@ -1,3 +1,5 @@
+import type { FunctionReturnType } from "convex/server";
+
 import { convexTest } from "convex-test";
 import { Temporal } from "temporal-polyfill";
 import { describe, expect, test } from "vitest";
@@ -9,12 +11,56 @@ import { insertSelfLineageEntity, requireLineageKey } from "../lineage";
 import schema from "../schema";
 import { modules } from "./test.setup";
 
+type CreateAppointmentEffect = FunctionReturnType<
+  typeof api.appointments.createAppointment
+>;
+
+type RestoreDeletedAppointmentEffect = FunctionReturnType<
+  typeof api.appointments.restoreDeletedAppointment
+>;
 interface SlotWindow {
   end: string;
   start: string;
 }
-
 type TestContext = ReturnType<typeof createTestContext>;
+
+function appointmentIdFromCreateEffect(
+  effect: CreateAppointmentEffect,
+): Id<"appointments"> {
+  switch (effect.kind) {
+    case "appointment.created": {
+      return effect.appointment._id;
+    }
+    case "appointmentSeries.created": {
+      return effect.series.rootAppointmentId;
+    }
+    case "appointment.deleted":
+    case "appointment.updated":
+    case "appointmentSeries.deleted":
+    case "appointmentSeries.updated": {
+      throw new Error(`Unexpected create effect: ${effect.kind}`);
+    }
+  }
+}
+
+function appointmentIdFromRestoreEffect(
+  effect: RestoreDeletedAppointmentEffect,
+): Id<"appointments"> {
+  switch (effect.kind) {
+    case "appointment.created": {
+      return effect.appointment._id;
+    }
+    case "appointmentSeries.created": {
+      return effect.series.rootAppointmentId;
+    }
+    case "appointment.deleted":
+    case "appointment.updated":
+    case "appointmentSeries.deleted":
+    case "appointmentSeries.updated": {
+      throw new Error(`Unexpected restore effect: ${effect.kind}`);
+    }
+  }
+}
 
 async function createAppointmentBaseData(t: TestContext) {
   return await t.run(async (ctx) => {
@@ -57,7 +103,9 @@ async function createAppointmentBaseData(t: TestContext) {
       "appointmentTypes",
       {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Checkup",
@@ -65,6 +113,18 @@ async function createAppointmentBaseData(t: TestContext) {
         ruleSetId,
       },
     );
+
+    for (const dayOfWeek of [0, 1, 2, 3, 4, 5, 6]) {
+      await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+        dayOfWeek,
+        endTime: "23:59",
+        locationLineageKey: locationId,
+        practiceId,
+        practitionerLineageKey: practitionerId,
+        ruleSetId,
+        startTime: "08:00",
+      });
+    }
 
     return {
       appointmentTypeId,
@@ -672,7 +732,13 @@ describe("appointments self-service cancellation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [baseData.practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: {
+            calendarResourceColumn: "labor",
+            kind: "resourceColumn",
+          },
+
           duration: 30,
           lastModified: now,
           lineageKey: baseData.appointmentTypeId,
@@ -793,9 +859,8 @@ describe("appointments self-service cancellation", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: true,
         locationId: baseData.locationId,
@@ -804,7 +869,7 @@ describe("appointments self-service cancellation", () => {
         start: makeSlotWindow(4).start,
         title: "Scoped simulation",
         userId,
-      },
+      }),
     );
 
     const appointment = await t.run(async (ctx) =>
@@ -835,9 +900,8 @@ describe("appointments self-service cancellation", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -846,7 +910,7 @@ describe("appointments self-service cancellation", () => {
         temporaryPatientName: "Alex Beispiel",
         temporaryPatientPhoneNumber: "+491701234567",
         title: "Temporärer Termin",
-      },
+      }),
     );
 
     const { appointment, bookingIdentity, patient } = await t.run(
@@ -903,9 +967,8 @@ describe("appointments self-service cancellation", () => {
         practiceId: baseData.practiceId,
       },
     );
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         patientId: temporaryPatientId,
@@ -913,7 +976,7 @@ describe("appointments self-service cancellation", () => {
         practitionerId: baseData.practitionerId,
         start: makeSlotWindow(7).start,
         title: "Persistierter temporärer Termin",
-      },
+      }),
     );
     const pvsPatientResult = await authed.mutation(
       api.patients.createOrUpdatePatient,
@@ -989,9 +1052,8 @@ describe("appointments self-service cancellation", () => {
       .add({ minutes: 45 })
       .toString();
 
-    const replacementId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const replacementId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         end,
         isSimulation: true,
@@ -1002,7 +1064,7 @@ describe("appointments self-service cancellation", () => {
         start,
         title: "Simulierter Ersatztermin",
         userId,
-      },
+      }),
     );
 
     const replacement = await t.run(async (ctx) =>
@@ -1074,12 +1136,14 @@ describe("appointments self-service cancellation", () => {
       }
 
       const now = BigInt(Date.now());
-      const followUpTypeId = await insertSelfLineageEntity(
+      const planStepTypeId = await insertSelfLineageEntity(
         ctx.db,
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Kontrolle",
@@ -1093,20 +1157,24 @@ describe("appointments self-service cancellation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: planStepTypeId,
+                occupancy: { kind: "inheritRootPractitioner" },
+                required: true,
+                stepId: "step-1",
+                timing: {
+                  kind: "afterPreviousEnd",
+                  offsetUnit: "days",
+                  offsetValue: 2,
+                },
+              },
+            ],
+          },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
-          followUpPlan: [
-            {
-              appointmentTypeLineageKey: followUpTypeId,
-              locationMode: "inherit",
-              offsetUnit: "days",
-              offsetValue: 2,
-              practitionerMode: "inherit",
-              required: true,
-              searchMode: "first_available_on_or_after",
-              stepId: "step-1",
-            },
-          ],
           lastModified: now,
           name: "Ersttermin",
           practiceId,
@@ -1145,14 +1213,14 @@ describe("appointments self-service cancellation", () => {
       },
     );
 
-    const followUpAppointmentId = createdSeries.steps[1]?.appointmentId;
-    expect(followUpAppointmentId).toBeDefined();
-    if (!followUpAppointmentId) {
+    const planStepAppointmentId = createdSeries.steps[1]?.appointmentId;
+    expect(planStepAppointmentId).toBeDefined();
+    if (!planStepAppointmentId) {
       throw new Error("Follow-up appointment should exist");
     }
 
     await authed.mutation(api.appointments.cancelOwnAppointment, {
-      appointmentId: followUpAppointmentId,
+      appointmentId: planStepAppointmentId,
     });
 
     const cancelledSeries = await t.run(async (ctx) => {
@@ -1219,7 +1287,9 @@ describe("appointments self-service cancellation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Checkup",
@@ -1227,6 +1297,18 @@ describe("appointments self-service cancellation", () => {
           ruleSetId,
         },
       );
+
+      for (const dayOfWeek of [0, 1, 2, 3, 4, 5, 6]) {
+        await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+          dayOfWeek,
+          endTime: "23:59",
+          locationLineageKey: locationId,
+          practiceId,
+          practitionerLineageKey: practitionerId,
+          ruleSetId,
+          startTime: "08:00",
+        });
+      }
 
       return {
         appointmentTypeId,
@@ -1259,7 +1341,7 @@ describe("appointments self-service cancellation", () => {
         title: "Simulationskollision",
         userId,
       }),
-    ).rejects.toThrow("bereits belegt");
+    ).rejects.toThrow("bereits durch einen Termin belegt");
   });
 
   test("createAppointment derives the booked duration from the appointment type", async () => {
@@ -1307,7 +1389,9 @@ describe("appointments self-service cancellation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Checkup",
@@ -1315,6 +1399,18 @@ describe("appointments self-service cancellation", () => {
           ruleSetId,
         },
       );
+
+      for (const dayOfWeek of [0, 1, 2, 3, 4, 5, 6]) {
+        await insertSelfLineageEntity(ctx.db, "baseSchedules", {
+          dayOfWeek,
+          endTime: "23:59",
+          locationLineageKey: locationId,
+          practiceId,
+          practitionerLineageKey: practitionerId,
+          ruleSetId,
+          startTime: "08:00",
+        });
+      }
 
       return {
         appointmentTypeId,
@@ -1325,9 +1421,8 @@ describe("appointments self-service cancellation", () => {
     });
     const window = makeSlotWindow(4);
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -1336,7 +1431,7 @@ describe("appointments self-service cancellation", () => {
         temporaryPatientName: "Server Duration",
         temporaryPatientPhoneNumber: "+491700000000",
         title: "Server duration",
-      },
+      }),
     );
 
     const createdAppointment = await t.run(async (ctx) => {
@@ -1345,6 +1440,121 @@ describe("appointments self-service cancellation", () => {
 
     expect(createdAppointment).not.toBeNull();
     expect(createdAppointment?.end).toBe(window.end);
+  });
+
+  test("createAppointment applies a resource default when a practitioner is also passed", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_resource_default_with_practitioner";
+    const userId = await createUser(
+      t,
+      authId,
+      "resource-default-with-practitioner@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "resource-default-with-practitioner@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        defaultOccupancy: {
+          calendarResourceColumn: "ekg",
+          kind: "resourceColumn",
+        },
+      });
+    });
+
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: makeSlotWindow(4).start,
+        temporaryPatientName: "Resource Default",
+        temporaryPatientPhoneNumber: "+491700000101",
+        title: "EKG",
+      }),
+    );
+
+    const createdAppointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", appointmentId);
+    });
+
+    expect(createdAppointment?.occupancyScope).toEqual({
+      calendarResourceColumn: "ekg",
+      kind: "resource",
+    });
+  });
+
+  test("createAppointment uses a resource default without requiring a practitioner", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_resource_default_without_practitioner";
+    const userId = await createUser(
+      t,
+      authId,
+      "resource-default-without-practitioner@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "resource-default-without-practitioner@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        defaultOccupancy: {
+          calendarResourceColumn: "labor",
+          kind: "resourceColumn",
+        },
+      });
+    });
+
+    const window = makeSlotWindow(5);
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        start: window.start,
+        temporaryPatientName: "Labor Default",
+        temporaryPatientPhoneNumber: "+491700000102",
+        title: "Labor",
+      }),
+    );
+
+    const createdAppointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", appointmentId);
+    });
+
+    expect(createdAppointment?.occupancyScope).toEqual({
+      calendarResourceColumn: "labor",
+      kind: "resource",
+    });
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        start: window.start,
+        temporaryPatientName: "Labor Conflict",
+        temporaryPatientPhoneNumber: "+491700000103",
+        title: "Labor conflict",
+      }),
+    ).rejects.toThrow("bereits durch einen Termin belegt");
   });
 
   test("createAppointment rejects resource ids from another practice", async () => {
@@ -1427,10 +1637,10 @@ describe("appointments self-service cancellation", () => {
     const authId = "workos_series_cancel_user";
     const userId = await createUser(t, authId, "series-cancel@example.com");
     const rootWindow = makeSlotWindow(4);
-    const followUpStart = Temporal.ZonedDateTime.from(rootWindow.start)
+    const planStepStart = Temporal.ZonedDateTime.from(rootWindow.start)
       .add({ days: 5 })
       .toString();
-    const followUpEnd = Temporal.ZonedDateTime.from(followUpStart)
+    const planStepEnd = Temporal.ZonedDateTime.from(planStepStart)
       .add({ minutes: 30 })
       .toString();
     const seriesId = "series_test_cancel";
@@ -1460,7 +1670,7 @@ describe("appointments self-service cancellation", () => {
         appointmentTypeLineageKey: baseData.appointmentTypeId,
         appointmentTypeTitle: "Checkup",
         createdAt: now,
-        end: followUpEnd,
+        end: planStepEnd,
         lastModified: now,
         locationLineageKey: baseData.locationId,
         occupancyScope: {
@@ -1470,7 +1680,7 @@ describe("appointments self-service cancellation", () => {
         practiceId: baseData.practiceId,
         seriesId,
         seriesStepIndex: 1n,
-        start: followUpStart,
+        start: planStepStart,
         title: "Follow-up",
         userId,
       });
@@ -1496,6 +1706,74 @@ describe("appointments self-service cancellation", () => {
 });
 
 describe("appointments update safety", () => {
+  test("updateAppointment can set a smiley on a series root without replanning the chain", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_series_root_smiley";
+    const userId = await createUser(
+      t,
+      authId,
+      "series-root-smiley@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "series-root-smiley@example.com",
+      subject: authId,
+    });
+    const rootWindow = makeSlotWindow(4);
+    const seriesId = "series_test_root_smiley";
+
+    const rootAppointmentId = await t.run(async (ctx) => {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("practices", baseData.practiceId, {
+        appointmentSmileyOptions: [
+          {
+            emoji: "👍",
+            id: "thumbs-up",
+            name: "Patient ist angekommen",
+          },
+        ],
+      });
+
+      const now = BigInt(Date.now());
+      return await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
+        appointmentTypeTitle: "Checkup",
+        createdAt: now,
+        end: rootWindow.end,
+        lastModified: now,
+        locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
+        practiceId: baseData.practiceId,
+        seriesId,
+        seriesStepIndex: 0n,
+        start: rootWindow.start,
+        title: "Root",
+        userId,
+      });
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        id: rootAppointmentId,
+        smiley: "👍",
+      }),
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
+
+    const stored = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", rootAppointmentId);
+    });
+
+    expect(stored?.smiley).toBe("👍");
+  });
+
   test("updateAppointment can set a smiley on a series follow-up without replanning the chain", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
@@ -1663,7 +1941,7 @@ describe("appointments update safety", () => {
         id: appointmentToMove,
         practitionerId: otherPractitionerId,
       }),
-    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+    ).rejects.toThrow("bereits durch einen Termin belegt");
   });
 
   test("updateAppointment preserves resource scope when resizing resource appointments", async () => {
@@ -1743,7 +2021,7 @@ describe("appointments update safety", () => {
         end: resizedEnd,
         id: resourceAppointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
   });
 
   test("updateAppointment moves practitioner appointments into resource columns", async () => {
@@ -1781,7 +2059,7 @@ describe("appointments update safety", () => {
         calendarResourceColumn: "ekg",
         id: appointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
 
     const updatedAppointment = await t.run(async (ctx) => {
       return await ctx.db.get("appointments", appointmentId);
@@ -1789,6 +2067,140 @@ describe("appointments update safety", () => {
 
     expect(updatedAppointment?.occupancyScope).toEqual({
       calendarResourceColumn: "ekg",
+      kind: "resource",
+    });
+  });
+
+  test("updateAppointment rejects resource-only moves away from the appointment type default", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_resource_default_resource_only";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-resource-default-resource-only@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-resource-default-resource-only@example.com",
+      subject: authId,
+    });
+
+    const resourceAppointmentId = await t.run(async (ctx) => {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      const now = BigInt(Date.now());
+      const laborAppointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [baseData.practitionerId],
+          appointmentPlan: { steps: [] },
+          createdAt: now,
+          defaultOccupancy: {
+            calendarResourceColumn: "labor",
+            kind: "resourceColumn",
+          },
+          duration: 30,
+          lastModified: now,
+          name: "Labor",
+          practiceId: baseData.practiceId,
+          ruleSetId: baseData.ruleSetId,
+        },
+      );
+      const window = makeSlotWindow(4);
+      return await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: laborAppointmentTypeId,
+        appointmentTypeTitle: "Labor",
+        createdAt: now,
+        end: window.end,
+        lastModified: now,
+        locationLineageKey: baseData.locationId,
+        occupancyScope: { calendarResourceColumn: "labor", kind: "resource" },
+        practiceId: baseData.practiceId,
+        start: window.start,
+        title: "Labor",
+        userId,
+      });
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        calendarResourceColumn: "ekg",
+        id: resourceAppointmentId,
+      }),
+    ).rejects.toThrow(
+      "Der Termin muss in der Standard-Ressourcenspalte der Terminart liegen.",
+    );
+
+    const unchangedAppointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", resourceAppointmentId);
+    });
+    expect(unchangedAppointment?.occupancyScope).toEqual({
+      calendarResourceColumn: "labor",
+      kind: "resource",
+    });
+  });
+
+  test("updateAppointment applies resource default occupancy when changing appointment type", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_type_resource_default";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-type-resource-default@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-type-resource-default@example.com",
+      subject: authId,
+    });
+
+    const resourceAppointmentTypeId = await t.run(async (ctx) => {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      return await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
+        allowedPractitionerLineageKeys: [baseData.practitionerId],
+        appointmentPlan: { steps: [] },
+        createdAt: BigInt(Date.now()),
+        defaultOccupancy: {
+          calendarResourceColumn: "labor",
+          kind: "resourceColumn",
+        },
+        duration: 30,
+        lastModified: BigInt(Date.now()),
+        name: "Labor",
+        practiceId: baseData.practiceId,
+        ruleSetId: baseData.ruleSetId,
+      });
+    });
+
+    const appointmentId = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(4),
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        appointmentTypeId: resourceAppointmentTypeId,
+        id: appointmentId,
+      }),
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
+
+    const updatedAppointment = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", appointmentId);
+    });
+
+    expect(updatedAppointment?.occupancyScope).toEqual({
+      calendarResourceColumn: "labor",
       kind: "resource",
     });
   });
@@ -1835,7 +2247,52 @@ describe("appointments update safety", () => {
         title: "Termin kollidiert mit Sperrung",
         userId,
       }),
-    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+    ).rejects.toThrow("Sperrung");
+  });
+
+  test("createAppointment rejects creating an appointment on a location-wide blocked slot", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_create_location_wide_blocked_slot_collision";
+    const userId = await createUser(
+      t,
+      authId,
+      "create-location-wide-blocked-slot-collision@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "create-location-wide-blocked-slot-collision@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const window = makeSlotWindow(5);
+    await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Standortweite Sperrung",
+      window,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.createAppointment, {
+        appointmentTypeId: baseData.appointmentTypeId,
+        locationId: baseData.locationId,
+        practiceId: baseData.practiceId,
+        practitionerId: baseData.practitionerId,
+        start: window.start,
+        title: "Termin kollidiert mit standortweiter Sperrung",
+        userId,
+      }),
+    ).rejects.toThrow("Standortweite Sperrung");
   });
 
   test("updateAppointment rejects moving an appointment onto an occupied blocked slot", async () => {
@@ -1881,7 +2338,53 @@ describe("appointments update safety", () => {
         id: appointmentToMove,
         start: blockedWindow.start,
       }),
-    ).rejects.toThrow("Der gewaehlte Zeitraum ist bereits belegt.");
+    ).rejects.toThrow("Sperrung");
+  });
+
+  test("updateAppointment rejects moving an appointment onto a location-wide blocked slot", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_location_wide_blocked_slot_collision";
+    const userId = await createUser(
+      t,
+      authId,
+      "update-location-wide-blocked-slot-collision@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "update-location-wide-blocked-slot-collision@example.com",
+      subject: authId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+    });
+
+    const appointmentToMove = await insertAppointment(t, {
+      ...baseData,
+      userId,
+      window: makeSlotWindow(6),
+    });
+    const blockedWindow = makeSlotWindow(7);
+    await insertBlockedSlotRecord(t, {
+      locationId: baseData.locationId,
+      practiceId: baseData.practiceId,
+      practitionerId: baseData.practitionerId,
+      title: "Standortweite Sperrung",
+      window: blockedWindow,
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        end: blockedWindow.end,
+        id: appointmentToMove,
+        start: blockedWindow.start,
+      }),
+    ).rejects.toThrow("Standortweite Sperrung");
   });
 
   test("updateBlockedSlot keeps stored lineage references for time-only updates", async () => {
@@ -2041,9 +2544,8 @@ describe("appointments update safety", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: true,
         locationId: baseData.locationId,
@@ -2053,7 +2555,7 @@ describe("appointments update safety", () => {
         start: makeSlotWindow(10).start,
         title: "Simulation vor Änderung",
         userId,
-      },
+      }),
     );
 
     await expect(
@@ -2116,9 +2618,8 @@ describe("appointments update safety", () => {
       });
     });
 
-    const realAppointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const realAppointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: false,
         locationId: baseData.locationId,
@@ -2127,7 +2628,7 @@ describe("appointments update safety", () => {
         start: makeSlotWindow(11).start,
         title: "Echter Termin",
         userId,
-      },
+      }),
     );
 
     await authed.mutation(api.appointments.createAppointment, {
@@ -2251,9 +2752,8 @@ describe("appointments update safety", () => {
       });
     });
 
-    const realAppointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const realAppointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: false,
         locationId: baseData.locationId,
@@ -2262,7 +2762,7 @@ describe("appointments update safety", () => {
         start: makeSlotWindow(8).start,
         title: "Real appointment",
         userId,
-      },
+      }),
     );
 
     await authed.mutation(api.appointments.createAppointment, {
@@ -2496,9 +2996,8 @@ describe("appointments update safety", () => {
       return { patientId, unsavedRuleSetId };
     });
 
-    const realAppointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const realAppointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: false,
         locationId: baseData.locationId,
@@ -2507,16 +3006,15 @@ describe("appointments update safety", () => {
         practitionerId: baseData.practitionerId,
         start: makeSlotWindow(8).start,
         title: "Real appointment",
-      },
+      }),
     );
 
     await t.run(async (ctx) => {
       await ctx.db.delete("patients", patientId);
     });
 
-    const simulatedReplacementId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const simulatedReplacementId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: true,
         locationId: baseData.locationId,
@@ -2527,7 +3025,7 @@ describe("appointments update safety", () => {
         simulationRuleSetId: unsavedRuleSetId,
         start: makeSlotWindow(8).start,
         title: "Sim replacement",
-      },
+      }),
     );
 
     const simulatedReplacement = await t.run(async (ctx) => {
@@ -2580,7 +3078,10 @@ describe("appointments update safety", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
           lastModified: now,
           lineageKey: baseData.appointmentTypeId,
@@ -2788,7 +3289,10 @@ describe("appointments update safety", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [foreignPractitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
           lastModified: now,
           name: "Foreign Type",
@@ -3063,8 +3567,11 @@ describe("appointments update safety", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [deletedPractitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           deleted: true,
+
           duration: 30,
           lastModified: now,
           lineageKey: baseData.appointmentTypeId,
@@ -3465,6 +3972,129 @@ describe("calendar day appointment queries", () => {
       {
         isSimulation: true,
         locationId: baseData.locationId,
+      },
+    ]);
+  });
+
+  test("getCalendarDayAppointments keeps simulation appointments when the displayed rule set changes", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const userId = await createUser(
+      t,
+      "workos_day_query_persistent_simulation",
+      "day-query-persistent-simulation@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "day-query-persistent-simulation@example.com",
+      subject: "workos_day_query_persistent_simulation",
+    });
+    const targetRange = makeDayRange(5);
+
+    const displayedRuleSetRefs = await t.run(async (ctx) => {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+
+      const displayedRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Displayed Draft",
+        draftRevision: 0,
+        parentVersion: baseData.ruleSetId,
+        practiceId: baseData.practiceId,
+        saved: false,
+        version: 2,
+      });
+      const displayedLocationId = await insertSelfLineageEntity(
+        ctx.db,
+        "locations",
+        {
+          lineageKey: baseData.locationId,
+          name: "Main Location Draft",
+          practiceId: baseData.practiceId,
+          ruleSetId: displayedRuleSetId,
+        },
+      );
+      const displayedPractitionerId = await insertSelfLineageEntity(
+        ctx.db,
+        "practitioners",
+        {
+          lineageKey: baseData.practitionerId,
+          name: "Dr. Appointments Draft",
+          practiceId: baseData.practiceId,
+          ruleSetId: displayedRuleSetId,
+        },
+      );
+      const now = BigInt(Date.now());
+      const displayedAppointmentTypeId = await insertSelfLineageEntity(
+        ctx.db,
+        "appointmentTypes",
+        {
+          allowedPractitionerLineageKeys: [baseData.practitionerId],
+          appointmentPlan: { steps: [] },
+          createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
+          duration: 30,
+          lastModified: now,
+          lineageKey: baseData.appointmentTypeId,
+          name: "Checkup Draft",
+          practiceId: baseData.practiceId,
+          ruleSetId: displayedRuleSetId,
+        },
+      );
+
+      return {
+        displayedAppointmentTypeId,
+        displayedLocationId,
+        displayedPractitionerId,
+        displayedRuleSetId,
+      };
+    });
+
+    const simulationAppointmentId = await insertAppointmentRecord(t, {
+      ...baseData,
+      isSimulation: true,
+      simulationKind: "draft",
+      simulationRuleSetId: baseData.ruleSetId,
+      simulationValidatedAt: BigInt(Date.now()),
+      userId,
+      window: {
+        end: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 30 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+        start: targetRange.date
+          .toZonedDateTime({
+            plainTime: { hour: 11, minute: 0 },
+            timeZone: "Europe/Berlin",
+          })
+          .toString(),
+      },
+    });
+
+    await expect(
+      authed.query(api.appointments.getCalendarDayAppointments, {
+        activeRuleSetId: baseData.ruleSetId,
+        dayEnd: targetRange.dayEnd,
+        dayStart: targetRange.dayStart,
+        locationId: displayedRuleSetRefs.displayedLocationId,
+        practiceId: baseData.practiceId,
+        scope: "simulation",
+        selectedRuleSetId: displayedRuleSetRefs.displayedRuleSetId,
+      }),
+    ).resolves.toMatchObject([
+      {
+        _id: simulationAppointmentId,
+        appointmentTypeId: displayedRuleSetRefs.displayedAppointmentTypeId,
+        isSimulation: true,
+        locationId: displayedRuleSetRefs.displayedLocationId,
+        practitionerId: displayedRuleSetRefs.displayedPractitionerId,
+        simulationRuleSetId: baseData.ruleSetId,
       },
     ]);
   });
@@ -4060,7 +4690,10 @@ describe("calendar day appointment queries", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [baseData.practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: BigInt(Date.now()),
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
           lastModified: BigInt(Date.now()),
           lineageKey: baseData.appointmentTypeId,
@@ -4971,9 +5604,8 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: true,
         locationId: baseData.locationId,
@@ -4983,7 +5615,7 @@ describe("calendar day appointment queries", () => {
         start: makeSlotWindow(35).start,
         title: "Simulation",
         userId,
-      },
+      }),
     );
 
     await expect(
@@ -4992,7 +5624,7 @@ describe("calendar day appointment queries", () => {
         simulationRuleSetId: draftRuleSetId,
         smiley: "🧪",
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
   });
 
   test("full simulation appointment updates validate smileys against the simulation rule set", async () => {
@@ -5028,9 +5660,8 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         isSimulation: true,
         locationId: baseData.locationId,
@@ -5040,7 +5671,7 @@ describe("calendar day appointment queries", () => {
         start: makeSlotWindow(36).start,
         title: "Simulation",
         userId,
-      },
+      }),
     );
 
     await expect(
@@ -5049,7 +5680,7 @@ describe("calendar day appointment queries", () => {
         smiley: "🧪",
         title: "Simulation updated",
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
 
     const appointment = await t.run(async (ctx) => {
       return await ctx.db.get("appointments", appointmentId);
@@ -5221,14 +5852,14 @@ describe("calendar day appointment queries", () => {
         simulationRuleSetId: baseData.ruleSetId,
         smiley: "🧪",
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.created" });
     await expect(
       authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
         id: appointmentId,
         simulationRuleSetId: baseData.ruleSetId,
         smiley: null,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
 
     const replacements = await t.run(async (ctx) => {
       return await ctx.db
@@ -5239,6 +5870,131 @@ describe("calendar day appointment queries", () => {
         .collect();
     });
     expect(replacements).toEqual([]);
+  });
+
+  test("simulation smiley replacements for series appointments do not join the real series", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_simulation_smiley_series_replacement";
+    const userId = await createUser(
+      t,
+      authId,
+      "sim-smiley-series-replacement@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "sim-smiley-series-replacement@example.com",
+      subject: authId,
+    });
+    const rootWindow = makeSlotWindow(40);
+    const followUpStart = Temporal.ZonedDateTime.from(
+      rootWindow.end,
+    ).toString();
+    const followUpEnd = Temporal.ZonedDateTime.from(followUpStart)
+      .add({ minutes: 5 })
+      .toString();
+    const seriesId = "series_simulation_smiley_replacement";
+
+    const rootAppointmentId = await t.run(async (ctx) => {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("ruleSets", baseData.ruleSetId, {
+        appointmentSmileyOptions: [
+          { emoji: "🧪", id: "simulation-marker", name: "Simulation marker" },
+        ],
+      });
+      const now = BigInt(Date.now());
+      const rootAppointmentId = await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
+        appointmentTypeTitle: "Checkup",
+        createdAt: now,
+        end: rootWindow.end,
+        lastModified: now,
+        locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
+        practiceId: baseData.practiceId,
+        seriesId,
+        seriesStepIndex: 0n,
+        start: rootWindow.start,
+        title: "Root",
+        userId,
+      });
+      await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
+        appointmentTypeTitle: "Checkup",
+        createdAt: now,
+        end: followUpEnd,
+        lastModified: now,
+        locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
+        practiceId: baseData.practiceId,
+        seriesId,
+        seriesStepIndex: 1n,
+        start: followUpStart,
+        title: "Follow-up",
+        userId,
+      });
+      return rootAppointmentId;
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: rootAppointmentId,
+        simulationRuleSetId: baseData.ruleSetId,
+        smiley: "🧪",
+      }),
+    ).resolves.toMatchObject({ kind: "appointment.created" });
+
+    const replacementState = await t.run(async (ctx) => {
+      const replacements = await ctx.db
+        .query("appointments")
+        .withIndex("by_replacesAppointmentId", (q) =>
+          q.eq("replacesAppointmentId", rootAppointmentId),
+        )
+        .collect();
+      const realSeriesMembers = await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) => q.eq("seriesId", seriesId))
+        .collect();
+      return {
+        realSeriesMemberCount: realSeriesMembers.length,
+        replacement: replacements[0],
+        replacementCount: replacements.length,
+      };
+    });
+    expect(replacementState.replacementCount).toBe(1);
+    expect(replacementState.replacement?.isSimulation).toBe(true);
+    expect(replacementState.replacement?.seriesId).toBeUndefined();
+    expect(replacementState.replacement?.seriesStepId).toBeUndefined();
+    expect(replacementState.replacement?.seriesStepIndex).toBeUndefined();
+    expect(replacementState.realSeriesMemberCount).toBe(2);
+
+    await expect(
+      authed.mutation(api.appointments.updateSimulationAppointmentSmiley, {
+        id: rootAppointmentId,
+        simulationRuleSetId: baseData.ruleSetId,
+        smiley: null,
+      }),
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
+
+    const remainingReplacements = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_replacesAppointmentId", (q) =>
+          q.eq("replacesAppointmentId", rootAppointmentId),
+        )
+        .collect();
+    });
+    expect(remainingReplacements).toEqual([]);
   });
 
   test("selecting an unchanged real appointment smiley does not create a simulation replacement", async () => {
@@ -5285,7 +6041,7 @@ describe("calendar day appointment queries", () => {
         simulationRuleSetId: baseData.ruleSetId,
         smiley: "🧪",
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
 
     const replacements = await t.run(async (ctx) => {
       return await ctx.db
@@ -5327,9 +6083,8 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -5338,7 +6093,7 @@ describe("calendar day appointment queries", () => {
         start: makeSlotWindow(36).start,
         title: "Restored",
         userId,
-      },
+      }),
     );
     await t.run(async (ctx) => {
       await ctx.db.patch("practices", baseData.practiceId, {
@@ -5369,12 +6124,12 @@ describe("calendar day appointment queries", () => {
       authed.mutation(api.appointments.deleteAppointment, {
         id: appointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
     await expect(
       authed.mutation(api.appointments.restoreDeletedAppointment, {
         originalAppointmentId: appointmentId,
       }),
-    ).resolves.toEqual(expect.any(String));
+    ).resolves.toMatchObject({ kind: "appointment.created" });
   });
 
   test("deleteAppointment does not require restore snapshot references in the active rule set", async () => {
@@ -5421,7 +6176,7 @@ describe("calendar day appointment queries", () => {
       authed.mutation(api.appointments.deleteAppointment, {
         id: appointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
 
     const [appointment, snapshot] = await t.run(async (ctx) => {
       const snapshot = await ctx.db
@@ -5459,9 +6214,8 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -5469,26 +6223,25 @@ describe("calendar day appointment queries", () => {
         start: window.start,
         title: "Resized restore",
         userId,
-      },
+      }),
     );
     await expect(
       authed.mutation(api.appointments.updateAppointment, {
         end: resizedEnd,
         id: appointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
 
     await expect(
       authed.mutation(api.appointments.deleteAppointment, {
         id: appointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
 
-    const restoredAppointmentId = await authed.mutation(
-      api.appointments.restoreDeletedAppointment,
-      {
+    const restoredAppointmentId = appointmentIdFromRestoreEffect(
+      await authed.mutation(api.appointments.restoreDeletedAppointment, {
         originalAppointmentId: appointmentId,
-      },
+      }),
     );
     const restoredAppointment = await t.run(async (ctx) => {
       return await ctx.db.get("appointments", restoredAppointmentId);
@@ -5521,9 +6274,8 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const appointmentId = await authed.mutation(
-      api.appointments.createAppointment,
-      {
+    const appointmentId = appointmentIdFromCreateEffect(
+      await authed.mutation(api.appointments.createAppointment, {
         appointmentTypeId: baseData.appointmentTypeId,
         locationId: baseData.locationId,
         practiceId: baseData.practiceId,
@@ -5531,13 +6283,13 @@ describe("calendar day appointment queries", () => {
         start: makeSlotWindow(39).start,
         title: "Color restore",
         userId,
-      },
+      }),
     );
     await expect(
       authed.mutation(api.appointments.deleteAppointment, {
         id: appointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
 
     await t.run(async (ctx) => {
       await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
@@ -5545,11 +6297,10 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const restoredAppointmentId = await authed.mutation(
-      api.appointments.restoreDeletedAppointment,
-      {
+    const restoredAppointmentId = appointmentIdFromRestoreEffect(
+      await authed.mutation(api.appointments.restoreDeletedAppointment, {
         originalAppointmentId: appointmentId,
-      },
+      }),
     );
     const restoredAppointment = await t.run(async (ctx) => {
       return await ctx.db.get("appointments", restoredAppointmentId);
@@ -5558,7 +6309,7 @@ describe("calendar day appointment queries", () => {
     expect(restoredAppointment?.color).toBe("yellow");
   });
 
-  test("restoreDeletedAppointment preserves the deleted color for restored series roots", async () => {
+  test("restoreDeletedAppointment keeps a single snapshot single after its type gains a plan", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
     const authId = "workos_restore_series_color";
@@ -5596,7 +6347,9 @@ describe("calendar day appointment queries", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [baseData.practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: now,
           name: "Follow-up",
@@ -5605,19 +6358,22 @@ describe("calendar day appointment queries", () => {
         },
       );
       await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: followUpTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "days",
+                offsetValue: 2,
+              },
+            },
+          ],
+        },
         color: "yellow",
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: followUpTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 2,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "step-1",
-          },
-        ],
       });
     });
 
@@ -5652,7 +6408,7 @@ describe("calendar day appointment queries", () => {
       authed.mutation(api.appointments.deleteAppointment, {
         id: originalAppointmentId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({ kind: "appointment.deleted" });
 
     await t.run(async (ctx) => {
       await ctx.db.patch("appointmentTypes", baseData.appointmentTypeId, {
@@ -5660,17 +6416,30 @@ describe("calendar day appointment queries", () => {
       });
     });
 
-    const restoredAppointmentId = await authed.mutation(
-      api.appointments.restoreDeletedAppointment,
-      {
+    const restoredAppointmentId = appointmentIdFromRestoreEffect(
+      await authed.mutation(api.appointments.restoreDeletedAppointment, {
         originalAppointmentId,
-      },
+      }),
     );
     const restoredAppointment = await t.run(async (ctx) => {
-      return await ctx.db.get("appointments", restoredAppointmentId);
+      const restoredAppointment = await ctx.db.get(
+        "appointments",
+        restoredAppointmentId,
+      );
+      const appointments = await ctx.db
+        .query("appointments")
+        .withIndex("by_practiceId", (q) =>
+          q.eq("practiceId", baseData.practiceId),
+        )
+        .collect();
+      return { appointments, restoredAppointment };
     });
 
-    expect(restoredAppointment?.color).toBe("yellow");
-    expect(restoredAppointment?.seriesStepIndex).toBe(0n);
+    expect(restoredAppointment.restoredAppointment?.color).toBe("yellow");
+    expect(restoredAppointment.restoredAppointment?.seriesId).toBeUndefined();
+    expect(
+      restoredAppointment.restoredAppointment?.seriesStepIndex,
+    ).toBeUndefined();
+    expect(restoredAppointment.appointments).toHaveLength(1);
   });
 });

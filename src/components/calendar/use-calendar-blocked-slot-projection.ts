@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { AppointmentSeriesPlanningFailureKind } from "../../../convex/appointmentSeriesPlanner";
 import type {
   LocationLineageKey,
   PractitionerLineageKey,
@@ -19,6 +20,7 @@ import {
   getAppointmentPractitionerLineageKey,
   getBlockedSlotPractitionerLineageKey,
 } from "../../../convex/appointmentOccupancy";
+import { asPractitionerLineageKey } from "../../../convex/identity";
 import {
   calendarColumnScopeFromPractitioner,
   calendarColumnScopeFromResourceColumn,
@@ -51,8 +53,11 @@ interface BlockedSlotVacation {
 
 interface RuleBlockedSlotProjection {
   blockedByRuleId?: Id<"ruleConditions">;
+  blocksPlacementStartOnly?: boolean;
+  canOverride?: boolean;
   column: CalendarColumnId;
   isManual?: false;
+  provenance?: "insufficientDuration" | AppointmentSeriesPlanningFailureKind;
   reason?: string;
   slot: number;
   title?: string;
@@ -67,8 +72,24 @@ interface SchedulingSlot {
   status: string;
 }
 
+interface ServerCandidateSlotDecision {
+  blockingRuleIds?: Id<"ruleConditions">[];
+  calendarResourceColumn?: "ekg" | "labor";
+  canOverride: boolean;
+  duration: number;
+  practitionerLineageKey?: Id<"practitioners">;
+  provenance?: "insufficientDuration" | AppointmentSeriesPlanningFailureKind;
+  reason?: string;
+  startTime: string;
+  status: "available" | "unavailable";
+}
+
 interface UseCalendarBlockedSlotProjectionArgs {
   appointmentsData: readonly CalendarAppointmentRecord[];
+  appointmentSeriesRootBlockedSlots:
+    | readonly ServerCandidateSlotDecision[]
+    | undefined;
+  appointmentTypeSelected: boolean;
   baseSchedulesData: readonly VacationSchedule[] | undefined;
   blockedSlotsData: readonly CalendarBlockedSlotRecord[];
   blockedSlotsWithoutAppointmentTypeSlots:
@@ -84,6 +105,7 @@ interface UseCalendarBlockedSlotProjectionArgs {
     Id<"practitioners">,
     PractitionerLineageKey
   >;
+  resourceDefaultCalendarResourceColumn?: "ekg" | "labor" | undefined;
   selectedDate: Temporal.PlainDate;
   selectedLocationId: Id<"locations"> | undefined;
   simulatedContext:
@@ -108,6 +130,8 @@ interface VacationSchedule extends BlockedSlotSchedule {
 
 export function useCalendarBlockedSlotProjection({
   appointmentsData,
+  appointmentSeriesRootBlockedSlots,
+  appointmentTypeSelected,
   baseSchedulesData,
   blockedSlotsData,
   blockedSlotsWithoutAppointmentTypeSlots,
@@ -116,6 +140,7 @@ export function useCalendarBlockedSlotProjection({
   getPractitionerIdForLineageKey,
   locationLineageKeyById,
   practitionerLineageKeyById,
+  resourceDefaultCalendarResourceColumn,
   selectedDate,
   selectedLocationId,
   simulatedContext,
@@ -149,22 +174,25 @@ export function useCalendarBlockedSlotProjection({
     }
 
     const blocked: BlockedSlotProjection[] = [];
-    appendSchedulingSlots({
-      blocked,
-      slots,
-      timeToSlot,
-      workingPractitioners,
-    });
-    appendSchedulingSlots({
-      blocked,
-      skipExisting: true,
-      slots: blockedSlotsWithoutAppointmentTypeSlots,
-      timeToSlot,
-      workingPractitioners,
-    });
+    if (!appointmentTypeSelected) {
+      appendSchedulingSlots({
+        blocked,
+        slots,
+        timeToSlot,
+        workingPractitioners,
+      });
+      appendSchedulingSlots({
+        blocked,
+        skipExisting: true,
+        slots: blockedSlotsWithoutAppointmentTypeSlots,
+        timeToSlot,
+        workingPractitioners,
+      });
+    }
 
     return blocked;
   }, [
+    appointmentTypeSelected,
     blockedSlotsWithoutAppointmentTypeSlots,
     slots,
     timeToSlot,
@@ -438,6 +466,97 @@ export function useCalendarBlockedSlotProjection({
     workingPractitioners,
   ]);
 
+  const projectAppointmentSeriesRootSlots = useCallback(
+    (
+      slots: readonly ServerCandidateSlotDecision[] | undefined,
+      defaultReason: string,
+    ) =>
+      (slots ?? []).flatMap((blockedSlot) => {
+        const column =
+          blockedSlot.calendarResourceColumn === undefined
+            ? blockedSlot.practitionerLineageKey === undefined
+              ? null
+              : calendarColumnScopeFromPractitioner(
+                  asPractitionerLineageKey(blockedSlot.practitionerLineageKey),
+                )
+            : calendarColumnScopeFromResourceColumn(
+                blockedSlot.calendarResourceColumn,
+              );
+        if (column === null) {
+          return [];
+        }
+
+        const startTime = Temporal.ZonedDateTime.from(
+          blockedSlot.startTime,
+        ).toPlainTime();
+        const startSlot = timeToSlot(startTime.toString().slice(0, 5));
+        const slotCount = 1;
+
+        if ("status" in blockedSlot && blockedSlot.status === "available") {
+          return [];
+        }
+
+        const blockedByRuleId =
+          "blockingRuleIds" in blockedSlot
+            ? blockedSlot.blockingRuleIds.at(0)
+            : undefined;
+        const provenance =
+          "provenance" in blockedSlot ? blockedSlot.provenance : undefined;
+        const reason =
+          "reason" in blockedSlot
+            ? (blockedSlot.reason ?? defaultReason)
+            : defaultReason;
+
+        return Array.from({ length: slotCount }, (_, offset) => ({
+          ...(blockedByRuleId === undefined ? {} : { blockedByRuleId }),
+          blocksPlacementStartOnly: true,
+          column,
+          ...("canOverride" in blockedSlot
+            ? { canOverride: blockedSlot.canOverride }
+            : {}),
+          ...(provenance === undefined ? {} : { provenance }),
+          reason,
+          slot: startSlot + offset,
+        }));
+      }),
+    [timeToSlot],
+  );
+
+  const serverAppointmentSeriesRootBlockedSlots = useMemo(
+    () =>
+      projectAppointmentSeriesRootSlots(
+        appointmentSeriesRootBlockedSlots,
+        "Kettentermin nicht planbar",
+      ),
+    [appointmentSeriesRootBlockedSlots, projectAppointmentSeriesRootSlots],
+  );
+
+  const resourceDefaultWrongColumnBlockedSlots = useMemo(() => {
+    if (resourceDefaultCalendarResourceColumn === undefined) {
+      return [];
+    }
+
+    return columns.flatMap((column) => {
+      const columnResource = getCalendarResourceColumnFromOccupancy(column.id);
+      if (columnResource === resourceDefaultCalendarResourceColumn) {
+        return [];
+      }
+
+      const reason =
+        resourceDefaultCalendarResourceColumn === "ekg"
+          ? "Diese Terminart kann nur in der EKG-Spalte gebucht werden."
+          : "Diese Terminart kann nur in der Labor-Spalte gebucht werden.";
+
+      return Array.from({ length: totalSlots }, (_, slot) => ({
+        blocksPlacementStartOnly: true,
+        canOverride: false,
+        column: column.id,
+        reason,
+        slot,
+      }));
+    });
+  }, [columns, resourceDefaultCalendarResourceColumn, totalSlots]);
+
   return {
     baseAppointmentTypeUnavailableBlockedSlots: createBlockedSlotsForColumns(
       "Behandler nicht für Terminart freigegeben",
@@ -455,6 +574,8 @@ export function useCalendarBlockedSlotProjection({
       (column) => column.isUnavailable === true,
     ),
     baseVacationBlockedSlots,
+    resourceDefaultWrongColumnBlockedSlots,
+    serverAppointmentSeriesRootBlockedSlots,
   };
 }
 

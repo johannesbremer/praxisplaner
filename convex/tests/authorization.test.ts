@@ -76,7 +76,10 @@ async function createPublicBookingSchedulingFixture(
       "appointmentTypes",
       {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: BigInt(Date.now()),
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: BigInt(Date.now()),
         name: "Public Booking",
@@ -558,7 +561,10 @@ describe("Convex query authorization", () => {
     await t.run(async (ctx) => {
       await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
         allowedPractitionerLineageKeys: [],
+        appointmentPlan: { steps: [] },
         createdAt: BigInt(Date.now()),
+        defaultOccupancy: { kind: "selectedPractitioner" },
+
         duration: 20,
         lastModified: BigInt(Date.now()),
         name: "Booking reference",
@@ -647,7 +653,7 @@ describe("Convex query authorization", () => {
     expect(appointmentType).not.toHaveProperty(
       "allowedPractitionerLineageKeys",
     );
-    expect(appointmentType).not.toHaveProperty("followUpPlan");
+    expect(appointmentType).not.toHaveProperty("appointmentPlan");
     expect(appointmentType).not.toHaveProperty("practiceId");
     expect(appointmentType).not.toHaveProperty("ruleSetId");
 
@@ -1055,9 +1061,11 @@ describe("Convex query authorization", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 5,
-          followUpPlan: [],
           lastModified: now,
           name: "Simulation Scope Checkup",
           practiceId: practice.practiceId,

@@ -46,8 +46,10 @@ type SimulationAppointmentLike = Pick<
 export function appointmentReplacementInsertFields(
   appointment: Doc<"appointments">,
   overrides: Partial<AppointmentReplacementState> = {},
+  options?: { includeSeriesMembership: boolean },
 ) {
   const state = appointmentReplacementState(appointment, overrides);
+  const includeSeriesMembership = options?.includeSeriesMembership ?? true;
   return {
     appointmentTypeLineageKey: state.appointmentTypeLineageKey,
     appointmentTypeTitle: state.appointmentTypeTitle,
@@ -75,13 +77,15 @@ export function appointmentReplacementInsertFields(
       ? {}
       : { phoneBookingIdentityId: state.phoneBookingIdentityId }),
     practiceId: state.practiceId,
-    ...(state.seriesId === undefined ? {} : { seriesId: state.seriesId }),
-    ...(state.seriesStepId === undefined
-      ? {}
-      : { seriesStepId: state.seriesStepId }),
-    ...(state.seriesStepIndex === undefined
-      ? {}
-      : { seriesStepIndex: state.seriesStepIndex }),
+    ...(includeSeriesMembership && state.seriesId !== undefined
+      ? { seriesId: state.seriesId }
+      : {}),
+    ...(includeSeriesMembership && state.seriesStepId !== undefined
+      ? { seriesStepId: state.seriesStepId }
+      : {}),
+    ...(includeSeriesMembership && state.seriesStepIndex !== undefined
+      ? { seriesStepIndex: state.seriesStepIndex }
+      : {}),
     ...(state.smiley === undefined ? {} : { smiley: state.smiley }),
     start: state.start,
     title: state.title,
@@ -122,7 +126,9 @@ export function appointmentReplacementState(
 export function appointmentReplacementStatesEqual(
   left: AppointmentReplacementState,
   right: AppointmentReplacementState,
+  options?: { compareSeriesMembership: boolean },
 ): boolean {
+  const compareSeriesMembership = options?.compareSeriesMembership ?? true;
   return (
     left.appointmentTypeLineageKey === right.appointmentTypeLineageKey &&
     left.appointmentTypeTitle === right.appointmentTypeTitle &&
@@ -141,9 +147,10 @@ export function appointmentReplacementStatesEqual(
     left.patientId === right.patientId &&
     left.phoneBookingIdentityId === right.phoneBookingIdentityId &&
     left.practiceId === right.practiceId &&
-    left.seriesId === right.seriesId &&
-    left.seriesStepId === right.seriesStepId &&
-    left.seriesStepIndex === right.seriesStepIndex &&
+    (!compareSeriesMembership ||
+      (left.seriesId === right.seriesId &&
+        left.seriesStepId === right.seriesStepId &&
+        left.seriesStepIndex === right.seriesStepIndex)) &&
     left.smiley === right.smiley &&
     left.start === right.start &&
     left.title === right.title &&

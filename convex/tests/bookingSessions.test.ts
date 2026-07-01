@@ -110,9 +110,10 @@ async function createFlowFixture(
       "appointmentTypes",
       {
         allowedPractitionerLineageKeys: [practitionerLineageKey],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
-        followUpPlan: [],
         lastModified: now,
         name: "Akuttermin",
         practiceId,
@@ -1459,9 +1460,11 @@ describe("booking flow without bookingSessions table", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerLineageKey],
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
-          followUpPlan: [],
           lastModified: now,
           name: "Draft-only appointment type",
           practiceId: fixture.practiceId,
@@ -1517,5 +1520,134 @@ describe("booking flow without bookingSessions table", () => {
     expect(slotsResult.slots.some((slot) => slot.status === "AVAILABLE")).toBe(
       true,
     );
+  });
+
+  test("public booking excludes appointment types with appointment plans", async () => {
+    const t = createAuthedTestContext("flow_booking_series_excluded");
+    const fixture = await createFlowFixture(t);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(
+        "appointmentTypes",
+        fixture.appointmentTypeLineageKey,
+        {
+          appointmentPlan: {
+            steps: [
+              {
+                appointmentTypeLineageKey: fixture.appointmentTypeLineageKey,
+                occupancy: { kind: "inheritRootPractitioner" },
+                required: true,
+                stepId: "follow-up",
+                timing: {
+                  kind: "afterPreviousEnd",
+                  offsetUnit: "minutes",
+                  offsetValue: 0,
+                },
+              },
+            ],
+          },
+        },
+      );
+    });
+
+    await createFlowToPatientStatus(t, fixture);
+
+    const bookingAppointmentTypes = await t.query(
+      api.entities.getBookingAppointmentTypes,
+      {
+        ruleSetId: fixture.ruleSetId,
+      },
+    );
+    expect(bookingAppointmentTypes).toHaveLength(0);
+
+    await t.mutation(api.bookingSessions.selectExistingPatient, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.selectDoctor, {
+      practiceId: fixture.practiceId,
+      practitionerLineageKey: fixture.practitionerLineageKey,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.submitExistingPatientData, {
+      personalData: completePersonalData({
+        email: "series-public@example.com",
+      }),
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    await expect(
+      t.mutation(api.bookingSessions.selectExistingPatientSlot, {
+        appointmentTypeLineageKey: fixture.appointmentTypeLineageKey,
+        practiceId: fixture.practiceId,
+        reasonDescription: "Kette",
+        ruleSetId: fixture.ruleSetId,
+        selectedSlot: {
+          practitionerLineageKey: fixture.practitionerLineageKey,
+          practitionerName: "Dr. Test",
+          startTime: "2027-01-02T10:00:00+01:00[Europe/Berlin]",
+        },
+      }),
+    ).rejects.toThrow("online nicht buchbar");
+  });
+
+  test("public booking excludes resource-default appointment types", async () => {
+    const t = createAuthedTestContext("flow_booking_resource_default_excluded");
+    const fixture = await createFlowFixture(t);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(
+        "appointmentTypes",
+        fixture.appointmentTypeLineageKey,
+        {
+          defaultOccupancy: {
+            calendarResourceColumn: "ekg",
+            kind: "resourceColumn",
+          },
+        },
+      );
+    });
+
+    await createFlowToPatientStatus(t, fixture);
+
+    const bookingAppointmentTypes = await t.query(
+      api.entities.getBookingAppointmentTypes,
+      {
+        ruleSetId: fixture.ruleSetId,
+      },
+    );
+    expect(bookingAppointmentTypes).toHaveLength(0);
+
+    await t.mutation(api.bookingSessions.selectExistingPatient, {
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.selectDoctor, {
+      practiceId: fixture.practiceId,
+      practitionerLineageKey: fixture.practitionerLineageKey,
+      ruleSetId: fixture.ruleSetId,
+    });
+    await t.mutation(api.bookingSessions.submitExistingPatientData, {
+      personalData: completePersonalData({
+        email: "resource-public@example.com",
+      }),
+      practiceId: fixture.practiceId,
+      ruleSetId: fixture.ruleSetId,
+    });
+
+    await expect(
+      t.mutation(api.bookingSessions.selectExistingPatientSlot, {
+        appointmentTypeLineageKey: fixture.appointmentTypeLineageKey,
+        practiceId: fixture.practiceId,
+        reasonDescription: "EKG",
+        ruleSetId: fixture.ruleSetId,
+        selectedSlot: {
+          practitionerLineageKey: fixture.practitionerLineageKey,
+          practitionerName: "Dr. Test",
+          startTime: "2027-01-02T10:00:00+01:00[Europe/Berlin]",
+        },
+      }),
+    ).rejects.toThrow("online nicht buchbar");
   });
 });

@@ -216,6 +216,33 @@ describe("CalendarGrid", () => {
         expect(screen.getByText(col.title)).toBeInTheDocument();
       }
     });
+
+    test("renders placement-start blocks with the same overlay UI as real blocked ranges", () => {
+      const { container } = render(
+        <CalendarGrid
+          {...defaultProps}
+          blockedSlots={[
+            {
+              column: practitionerColumn1,
+              reason: "Echter Regelblock",
+              slot: 12,
+            },
+            {
+              blocksPlacementStartOnly: true,
+              column: practitionerColumn1,
+              reason: "Start nicht planbar",
+              slot: 13,
+            },
+          ]}
+        />,
+      );
+
+      expect(
+        container.querySelectorAll(
+          '[data-calendar-blocked-slot-overlay="range"]',
+        ),
+      ).toHaveLength(2);
+    });
   });
 
   describe("Interactions", () => {
@@ -408,6 +435,43 @@ describe("CalendarGrid", () => {
 
       const preview = container.querySelector(".border-dashed");
       expect(preview).toBeInTheDocument();
+    });
+
+    test("marks drag preview as blocked when it overlaps a projected blocked slot", () => {
+      const dragPreview = {
+        column: practitionerColumn1,
+        slot: 12,
+        visible: true,
+      };
+
+      const draggedApt = mockAppointments[0];
+      if (!draggedApt) {
+        return;
+      }
+
+      const { container } = render(
+        <CalendarGrid
+          {...defaultProps}
+          blockedSlots={[
+            {
+              column: practitionerColumn1,
+              reason: "Regel",
+              slot: 13,
+            },
+          ]}
+          draggedAppointment={draggedApt}
+          dragPreview={dragPreview}
+        />,
+      );
+
+      const preview = container.querySelector(".border-dashed");
+      assertElement(preview);
+      expect(preview.getAttribute("style")).toContain(
+        "background-color: var(--destructive)",
+      );
+      expect(preview.getAttribute("style")).toContain(
+        "border-color: var(--destructive)",
+      );
     });
 
     test("does not render drag preview when not dragging", () => {

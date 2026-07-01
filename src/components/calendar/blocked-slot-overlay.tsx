@@ -15,6 +15,7 @@ export function BlockedSlotOverlay({
   return (
     <div
       className="absolute left-0 right-0 bg-muted/80 pointer-events-none z-10 h-(--blocked-slot-height) top-(--blocked-slot-top)"
+      data-calendar-blocked-slot-overlay="range"
       style={
         {
           "--blocked-slot-height": `${height}px`,

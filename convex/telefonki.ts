@@ -10,11 +10,18 @@ import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
 import {
+  hasAppointmentPlan,
+  normalizeDefaultOccupancy,
+} from "./appointmentPlans";
+import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveLocationIdForRuleSetByLineage,
   resolvePractitionerIdForRuleSetByLineage,
 } from "./appointmentReferences";
-import { createAppointmentFromTrustedSource } from "./appointments";
+import {
+  createAppointmentFromTrustedSource,
+  rootAppointmentIdFromCreateEffect,
+} from "./appointments";
 import { normalizeE164PhoneNumber } from "./e164PhoneNumber";
 import {
   asAppointmentTypeLineageKey,
@@ -261,10 +268,6 @@ function getSearchStartDate(date: string | undefined): IsoDateString {
   return asIsoDateString(Temporal.Now.plainDateISO(SEARCH_TIMEZONE).toString());
 }
 
-function hasFollowUpPlan(appointmentType: Doc<"appointmentTypes"> | null) {
-  return (appointmentType?.followUpPlan?.length ?? 0) > 0;
-}
-
 function isAfternoonSlot(slot: Pick<AvailableSlot, "startTime">) {
   return (
     Temporal.ZonedDateTime.from(slot.startTime).hour >= AFTERNOON_START_HOUR
@@ -278,7 +281,9 @@ function isTelefonkiBookableAppointmentType(
     appointmentType !== null &&
     appointmentType.deleted !== true &&
     appointmentType.lineageKey !== undefined &&
-    !hasFollowUpPlan(appointmentType)
+    !hasAppointmentPlan(appointmentType) &&
+    normalizeDefaultOccupancy(appointmentType.defaultOccupancy).kind !==
+      "resourceColumn"
   );
 }
 
@@ -609,8 +614,7 @@ export const getActiveConfig = query({
         .filter(
           (entry) =>
             entry.practiceId === args.practiceId &&
-            !entry.deleted &&
-            (entry.followUpPlan?.length ?? 0) === 0,
+            isTelefonkiBookableAppointmentType(entry),
         )
         .map((entry) => ({
           duration: entry.duration,
@@ -824,7 +828,7 @@ export const book = mutation({
       phoneNumber: patientPhoneNumber,
       practiceId: active.practiceId,
     });
-    const appointmentId = await createAppointmentFromTrustedSource(ctx, {
+    const appointmentEffect = await createAppointmentFromTrustedSource(ctx, {
       appointmentTypeId,
       isNewPatient: args.patient.isNew,
       locationId,
@@ -838,6 +842,7 @@ export const book = mutation({
       start: args.startTime,
       title: `TelefonKI-Termin: ${appointmentType.name} - ${args.reasonDescription.trim()}`,
     });
+    const appointmentId = rootAppointmentIdFromCreateEffect(appointmentEffect);
 
     const now = BigInt(Date.now());
     await ctx.db.patch("phoneBookingIdentities", args.phoneBookingIdentityId, {

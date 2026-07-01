@@ -163,7 +163,9 @@ export const replaceReferenceTables = mutation({
         existingAppointmentType?._id ??
         (await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
           allowedPractitionerLineageKeys: practitionerLineageKeys,
+          appointmentPlan: { steps: [] },
           createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: appointmentType.duration,
           lastModified: now,
           name: appointmentType.name,
@@ -172,6 +174,8 @@ export const replaceReferenceTables = mutation({
         }));
       await ctx.db.patch("appointmentTypes", appointmentTypeId, {
         allowedPractitionerLineageKeys: practitionerLineageKeys,
+        appointmentPlan: { steps: [] },
+        defaultOccupancy: { kind: "selectedPractitioner" },
         deleted: false,
         duration: appointmentType.duration,
         lastModified: now,

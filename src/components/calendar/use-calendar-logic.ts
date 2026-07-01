@@ -1,3 +1,6 @@
+import type { FunctionReturnType } from "convex/server";
+
+import { useConvex, useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Temporal } from "temporal-polyfill";
@@ -8,7 +11,9 @@ import type {
   PractitionerLineageKey,
 } from "../../../convex/identity";
 import type { ZonedDateTimeString } from "../../../convex/typedDtos";
+import type { OptimisticAppointmentSeriesBlueprint } from "./use-calendar-planning-workbench";
 
+import { api } from "../../../convex/_generated/api";
 import {
   asAppointmentTypeLineageKey,
   asLocationLineageKey,
@@ -30,13 +35,17 @@ import {
   temporalDayToLegacy,
   zonedDateTimeStringResult,
 } from "../../utils/time-calculations";
+import { findFirstBlockedSlotInRange } from "./calendar-slot-blocking";
 import {
   buildCalendarAppointmentLayouts,
   buildCalendarAppointmentViews,
+  getCalendarAppointmentColumn,
+  toCalendarAppointmentRecord,
 } from "./calendar-view-models";
 import {
   type CalendarAppointmentLayout,
   type CalendarAppointmentPlacement,
+  type CalendarAppointmentRecord,
   type CalendarColumn,
   type CalendarColumnId,
   type NewCalendarProps,
@@ -76,6 +85,40 @@ interface ActiveCalendarDragPointer {
   pointerId: number;
   startClientX: number;
   startClientY: number;
+}
+
+type StaffPlacementCandidateSlotDecision = FunctionReturnType<
+  typeof api.appointments.getCandidateSlotDecisionsForStaffPlacement
+>[number];
+
+function findOptimisticSeriesBlueprintForPlacement(args: {
+  decisions: readonly StaffPlacementCandidateSlotDecision[] | undefined;
+  placement: CalendarAppointmentPlacement;
+  start: string;
+}): OptimisticAppointmentSeriesBlueprint | undefined {
+  const matchingDecision = args.decisions?.find((decision) => {
+    if (
+      decision.status !== "available" ||
+      decision.startTime !== args.start ||
+      decision.locationLineageKey !== args.placement.locationLineageKey
+    ) {
+      return false;
+    }
+
+    if (args.placement.occupancyScope.kind === "resource") {
+      return (
+        decision.calendarResourceColumn ===
+        args.placement.occupancyScope.calendarResourceColumn
+      );
+    }
+
+    return (
+      decision.practitionerLineageKey ===
+      args.placement.occupancyScope.practitionerLineageKey
+    );
+  });
+
+  return matchingDecision?.seriesBlueprint;
 }
 
 function hasMovedPastCalendarDragThreshold(
@@ -118,10 +161,21 @@ export function useCalendarLogic({
   const [currentTime, setCurrentTime] = useState<Temporal.ZonedDateTime>(() =>
     Temporal.Now.zonedDateTimeISO(TIMEZONE),
   );
+  const convex = useConvex();
   const practiceId = propPracticeId;
 
   const [draggedAppointment, setDraggedAppointment] =
     useState<CalendarAppointmentLayout | null>(null);
+  const [dragExcludedAppointmentIds, setDragExcludedAppointmentIds] = useState<
+    Id<"appointments">[]
+  >([]);
+  const [draggedSeriesAppointments, setDraggedSeriesAppointments] = useState<
+    CalendarAppointmentRecord[]
+  >([]);
+  const [
+    draggedSchedulingAppointmentTypeLineageKey,
+    setDraggedSchedulingAppointmentTypeLineageKey,
+  ] = useState<AppointmentTypeLineageKey | undefined>();
   const [draggedBlockedSlotId, setDraggedBlockedSlotId] = useState<
     null | string
   >(null);
@@ -160,6 +214,9 @@ export function useCalendarLogic({
   );
   const selectedLocationId =
     externalSelectedLocationId ?? internalSelectedLocationId;
+  const draggedAppointmentTypeLineageKey =
+    draggedSchedulingAppointmentTypeLineageKey ??
+    draggedAppointment?.record.appointmentTypeLineageKey;
 
   const {
     allPracticeAppointmentDocMap,
@@ -178,6 +235,7 @@ export function useCalendarLogic({
     blockedSlotsData,
     blockedSlotsWithoutAppointmentTypeResult,
     calendarDayQueryArgs,
+    effectiveRuleSetId,
     getRequiredAppointmentTypeInfo,
     locationIdByLineageKey,
     locationLineageKeyById,
@@ -192,14 +250,20 @@ export function useCalendarLogic({
     userData,
     vacationsData,
   } = useCalendarData({
+    excludedAppointmentIdsForAvailability: dragExcludedAppointmentIds,
     patient,
     practiceId,
     ruleSetId,
+    schedulingAppointmentTypeLineageKey: draggedAppointmentTypeLineageKey,
     selectedAppointmentTypeId,
     selectedDate,
     selectedLocationId,
     simulatedContext,
   });
+  const excludedAppointmentIdsForAvailability = useMemo(
+    () => new Set(dragExcludedAppointmentIds),
+    [dragExcludedAppointmentIds],
+  );
   const blockedSlotsQueryArgs = calendarDayQueryArgs;
 
   const isNonRootSeriesAppointment = useCallback(
@@ -275,12 +339,28 @@ export function useCalendarLogic({
 
   const placementAppointmentTypeLineageKey =
     simulatedContext?.appointmentTypeLineageKey ??
+    draggedAppointmentTypeLineageKey ??
     (selectedAppointmentTypeId === undefined
       ? undefined
       : appointmentTypeLineageKeyById.get(selectedAppointmentTypeId));
-  const draggedAppointmentTypeLineageKey =
-    draggedAppointment?.record.appointmentTypeLineageKey;
-
+  const placementLocationLineageKey =
+    simulatedContext?.locationLineageKey ??
+    (selectedLocationId === undefined
+      ? undefined
+      : locationLineageKeyById.get(selectedLocationId));
+  const placementLocationId =
+    simulatedContext?.locationLineageKey === undefined
+      ? selectedLocationId
+      : (getLocationIdForLineageKey(simulatedContext.locationLineageKey) ??
+        selectedLocationId);
+  const placementAppointmentTypeInfo =
+    placementAppointmentTypeLineageKey === undefined
+      ? undefined
+      : appointmentTypeInfoByLineageKey.get(placementAppointmentTypeLineageKey);
+  const placementResourceDefaultColumn =
+    placementAppointmentTypeInfo?.defaultOccupancy.kind === "resourceColumn"
+      ? placementAppointmentTypeInfo.defaultOccupancy.calendarResourceColumn
+      : undefined;
   const getUnsupportedPractitionerIdsForAppointmentType = useCallback(
     (
       appointmentTypeLineageKey: AppointmentTypeLineageKey | undefined,
@@ -447,6 +527,115 @@ export function useCalendarLogic({
     [businessStartHour],
   );
 
+  const appointmentSeriesRootCandidates = useMemo(() => {
+    if (
+      placementAppointmentTypeLineageKey === undefined ||
+      placementLocationLineageKey === undefined
+    ) {
+      return [];
+    }
+
+    const rootAppointmentType = appointmentTypeInfoByLineageKey.get(
+      placementAppointmentTypeLineageKey,
+    );
+    if (rootAppointmentType === undefined) {
+      return [];
+    }
+
+    const startForSlot = (slot: number) =>
+      selectedDate
+        .toZonedDateTime({
+          plainTime: Temporal.PlainTime.from(slotToTime(slot)),
+          timeZone: TIMEZONE,
+        })
+        .toString();
+
+    const rootDefaultOccupancy = rootAppointmentType.defaultOccupancy;
+    if (rootDefaultOccupancy.kind === "resourceColumn") {
+      const resourceColumn = columns.find(
+        (column) =>
+          getCalendarResourceColumnFromColumn(column.id) ===
+          rootDefaultOccupancy.calendarResourceColumn,
+      );
+      if (resourceColumn === undefined) {
+        return [];
+      }
+
+      return Array.from({ length: totalSlots }, (_, slot) => ({
+        calendarResourceColumn: rootDefaultOccupancy.calendarResourceColumn,
+        duration: rootAppointmentType.duration,
+        locationLineageKey: placementLocationLineageKey,
+        startTime: startForSlot(slot),
+      }));
+    }
+
+    return columns.flatMap((column) => {
+      const practitionerLineageKey = getPractitionerLineageKeyFromColumn(
+        column.id,
+      );
+      if (practitionerLineageKey === undefined) {
+        return [];
+      }
+
+      const practitionerName =
+        workingPractitioners.find(
+          (practitioner) => practitioner.lineageKey === practitionerLineageKey,
+        )?.name ?? column.title;
+
+      return Array.from({ length: totalSlots }, (_, slot) => ({
+        duration: rootAppointmentType.duration,
+        locationLineageKey: placementLocationLineageKey,
+        practitionerLineageKey,
+        practitionerName,
+        startTime: startForSlot(slot),
+      }));
+    });
+  }, [
+    appointmentTypeInfoByLineageKey,
+    columns,
+    placementAppointmentTypeLineageKey,
+    placementLocationLineageKey,
+    selectedDate,
+    slotToTime,
+    totalSlots,
+    workingPractitioners,
+  ]);
+
+  const appointmentSeriesRootAppointmentTypeId =
+    placementAppointmentTypeLineageKey === undefined
+      ? undefined
+      : appointmentTypeIdByLineageKey.get(placementAppointmentTypeLineageKey);
+  const shouldQueryAppointmentSeriesRootBlockedSlots =
+    appointmentSeriesRootCandidates.length > 0 &&
+    appointmentSeriesRootAppointmentTypeId !== undefined &&
+    placementLocationId !== undefined &&
+    effectiveRuleSetId !== undefined;
+  const appointmentSeriesRootBlockedSlots = useQuery(
+    api.appointments.getCandidateSlotDecisionsForStaffPlacement,
+    shouldQueryAppointmentSeriesRootBlockedSlots
+      ? {
+          appointmentTypeId: appointmentSeriesRootAppointmentTypeId,
+          candidates: appointmentSeriesRootCandidates,
+          ...(dragExcludedAppointmentIds.length === 0
+            ? {}
+            : { excludedAppointmentIds: dragExcludedAppointmentIds }),
+          ...(patient?.dateOfBirth === undefined
+            ? {}
+            : { patientDateOfBirth: patient.dateOfBirth }),
+          ...(patient?.isNewPatient === undefined
+            ? {}
+            : { isNewPatient: patient.isNewPatient }),
+          ...(patient?.recordType === "pvs"
+            ? { patientId: patient.convexPatientId }
+            : {}),
+          locationId: placementLocationId,
+          practiceId,
+          ruleSetId: effectiveRuleSetId,
+          scope: simulatedContext === undefined ? "real" : "simulation",
+          ...(patient?.userId === undefined ? {} : { userId: patient.userId }),
+        }
+      : "skip",
+  );
   const {
     baseAppointmentTypeUnavailableBlockedSlots,
     baseBlockedSlots,
@@ -455,8 +644,12 @@ export function useCalendarLogic({
     baseManualBlockedSlots,
     baseUnavailablePractitionerBlockedSlots,
     baseVacationBlockedSlots,
+    resourceDefaultWrongColumnBlockedSlots,
+    serverAppointmentSeriesRootBlockedSlots,
   } = useCalendarBlockedSlotProjection({
     appointmentsData,
+    appointmentSeriesRootBlockedSlots,
+    appointmentTypeSelected: placementAppointmentTypeLineageKey !== undefined,
     baseSchedulesData,
     blockedSlotsData,
     blockedSlotsWithoutAppointmentTypeSlots:
@@ -466,6 +659,7 @@ export function useCalendarLogic({
     getPractitionerIdForLineageKey,
     locationLineageKeyById,
     practitionerLineageKeyById,
+    resourceDefaultCalendarResourceColumn: placementResourceDefaultColumn,
     selectedDate,
     selectedLocationId,
     simulatedContext,
@@ -513,13 +707,13 @@ export function useCalendarLogic({
       column: CalendarColumnId,
       startSlot: number,
       duration: number,
-      excludeId?: string,
+      excludedIds: ReadonlySet<Id<"appointments">> = new Set(),
     ) => {
       const endSlot = startSlot + Math.ceil(duration / SLOT_DURATION);
 
       return baseAppointmentLayouts.some((apt) => {
         if (
-          apt.id === excludeId ||
+          excludedIds.has(apt.record._id) ||
           !sameCalendarColumnScope(apt.column, column)
         ) {
           return false;
@@ -533,30 +727,6 @@ export function useCalendarLogic({
       });
     },
     [baseAppointmentLayouts, timeToSlot],
-  );
-
-  const getMaxAvailableDuration = useCallback(
-    (column: CalendarColumnId, startSlot: number) => {
-      const occupiedSlots = baseAppointmentLayouts
-        .filter((apt) => sameCalendarColumnScope(apt.column, column))
-        .map((apt) => ({
-          end:
-            timeToSlot(apt.startTime) + Math.ceil(apt.duration / SLOT_DURATION),
-          start: timeToSlot(apt.startTime),
-        }))
-        .toSorted((a, b) => a.start - b.start);
-
-      const nextOccupiedSlot = occupiedSlots.find(
-        (range) => range.start > startSlot,
-      );
-
-      const maxSlots = nextOccupiedSlot
-        ? nextOccupiedSlot.start - startSlot
-        : totalSlots - startSlot;
-
-      return Math.max(SLOT_DURATION, maxSlots * SLOT_DURATION);
-    },
-    [baseAppointmentLayouts, timeToSlot, totalSlots],
   );
 
   const patientDateOfBirth = patient?.dateOfBirth;
@@ -620,12 +790,10 @@ export function useCalendarLogic({
       planningCommands.convertRealAppointmentToSimulation,
     convertRealBlockedSlotToSimulation:
       planningCommands.convertRealBlockedSlotToSimulation,
-    isNonRootSeriesAppointment,
     resolveBlockedSlotDisplayRefs: resolveBlockedSlotReferenceDisplayIds,
     runUpdateAppointment: planningCommands.updateAppointment,
     runUpdateBlockedSlot: planningCommands.updateBlockedSlot,
     selectedDate,
-    showNonRootSeriesEditToast,
     simulatedContext,
     slotToTime,
     timeToSlot,
@@ -651,16 +819,35 @@ export function useCalendarLogic({
     [appointments, draggedAppointment],
   );
 
-  const allBlockedSlots = useMemo(() => {
-    const combined = [
+  const basePlacementBlockedSlots = useMemo(
+    () => [
       ...baseBlockedSlots,
       ...baseBreakSlots,
+      ...resourceDefaultWrongColumnBlockedSlots,
+      ...serverAppointmentSeriesRootBlockedSlots,
       ...baseAppointmentTypeUnavailableBlockedSlots,
       ...baseDragDisabledPractitionerBlockedSlots,
       ...manualBlockedSlots,
       ...baseUnavailablePractitionerBlockedSlots,
       ...baseVacationBlockedSlots,
-    ].filter((slot) => slot.slot >= 0 && slot.slot < totalSlots);
+    ],
+    [
+      baseAppointmentTypeUnavailableBlockedSlots,
+      serverAppointmentSeriesRootBlockedSlots,
+      baseBlockedSlots,
+      baseBreakSlots,
+      resourceDefaultWrongColumnBlockedSlots,
+      baseDragDisabledPractitionerBlockedSlots,
+      baseUnavailablePractitionerBlockedSlots,
+      baseVacationBlockedSlots,
+      manualBlockedSlots,
+    ],
+  );
+
+  const allBlockedSlots = useMemo(() => {
+    const combined = basePlacementBlockedSlots.filter(
+      (slot) => slot.slot >= 0 && slot.slot < totalSlots,
+    );
 
     const uniqueSlots = new Map<string, (typeof combined)[0]>();
     for (const slot of combined) {
@@ -676,16 +863,39 @@ export function useCalendarLogic({
     }
 
     return [...uniqueSlots.values()];
-  }, [
-    baseAppointmentTypeUnavailableBlockedSlots,
-    baseBlockedSlots,
-    baseBreakSlots,
-    baseDragDisabledPractitionerBlockedSlots,
-    baseUnavailablePractitionerBlockedSlots,
-    baseVacationBlockedSlots,
-    manualBlockedSlots,
-    totalSlots,
-  ]);
+  }, [basePlacementBlockedSlots, totalSlots]);
+
+  const findBlockedSlotForPlacementStart = useCallback(
+    (column: CalendarColumnId, slot: number, durationMinutes: number) => {
+      if (placementAppointmentTypeLineageKey !== undefined) {
+        return allBlockedSlots.find(
+          (blockedSlot) =>
+            sameCalendarColumnScope(blockedSlot.column, column) &&
+            blockedSlot.slot === slot,
+        );
+      }
+
+      return findFirstBlockedSlotInRange({
+        blockedSlots: allBlockedSlots,
+        column,
+        durationMinutes,
+        slotDurationMinutes: SLOT_DURATION,
+        startSlot: slot,
+      });
+    },
+    [allBlockedSlots, placementAppointmentTypeLineageKey],
+  );
+  const findBlockedSlotForAppointmentMove = useCallback(
+    (column: CalendarColumnId, slot: number, durationMinutes: number) =>
+      findFirstBlockedSlotInRange({
+        blockedSlots: allBlockedSlots,
+        column,
+        durationMinutes,
+        slotDurationMinutes: SLOT_DURATION,
+        startSlot: slot,
+      }),
+    [allBlockedSlots],
+  );
 
   useCalendarDevtools({
     appointments: appointmentLayouts,
@@ -851,7 +1061,68 @@ export function useCalendarLogic({
       startClientX: e.clientX,
       startClientY: e.clientY,
     };
-    setDraggedAppointment(appointment);
+    const startDrag = async () => {
+      let sameSeriesAppointments: CalendarAppointmentRecord[] = [];
+      if (appointment.record.seriesId !== undefined) {
+        try {
+          const seriesAppointments = await convex.query(
+            api.appointments.getAppointmentSeriesAppointments,
+            {
+              practiceId,
+              seriesId: appointment.record.seriesId,
+            },
+          );
+          sameSeriesAppointments = seriesAppointments.map((seriesAppointment) =>
+            toCalendarAppointmentRecord(seriesAppointment),
+          );
+        } catch (error) {
+          captureErrorGlobal(error, {
+            appointmentId: appointment.record._id,
+            context: "NewCalendar - Failed to load appointment series for drag",
+            seriesId: appointment.record.seriesId,
+          });
+          toast.error(
+            "Die Kettentermine konnten nicht geladen werden. Bitte erneut versuchen.",
+          );
+          activeDragPointerRef.current = null;
+          setDragExcludedAppointmentIds([]);
+          setDraggedSchedulingAppointmentTypeLineageKey(undefined);
+          setDraggedSeriesAppointments([]);
+          return;
+        }
+      }
+      const rootSeriesAppointment = sameSeriesAppointments.find(
+        (entry) => entry.seriesStepIndex === 0n,
+      );
+      if (activeDragPointerRef.current?.pointerId !== e.pointerId) {
+        return;
+      }
+      const schedulingAppointmentTypeLineageKey =
+        appointment.record.seriesId !== undefined &&
+        appointment.record.seriesStepIndex !== undefined &&
+        appointment.record.seriesStepIndex !== 0n
+          ? rootSeriesAppointment?.appointmentTypeLineageKey
+          : appointment.record.appointmentTypeLineageKey;
+      const excludedIds =
+        appointment.record.seriesId === undefined
+          ? [appointment.record._id]
+          : sameSeriesAppointments.length > 0
+            ? sameSeriesAppointments.map((entry) => entry._id)
+            : appointmentLayouts
+                .filter(
+                  (entry) =>
+                    entry.record.seriesId === appointment.record.seriesId,
+                )
+                .map((entry) => entry.record._id);
+      setDragExcludedAppointmentIds(excludedIds);
+      setDraggedSchedulingAppointmentTypeLineageKey(
+        schedulingAppointmentTypeLineageKey,
+      );
+      setDraggedSeriesAppointments(sameSeriesAppointments);
+      setDraggedAppointment(appointment);
+    };
+
+    void startDrag();
   };
 
   const handleDragOver = useCallback(
@@ -1091,13 +1362,9 @@ export function useCalendarLogic({
 
       if (!dragPreview.visible) {
         setDraggedAppointment(null);
-        setDragPreview(emptyDragPreview);
-        return;
-      }
-
-      if (isNonRootSeriesAppointment(draggedAppointment.record._id)) {
-        showNonRootSeriesEditToast();
-        setDraggedAppointment(null);
+        setDragExcludedAppointmentIds([]);
+        setDraggedSchedulingAppointmentTypeLineageKey(undefined);
+        setDraggedSeriesAppointments([]);
         setDragPreview(emptyDragPreview);
         return;
       }
@@ -1105,20 +1372,6 @@ export function useCalendarLogic({
       const newTime = slotToTime(finalSlot);
 
       try {
-        if (
-          checkCollision(
-            column,
-            finalSlot,
-            draggedAppointment.duration,
-            draggedAppointment.id,
-          )
-        ) {
-          toast.error(
-            "Termin kann nicht auf einen belegten Zeitraum verschoben werden.",
-          );
-          return;
-        }
-
         const plainTime = Temporal.PlainTime.from(newTime);
         const startZoned = selectedDate.toZonedDateTime({
           plainTime,
@@ -1129,42 +1382,134 @@ export function useCalendarLogic({
           minutes: draggedAppointment.duration,
         });
 
+        const rootSeriesAppointment =
+          draggedAppointment.record.seriesId === undefined
+            ? undefined
+            : draggedSeriesAppointments.find(
+                (appointment) =>
+                  appointment.seriesId === draggedAppointment.record.seriesId &&
+                  appointment.seriesStepIndex === 0n,
+              );
+        const moveSeriesFromFollowUp =
+          isNonRootSeriesAppointment(draggedAppointment.record._id) &&
+          rootSeriesAppointment !== undefined;
+
+        if (
+          isNonRootSeriesAppointment(draggedAppointment.record._id) &&
+          rootSeriesAppointment === undefined
+        ) {
+          toast.error(
+            "Der Starttermin dieser Kette ist noch nicht geladen. Bitte erneut versuchen.",
+          );
+          return;
+        }
+
+        const appointmentToMove =
+          rootSeriesAppointment ?? draggedAppointment.record;
+        const appointmentToMoveStart = Temporal.ZonedDateTime.from(
+          appointmentToMove.start,
+        );
+        const appointmentToMoveEnd = Temporal.ZonedDateTime.from(
+          appointmentToMove.end,
+        );
+        const moveDeltaMilliseconds = moveSeriesFromFollowUp
+          ? startZoned.epochMilliseconds -
+            Temporal.ZonedDateTime.from(draggedAppointment.record.start)
+              .epochMilliseconds
+          : 0;
+        const movedStartZoned = moveSeriesFromFollowUp
+          ? appointmentToMoveStart.add({ milliseconds: moveDeltaMilliseconds })
+          : startZoned;
+        const movedEndZoned = moveSeriesFromFollowUp
+          ? appointmentToMoveEnd.add({ milliseconds: moveDeltaMilliseconds })
+          : endZoned;
+        const moveColumn = moveSeriesFromFollowUp
+          ? getCalendarAppointmentColumn(appointmentToMove)
+          : column;
+
         const targetResourceColumn =
-          getCalendarResourceColumnFromColumn(column);
+          getCalendarResourceColumnFromColumn(moveColumn);
         const targetPractitionerId =
           targetResourceColumn === undefined
-            ? getPractitionerIdForColumn(column)
+            ? getPractitionerIdForColumn(moveColumn)
             : undefined;
+        const movedSlot = timeToSlot(formatTime(movedStartZoned.toPlainTime()));
+        const movedDurationMinutes =
+          (movedEndZoned.epochMilliseconds -
+            movedStartZoned.epochMilliseconds) /
+          60_000;
+
+        if (
+          checkCollision(
+            moveColumn,
+            movedSlot,
+            movedDurationMinutes,
+            excludedAppointmentIdsForAvailability,
+          )
+        ) {
+          toast.error(
+            "Termin kann nicht auf einen belegten Zeitraum verschoben werden.",
+          );
+          return;
+        }
+
+        const blockedSlotData = findBlockedSlotForAppointmentMove(
+          moveColumn,
+          movedSlot,
+          movedDurationMinutes,
+        );
+        if (blockedSlotData) {
+          toast.error(
+            blockedSlotData.reason
+              ? `Termin kann nicht auf einen gesperrten Zeitraum verschoben werden: ${blockedSlotData.reason}`
+              : "Termin kann nicht auf einen gesperrten Zeitraum verschoben werden.",
+          );
+          return;
+        }
 
         if (
           simulatedContext &&
           draggedAppointment.record.isSimulation !== true
         ) {
+          const appointmentLayoutToMove =
+            appointmentLayouts.find(
+              (appointment) => appointment.record._id === appointmentToMove._id,
+            ) ??
+            ({
+              column: moveColumn,
+              duration:
+                (appointmentToMoveEnd.epochMilliseconds -
+                  appointmentToMoveStart.epochMilliseconds) /
+                60_000,
+              id: appointmentToMove._id,
+              record: appointmentToMove,
+              startTime: formatTime(appointmentToMoveStart.toPlainTime()),
+            } satisfies CalendarAppointmentLayout);
           await planningCommands.convertRealAppointmentToSimulation(
-            draggedAppointment,
+            appointmentLayoutToMove,
             {
-              columnOverride: column,
-              endISO: endZoned.toString(),
+              columnOverride: moveColumn,
+              endISO: movedEndZoned.toString(),
               ...(targetResourceColumn === undefined
                 ? { calendarResourceColumn: null }
                 : { calendarResourceColumn: targetResourceColumn }),
               ...(targetPractitionerId && {
                 practitionerId: targetPractitionerId,
               }),
-              startISO: startZoned.toString(),
+              startISO: movedStartZoned.toString(),
             },
           );
         } else {
           try {
             const targetPractitionerLineageKey =
-              getPractitionerLineageKeyFromColumn(column);
+              getPractitionerLineageKeyFromColumn(moveColumn);
             const targetPlacement =
               targetResourceColumn === undefined
                 ? targetPractitionerLineageKey === undefined
                   ? null
                   : createCalendarPlacement({
                       locationLineageKey:
-                        draggedAppointment.record.placement.locationLineageKey,
+                        appointmentToMove.placement.locationLineageKey,
                       occupancyScope: {
                         kind: "practitioner",
                         practitionerLineageKey: targetPractitionerLineageKey,
@@ -1172,7 +1517,7 @@ export function useCalendarLogic({
                     })
                 : createCalendarPlacement({
                     locationLineageKey:
-                      draggedAppointment.record.placement.locationLineageKey,
+                      appointmentToMove.placement.locationLineageKey,
                     occupancyScope: {
                       calendarResourceColumn: targetResourceColumn,
                       kind: "resource",
@@ -1183,14 +1528,14 @@ export function useCalendarLogic({
               return;
             }
             await planningCommands.updateAppointment({
-              end: endZoned.toString(),
-              id: draggedAppointment.record._id,
+              end: movedEndZoned.toString(),
+              id: appointmentToMove._id,
               placement: targetPlacement,
-              start: startZoned.toString(),
+              start: movedStartZoned.toString(),
             });
           } catch (error) {
             captureErrorGlobal(error, {
-              appointmentId: draggedAppointment.record._id,
+              appointmentId: appointmentToMove._id,
               context: "NewCalendar - Failed to update appointment (drag)",
             });
             toast.error("Termin konnte nicht verschoben werden");
@@ -1205,6 +1550,9 @@ export function useCalendarLogic({
       } finally {
         // Convex optimistic updates will handle successful UI updates.
         setDraggedAppointment(null);
+        setDragExcludedAppointmentIds([]);
+        setDraggedSchedulingAppointmentTypeLineageKey(undefined);
+        setDraggedSeriesAppointments([]);
         setDragPreview(emptyDragPreview);
       }
     },
@@ -1215,15 +1563,19 @@ export function useCalendarLogic({
       draggedAppointment,
       draggedBlockedSlotId,
       emptyDragPreview,
+      excludedAppointmentIdsForAvailability,
+      appointmentLayouts,
+      draggedSeriesAppointments,
+      findBlockedSlotForAppointmentMove,
       getPractitionerIdForColumn,
       isNonRootSeriesAppointment,
       manualBlockedSlots,
       planningCommands,
       resolveBlockedSlotReferenceDisplayIds,
       selectedDate,
-      showNonRootSeriesEditToast,
       simulatedContext,
       slotToTime,
+      timeToSlot,
       stopAutoScroll,
     ],
   );
@@ -1235,6 +1587,9 @@ export function useCalendarLogic({
     activeDragPointerRef.current = null;
     setDraggedAppointment(null);
     setDraggedBlockedSlotId(null);
+    setDragExcludedAppointmentIds([]);
+    setDraggedSchedulingAppointmentTypeLineageKey(undefined);
+    setDraggedSeriesAppointments([]);
     setDragPreview(emptyDragPreview);
   }, [clearPointerDragListeners, emptyDragPreview, stopAutoScroll]);
 
@@ -1334,11 +1689,17 @@ export function useCalendarLogic({
   ]);
 
   const addAppointment = (column: CalendarColumnId, slot: number) => {
-    // Check if this slot is blocked (including breaks and rules)
-    const blockedSlotData = allBlockedSlots.find(
-      (blocked) =>
-        sameCalendarColumnScope(blocked.column, column) &&
-        blocked.slot === slot,
+    const appointmentTypeInfo =
+      placementAppointmentTypeLineageKey === undefined
+        ? null
+        : (appointmentTypeInfoByLineageKey.get(
+            placementAppointmentTypeLineageKey,
+          ) ?? null);
+    const placementDuration = appointmentTypeInfo?.duration ?? SLOT_DURATION;
+    const blockedSlotData = findBlockedSlotForPlacementStart(
+      column,
+      slot,
+      placementDuration,
     );
 
     if (blockedSlotData) {
@@ -1350,15 +1711,18 @@ export function useCalendarLogic({
       // Check if this is a manual block (from blockedSlots memo, has isManual flag)
       const isManualBlock =
         "isManual" in blockedSlotData && blockedSlotData.isManual;
-      // Only allow booking if an appointment type is selected
-      const canBook = placementAppointmentTypeLineageKey !== undefined;
+      const canBook =
+        placementAppointmentTypeLineageKey !== undefined &&
+        "canOverride" in blockedSlotData &&
+        blockedSlotData.canOverride;
       setBlockedSlotWarning({
         canBook,
         column,
         isManualBlock,
         onConfirm: () => {
-          // User confirmed, proceed with appointment creation despite block
-          createAppointmentInSlot(column, slot);
+          createAppointmentInSlot(column, slot, {
+            allowPlannerRuleOverride: canBook,
+          });
         },
         reason:
           blockedSlotData.reason ||
@@ -1373,7 +1737,11 @@ export function useCalendarLogic({
     createAppointmentInSlot(column, slot);
   };
 
-  const createAppointmentInSlot = (column: CalendarColumnId, slot: number) => {
+  const createAppointmentInSlot = (
+    column: CalendarColumnId,
+    slot: number,
+    options: { allowPlannerRuleOverride?: boolean } = {},
+  ) => {
     const mode = simulatedContext ? "simulation" : "real";
     const appointmentTypeId =
       simulatedContext?.appointmentTypeLineageKey === undefined
@@ -1392,14 +1760,6 @@ export function useCalendarLogic({
     );
     if (!appointmentTypeInfo) {
       toast.error("Die Terminart konnte nicht geladen werden.");
-      return;
-    }
-
-    const maxAvailableDuration = getMaxAvailableDuration(column, slot);
-    if (
-      Math.min(appointmentTypeInfo.duration, maxAvailableDuration) <
-      SLOT_DURATION
-    ) {
       return;
     }
 
@@ -1425,6 +1785,18 @@ export function useCalendarLogic({
         ? getLocationLineageKeyForDisplayId(selectedLocationId)
         : undefined);
     const resourceColumn = getCalendarResourceColumnFromColumn(column);
+    if (
+      appointmentTypeInfo.defaultOccupancy.kind === "resourceColumn" &&
+      resourceColumn !==
+        appointmentTypeInfo.defaultOccupancy.calendarResourceColumn
+    ) {
+      toast.error(
+        appointmentTypeInfo.defaultOccupancy.calendarResourceColumn === "ekg"
+          ? "Diese Terminart kann nur in der EKG-Spalte gebucht werden."
+          : "Diese Terminart kann nur in der Labor-Spalte gebucht werden.",
+      );
+      return;
+    }
     const requestPlacement: CalendarAppointmentPlacement | undefined =
       locationLineageKey === undefined
         ? undefined
@@ -1451,6 +1823,9 @@ export function useCalendarLogic({
     }
 
     const requestArgs: Parameters<typeof buildCalendarAppointmentRequest>[0] = {
+      ...(options.allowPlannerRuleOverride === undefined
+        ? {}
+        : { allowPlannerRuleOverride: options.allowPlannerRuleOverride }),
       appointmentTypeId,
       appointmentTypeLineageKey: appointmentTypeInfo.lineageKey,
       appointmentTypeName: appointmentTypeInfo.name,
@@ -1502,8 +1877,23 @@ export function useCalendarLogic({
       return;
     }
 
+    const optimisticSeriesBlueprint = findOptimisticSeriesBlueprintForPlacement(
+      {
+        decisions: appointmentSeriesRootBlockedSlots,
+        placement: requestResult.request.placement,
+        start: requestResult.request.start,
+      },
+    );
+
     void planningCommands
-      .createAppointment(requestResult.request)
+      .createAppointment(
+        optimisticSeriesBlueprint === undefined
+          ? requestResult.request
+          : {
+              ...requestResult.request,
+              optimisticSeriesBlueprint,
+            },
+      )
       .then((createdAppointmentId) => {
         if (createdAppointmentId) {
           onAppointmentCreated?.(createdAppointmentId);

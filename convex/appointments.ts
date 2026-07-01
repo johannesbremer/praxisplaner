@@ -1,15 +1,17 @@
 import { ConvexError, type Infer, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
-import type { IsoDateString } from "../lib/typed-regex";
+import type { InstantString, IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type {
   DatabaseReader,
   MutationCtx,
   QueryCtx,
 } from "./_generated/server";
+import type { InternalSchedulingResultSlot } from "./scheduling";
 import type { TypedDateTimeRange, ZonedDateTimeString } from "./typedDtos";
 
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import {
   DEFAULT_APPOINTMENT_COLOR,
@@ -17,6 +19,7 @@ import {
 } from "./appointmentColors";
 import {
   type AppointmentBookingScope,
+  appointmentOverlapsCandidate,
   findConflictingCalendarOccupancy,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
@@ -24,11 +27,16 @@ import {
   appointmentOccupancyScopeFromRefs,
   appointmentOccupancyScopeValidator,
   blockedSlotOccupancyScopeValidator,
+  type CalendarResourceColumn,
   calendarResourceColumnValidator,
   getAppointmentCalendarResourceColumn,
   getAppointmentPractitionerLineageKey,
   getBlockedSlotPractitionerLineageKey,
 } from "./appointmentOccupancy";
+import {
+  hasAppointmentPlan,
+  normalizeDefaultOccupancy,
+} from "./appointmentPlans";
 import {
   resolveAppointmentTypeIdForRuleSetByLineage,
   resolveAppointmentTypeLineageKey,
@@ -41,11 +49,20 @@ import {
 import {
   appointmentSeriesArgsValidator,
   appointmentSeriesCreateResultValidator,
-  appointmentSeriesPreviewResultValidator,
   createAppointmentSeries as createAppointmentSeriesHelper,
+  createSeriesPlanningState,
+  hasExactSeriesStepSchedulerAvailability,
+  hasResourceRootSchedulerAvailability,
   previewAppointmentSeries as previewAppointmentSeriesHelper,
   replanAppointmentSeries,
+  type SeriesRootOccupancy,
 } from "./appointmentSeries";
+import {
+  appointmentSeriesPlanningFailureKindValidator,
+  appointmentSeriesPreviewResultValidator,
+  appointmentSeriesPreviewStepValidator,
+} from "./appointmentSeriesPlanner";
+import { appointmentSeriesRestoreSnapshotValidator } from "./appointmentSeriesRestoreSnapshots";
 import {
   appointmentReplacementInsertFields,
   appointmentReplacementState,
@@ -55,6 +72,7 @@ import {
   isActivationBoundSimulation,
 } from "./appointmentSimulation";
 import {
+  type AppointmentTypeId,
   type AppointmentTypeLineageKey,
   asAppointmentTypeId,
   asAppointmentTypeLineageKey,
@@ -62,8 +80,14 @@ import {
   asLocationLineageKey,
   asPractitionerId,
   asPractitionerLineageKey,
+  asVacationId,
+  asVacationLineageKey,
+  type LocationId,
   type LocationLineageKey,
+  type PractitionerId,
   type PractitionerLineageKey,
+  type VacationId,
+  type VacationLineageKey,
 } from "./identity";
 import {
   getFutureLegacyUnmatchedBookingHoldsForUser,
@@ -106,6 +130,7 @@ import {
 } from "./scopedResources";
 import { createTemporaryPatientRecordWithIdentity } from "./temporaryPatients";
 import {
+  asInstantString,
   asIsoDateString,
   asOptionalIsoDateString,
   asTypedDateTimeRange,
@@ -180,7 +205,9 @@ interface TemporaryAppointmentOwner {
 
 interface TrustedAppointmentInput {
   allowHistoricalSmiley?: boolean;
+  allowPlannerRuleOverride?: boolean;
   allowRestoredEnd?: boolean;
+  allowSingleAppointmentRestore?: boolean;
   allowUnrelatedUserId?: boolean;
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
@@ -204,6 +231,37 @@ interface TrustedAppointmentInput {
   temporaryPatientPhoneNumber?: string;
   title: string;
   userId?: Id<"users">;
+}
+
+function resolveSingleAppointmentOccupancy(args: {
+  appointmentType: Doc<"appointmentTypes">;
+  calendarResourceColumn?: CalendarResourceColumn;
+  storedReferences: StoredAppointmentReferences;
+}) {
+  const defaultOccupancy = normalizeDefaultOccupancy(
+    args.appointmentType.defaultOccupancy,
+  );
+
+  if (defaultOccupancy.kind === "resourceColumn") {
+    const calendarResourceColumn =
+      args.calendarResourceColumn ?? defaultOccupancy.calendarResourceColumn;
+    if (calendarResourceColumn !== defaultOccupancy.calendarResourceColumn) {
+      throw new Error(
+        "Der Termin muss in der Standard-Ressourcenspalte der Terminart liegen.",
+      );
+    }
+    return appointmentOccupancyScopeFromRefs({ calendarResourceColumn });
+  }
+
+  if (args.calendarResourceColumn !== undefined) {
+    return appointmentOccupancyScopeFromRefs({
+      calendarResourceColumn: args.calendarResourceColumn,
+    });
+  }
+
+  return appointmentOccupancyScopeFromRefs({
+    practitionerLineageKey: args.storedReferences.practitionerLineageKey,
+  });
 }
 
 const appointmentResultValidator = v.object({
@@ -238,6 +296,60 @@ const appointmentResultValidator = v.object({
   start: v.string(),
   title: v.string(),
   userId: v.optional(v.id("users")),
+});
+
+const appointmentHistoryDocValidator = v.object({
+  ...appointmentResultValidator.fields,
+  cancelledAt: v.optional(v.int64()),
+});
+
+const appointmentLedgerSeriesPayloadValidator = v.object({
+  appointments: v.array(appointmentHistoryDocValidator),
+  rootAppointmentId: v.id("appointments"),
+  seriesId: v.string(),
+  snapshot: appointmentSeriesRestoreSnapshotValidator,
+  snapshotId: v.id("appointmentSeriesRestoreSnapshots"),
+});
+
+const appointmentLedgerEffectValidator = v.union(
+  v.object({
+    appointment: appointmentHistoryDocValidator,
+    kind: v.literal("appointment.created"),
+  }),
+  v.object({
+    kind: v.literal("appointment.deleted"),
+    snapshot: appointmentHistoryDocValidator,
+  }),
+  v.object({
+    after: appointmentHistoryDocValidator,
+    before: appointmentHistoryDocValidator,
+    kind: v.literal("appointment.updated"),
+  }),
+  v.object({
+    kind: v.literal("appointmentSeries.created"),
+    series: appointmentLedgerSeriesPayloadValidator,
+  }),
+  v.object({
+    kind: v.literal("appointmentSeries.deleted"),
+    series: appointmentLedgerSeriesPayloadValidator,
+  }),
+  v.object({
+    after: appointmentLedgerSeriesPayloadValidator,
+    before: appointmentLedgerSeriesPayloadValidator,
+    kind: v.literal("appointmentSeries.updated"),
+  }),
+);
+
+const appointmentSeriesRestoreResultValidator = v.object({
+  appointmentHistoryDocs: v.array(appointmentHistoryDocValidator),
+  appointments: v.array(
+    v.object({
+      appointmentId: v.id("appointments"),
+      originalAppointmentId: v.id("appointments"),
+    }),
+  ),
+  rootAppointmentId: v.id("appointments"),
+  seriesId: v.string(),
 });
 
 const blockedSlotListItemValidator = v.object({
@@ -336,7 +448,9 @@ function appointmentChainError(code: string, message: string) {
 
 function asTrustedAppointmentInput(args: {
   allowHistoricalSmiley?: boolean;
+  allowPlannerRuleOverride?: boolean;
   allowRestoredEnd?: boolean;
+  allowSingleAppointmentRestore?: boolean;
   allowUnrelatedUserId?: boolean;
   appointmentTypeId: Id<"appointmentTypes">;
   bookingIdentityId?: Id<"bookingIdentities">;
@@ -449,6 +563,13 @@ function filterCurrentAppointmentReplacementTails<T extends AppointmentDoc>(
       isSameAppointmentReplacementDay(appointment, replacedAppointment)
     ) {
       hiddenIds.add(replacedAppointmentId);
+      if (isWholeSeriesReplacement(appointment, replacedAppointment)) {
+        for (const candidate of appointments) {
+          if (candidate.seriesId === replacedAppointment.seriesId) {
+            hiddenIds.add(candidate._id);
+          }
+        }
+      }
     }
   }
 
@@ -886,6 +1007,231 @@ async function requireManagerForPlannerRuleOverride(
   }
 }
 
+async function requireSnapshotAppointmentTypeDocument(
+  db: DatabaseReader,
+  appointmentTypeId: AppointmentTypeId,
+  practiceId: Id<"practices">,
+  label: string,
+) {
+  const doc = await db.get("appointmentTypes", appointmentTypeId);
+  if (doc?.practiceId !== practiceId) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return doc;
+}
+
+async function requireSnapshotAppointmentTypeLineageDocument(
+  db: DatabaseReader,
+  args: {
+    label: string;
+    lineageKey: AppointmentTypeLineageKey;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const appointmentTypeId =
+    await tryResolveAppointmentTypeIdForRuleSetByLineage(db, {
+      lineageKey: args.lineageKey,
+      ruleSetId: args.ruleSetId,
+    });
+  if (appointmentTypeId === undefined) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${args.label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return await requireSnapshotAppointmentTypeDocument(
+    db,
+    appointmentTypeId,
+    args.practiceId,
+    args.label,
+  );
+}
+
+async function requireSnapshotLocationDocument(
+  db: DatabaseReader,
+  locationId: LocationId,
+  practiceId: Id<"practices">,
+  label: string,
+) {
+  const doc = await db.get("locations", locationId);
+  if (doc?.practiceId !== practiceId) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return doc;
+}
+
+async function requireSnapshotLocationLineageDocument(
+  db: DatabaseReader,
+  args: {
+    label: string;
+    lineageKey: LocationLineageKey;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const locationId = await tryResolveLocationIdForRuleSetByLineage(db, {
+    lineageKey: args.lineageKey,
+    ruleSetId: args.ruleSetId,
+  });
+  if (locationId === undefined) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${args.label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return await requireSnapshotLocationDocument(
+    db,
+    locationId,
+    args.practiceId,
+    args.label,
+  );
+}
+
+async function requireSnapshotPracticeDocumentByRawId<
+  TableName extends
+    | "appointments"
+    | "bookingIdentities"
+    | "patients"
+    | "phoneBookingIdentities"
+    | "practices"
+    | "ruleSets",
+>(
+  db: DatabaseReader,
+  tableName: TableName,
+  id: Id<TableName>,
+  practiceId: Id<"practices">,
+  label: string,
+): Promise<Doc<TableName>> {
+  const doc = await db.get(tableName, id);
+  if (doc?.["practiceId"] !== practiceId) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return doc;
+}
+
+async function requireSnapshotPractitionerDocument(
+  db: DatabaseReader,
+  practitionerId: PractitionerId,
+  practiceId: Id<"practices">,
+  label: string,
+) {
+  const doc = await db.get("practitioners", practitionerId);
+  if (doc?.practiceId !== practiceId) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return doc;
+}
+
+async function requireSnapshotPractitionerLineageDocument(
+  db: DatabaseReader,
+  args: {
+    label: string;
+    lineageKey: PractitionerLineageKey;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const practitionerId = await tryResolvePractitionerIdForRuleSetByLineage(db, {
+    lineageKey: args.lineageKey,
+    ruleSetId: args.ruleSetId,
+  });
+  if (practitionerId === undefined) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${args.label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return await requireSnapshotPractitionerDocument(
+    db,
+    practitionerId,
+    args.practiceId,
+    args.label,
+  );
+}
+
+async function requireSnapshotUserPracticeMembership(
+  ctx: MutationCtx,
+  practiceId: Id<"practices">,
+  userId: Id<"users">,
+  label: string,
+) {
+  const user = await ctx.db.get("users", userId);
+  if (!user) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${label} wurde nicht gefunden.`,
+    );
+  }
+  const membership = await ctx.db
+    .query("organizationMembers")
+    .withIndex("by_practiceId_userId", (q) =>
+      q.eq("practiceId", practiceId).eq("userId", userId),
+    )
+    .first();
+  if (!membership) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+}
+
+async function requireSnapshotVacationDocument(
+  db: DatabaseReader,
+  vacationId: VacationId,
+  practiceId: Id<"practices">,
+  label: string,
+) {
+  const doc = await db.get("vacations", vacationId);
+  if (doc?.practiceId !== practiceId) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return doc;
+}
+
+async function requireSnapshotVacationLineageDocument(
+  db: DatabaseReader,
+  args: {
+    label: string;
+    lineageKey: VacationLineageKey;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const vacationId = await tryResolveVacationIdForRuleSetByLineage(db, {
+    lineageKey: args.lineageKey,
+    ruleSetId: args.ruleSetId,
+  });
+  if (vacationId === undefined) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${args.label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return await requireSnapshotVacationDocument(
+    db,
+    vacationId,
+    args.practiceId,
+    args.label,
+  );
+}
+
 async function resolveAppointmentTypeForDisplayRuleSet(
   db: DatabaseReader,
   appointmentTypeLineageKey: AppointmentTypeLineageKey,
@@ -1054,15 +1400,139 @@ async function saveAppointmentRestoreSnapshot(
   });
 }
 
+async function saveAppointmentSeriesRestoreSnapshot(
+  ctx: MutationCtx,
+  args: {
+    appointments: AppointmentDoc[];
+    deletedAt: bigint;
+    series: AppointmentSeriesDoc;
+  },
+): Promise<Id<"appointmentSeriesRestoreSnapshots">> {
+  const snapshot = toAppointmentSeriesRestoreSnapshot({
+    appointments: args.appointments,
+    series: args.series,
+  });
+
+  return await ctx.db.insert("appointmentSeriesRestoreSnapshots", {
+    deletedAt: args.deletedAt,
+    originalSeriesId: args.series.seriesId,
+    practiceId: args.series.practiceId,
+    snapshot,
+  });
+}
+
 function simulationReplacementMatchesRealAppointment(
   replacement: AppointmentDoc,
   real: AppointmentDoc,
   replacementSmiley: AppointmentSmiley | undefined,
+  options?: { compareSeriesMembership: boolean },
 ) {
   return appointmentReplacementStatesEqual(
     appointmentReplacementState(replacement, { smiley: replacementSmiley }),
     appointmentReplacementState(real),
+    options,
   );
+}
+
+function toAppointmentSeriesRestoreSnapshot(args: {
+  appointments: AppointmentDoc[];
+  series: AppointmentSeriesDoc;
+}): Infer<typeof appointmentSeriesRestoreSnapshotValidator> {
+  return {
+    appointments: args.appointments.map((appointment) => ({
+      appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
+      appointmentTypeTitle: appointment.appointmentTypeTitle,
+      ...(appointment.bookingIdentityId === undefined
+        ? {}
+        : { bookingIdentityId: appointment.bookingIdentityId }),
+      ...(appointment.cancelledAt === undefined
+        ? {}
+        : { cancelledAt: appointment.cancelledAt }),
+      ...(appointment.cancelledByPhoneBookingIdentityId === undefined
+        ? {}
+        : {
+            cancelledByPhoneBookingIdentityId:
+              appointment.cancelledByPhoneBookingIdentityId,
+          }),
+      ...(appointment.cancelledByUserId === undefined
+        ? {}
+        : { cancelledByUserId: appointment.cancelledByUserId }),
+      ...(appointment.color === undefined ? {} : { color: appointment.color }),
+      createdAt: appointment.createdAt,
+      end: appointment.end,
+      ...(appointment.isSimulation === undefined
+        ? {}
+        : { isSimulation: appointment.isSimulation }),
+      lastModified: appointment.lastModified,
+      locationLineageKey: appointment.locationLineageKey,
+      occupancyScope: appointment.occupancyScope,
+      originalAppointmentId: appointment._id,
+      ...(appointment.patientId === undefined
+        ? {}
+        : { patientId: appointment.patientId }),
+      ...(appointment.phoneBookingIdentityId === undefined
+        ? {}
+        : { phoneBookingIdentityId: appointment.phoneBookingIdentityId }),
+      practiceId: appointment.practiceId,
+      ...(appointment.reassignmentSourceVacationLineageKey === undefined
+        ? {}
+        : {
+            reassignmentSourceVacationLineageKey:
+              appointment.reassignmentSourceVacationLineageKey,
+          }),
+      ...(appointment.replacesAppointmentId === undefined
+        ? {}
+        : { replacesAppointmentId: appointment.replacesAppointmentId }),
+      ...(appointment.seriesStepId === undefined
+        ? {}
+        : { seriesStepId: appointment.seriesStepId }),
+      ...(appointment.seriesStepIndex === undefined
+        ? {}
+        : { seriesStepIndex: appointment.seriesStepIndex }),
+      ...(appointment.simulationKind === undefined
+        ? {}
+        : { simulationKind: appointment.simulationKind }),
+      ...(appointment.simulationRuleSetId === undefined
+        ? {}
+        : { simulationRuleSetId: appointment.simulationRuleSetId }),
+      ...(appointment.simulationValidatedAt === undefined
+        ? {}
+        : { simulationValidatedAt: appointment.simulationValidatedAt }),
+      ...(appointment.smiley === undefined
+        ? {}
+        : { smiley: appointment.smiley }),
+      start: appointment.start,
+      title: appointment.title,
+      ...(appointment.userId === undefined
+        ? {}
+        : { userId: appointment.userId }),
+    })),
+    series: {
+      appointmentPlanSnapshot: args.series.appointmentPlanSnapshot,
+      ...(args.series.bookingIdentityId === undefined
+        ? {}
+        : { bookingIdentityId: args.series.bookingIdentityId }),
+      createdAt: args.series.createdAt,
+      lastModified: args.series.lastModified,
+      ...(args.series.patientDateOfBirth === undefined
+        ? {}
+        : { patientDateOfBirth: args.series.patientDateOfBirth }),
+      ...(args.series.patientId === undefined
+        ? {}
+        : { patientId: args.series.patientId }),
+      practiceId: args.series.practiceId,
+      rootAppointmentId: args.series.rootAppointmentId,
+      rootAppointmentTypeId: args.series.rootAppointmentTypeId,
+      rootAppointmentTypeLineageKey: args.series.rootAppointmentTypeLineageKey,
+      rootDurationMinutes: args.series.rootDurationMinutes,
+      ruleSetIdAtBooking: args.series.ruleSetIdAtBooking,
+      scope: args.series.scope,
+      seriesId: args.series.seriesId,
+      ...(args.series.userId === undefined
+        ? {}
+        : { userId: args.series.userId }),
+    },
+  };
 }
 
 async function tryResolveAppointmentTypeIdForRuleSetByLineage(
@@ -1173,6 +1643,216 @@ async function tryResolvePractitionerIdForRuleSetByLineage(
   return;
 }
 
+async function tryResolveVacationIdForRuleSetByLineage(
+  db: DatabaseReader,
+  args: {
+    lineageKey: VacationLineageKey;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const direct = await db.get("vacations", args.lineageKey);
+  const effectiveLineageKey = direct
+    ? asVacationLineageKey(
+        requireLineageKey({
+          entityId: direct._id,
+          entityType: "vacation",
+          lineageKey: direct.lineageKey,
+          ruleSetId: direct.ruleSetId,
+        }),
+      )
+    : args.lineageKey;
+  const entity = await db
+    .query("vacations")
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q.eq("ruleSetId", args.ruleSetId).eq("lineageKey", effectiveLineageKey),
+    )
+    .first();
+
+  if (entity) {
+    return asVacationId(entity._id);
+  }
+
+  if (direct?.ruleSetId === args.ruleSetId) {
+    return asVacationId(direct._id);
+  }
+
+  return;
+}
+
+async function validateAppointmentSeriesRestoreSnapshotReferences(
+  ctx: MutationCtx,
+  snapshot: Infer<typeof appointmentSeriesRestoreSnapshotValidator>,
+) {
+  const { appointments, series } = snapshot;
+  const practiceId = series.practiceId;
+
+  await requireSnapshotPracticeDocumentByRawId(
+    ctx.db,
+    "ruleSets",
+    series.ruleSetIdAtBooking,
+    practiceId,
+    "Regelwerk der Kettentermin-Serie",
+  );
+  await requireSnapshotAppointmentTypeDocument(
+    ctx.db,
+    asAppointmentTypeId(series.rootAppointmentTypeId),
+    practiceId,
+    "Start-Terminart der Kettentermin-Serie",
+  );
+  await requireSnapshotAppointmentTypeLineageDocument(ctx.db, {
+    label: "Start-Terminart-Linie der Kettentermin-Serie",
+    lineageKey: asAppointmentTypeLineageKey(
+      series.rootAppointmentTypeLineageKey,
+    ),
+    practiceId,
+    ruleSetId: series.ruleSetIdAtBooking,
+  });
+  if (series.bookingIdentityId !== undefined) {
+    await requireSnapshotPracticeDocumentByRawId(
+      ctx.db,
+      "bookingIdentities",
+      series.bookingIdentityId,
+      practiceId,
+      "Buchungsidentität der Kettentermin-Serie",
+    );
+  }
+  if (series.patientId !== undefined) {
+    await requireSnapshotPracticeDocumentByRawId(
+      ctx.db,
+      "patients",
+      series.patientId,
+      practiceId,
+      "Patient der Kettentermin-Serie",
+    );
+  }
+  if (series.userId !== undefined) {
+    await requireSnapshotUserPracticeMembership(
+      ctx,
+      practiceId,
+      series.userId,
+      "Benutzer der Kettentermin-Serie",
+    );
+  }
+
+  for (const step of series.appointmentPlanSnapshot) {
+    await requireSnapshotAppointmentTypeLineageDocument(ctx.db, {
+      label: "Terminart eines Kettentermin-Schritts",
+      lineageKey: asAppointmentTypeLineageKey(step.appointmentTypeLineageKey),
+      practiceId,
+      ruleSetId: series.ruleSetIdAtBooking,
+    });
+  }
+
+  for (const appointment of appointments) {
+    await requireSnapshotAppointmentTypeLineageDocument(ctx.db, {
+      label: "Terminart eines gespeicherten Kettentermins",
+      lineageKey: asAppointmentTypeLineageKey(
+        appointment.appointmentTypeLineageKey,
+      ),
+      practiceId,
+      ruleSetId: series.ruleSetIdAtBooking,
+    });
+    await requireSnapshotLocationLineageDocument(ctx.db, {
+      label: "Standort eines gespeicherten Kettentermins",
+      lineageKey: asLocationLineageKey(appointment.locationLineageKey),
+      practiceId,
+      ruleSetId: series.ruleSetIdAtBooking,
+    });
+
+    const practitionerLineageKey = getAppointmentPractitionerLineageKey(
+      appointment.occupancyScope,
+    );
+    if (practitionerLineageKey !== undefined) {
+      await requireSnapshotPractitionerLineageDocument(ctx.db, {
+        label: "Behandler eines gespeicherten Kettentermins",
+        lineageKey: asPractitionerLineageKey(practitionerLineageKey),
+        practiceId,
+        ruleSetId: series.ruleSetIdAtBooking,
+      });
+    }
+    if (appointment.bookingIdentityId !== undefined) {
+      await requireSnapshotPracticeDocumentByRawId(
+        ctx.db,
+        "bookingIdentities",
+        appointment.bookingIdentityId,
+        practiceId,
+        "Buchungsidentität eines gespeicherten Kettentermins",
+      );
+    }
+    if (appointment.phoneBookingIdentityId !== undefined) {
+      await requireSnapshotPracticeDocumentByRawId(
+        ctx.db,
+        "phoneBookingIdentities",
+        appointment.phoneBookingIdentityId,
+        practiceId,
+        "TelefonKI-Buchungsidentität eines gespeicherten Kettentermins",
+      );
+    }
+    if (appointment.cancelledByPhoneBookingIdentityId !== undefined) {
+      await requireSnapshotPracticeDocumentByRawId(
+        ctx.db,
+        "phoneBookingIdentities",
+        appointment.cancelledByPhoneBookingIdentityId,
+        practiceId,
+        "TelefonKI-Stornoidentität eines gespeicherten Kettentermins",
+      );
+    }
+    if (appointment.patientId !== undefined) {
+      await requireSnapshotPracticeDocumentByRawId(
+        ctx.db,
+        "patients",
+        appointment.patientId,
+        practiceId,
+        "Patient eines gespeicherten Kettentermins",
+      );
+    }
+    if (appointment.reassignmentSourceVacationLineageKey !== undefined) {
+      await requireSnapshotVacationLineageDocument(ctx.db, {
+        label: "Abwesenheit eines gespeicherten Kettentermins",
+        lineageKey: asVacationLineageKey(
+          appointment.reassignmentSourceVacationLineageKey,
+        ),
+        practiceId,
+        ruleSetId: series.ruleSetIdAtBooking,
+      });
+    }
+    if (appointment.replacesAppointmentId !== undefined) {
+      await requireSnapshotPracticeDocumentByRawId(
+        ctx.db,
+        "appointments",
+        appointment.replacesAppointmentId,
+        practiceId,
+        "Ersetzter Termin eines gespeicherten Kettentermins",
+      );
+    }
+    if (appointment.simulationRuleSetId !== undefined) {
+      await requireSnapshotPracticeDocumentByRawId(
+        ctx.db,
+        "ruleSets",
+        appointment.simulationRuleSetId,
+        practiceId,
+        "Simulations-Regelwerk eines gespeicherten Kettentermins",
+      );
+    }
+    if (appointment.userId !== undefined) {
+      await requireSnapshotUserPracticeMembership(
+        ctx,
+        practiceId,
+        appointment.userId,
+        "Benutzer eines gespeicherten Kettentermins",
+      );
+    }
+    if (appointment.cancelledByUserId !== undefined) {
+      await requireSnapshotUserPracticeMembership(
+        ctx,
+        practiceId,
+        appointment.cancelledByUserId,
+        "Storno-Benutzer eines gespeicherten Kettentermins",
+      );
+    }
+  }
+}
+
 /**
  * Remaps entity IDs in appointments from source rule set to target rule set.
  */
@@ -1189,6 +1869,53 @@ interface DisplayRuleSetArgs {
 interface RequiredDisplayRuleSetArgs {
   activeRuleSetId: Id<"ruleSets">;
   selectedRuleSetId?: Id<"ruleSets">;
+}
+
+async function appointmentLedgerCreatedEffect(
+  db: DatabaseReader,
+  appointmentId: Id<"appointments">,
+): Promise<Infer<typeof appointmentLedgerEffectValidator>> {
+  const appointment = await db.get("appointments", appointmentId);
+  if (!appointment) {
+    throw appointmentChainError(
+      "CHAIN_NOT_FOUND",
+      "Created appointment was not found.",
+    );
+  }
+  return {
+    appointment: toAppointmentListItem(appointment),
+    kind: "appointment.created",
+  };
+}
+
+async function appointmentSeriesLedgerPayload(
+  ctx: MutationCtx,
+  seriesId: string,
+): Promise<Infer<typeof appointmentLedgerSeriesPayloadValidator>> {
+  const series = await getAppointmentSeriesRecord(ctx.db, seriesId);
+  if (!series) {
+    throw appointmentChainError(
+      "CHAIN_NOT_FOUND",
+      "Die gespeicherte Kettentermin-Serie wurde nicht gefunden.",
+    );
+  }
+  const appointments = await getSeriesAppointments(ctx.db, seriesId);
+  const snapshot = toAppointmentSeriesRestoreSnapshot({ appointments, series });
+  const snapshotId = await ctx.db.insert("appointmentSeriesRestoreSnapshots", {
+    deletedAt: BigInt(Date.now()),
+    originalSeriesId: series.seriesId,
+    practiceId: series.practiceId,
+    snapshot,
+  });
+  return {
+    appointments: appointments.map((appointment) =>
+      toAppointmentListItem(appointment),
+    ),
+    rootAppointmentId: series.rootAppointmentId,
+    seriesId: series.seriesId,
+    snapshot,
+    snapshotId,
+  };
 }
 
 function combineBlockedSlotsForSimulation(
@@ -1214,7 +1941,12 @@ function combineBlockedSlotsForSimulation(
 function combineForSimulationScope<
   T extends Pick<
     AppointmentDoc,
-    "_id" | "isSimulation" | "replacesAppointmentId" | "start"
+    | "_id"
+    | "isSimulation"
+    | "replacesAppointmentId"
+    | "seriesId"
+    | "seriesStepIndex"
+    | "start"
   >,
 >(appointments: T[]): T[] {
   const simulationAppointments = appointments.filter(
@@ -1226,10 +1958,27 @@ function combineForSimulationScope<
       .map((appointment) => appointment.replacesAppointmentId)
       .filter(Boolean),
   );
+  const appointmentsById = new Map(
+    appointments.map((appointment) => [appointment._id, appointment]),
+  );
+  const replacedSeriesIds = new Set<string>();
+  for (const simulationAppointment of simulationAppointments) {
+    const replacedAppointmentId = simulationAppointment.replacesAppointmentId;
+    if (replacedAppointmentId === undefined) {
+      continue;
+    }
+    const replacedAppointment = appointmentsById.get(replacedAppointmentId);
+    if (isWholeSeriesReplacement(simulationAppointment, replacedAppointment)) {
+      replacedSeriesIds.add(replacedAppointment.seriesId);
+    }
+  }
 
   const realAppointments = appointments.filter(
     (appointment) =>
-      appointment.isSimulation !== true && !replacedIds.has(appointment._id),
+      appointment.isSimulation !== true &&
+      !replacedIds.has(appointment._id) &&
+      (appointment.seriesId === undefined ||
+        !replacedSeriesIds.has(appointment.seriesId)),
   );
 
   const merged = [...realAppointments, ...simulationAppointments];
@@ -1344,6 +2093,29 @@ function getRangeOverlapBounds(args: { end: string; start: string }): {
   };
 }
 
+async function getSeriesRootAppointments(
+  ctx: QueryCtx,
+  seriesIds: string[],
+): Promise<AppointmentDoc[]> {
+  const uniqueSeriesIds = [...new Set(seriesIds)];
+  if (uniqueSeriesIds.length === 0) {
+    return [];
+  }
+
+  const seriesAppointmentGroups = await Promise.all(
+    uniqueSeriesIds.map(async (seriesId) => {
+      return await ctx.db
+        .query("appointments")
+        .withIndex("by_seriesId", (q) => q.eq("seriesId", seriesId))
+        .collect();
+    }),
+  );
+
+  return seriesAppointmentGroups
+    .flat()
+    .filter((appointment) => appointment.seriesStepIndex === 0n);
+}
+
 async function getSimulationAppointmentReplacements(
   ctx: QueryCtx,
   practiceId: Id<"practices">,
@@ -1397,13 +2169,6 @@ async function getSimulationBlockedSlotReplacements(
   );
 }
 
-function getSimulationScopeRuleSetId(args: {
-  activeRuleSetId?: Id<"ruleSets">;
-  selectedRuleSetId?: Id<"ruleSets">;
-}) {
-  return args.selectedRuleSetId ?? args.activeRuleSetId;
-}
-
 function isAppointmentInCalendarDayRange(
   appointment: Pick<AppointmentDoc, "start">,
   args: { dayEnd: string; dayStart: string },
@@ -1422,8 +2187,8 @@ function isAppointmentInSelectedLocation(
 }
 
 function isAppointmentVisibleInScope(
-  appointment: Pick<AppointmentDoc, "isSimulation" | "simulationRuleSetId">,
-  args: {
+  appointment: Pick<AppointmentDoc, "isSimulation">,
+  _args: {
     activeRuleSetId?: Id<"ruleSets">;
     selectedRuleSetId?: Id<"ruleSets">;
   },
@@ -1433,10 +2198,7 @@ function isAppointmentVisibleInScope(
     return appointment.isSimulation !== true;
   }
 
-  return (
-    appointment.isSimulation !== true ||
-    appointment.simulationRuleSetId === getSimulationScopeRuleSetId(args)
-  );
+  return true;
 }
 
 function isCalendarDayRangeMatch(
@@ -1459,6 +2221,29 @@ function isTimeRangeOverlap(
   range: { end: string; start: string },
 ): boolean {
   return record.start < range.end && record.end > range.start;
+}
+
+function isWholeSeriesReplacement<
+  T extends Pick<
+    AppointmentDoc,
+    | "_id"
+    | "isSimulation"
+    | "replacesAppointmentId"
+    | "seriesId"
+    | "seriesStepIndex"
+  >,
+>(
+  simulationAppointment: T,
+  replacedAppointment: T | undefined,
+): replacedAppointment is T & { seriesId: string } {
+  return (
+    simulationAppointment.isSimulation === true &&
+    simulationAppointment.replacesAppointmentId !== undefined &&
+    simulationAppointment.seriesId !== undefined &&
+    replacedAppointment?.seriesId !== undefined &&
+    replacedAppointment.seriesStepIndex === 0n &&
+    simulationAppointment.seriesId !== replacedAppointment.seriesId
+  );
 }
 
 async function remapAppointmentIds(
@@ -1641,6 +2426,27 @@ async function resolveAppointmentDisplayScope(
   };
 }
 
+export { rootAppointmentIdFromCreateEffect };
+
+function rootAppointmentIdFromCreateEffect(
+  effect: Infer<typeof appointmentLedgerEffectValidator>,
+): Id<"appointments"> {
+  switch (effect.kind) {
+    case "appointment.created": {
+      return effect.appointment._id;
+    }
+    case "appointmentSeries.created": {
+      return effect.series.rootAppointmentId;
+    }
+    case "appointment.deleted":
+    case "appointment.updated":
+    case "appointmentSeries.deleted":
+    case "appointmentSeries.updated": {
+      throw new Error("Ledger effect is not an appointment creation.");
+    }
+  }
+}
+
 function toAppointmentListItem(
   appointment: AppointmentDoc,
 ): AppointmentListItem {
@@ -1817,13 +2623,27 @@ export const getCalendarDayAppointments = query({
       args,
       scope,
     );
+    const seriesRootAppointments =
+      scope === "simulation"
+        ? await getSeriesRootAppointments(
+            ctx,
+            dayAppointments
+              .filter(
+                (appointment) =>
+                  appointment.isSimulation !== true &&
+                  appointment.seriesId !== undefined,
+              )
+              .map((appointment) => appointment.seriesId)
+              .filter((seriesId): seriesId is string => seriesId !== undefined),
+          )
+        : [];
     const simulationReplacementAppointments =
       scope === "simulation"
         ? filterAppointmentsForScope(
             await getSimulationAppointmentReplacements(
               ctx,
               args.practiceId,
-              dayAppointments
+              [...dayAppointments, ...seriesRootAppointments]
                 .filter((appointment) => appointment.isSimulation !== true)
                 .map((appointment) => appointment._id),
             ),
@@ -1833,6 +2653,7 @@ export const getCalendarDayAppointments = query({
         : [];
     const candidateAppointments = dedupeById([
       ...dayScopedAppointments,
+      ...seriesRootAppointments,
       ...simulationReplacementAppointments,
     ]);
     const scopedAppointments =
@@ -1860,6 +2681,37 @@ export const getCalendarDayAppointments = query({
       : visibleAppointments.map((appointment) =>
           toAppointmentListItem(appointment),
         );
+  },
+  returns: v.array(appointmentResultValidator),
+});
+
+export const getAppointmentSeriesAppointments = query({
+  args: {
+    practiceId: v.id("practices"),
+    seriesId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await requirePracticeStaff(ctx, args.practiceId);
+
+    const appointments = await getSeriesAppointments(ctx.db, args.seriesId);
+    const visibleAppointments = appointments
+      .filter(
+        (appointment) =>
+          appointment.practiceId === args.practiceId &&
+          isVisibleAppointment(appointment),
+      )
+      .toSorted((left, right) => {
+        const leftIndex = left.seriesStepIndex ?? 0n;
+        const rightIndex = right.seriesStepIndex ?? 0n;
+        return leftIndex === rightIndex
+          ? left.start.localeCompare(right.start)
+          : Number(leftIndex - rightIndex);
+      });
+
+    return visibleAppointments.map((appointment) =>
+      toAppointmentListItem(appointment),
+    );
   },
   returns: v.array(appointmentResultValidator),
 });
@@ -1897,18 +2749,53 @@ export const getAppointmentsInRange = query({
       args,
       scope,
     ).filter((appointment) => isTimeRangeOverlap(appointment, args));
+    const seriesRootAppointments =
+      scope === "simulation"
+        ? await getSeriesRootAppointments(
+            ctx,
+            scopedAppointments
+              .filter(
+                (appointment) =>
+                  appointment.isSimulation !== true &&
+                  appointment.seriesId !== undefined,
+              )
+              .map((appointment) => appointment.seriesId)
+              .filter((seriesId): seriesId is string => seriesId !== undefined),
+          )
+        : [];
+    const simulationReplacementAppointments =
+      scope === "simulation"
+        ? filterAppointmentsForScope(
+            await getSimulationAppointmentReplacements(
+              ctx,
+              args.practiceId,
+              [...scopedAppointments, ...seriesRootAppointments]
+                .filter((appointment) => appointment.isSimulation !== true)
+                .map((appointment) => appointment._id),
+            ),
+            args,
+            scope,
+          )
+        : [];
+    const candidateAppointments = dedupeById([
+      ...scopedAppointments,
+      ...seriesRootAppointments,
+      ...simulationReplacementAppointments,
+    ]);
+    const visibleAppointments =
+      scope === "simulation"
+        ? combineForSimulationScope(candidateAppointments).filter(
+            (appointment) => isTimeRangeOverlap(appointment, args),
+          )
+        : candidateAppointments;
 
     const displayScope = await resolveAppointmentDisplayScope(ctx.db, args);
     const displayRuleSetId = getDisplayRuleSetIdFromScope(displayScope);
     const appointments: AppointmentListItem[] = displayRuleSetId
-      ? await remapAppointmentIds(ctx, scopedAppointments, displayRuleSetId)
-      : scopedAppointments.map((appointment) =>
+      ? await remapAppointmentIds(ctx, visibleAppointments, displayRuleSetId)
+      : visibleAppointments.map((appointment) =>
           toAppointmentListItem(appointment),
         );
-
-    if (scope === "simulation") {
-      return combineForSimulationScope(appointments);
-    }
 
     if (scope === "all") {
       return appointments.toSorted((a, b) => a.start.localeCompare(b.start));
@@ -1938,6 +2825,901 @@ export const previewAppointmentSeries = query({
     });
   },
   returns: appointmentSeriesPreviewResultValidator,
+});
+
+const appointmentSeriesRootSlotCandidateValidator = v.object({
+  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
+  duration: v.number(),
+  locationLineageKey: v.id("locations"),
+  practitionerLineageKey: v.optional(v.id("practitioners")),
+  practitionerName: v.optional(v.string()),
+  startTime: v.string(),
+});
+
+type AppointmentSeriesRootSlotCandidate = Infer<
+  typeof appointmentSeriesRootSlotCandidateValidator
+>;
+
+const candidateSlotUnavailableProvenanceValidator = v.union(
+  appointmentSeriesPlanningFailureKindValidator,
+  v.literal("insufficientDuration"),
+);
+
+const candidateSlotDecisionValidator = v.object({
+  blockingBlockedSlotId: v.optional(v.id("blockedSlots")),
+  blockingRuleIds: v.optional(v.array(v.id("ruleConditions"))),
+  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
+  canOverride: v.boolean(),
+  duration: v.number(),
+  locationLineageKey: v.id("locations"),
+  practitionerLineageKey: v.optional(v.id("practitioners")),
+  practitionerName: v.optional(v.string()),
+  provenance: v.optional(candidateSlotUnavailableProvenanceValidator),
+  reason: v.optional(v.string()),
+  seriesBlueprint: v.optional(v.array(appointmentSeriesPreviewStepValidator)),
+  startTime: v.string(),
+  status: v.union(v.literal("available"), v.literal("unavailable")),
+});
+
+type CandidateSlotDecision = Infer<typeof candidateSlotDecisionValidator>;
+
+const NEXT_AVAILABLE_CANDIDATE_SEARCH_DAYS = 90;
+
+function availableCandidateSlotDecision(args: {
+  candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+  locationLineageKey: LocationLineageKey;
+  seriesBlueprint?: CandidateSlotDecision["seriesBlueprint"];
+}): CandidateSlotDecision {
+  return {
+    ...candidateSlotDecisionBase(args),
+    canOverride: false,
+    ...(args.seriesBlueprint === undefined
+      ? {}
+      : { seriesBlueprint: args.seriesBlueprint }),
+    status: "available",
+  };
+}
+
+function buildNextAvailableCandidateSlots(args: {
+  appointmentType: Doc<"appointmentTypes">;
+  calendarResourceColumn?: CalendarResourceColumn;
+  locationLineageKey: LocationLineageKey;
+  slots: InternalSchedulingResultSlot[];
+  startsAfter: ZonedDateTimeString;
+}): AppointmentSeriesRootSlotCandidate[] {
+  const allowedPractitionerLineageKeys = new Set(
+    args.appointmentType.allowedPractitionerLineageKeys.map((lineageKey) =>
+      asPractitionerLineageKey(lineageKey),
+    ),
+  );
+  const startsAfter = Temporal.ZonedDateTime.from(args.startsAfter);
+  const candidatesByKey = new Map<string, AppointmentSeriesRootSlotCandidate>();
+
+  for (const slot of args.slots) {
+    const slotStart = Temporal.ZonedDateTime.from(slot.startTime);
+    if (
+      Temporal.ZonedDateTime.compare(slotStart, startsAfter) < 0 ||
+      !allowedPractitionerLineageKeys.has(slot.practitionerLineageKey) ||
+      !hasSchedulerCoverageForCandidate({
+        durationMinutes: args.appointmentType.duration,
+        slots: args.slots.filter(
+          (candidateSlot) =>
+            candidateSlot.practitionerLineageKey ===
+            slot.practitionerLineageKey,
+        ),
+        start: slot.startTime,
+      })
+    ) {
+      continue;
+    }
+
+    const candidate: AppointmentSeriesRootSlotCandidate =
+      args.calendarResourceColumn === undefined
+        ? {
+            duration: args.appointmentType.duration,
+            locationLineageKey: args.locationLineageKey,
+            practitionerLineageKey: slot.practitionerLineageKey,
+            practitionerName: slot.practitionerName,
+            startTime: slot.startTime,
+          }
+        : {
+            calendarResourceColumn: args.calendarResourceColumn,
+            duration: args.appointmentType.duration,
+            locationLineageKey: args.locationLineageKey,
+            startTime: slot.startTime,
+          };
+    const key =
+      args.calendarResourceColumn === undefined
+        ? `${slot.startTime}:${slot.practitionerLineageKey}`
+        : slot.startTime;
+    if (!candidatesByKey.has(key)) {
+      candidatesByKey.set(key, candidate);
+    }
+  }
+
+  return [...candidatesByKey.values()].toSorted((left, right) =>
+    left.startTime === right.startTime
+      ? (left.practitionerName ?? "").localeCompare(
+          right.practitionerName ?? "",
+        )
+      : left.startTime.localeCompare(right.startTime),
+  );
+}
+
+function candidateSlotDecisionBase(args: {
+  candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+  locationLineageKey: LocationLineageKey;
+}): Omit<CandidateSlotDecision, "canOverride" | "status"> {
+  return {
+    ...(args.candidate.calendarResourceColumn === undefined
+      ? {}
+      : { calendarResourceColumn: args.candidate.calendarResourceColumn }),
+    duration: args.candidate.duration,
+    locationLineageKey: args.locationLineageKey,
+    ...(args.candidate.practitionerLineageKey === undefined
+      ? {}
+      : {
+          practitionerLineageKey: asPractitionerLineageKey(
+            args.candidate.practitionerLineageKey,
+          ),
+        }),
+    ...(args.candidate.practitionerName === undefined
+      ? {}
+      : { practitionerName: args.candidate.practitionerName }),
+    startTime: args.candidate.startTime,
+  };
+}
+
+async function evaluateSingleAppointmentCandidateSlot(
+  ctx: MutationCtx | QueryCtx,
+  args: {
+    allowPlannerRuleOverride?: boolean;
+    appointmentType: Doc<"appointmentTypes">;
+    candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+    durationMinutes?: number;
+    excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
+    locationId: Id<"locations">;
+    locationLineageKey: LocationLineageKey;
+    patientDateOfBirth?: IsoDateString;
+    planningState: ReturnType<typeof createSeriesPlanningState>;
+    practiceId: Id<"practices">;
+    requestedAt: InstantString;
+    ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
+    staffPlannerSlotsByDate: Map<
+      IsoDateString,
+      Promise<InternalSchedulingResultSlot[]>
+    >;
+  },
+): Promise<CandidateSlotDecision> {
+  const practitionerLineageKey =
+    args.candidate.practitionerLineageKey === undefined
+      ? undefined
+      : asPractitionerLineageKey(args.candidate.practitionerLineageKey);
+  const practitionerId =
+    practitionerLineageKey === undefined
+      ? undefined
+      : await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+          lineageKey: practitionerLineageKey,
+          ruleSetId: args.ruleSetId,
+        });
+  const storedReferences = await resolveStoredAppointmentReferencesForWrite(
+    ctx.db,
+    {
+      appointmentTypeId: asAppointmentTypeId(args.appointmentType._id),
+      locationId: asLocationId(args.locationId),
+      ...(practitionerId === undefined
+        ? {}
+        : { practitionerId: asPractitionerId(practitionerId) }),
+    },
+  );
+  const occupancyScope = resolveSingleAppointmentOccupancy({
+    appointmentType: args.appointmentType,
+    ...(args.candidate.calendarResourceColumn === undefined
+      ? {}
+      : { calendarResourceColumn: args.candidate.calendarResourceColumn }),
+    storedReferences,
+  });
+  const durationMinutes = args.durationMinutes ?? args.appointmentType.duration;
+  const candidateEnd = calculateEndFromDuration(
+    asZonedDateTimeString(args.candidate.startTime),
+    durationMinutes,
+  );
+
+  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
+    candidate: {
+      end: candidateEnd,
+      locationLineageKey: storedReferences.locationLineageKey,
+      occupancyScope,
+      start: args.candidate.startTime,
+    },
+    ...(args.simulationRuleSetId === undefined
+      ? {}
+      : { draftRuleSetId: args.simulationRuleSetId }),
+    ...(args.excludedAppointmentIds === undefined
+      ? {}
+      : { excludeAppointmentIds: args.excludedAppointmentIds }),
+    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
+    practiceId: args.practiceId,
+  });
+
+  if (conflictingOccupancy) {
+    return unavailableCandidateSlotDecision({
+      ...(conflictingOccupancy.kind === "blockedSlot"
+        ? { blockingBlockedSlotId: conflictingOccupancy.record._id }
+        : {}),
+      candidate: args.candidate,
+      locationLineageKey: args.locationLineageKey,
+      provenance:
+        conflictingOccupancy.kind === "blockedSlot"
+          ? "blockedSlot"
+          : "appointmentOccupancy",
+      reason:
+        conflictingOccupancy.kind === "blockedSlot"
+          ? conflictingOccupancy.record.title
+          : "Der ausgewählte Zeitraum ist bereits durch einen Termin belegt.",
+    });
+  }
+
+  if (practitionerId === undefined) {
+    const hasResourceAvailability = await hasResourceRootSchedulerAvailability(
+      ctx,
+      {
+        ...(args.allowPlannerRuleOverride === undefined
+          ? {}
+          : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
+        appointmentType: args.appointmentType,
+        ...(args.excludedAppointmentIds === undefined
+          ? {}
+          : { excludedAppointmentIds: args.excludedAppointmentIds }),
+        ...(args.isNewPatient === undefined
+          ? {}
+          : { isNewPatient: args.isNewPatient }),
+        locationId: args.locationId,
+        planningState: args.planningState,
+        ...(args.patientDateOfBirth === undefined
+          ? {}
+          : { patientDateOfBirth: args.patientDateOfBirth }),
+        practiceId: args.practiceId,
+        requestedAt: args.requestedAt,
+        rootDurationMinutes: durationMinutes,
+        ruleSetId: args.ruleSetId,
+        ...(args.scope === undefined ? {} : { scope: args.scope }),
+        ...(args.simulationRuleSetId === undefined
+          ? {}
+          : { simulationRuleSetId: args.simulationRuleSetId }),
+        start: asZonedDateTimeString(args.candidate.startTime),
+      },
+    );
+    if (!hasResourceAvailability) {
+      return unavailableCandidateSlotDecision({
+        candidate: args.candidate,
+        locationLineageKey: args.locationLineageKey,
+        provenance: "schedulerUnavailable",
+        reason: "Der ausgewählte Starttermin ist nicht verfügbar.",
+      });
+    }
+  } else {
+    const candidateDate = asIsoDateString(
+      Temporal.ZonedDateTime.from(args.candidate.startTime)
+        .toPlainDate()
+        .toString(),
+    );
+    let staffPlannerSlotsPromise =
+      args.staffPlannerSlotsByDate.get(candidateDate);
+    if (staffPlannerSlotsPromise === undefined) {
+      staffPlannerSlotsPromise = getStaffPlannerSlotsForDate(ctx, {
+        ...(args.excludedAppointmentIds === undefined
+          ? {}
+          : { excludedAppointmentIds: args.excludedAppointmentIds }),
+        appointmentType: args.appointmentType,
+        ...(args.isNewPatient === undefined
+          ? {}
+          : { isNewPatient: args.isNewPatient }),
+        locationLineageKey: args.locationLineageKey,
+        ...(args.patientDateOfBirth === undefined
+          ? {}
+          : { patientDateOfBirth: args.patientDateOfBirth }),
+        practiceId: args.practiceId,
+        requestedAt: args.requestedAt,
+        ruleSetId: args.ruleSetId,
+        ...(args.scope === undefined ? {} : { scope: args.scope }),
+        targetDate: candidateDate,
+      });
+      args.staffPlannerSlotsByDate.set(candidateDate, staffPlannerSlotsPromise);
+    }
+    const staffPlannerSlots = await staffPlannerSlotsPromise;
+    const practitionerSlots = staffPlannerSlots.filter(
+      (slot) => slot.practitionerLineageKey === practitionerLineageKey,
+    );
+    const selectedSlot = practitionerSlots.find(
+      (slot) => slot.startTime === args.candidate.startTime,
+    );
+    const selectedSlotCanStart =
+      selectedSlot?.status === "AVAILABLE" ||
+      (selectedSlot !== undefined &&
+        isSchedulerSlotBlockedOnlyByAppointmentOccupancy(selectedSlot)) ||
+      (args.allowPlannerRuleOverride === true &&
+        selectedSlot?.blockedByRuleId !== undefined);
+    if (!selectedSlotCanStart) {
+      const failure = schedulingProvenanceForSlot(selectedSlot);
+      return unavailableCandidateSlotDecision({
+        ...(failure.blockingBlockedSlotId === undefined
+          ? {}
+          : { blockingBlockedSlotId: failure.blockingBlockedSlotId }),
+        ...(failure.blockingRuleIds === undefined
+          ? {}
+          : { blockingRuleIds: failure.blockingRuleIds }),
+        candidate: args.candidate,
+        canOverride: failure.canOverride,
+        locationLineageKey: args.locationLineageKey,
+        provenance: failure.provenance,
+        reason: failure.reason,
+      });
+    }
+    if (
+      !hasSchedulerCoverageForCandidate({
+        ...(args.allowPlannerRuleOverride === undefined
+          ? {}
+          : { allowPlannerRuleOverride: args.allowPlannerRuleOverride }),
+        durationMinutes,
+        slots: practitionerSlots,
+        start: args.candidate.startTime,
+      })
+    ) {
+      return unavailableCandidateSlotDecision({
+        candidate: args.candidate,
+        locationLineageKey: args.locationLineageKey,
+        provenance: "insufficientDuration",
+        reason: "Nicht genug freie Zeit für diese Terminart",
+      });
+    }
+  }
+
+  return availableCandidateSlotDecision({
+    candidate: args.candidate,
+    locationLineageKey: args.locationLineageKey,
+  });
+}
+
+async function getStaffPlannerSlotsForDate(
+  ctx: MutationCtx | QueryCtx,
+  args: {
+    appointmentType: Doc<"appointmentTypes">;
+    excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
+    locationLineageKey: LocationLineageKey;
+    patientDateOfBirth?: IsoDateString;
+    practiceId: Id<"practices">;
+    requestedAt: InstantString;
+    ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
+    targetDate: IsoDateString;
+  },
+): Promise<InternalSchedulingResultSlot[]> {
+  const appointmentTypeLineageKey = asAppointmentTypeLineageKey(
+    requireLineageKey({
+      entityId: args.appointmentType._id,
+      entityType: "appointment type",
+      lineageKey: args.appointmentType.lineageKey,
+      ruleSetId: args.appointmentType.ruleSetId,
+    }),
+  );
+  const slotsResult: { slots: InternalSchedulingResultSlot[] } =
+    await ctx.runQuery(internal.scheduling.getSlotsForDayInternal, {
+      date: args.targetDate,
+      ...(args.excludedAppointmentIds === undefined
+        ? {}
+        : { excludedAppointmentIds: args.excludedAppointmentIds }),
+      practiceId: args.practiceId,
+      ruleSetId: args.ruleSetId,
+      ...(args.scope === undefined ? {} : { scope: args.scope }),
+      simulatedContext: {
+        appointmentTypeLineageKey,
+        clientType: STAFF_PLANNER_CLIENT_TYPE,
+        locationLineageKey: args.locationLineageKey,
+        patient: {
+          ...(args.patientDateOfBirth === undefined
+            ? {}
+            : { dateOfBirth: args.patientDateOfBirth }),
+          isNew: args.isNewPatient ?? false,
+        },
+        requestedAt: args.requestedAt,
+      },
+    });
+
+  return slotsResult.slots.filter(
+    (slot) => slot.locationLineageKey === args.locationLineageKey,
+  );
+}
+
+function hasSchedulerCoverageForCandidate(args: {
+  allowPlannerRuleOverride?: boolean;
+  durationMinutes: number;
+  slots: {
+    blockedByRuleId?: Id<"ruleConditions">;
+    duration: number;
+    startTime: string;
+    status: string;
+  }[];
+  start: string;
+}): boolean {
+  const slotsByStartTime = new Map(
+    args.slots.map((slot) => [slot.startTime, slot]),
+  );
+  const requestedStart = Temporal.ZonedDateTime.from(args.start);
+  const requestedEnd = requestedStart.add({ minutes: args.durationMinutes });
+  let cursor = requestedStart;
+
+  while (Temporal.ZonedDateTime.compare(cursor, requestedEnd) < 0) {
+    const slot = slotsByStartTime.get(cursor.toString());
+    const isRuleOverrideSlot =
+      args.allowPlannerRuleOverride === true &&
+      slot?.blockedByRuleId !== undefined;
+    if (
+      slot === undefined ||
+      slot.duration <= 0 ||
+      (slot.status !== "AVAILABLE" &&
+        !isRuleOverrideSlot &&
+        !isSchedulerSlotBlockedOnlyByAppointmentOccupancy(slot))
+    ) {
+      return false;
+    }
+    cursor = cursor.add({ minutes: slot.duration });
+  }
+
+  return true;
+}
+
+function isSchedulerSlotBlockedOnlyByAppointmentOccupancy(slot: {
+  blockedByBlockedSlotId?: Id<"blockedSlots">;
+  blockedByRuleId?: Id<"ruleConditions">;
+  reason?: string;
+  status: string;
+}): boolean {
+  return (
+    slot.status === "BLOCKED" &&
+    slot.blockedByBlockedSlotId === undefined &&
+    slot.blockedByRuleId === undefined &&
+    (slot.reason === undefined ||
+      slot.reason ===
+        "Dieser Zeitfenster ist bereits durch einen Termin belegt.")
+  );
+}
+
+async function resolveCandidateSlotDecisionForStaffPlacement(
+  ctx: MutationCtx | QueryCtx,
+  args: {
+    appointmentType: Doc<"appointmentTypes">;
+    candidate: AppointmentSeriesRootSlotCandidate;
+    excludedAppointmentIds?: Id<"appointments">[];
+    isNewPatient?: boolean;
+    locationId: Id<"locations">;
+    locationLineageKey: LocationLineageKey;
+    patientDateOfBirth?: IsoDateString;
+    patientId?: Id<"patients">;
+    planningState: ReturnType<typeof createSeriesPlanningState>;
+    practiceId: Id<"practices">;
+    practitionerIdsByLineageKey: Map<
+      PractitionerLineageKey,
+      Id<"practitioners">
+    >;
+    requestedAt: InstantString;
+    ruleSetId: Id<"ruleSets">;
+    scope?: AppointmentBookingScope;
+    staffPlannerSlotsByDate: Map<
+      IsoDateString,
+      Promise<InternalSchedulingResultSlot[]>
+    >;
+    userId?: Id<"users">;
+  },
+): Promise<CandidateSlotDecision | null> {
+  if (args.candidate.locationLineageKey !== args.locationLineageKey) {
+    return null;
+  }
+
+  const practitionerLineageKey =
+    args.candidate.practitionerLineageKey === undefined
+      ? undefined
+      : asPractitionerLineageKey(args.candidate.practitionerLineageKey);
+  const cachedPractitionerId =
+    practitionerLineageKey === undefined
+      ? undefined
+      : args.practitionerIdsByLineageKey.get(practitionerLineageKey);
+  const practitionerId =
+    cachedPractitionerId ??
+    (practitionerLineageKey === undefined
+      ? undefined
+      : await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+          lineageKey: practitionerLineageKey,
+          ruleSetId: args.ruleSetId,
+        }));
+  if (practitionerLineageKey !== undefined && practitionerId !== undefined) {
+    args.practitionerIdsByLineageKey.set(
+      practitionerLineageKey,
+      practitionerId,
+    );
+  }
+
+  if (hasAppointmentPlan(args.appointmentType)) {
+    const preview = await previewAppointmentSeriesHelper(
+      ctx,
+      {
+        ...(args.excludedAppointmentIds === undefined
+          ? {}
+          : { excludedAppointmentIds: args.excludedAppointmentIds }),
+        ...(args.isNewPatient === undefined
+          ? {}
+          : { isNewPatient: args.isNewPatient }),
+        locationId: args.locationId,
+        ...(args.patientDateOfBirth === undefined
+          ? {}
+          : { patientDateOfBirth: args.patientDateOfBirth }),
+        ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+        practiceId: args.practiceId,
+        ...(args.candidate.calendarResourceColumn === undefined
+          ? {}
+          : { calendarResourceColumn: args.candidate.calendarResourceColumn }),
+        ...(practitionerId === undefined ? {} : { practitionerId }),
+        rootAppointmentTypeId: args.appointmentType._id,
+        ruleSetId: args.ruleSetId,
+        ...(args.scope === undefined ? {} : { scope: args.scope }),
+        start: asZonedDateTimeString(args.candidate.startTime),
+        ...(args.userId === undefined ? {} : { userId: args.userId }),
+      },
+      args.planningState,
+    );
+    if (preview.status === "ready") {
+      return availableCandidateSlotDecision({
+        candidate: args.candidate,
+        locationLineageKey: args.locationLineageKey,
+        seriesBlueprint: preview.steps,
+      });
+    }
+    return unavailableCandidateSlotDecision({
+      ...(preview.blockingBlockedSlotId === undefined
+        ? {}
+        : { blockingBlockedSlotId: preview.blockingBlockedSlotId }),
+      ...(preview.blockingRuleIds === undefined
+        ? {}
+        : { blockingRuleIds: preview.blockingRuleIds }),
+      candidate: args.candidate,
+      canOverride: preview.failureKind === "ruleBlock",
+      locationLineageKey: args.locationLineageKey,
+      provenance: preview.failureKind,
+      reason: preview.failureMessage,
+    });
+  }
+
+  return await evaluateSingleAppointmentCandidateSlot(ctx, {
+    ...(args.excludedAppointmentIds === undefined
+      ? {}
+      : { excludedAppointmentIds: args.excludedAppointmentIds }),
+    appointmentType: args.appointmentType,
+    candidate: args.candidate,
+    ...(args.isNewPatient === undefined
+      ? {}
+      : { isNewPatient: args.isNewPatient }),
+    locationId: args.locationId,
+    locationLineageKey: args.locationLineageKey,
+    ...(args.patientDateOfBirth === undefined
+      ? {}
+      : { patientDateOfBirth: args.patientDateOfBirth }),
+    planningState: args.planningState,
+    practiceId: args.practiceId,
+    requestedAt: args.requestedAt,
+    ruleSetId: args.ruleSetId,
+    ...(args.scope === undefined ? {} : { scope: args.scope }),
+    staffPlannerSlotsByDate: args.staffPlannerSlotsByDate,
+  });
+}
+
+function schedulingProvenanceForSlot(
+  slot:
+    | undefined
+    | {
+        blockedByBlockedSlotId?: Id<"blockedSlots">;
+        blockedByRuleId?: Id<"ruleConditions">;
+        reason?: string;
+      },
+): {
+  blockingBlockedSlotId?: Id<"blockedSlots">;
+  blockingRuleIds?: Id<"ruleConditions">[];
+  canOverride: boolean;
+  provenance: Exclude<CandidateSlotDecision["provenance"], undefined>;
+  reason: string;
+} {
+  if (slot?.blockedByRuleId !== undefined) {
+    return {
+      blockingRuleIds: [slot.blockedByRuleId],
+      canOverride: true,
+      provenance: "ruleBlock",
+      reason:
+        slot.reason ?? "Dieser Zeitfenster ist durch eine Regel blockiert.",
+    };
+  }
+  if (slot?.blockedByBlockedSlotId !== undefined) {
+    return {
+      blockingBlockedSlotId: slot.blockedByBlockedSlotId,
+      canOverride: false,
+      provenance: "blockedSlot",
+      reason: slot.reason ?? "Manuell blockierter Zeitraum",
+    };
+  }
+  return {
+    canOverride: false,
+    provenance: "schedulerUnavailable",
+    reason: slot?.reason ?? "Der ausgewählte Starttermin ist nicht verfügbar.",
+  };
+}
+
+function unavailableCandidateSlotDecision(args: {
+  blockingBlockedSlotId?: Id<"blockedSlots">;
+  blockingRuleIds?: Id<"ruleConditions">[];
+  candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+  canOverride?: boolean;
+  locationLineageKey: LocationLineageKey;
+  provenance: Exclude<CandidateSlotDecision["provenance"], undefined>;
+  reason: string;
+}): CandidateSlotDecision {
+  return {
+    ...candidateSlotDecisionBase(args),
+    ...(args.blockingBlockedSlotId === undefined
+      ? {}
+      : { blockingBlockedSlotId: args.blockingBlockedSlotId }),
+    ...(args.blockingRuleIds === undefined
+      ? {}
+      : { blockingRuleIds: args.blockingRuleIds }),
+    canOverride: args.canOverride === true,
+    provenance: args.provenance,
+    reason: args.reason,
+    status: "unavailable",
+  };
+}
+
+export const getCandidateSlotDecisionsForStaffPlacement = query({
+  args: {
+    appointmentTypeId: v.id("appointmentTypes"),
+    candidates: v.array(appointmentSeriesRootSlotCandidateValidator),
+    excludedAppointmentIds: v.optional(v.array(v.id("appointments"))),
+    isNewPatient: v.optional(v.boolean()),
+    locationId: v.id("locations"),
+    patientDateOfBirth: v.optional(v.string()),
+    patientId: v.optional(v.id("patients")),
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+    scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
+    userId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await requirePracticeStaff(ctx, args.practiceId);
+    await validateAppointmentSeriesOwnerRefs(ctx, {
+      practiceId: args.practiceId,
+      ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+      ...(args.userId === undefined ? {} : { userId: args.userId }),
+    });
+
+    const appointmentType = await ctx.db.get(
+      "appointmentTypes",
+      args.appointmentTypeId,
+    );
+    if (
+      appointmentType?.practiceId !== args.practiceId ||
+      appointmentType.ruleSetId !== args.ruleSetId ||
+      isRuleSetEntityDeleted(appointmentType)
+    ) {
+      return [];
+    }
+
+    const locationLineageKey = await resolveLocationLineageKey(
+      ctx.db,
+      asLocationId(args.locationId),
+    );
+    const patientDateOfBirth =
+      args.patientDateOfBirth === undefined
+        ? args.patientId === undefined
+          ? undefined
+          : await resolvePreferredAppointmentPatientDateOfBirth(ctx.db, {
+              patientId: args.patientId,
+            })
+        : asOptionalIsoDateString(args.patientDateOfBirth);
+
+    const requestedAt = asInstantString(Temporal.Now.instant().toString());
+    const planningState = createSeriesPlanningState();
+    const staffPlannerSlotsByDate = new Map<
+      IsoDateString,
+      Promise<InternalSchedulingResultSlot[]>
+    >();
+    const decisions: CandidateSlotDecision[] = [];
+    const practitionerIdsByLineageKey = new Map<
+      PractitionerLineageKey,
+      Id<"practitioners">
+    >();
+    for (const candidate of args.candidates) {
+      if (candidate.locationLineageKey !== locationLineageKey) {
+        continue;
+      }
+
+      const decision = await resolveCandidateSlotDecisionForStaffPlacement(
+        ctx,
+        {
+          ...(args.excludedAppointmentIds === undefined
+            ? {}
+            : { excludedAppointmentIds: args.excludedAppointmentIds }),
+          appointmentType,
+          candidate,
+          ...(args.isNewPatient === undefined
+            ? {}
+            : { isNewPatient: args.isNewPatient }),
+          locationId: args.locationId,
+          locationLineageKey,
+          ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+          ...(args.patientId === undefined
+            ? {}
+            : { patientId: args.patientId }),
+          planningState,
+          practiceId: args.practiceId,
+          practitionerIdsByLineageKey,
+          requestedAt,
+          ruleSetId: args.ruleSetId,
+          ...(args.scope === undefined ? {} : { scope: args.scope }),
+          staffPlannerSlotsByDate,
+          ...(args.userId === undefined ? {} : { userId: args.userId }),
+        },
+      );
+      if (decision !== null) {
+        decisions.push(decision);
+      }
+    }
+
+    return decisions;
+  },
+  returns: v.array(candidateSlotDecisionValidator),
+});
+
+export const getNextAvailableCandidateSlotForStaffPlacement = query({
+  args: {
+    appointmentTypeId: v.id("appointmentTypes"),
+    date: v.string(),
+    excludedAppointmentIds: v.optional(v.array(v.id("appointments"))),
+    isNewPatient: v.optional(v.boolean()),
+    locationId: v.id("locations"),
+    patientDateOfBirth: v.optional(v.string()),
+    patientId: v.optional(v.id("patients")),
+    practiceId: v.id("practices"),
+    ruleSetId: v.id("ruleSets"),
+    scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
+    userId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await requirePracticeStaff(ctx, args.practiceId);
+    await validateAppointmentSeriesOwnerRefs(ctx, {
+      practiceId: args.practiceId,
+      ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+      ...(args.userId === undefined ? {} : { userId: args.userId }),
+    });
+
+    const appointmentType = await ctx.db.get(
+      "appointmentTypes",
+      args.appointmentTypeId,
+    );
+    if (
+      appointmentType?.practiceId !== args.practiceId ||
+      appointmentType.ruleSetId !== args.ruleSetId ||
+      isRuleSetEntityDeleted(appointmentType)
+    ) {
+      return null;
+    }
+
+    const locationLineageKey = await resolveLocationLineageKey(
+      ctx.db,
+      asLocationId(args.locationId),
+    );
+    const patientDateOfBirth =
+      args.patientDateOfBirth === undefined
+        ? args.patientId === undefined
+          ? undefined
+          : await resolvePreferredAppointmentPatientDateOfBirth(ctx.db, {
+              patientId: args.patientId,
+            })
+        : asOptionalIsoDateString(args.patientDateOfBirth);
+
+    const requestedAt = asInstantString(Temporal.Now.instant().toString());
+    const now = Temporal.Now.zonedDateTimeISO(APPOINTMENT_TIMEZONE);
+    const startDate = Temporal.PlainDate.from(args.date);
+    const defaultOccupancy = normalizeDefaultOccupancy(
+      appointmentType.defaultOccupancy,
+    );
+    const resourceColumn =
+      defaultOccupancy.kind === "resourceColumn"
+        ? defaultOccupancy.calendarResourceColumn
+        : undefined;
+    const planningState = createSeriesPlanningState();
+    const staffPlannerSlotsByDate = new Map<
+      IsoDateString,
+      Promise<InternalSchedulingResultSlot[]>
+    >();
+    const practitionerIdsByLineageKey = new Map<
+      PractitionerLineageKey,
+      Id<"practitioners">
+    >();
+
+    for (
+      let dayOffset = 0;
+      dayOffset <= NEXT_AVAILABLE_CANDIDATE_SEARCH_DAYS;
+      dayOffset += 1
+    ) {
+      const targetDate = asIsoDateString(
+        startDate.add({ days: dayOffset }).toString(),
+      );
+      const slots = await getStaffPlannerSlotsForDate(ctx, {
+        ...(args.excludedAppointmentIds === undefined
+          ? {}
+          : { excludedAppointmentIds: args.excludedAppointmentIds }),
+        appointmentType,
+        ...(args.isNewPatient === undefined
+          ? {}
+          : { isNewPatient: args.isNewPatient }),
+        locationLineageKey,
+        ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+        practiceId: args.practiceId,
+        requestedAt,
+        ruleSetId: args.ruleSetId,
+        ...(args.scope === undefined ? {} : { scope: args.scope }),
+        targetDate,
+      });
+      staffPlannerSlotsByDate.set(targetDate, Promise.resolve(slots));
+      const candidates = buildNextAvailableCandidateSlots({
+        appointmentType,
+        ...(resourceColumn === undefined
+          ? {}
+          : { calendarResourceColumn: resourceColumn }),
+        locationLineageKey,
+        slots,
+        startsAfter: asZonedDateTimeString(now.toString()),
+      });
+
+      for (const candidate of candidates) {
+        const decision = await resolveCandidateSlotDecisionForStaffPlacement(
+          ctx,
+          {
+            ...(args.excludedAppointmentIds === undefined
+              ? {}
+              : { excludedAppointmentIds: args.excludedAppointmentIds }),
+            appointmentType,
+            candidate,
+            ...(args.isNewPatient === undefined
+              ? {}
+              : { isNewPatient: args.isNewPatient }),
+            locationId: args.locationId,
+            locationLineageKey,
+            ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+            ...(args.patientId === undefined
+              ? {}
+              : { patientId: args.patientId }),
+            planningState,
+            practiceId: args.practiceId,
+            practitionerIdsByLineageKey,
+            requestedAt,
+            ruleSetId: args.ruleSetId,
+            ...(args.scope === undefined ? {} : { scope: args.scope }),
+            staffPlannerSlotsByDate,
+            ...(args.userId === undefined ? {} : { userId: args.userId }),
+          },
+        );
+        if (decision?.status === "available") {
+          return decision;
+        }
+      }
+    }
+
+    return null;
+  },
+  returns: v.union(v.null(), candidateSlotDecisionValidator),
 });
 
 export const createAppointmentSeries = mutation({
@@ -1992,7 +3774,9 @@ export async function createAppointmentFromTrustedSource(
   ctx: MutationCtx,
   rawArgs: {
     allowHistoricalSmiley?: boolean;
+    allowPlannerRuleOverride?: boolean;
     allowRestoredEnd?: boolean;
+    allowSingleAppointmentRestore?: boolean;
     allowUnrelatedUserId?: boolean;
     appointmentTypeId: Id<"appointmentTypes">;
     bookingIdentityId?: Id<"bookingIdentities">;
@@ -2022,7 +3806,9 @@ export async function createAppointmentFromTrustedSource(
   const now = BigInt(Date.now());
   const {
     allowHistoricalSmiley,
+    allowPlannerRuleOverride,
     allowRestoredEnd,
+    allowSingleAppointmentRestore,
     allowUnrelatedUserId,
     appointmentTypeId,
     calendarResourceColumn,
@@ -2064,7 +3850,6 @@ export async function createAppointmentFromTrustedSource(
     owner,
     scope: await requireTrustedPracticeScope(ctx, practiceId),
   });
-
   if (simulationKind && isSimulation !== true) {
     throw new Error(
       "simulationKind can only be used with simulated appointments.",
@@ -2141,40 +3926,22 @@ export async function createAppointmentFromTrustedSource(
     }
   }
 
-  const storedReferences = await resolveStoredAppointmentReferencesForWrite(
-    ctx.db,
-    {
-      appointmentTypeId: asAppointmentTypeId(appointmentTypeId),
-      locationId: asLocationId(locationId),
-      ...(practitionerId
-        ? { practitionerId: asPractitionerId(practitionerId) }
-        : {}),
-    },
-  );
-  const occupancyScope = appointmentOccupancyScopeFromRefs({
-    ...(calendarResourceColumn === undefined ? {} : { calendarResourceColumn }),
-    ...(storedReferences.practitionerLineageKey === undefined
-      ? {}
-      : { practitionerLineageKey: storedReferences.practitionerLineageKey }),
-  });
-
   if (
-    activeAppointmentType.followUpPlan &&
-    activeAppointmentType.followUpPlan.length > 0
+    hasAppointmentPlan(activeAppointmentType) &&
+    allowSingleAppointmentRestore !== true
   ) {
     if (ownerRefs.phoneBookingIdentityId !== undefined) {
       throw new Error("TelefonKI can only book a single appointment.");
     }
-    if (!practitionerId) {
-      throw new Error(
-        "Kettentermine benötigen einen ausgewählten Behandler für den Starttermin.",
-      );
-    }
 
     const result = await createAppointmentSeriesHelper(ctx, {
+      ...(allowPlannerRuleOverride === undefined
+        ? {}
+        : { allowPlannerRuleOverride }),
       ...(ownerRefs.bookingIdentityId !== undefined && {
         bookingIdentityId: ownerRefs.bookingIdentityId,
       }),
+      ...(calendarResourceColumn !== undefined && { calendarResourceColumn }),
       locationId,
       ...(isNewPatient !== undefined && { isNewPatient }),
       ...(patientDateOfBirth !== undefined && { patientDateOfBirth }),
@@ -2182,7 +3949,7 @@ export async function createAppointmentFromTrustedSource(
         patientId: ownerRefs.patientId,
       }),
       practiceId,
-      practitionerId,
+      ...(practitionerId !== undefined && { practitionerId }),
       rootAppointmentTypeId: appointmentTypeId,
       ...(replacesAppointmentId && {
         rootReplacesAppointmentId: replacesAppointmentId,
@@ -2199,8 +3966,27 @@ export async function createAppointmentFromTrustedSource(
       ...(ownerRefs.userId !== undefined && { userId: ownerRefs.userId }),
     });
 
-    return result.rootAppointmentId;
+    return {
+      kind: "appointmentSeries.created" as const,
+      series: await appointmentSeriesLedgerPayload(ctx, result.seriesId),
+    };
   }
+
+  const storedReferences = await resolveStoredAppointmentReferencesForWrite(
+    ctx.db,
+    {
+      appointmentTypeId: asAppointmentTypeId(appointmentTypeId),
+      locationId: asLocationId(locationId),
+      ...(practitionerId
+        ? { practitionerId: asPractitionerId(practitionerId) }
+        : {}),
+    },
+  );
+  const occupancyScope = resolveSingleAppointmentOccupancy({
+    appointmentType: activeAppointmentType,
+    ...(calendarResourceColumn === undefined ? {} : { calendarResourceColumn }),
+    storedReferences,
+  });
 
   const end =
     requestedEnd ??
@@ -2214,27 +4000,58 @@ export async function createAppointmentFromTrustedSource(
     throw new Error("Die Endzeit muss nach der Startzeit liegen.");
   }
 
-  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
+  const durationMinutes = calculateDurationMinutes(
+    asZonedDateTimeString(end),
+    args.start,
+  );
+  const calendarResourceColumnForCandidate =
+    getAppointmentCalendarResourceColumn(occupancyScope);
+  const practitionerLineageKeyForCandidate =
+    getAppointmentPractitionerLineageKey(occupancyScope);
+  const candidatePlanningState = createSeriesPlanningState();
+  const candidateStaffPlannerSlotsByDate = new Map<
+    IsoDateString,
+    Promise<InternalSchedulingResultSlot[]>
+  >();
+  const candidateDecision = await evaluateSingleAppointmentCandidateSlot(ctx, {
+    ...(allowPlannerRuleOverride === undefined
+      ? {}
+      : { allowPlannerRuleOverride }),
+    appointmentType: activeAppointmentType,
     candidate: {
-      end,
+      ...(calendarResourceColumnForCandidate === undefined
+        ? {}
+        : { calendarResourceColumn: calendarResourceColumnForCandidate }),
+      duration: durationMinutes,
       locationLineageKey: storedReferences.locationLineageKey,
-      occupancyScope,
-      start: args.start,
+      ...(practitionerLineageKeyForCandidate === undefined
+        ? {}
+        : { practitionerLineageKey: practitionerLineageKeyForCandidate }),
+      startTime: args.start,
     },
+    durationMinutes,
+    ...(replacesAppointmentId === undefined
+      ? {}
+      : { excludedAppointmentIds: [replacesAppointmentId] }),
+    ...(isNewPatient === undefined ? {} : { isNewPatient }),
+    locationId,
+    locationLineageKey: storedReferences.locationLineageKey,
+    ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+    planningState: candidatePlanningState,
     practiceId,
-    ...(resolvedSimulationRuleSetId
-      ? { draftRuleSetId: resolvedSimulationRuleSetId }
-      : {}),
-    occupancyView: getOccupancyViewForBookingScope(
-      getAppointmentBookingScope(isSimulation),
-    ),
-    ...(replacesAppointmentId && {
-      excludeAppointmentIds: [replacesAppointmentId],
-    }),
+    requestedAt: asInstantString(Temporal.Now.instant().toString()),
+    ruleSetId: activeAppointmentType.ruleSetId,
+    scope: getAppointmentBookingScope(isSimulation),
+    ...(resolvedSimulationRuleSetId === undefined
+      ? {}
+      : { simulationRuleSetId: resolvedSimulationRuleSetId }),
+    staffPlannerSlotsByDate: candidateStaffPlannerSlotsByDate,
   });
 
-  if (conflictingOccupancy) {
-    throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
+  if (candidateDecision.status === "unavailable") {
+    throw new Error(
+      candidateDecision.reason ?? "Der Termin ist nicht planbar.",
+    );
   }
 
   const insertData = {
@@ -2274,7 +4091,8 @@ export async function createAppointmentFromTrustedSource(
     ...(smiley !== undefined && { smiley }),
     title,
   };
-  return await ctx.db.insert("appointments", insertData);
+  const appointmentId = await ctx.db.insert("appointments", insertData);
+  return await appointmentLedgerCreatedEffect(ctx.db, appointmentId);
 }
 
 async function resolveAppointmentOwnerRefs(
@@ -2408,6 +4226,7 @@ async function validateAppointmentSeriesOwnerRefs(
 // Mutation to create a new appointment
 export const createAppointment = mutation({
   args: {
+    allowPlannerRuleOverride: v.optional(v.boolean()),
     appointmentTypeId: v.id("appointmentTypes"),
     bookingIdentityId: v.optional(v.id("bookingIdentities")),
     calendarResourceColumn: v.optional(calendarResourceColumnValidator),
@@ -2433,10 +4252,18 @@ export const createAppointment = mutation({
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await requirePracticeStaffForMutation(ctx, args.practiceId);
+    if (args.allowPlannerRuleOverride === true) {
+      await requirePracticeManagerForMutation(ctx, args.practiceId);
+    }
     await requireManagerForPlannerRuleOverride(ctx, args);
-    return await createAppointmentFromTrustedSource(ctx, args);
+    return await createAppointmentFromTrustedSource(ctx, {
+      ...args,
+      ...(args.allowPlannerRuleOverride === true
+        ? { allowPlannerRuleOverride: true }
+        : {}),
+    });
   },
-  returns: v.id("appointments"),
+  returns: appointmentLedgerEffectValidator,
 });
 
 export const getAppointmentColor = query({
@@ -2453,6 +4280,333 @@ export const getAppointmentColor = query({
     return appointment.color ?? DEFAULT_APPOINTMENT_COLOR;
   },
   returns: appointmentColorValidator,
+});
+
+export const getAppointmentSeriesRestoreSnapshotByRootId = query({
+  args: {
+    rootAppointmentId: v.id("appointments"),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const rootAppointment = await ctx.db.get(
+      "appointments",
+      args.rootAppointmentId,
+    );
+    if (!rootAppointment?.seriesId) {
+      return null;
+    }
+    await requirePracticeStaff(ctx, rootAppointment.practiceId);
+
+    const series = await getAppointmentSeriesRecord(
+      ctx.db,
+      rootAppointment.seriesId,
+    );
+    if (series?.rootAppointmentId !== args.rootAppointmentId) {
+      return null;
+    }
+    const appointments = await getSeriesAppointments(ctx.db, series.seriesId);
+    return toAppointmentSeriesRestoreSnapshot({ appointments, series });
+  },
+  returns: v.union(v.null(), appointmentSeriesRestoreSnapshotValidator),
+});
+
+export const getAppointmentSeriesRestoreSnapshotByAppointmentId = query({
+  args: {
+    appointmentId: v.id("appointments"),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const appointment = await ctx.db.get("appointments", args.appointmentId);
+    if (!appointment?.seriesId) {
+      return null;
+    }
+    await requirePracticeStaff(ctx, appointment.practiceId);
+
+    const series = await getAppointmentSeriesRecord(
+      ctx.db,
+      appointment.seriesId,
+    );
+    if (!series) {
+      return null;
+    }
+    const appointments = await getSeriesAppointments(ctx.db, series.seriesId);
+    return toAppointmentSeriesRestoreSnapshot({ appointments, series });
+  },
+  returns: v.union(v.null(), appointmentSeriesRestoreSnapshotValidator),
+});
+
+export const restoreAppointmentSeriesSnapshot = mutation({
+  args: {
+    seriesId: v.string(),
+    snapshotId: v.id("appointmentSeriesRestoreSnapshots"),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    const storedSnapshot = await ctx.db.get(
+      "appointmentSeriesRestoreSnapshots",
+      args.snapshotId,
+    );
+    if (!storedSnapshot) {
+      throw appointmentChainError(
+        "CHAIN_NOT_FOUND",
+        "Kettentermin-Wiederherstellung wurde nicht gefunden.",
+      );
+    }
+    const restoreSnapshot = storedSnapshot.snapshot;
+    if (restoreSnapshot.series.seriesId !== args.seriesId) {
+      throw appointmentChainError(
+        "CHAIN_RESTORE_SERIES_MISMATCH",
+        "Die Kettentermin-Wiederherstellung gehört zu einer anderen Serie.",
+      );
+    }
+    await requirePracticeStaffForMutation(
+      ctx,
+      restoreSnapshot.series.practiceId,
+    );
+
+    const { appointments, series } = restoreSnapshot;
+    if (appointments.length === 0) {
+      throw appointmentChainError(
+        "CHAIN_RESTORE_EMPTY",
+        "Die Kettentermin-Serie enthält keine Termine.",
+      );
+    }
+    await validateAppointmentSeriesRestoreSnapshotReferences(
+      ctx,
+      restoreSnapshot,
+    );
+
+    const activeSeries = await getAppointmentSeriesRecord(
+      ctx.db,
+      series.seriesId,
+    );
+    if (activeSeries) {
+      throw appointmentChainError(
+        "CHAIN_RESTORE_DUPLICATE",
+        "Die Kettentermin-Serie ist bereits vorhanden.",
+      );
+    }
+
+    const rootSnapshot =
+      appointments.find(
+        (appointment) =>
+          appointment.originalAppointmentId === series.rootAppointmentId,
+      ) ??
+      appointments.find((appointment) => appointment.seriesStepIndex === 0n);
+    if (!rootSnapshot) {
+      throw appointmentChainError(
+        "CHAIN_RESTORE_ROOT_MISSING",
+        "Der Starttermin der Kettentermin-Serie fehlt.",
+      );
+    }
+
+    const originalAppointmentIds = new Set<Id<"appointments">>();
+    const replacedAppointmentIds = new Set<Id<"appointments">>();
+    for (const appointment of appointments) {
+      if (appointment.practiceId !== series.practiceId) {
+        throw appointmentChainError(
+          "CHAIN_RESTORE_PRACTICE_MISMATCH",
+          "Die Kettentermin-Serie enthält Termine aus einer anderen Praxis.",
+        );
+      }
+      if (originalAppointmentIds.has(appointment.originalAppointmentId)) {
+        throw appointmentChainError(
+          "CHAIN_RESTORE_DUPLICATE_APPOINTMENT",
+          "Die Kettentermin-Serie enthält einen Termin mehrfach.",
+        );
+      }
+      originalAppointmentIds.add(appointment.originalAppointmentId);
+      if (appointment.replacesAppointmentId !== undefined) {
+        replacedAppointmentIds.add(appointment.replacesAppointmentId);
+      }
+    }
+    const replacementConflictExclusions = [...replacedAppointmentIds];
+
+    for (let index = 0; index < appointments.length; index += 1) {
+      const appointment = appointments[index];
+      if (!appointment) {
+        continue;
+      }
+      if (appointment.cancelledAt !== undefined) {
+        continue;
+      }
+      const candidate = {
+        end: appointment.end,
+        locationLineageKey: asLocationLineageKey(
+          appointment.locationLineageKey,
+        ),
+        occupancyScope: appointment.occupancyScope,
+        start: appointment.start,
+      };
+      const conflictsWithSnapshot = appointments.some(
+        (otherAppointment, otherIndex) =>
+          otherIndex !== index &&
+          otherAppointment.cancelledAt === undefined &&
+          appointmentOverlapsCandidate(otherAppointment, candidate),
+      );
+      if (conflictsWithSnapshot) {
+        throw appointmentChainError(
+          "CHAIN_RESTORE_INTERNAL_CONFLICT",
+          "Die gespeicherte Kettentermin-Serie kollidiert mit sich selbst.",
+        );
+      }
+
+      const conflictingOccupancy = await findConflictingCalendarOccupancy(
+        ctx.db,
+        {
+          candidate,
+          ...(appointment.simulationRuleSetId === undefined
+            ? {}
+            : { draftRuleSetId: appointment.simulationRuleSetId }),
+          ...(replacementConflictExclusions.length === 0
+            ? {}
+            : { excludeAppointmentIds: replacementConflictExclusions }),
+          occupancyView: getOccupancyViewForBookingScope(series.scope),
+          practiceId: series.practiceId,
+        },
+      );
+      if (conflictingOccupancy) {
+        throw appointmentChainError(
+          "CHAIN_RESTORE_OCCUPANCY_CONFLICT",
+          "Die Kettentermin-Serie kann nicht wiederhergestellt werden, weil ein gespeicherter Zeitraum bereits belegt ist.",
+        );
+      }
+    }
+
+    const restoredAppointments: {
+      appointmentId: Id<"appointments">;
+      originalAppointmentId: Id<"appointments">;
+    }[] = [];
+    let restoredRootAppointmentId: Id<"appointments"> | null = null;
+
+    for (const appointment of appointments) {
+      const restoredAppointmentId = await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: appointment.appointmentTypeLineageKey,
+        appointmentTypeTitle: appointment.appointmentTypeTitle,
+        ...(appointment.bookingIdentityId === undefined
+          ? {}
+          : { bookingIdentityId: appointment.bookingIdentityId }),
+        ...(appointment.cancelledAt === undefined
+          ? {}
+          : { cancelledAt: appointment.cancelledAt }),
+        ...(appointment.cancelledByPhoneBookingIdentityId === undefined
+          ? {}
+          : {
+              cancelledByPhoneBookingIdentityId:
+                appointment.cancelledByPhoneBookingIdentityId,
+            }),
+        ...(appointment.cancelledByUserId === undefined
+          ? {}
+          : { cancelledByUserId: appointment.cancelledByUserId }),
+        ...(appointment.color === undefined
+          ? {}
+          : { color: appointment.color }),
+        createdAt: appointment.createdAt,
+        end: appointment.end,
+        ...(appointment.isSimulation === undefined
+          ? {}
+          : { isSimulation: appointment.isSimulation }),
+        lastModified: appointment.lastModified,
+        locationLineageKey: appointment.locationLineageKey,
+        occupancyScope: appointment.occupancyScope,
+        ...(appointment.patientId === undefined
+          ? {}
+          : { patientId: appointment.patientId }),
+        ...(appointment.phoneBookingIdentityId === undefined
+          ? {}
+          : { phoneBookingIdentityId: appointment.phoneBookingIdentityId }),
+        practiceId: appointment.practiceId,
+        ...(appointment.reassignmentSourceVacationLineageKey === undefined
+          ? {}
+          : {
+              reassignmentSourceVacationLineageKey:
+                appointment.reassignmentSourceVacationLineageKey,
+            }),
+        ...(appointment.replacesAppointmentId === undefined
+          ? {}
+          : { replacesAppointmentId: appointment.replacesAppointmentId }),
+        seriesId: series.seriesId,
+        ...(appointment.seriesStepId === undefined
+          ? {}
+          : { seriesStepId: appointment.seriesStepId }),
+        ...(appointment.seriesStepIndex === undefined
+          ? {}
+          : { seriesStepIndex: appointment.seriesStepIndex }),
+        ...(appointment.simulationKind === undefined
+          ? {}
+          : { simulationKind: appointment.simulationKind }),
+        ...(appointment.simulationRuleSetId === undefined
+          ? {}
+          : { simulationRuleSetId: appointment.simulationRuleSetId }),
+        ...(appointment.simulationValidatedAt === undefined
+          ? {}
+          : { simulationValidatedAt: appointment.simulationValidatedAt }),
+        ...(appointment.smiley === undefined
+          ? {}
+          : { smiley: appointment.smiley }),
+        start: appointment.start,
+        title: appointment.title,
+        ...(appointment.userId === undefined
+          ? {}
+          : { userId: appointment.userId }),
+      });
+
+      restoredAppointments.push({
+        appointmentId: restoredAppointmentId,
+        originalAppointmentId: appointment.originalAppointmentId,
+      });
+      if (
+        appointment.originalAppointmentId === rootSnapshot.originalAppointmentId
+      ) {
+        restoredRootAppointmentId = restoredAppointmentId;
+      }
+    }
+
+    if (!restoredRootAppointmentId) {
+      throw appointmentChainError(
+        "CHAIN_RESTORE_ROOT_MISSING",
+        "Der Starttermin der Kettentermin-Serie konnte nicht wiederhergestellt werden.",
+      );
+    }
+
+    await ctx.db.insert("appointmentSeries", {
+      appointmentPlanSnapshot: series.appointmentPlanSnapshot,
+      ...(series.bookingIdentityId === undefined
+        ? {}
+        : { bookingIdentityId: series.bookingIdentityId }),
+      createdAt: series.createdAt,
+      lastModified: series.lastModified,
+      ...(series.patientDateOfBirth === undefined
+        ? {}
+        : { patientDateOfBirth: series.patientDateOfBirth }),
+      ...(series.patientId === undefined
+        ? {}
+        : { patientId: series.patientId }),
+      practiceId: series.practiceId,
+      rootAppointmentId: restoredRootAppointmentId,
+      rootAppointmentTypeId: series.rootAppointmentTypeId,
+      rootAppointmentTypeLineageKey: series.rootAppointmentTypeLineageKey,
+      rootDurationMinutes: series.rootDurationMinutes,
+      ruleSetIdAtBooking: series.ruleSetIdAtBooking,
+      scope: series.scope,
+      seriesId: series.seriesId,
+      ...(series.userId === undefined ? {} : { userId: series.userId }),
+    });
+    const restoredSeriesAppointments = await getSeriesAppointments(
+      ctx.db,
+      series.seriesId,
+    );
+
+    return {
+      appointmentHistoryDocs: restoredSeriesAppointments.map((appointment) =>
+        toAppointmentListItem(appointment),
+      ),
+      appointments: restoredAppointments,
+      rootAppointmentId: restoredRootAppointmentId,
+      seriesId: series.seriesId,
+    };
+  },
+  returns: appointmentSeriesRestoreResultValidator,
 });
 
 export const restoreDeletedAppointment = mutation({
@@ -2486,9 +4640,10 @@ export const restoreDeletedAppointment = mutation({
         : { practitionerId: snapshot.practitionerId }),
       start: snapshot.start,
     });
-    const restoredAppointmentId = await createAppointmentFromTrustedSource(
+    const restoredAppointmentEffect = await createAppointmentFromTrustedSource(
       ctx,
       {
+        allowSingleAppointmentRestore: true,
         appointmentTypeId: snapshot.appointmentTypeId,
         ...(snapshot.bookingIdentityId === undefined
           ? {}
@@ -2499,7 +4654,10 @@ export const restoreDeletedAppointment = mutation({
         ...(snapshot.color === undefined ? {} : { color: snapshot.color }),
         ...(snapshot.end === undefined
           ? {}
-          : { allowRestoredEnd: true, end: snapshot.end }),
+          : {
+              allowRestoredEnd: true,
+              end: snapshot.end,
+            }),
         ...(snapshot.isNewPatient === undefined
           ? {}
           : { isNewPatient: snapshot.isNewPatient }),
@@ -2538,9 +4696,9 @@ export const restoreDeletedAppointment = mutation({
       },
     );
     await ctx.db.delete("appointmentRestoreSnapshots", snapshot._id);
-    return restoredAppointmentId;
+    return restoredAppointmentEffect;
   },
-  returns: v.id("appointments"),
+  returns: appointmentLedgerEffectValidator,
 });
 
 function getAppointmentBookingScope(
@@ -2740,6 +4898,27 @@ function getPersistentSimulationFields(
   };
 }
 
+function isSeriesFollowUpResizeOnlyUpdateData(
+  updateData: Partial<AppointmentUpdateData>,
+): boolean {
+  return (
+    updateData.end !== undefined &&
+    updateData.appointmentTypeId === undefined &&
+    updateData.calendarResourceColumn === undefined &&
+    updateData.isSimulation === undefined &&
+    updateData.locationId === undefined &&
+    updateData.patientId === undefined &&
+    updateData.practitionerId === undefined &&
+    updateData.replacesAppointmentId === undefined &&
+    updateData.simulationKind === undefined &&
+    updateData.simulationRuleSetId === undefined &&
+    updateData.smiley === undefined &&
+    updateData.start === undefined &&
+    updateData.title === undefined &&
+    updateData.userId === undefined
+  );
+}
+
 function isSmileyOnlyAppointmentUpdateData(
   updateData: Partial<AppointmentUpdateData>,
 ): boolean {
@@ -2795,6 +4974,7 @@ async function updateAppointmentByMode(
   if (!existingAppointment) {
     throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
   }
+  const beforeAppointmentSnapshot = toAppointmentListItem(existingAppointment);
   await requirePracticeStaffForMutation(ctx, existingAppointment.practiceId);
   const existingPracticeScope = await requireTrustedPracticeScope(
     ctx,
@@ -2826,7 +5006,15 @@ async function updateAppointmentByMode(
       lastModified: BigInt(Date.now()),
       smiley: filteredUpdateData.smiley ?? undefined,
     });
-    return null;
+    const afterAppointment = await ctx.db.get("appointments", id);
+    if (!afterAppointment) {
+      throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+    }
+    return {
+      after: toAppointmentListItem(afterAppointment),
+      before: beforeAppointmentSnapshot,
+      kind: "appointment.updated" as const,
+    };
   }
 
   if (patientId) {
@@ -3001,42 +5189,92 @@ async function updateAppointmentByMode(
               }
             : {}),
         };
+  const explicitCalendarResourceColumn =
+    filteredUpdateData.calendarResourceColumn === undefined
+      ? undefined
+      : (filteredUpdateData.calendarResourceColumn ?? undefined);
+  const fallbackCalendarResourceColumn =
+    filteredUpdateData.calendarResourceColumn === undefined &&
+    filteredUpdateData.practitionerId === undefined
+      ? getAppointmentCalendarResourceColumn(existingAppointment.occupancyScope)
+      : undefined;
+  const existingAppointmentTypeRuleSetIdForOccupancy =
+    filteredUpdateData.appointmentTypeId === undefined &&
+    (editingRuleSetId !== undefined ||
+      (filteredUpdateData.calendarResourceColumn !== undefined &&
+        existingAppointment.seriesId === undefined))
+      ? (editingRuleSetId ??
+        existingAppointment.simulationRuleSetId ??
+        (await requireActiveRuleSetIdForPractice(
+          ctx.db,
+          existingAppointment.practiceId,
+        )))
+      : undefined;
+  const resolvedAppointmentTypeRecord =
+    filteredUpdateData.appointmentTypeId === undefined
+      ? existingAppointmentTypeRuleSetIdForOccupancy === undefined
+        ? undefined
+        : await (async () => {
+            const appointmentTypeIdForWrite =
+              await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
+                lineageKey: asAppointmentTypeLineageKey(
+                  existingAppointment.appointmentTypeLineageKey,
+                ),
+                ruleSetId: existingAppointmentTypeRuleSetIdForOccupancy,
+              });
+            return requireEntityUsableForNewAppointment({
+              entity: await ctx.db.get(
+                "appointmentTypes",
+                appointmentTypeIdForWrite,
+              ),
+              entityId: appointmentTypeIdForWrite,
+              entityLabel: "Terminart",
+            });
+          })()
+      : requireEntityUsableForNewAppointment({
+          entity: appointmentTypeRecord,
+          entityId: filteredUpdateData.appointmentTypeId,
+          entityLabel: "Terminart",
+        });
   const resolvedAppointmentTypeLineageKey =
     resolvedStoredReferences.appointmentTypeLineageKey;
   const resolvedLocationLineageKey =
     resolvedStoredReferences.locationLineageKey;
-  const resolvedPractitionerLineageKey =
-    resolvedStoredReferences.practitionerLineageKey;
-  const resolvedCalendarResourceColumn =
-    filteredUpdateData.calendarResourceColumn === undefined
-      ? filteredUpdateData.practitionerId === undefined
-        ? getAppointmentCalendarResourceColumn(
-            existingAppointment.occupancyScope,
-          )
-        : undefined
-      : (filteredUpdateData.calendarResourceColumn ?? undefined);
-  const resolvedOccupancyScope = appointmentOccupancyScopeFromRefs({
-    ...(resolvedCalendarResourceColumn === undefined
-      ? {}
-      : { calendarResourceColumn: resolvedCalendarResourceColumn }),
-    ...(resolvedPractitionerLineageKey === undefined
-      ? {}
-      : { practitionerLineageKey: resolvedPractitionerLineageKey }),
-  });
+  const resolvedOccupancyScope =
+    resolvedAppointmentTypeRecord === undefined
+      ? appointmentOccupancyScopeFromRefs({
+          ...((explicitCalendarResourceColumn ??
+            fallbackCalendarResourceColumn) === undefined
+            ? {}
+            : {
+                calendarResourceColumn:
+                  explicitCalendarResourceColumn ??
+                  fallbackCalendarResourceColumn,
+              }),
+          ...(resolvedStoredReferences.practitionerLineageKey === undefined
+            ? {}
+            : {
+                practitionerLineageKey:
+                  resolvedStoredReferences.practitionerLineageKey,
+              }),
+        })
+      : resolveSingleAppointmentOccupancy({
+          appointmentType: resolvedAppointmentTypeRecord,
+          ...(explicitCalendarResourceColumn === undefined
+            ? {}
+            : { calendarResourceColumn: explicitCalendarResourceColumn }),
+          storedReferences: resolvedStoredReferences,
+        });
+  const resolvedPractitionerLineageKey = getAppointmentPractitionerLineageKey(
+    resolvedOccupancyScope,
+  );
+  const resolvedCalendarResourceColumn = getAppointmentCalendarResourceColumn(
+    resolvedOccupancyScope,
+  );
   const resolvedStart = filteredUpdateData.start ?? existingAppointment.start;
   const resolvedEnd = filteredUpdateData.end ?? existingAppointment.end;
   const resolvedIsSimulation = existingAppointment.isSimulation;
   const resolvedSimulationRuleSetId = existingAppointment.simulationRuleSetId;
-
-  if (
-    existingAppointment.seriesId !== undefined &&
-    explicitlyUsingResourceColumn
-  ) {
-    throw appointmentChainError(
-      "CHAIN_REPLAN_FAILED",
-      "Kettentermine können nicht in EKG- oder Labor-Spalten verschoben werden.",
-    );
-  }
 
   if (
     filteredUpdateData.appointmentTypeId !== undefined ||
@@ -3123,6 +5361,19 @@ async function updateAppointmentByMode(
     existingAppointment.appointmentTypeLineageKey;
 
   if (
+    existingAppointment.seriesId === undefined &&
+    hasPlannerRuleRelevantAppointmentTypeChange &&
+    filteredUpdateData.appointmentTypeId !== undefined &&
+    resolvedAppointmentTypeRecord !== undefined &&
+    hasAppointmentPlan(resolvedAppointmentTypeRecord)
+  ) {
+    throw appointmentChainError(
+      "CHAIN_TYPE_CHANGE_FORBIDDEN",
+      "Eine einzelne Terminbuchung kann nicht auf eine Kettentermin-Terminart geändert werden.",
+    );
+  }
+
+  if (
     hasPlannerRuleRelevantAppointmentTypeChange &&
     filteredUpdateData.appointmentTypeId !== undefined
   ) {
@@ -3141,7 +5392,9 @@ async function updateAppointmentByMode(
       resolvedPractitionerLineageKey !== undefined
         ? (filteredUpdateData.practitionerId ??
           (await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
-            lineageKey: resolvedPractitionerLineageKey,
+            lineageKey: asPractitionerLineageKey(
+              resolvedPractitionerLineageKey,
+            ),
             ruleSetId: plannerRuleSetId,
           })))
         : undefined;
@@ -3161,29 +5414,6 @@ async function updateAppointmentByMode(
       ctx,
       existingAppointment.practiceId,
     );
-    const appointmentBookingScope =
-      getAppointmentBookingScope(resolvedIsSimulation);
-    const conflictingOccupancy = await findConflictingCalendarOccupancy(
-      ctx.db,
-      {
-        candidate: {
-          end: resolvedEnd,
-          locationLineageKey: resolvedLocationLineageKey,
-          occupancyScope: resolvedOccupancyScope,
-          start: resolvedStart,
-        },
-        practiceId: existingAppointment.practiceId,
-        ...(resolvedIsSimulation === true && resolvedSimulationRuleSetId
-          ? { draftRuleSetId: resolvedSimulationRuleSetId }
-          : {}),
-        excludeAppointmentIds: [existingAppointment._id],
-        occupancyView: getOccupancyViewForBookingScope(appointmentBookingScope),
-      },
-    );
-
-    if (conflictingOccupancy) {
-      throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
-    }
   }
 
   if (existingAppointment.seriesId !== undefined) {
@@ -3196,10 +5426,153 @@ async function updateAppointmentByMode(
     }
 
     if (existingAppointment.seriesStepIndex !== 0n) {
+      if (isSeriesFollowUpResizeOnlyUpdateData(filteredUpdateData)) {
+        if (filteredUpdateData.end === undefined) {
+          throw appointmentChainError(
+            "CHAIN_NON_ROOT_UPDATE_FORBIDDEN",
+            "Folgetermine können nur in der Länge angepasst werden.",
+          );
+        }
+
+        const resizedEnd = asZonedDateTimeString(filteredUpdateData.end);
+        calculateDurationMinutes(
+          resizedEnd,
+          asZonedDateTimeString(existingAppointment.start),
+        );
+
+        const conflictingOccupancy = await findConflictingCalendarOccupancy(
+          ctx.db,
+          {
+            candidate: {
+              end: resizedEnd,
+              locationLineageKey: resolvedLocationLineageKey,
+              occupancyScope: resolvedOccupancyScope,
+              start: resolvedStart,
+            },
+            practiceId: existingAppointment.practiceId,
+            ...(resolvedIsSimulation === true && resolvedSimulationRuleSetId
+              ? { draftRuleSetId: resolvedSimulationRuleSetId }
+              : {}),
+            excludeAppointmentIds: [existingAppointment._id],
+            occupancyView: getOccupancyViewForBookingScope(
+              getAppointmentBookingScope(resolvedIsSimulation),
+            ),
+          },
+        );
+
+        if (conflictingOccupancy) {
+          throw new Error("Der gewaehlte Zeitraum ist bereits belegt.");
+        }
+
+        const seriesRecord = await getAppointmentSeriesRecord(ctx.db, seriesId);
+        if (!seriesRecord) {
+          throw appointmentChainError(
+            "CHAIN_NOT_FOUND",
+            "Die gespeicherte Kettentermin-Serie wurde nicht gefunden.",
+          );
+        }
+        const stepAppointmentTypeId =
+          await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
+            lineageKey: asAppointmentTypeLineageKey(
+              existingAppointment.appointmentTypeLineageKey,
+            ),
+            ruleSetId: seriesRecord.ruleSetIdAtBooking,
+          });
+        const stepAppointmentType = await ctx.db.get(
+          "appointmentTypes",
+          stepAppointmentTypeId,
+        );
+        const activeStepAppointmentType = requireEntityUsableForNewAppointment({
+          entity: stepAppointmentType,
+          entityId: stepAppointmentTypeId,
+          entityLabel: "Terminart",
+        });
+        const stepLocationId = await resolveLocationIdForRuleSetByLineage(
+          ctx.db,
+          {
+            lineageKey: asLocationLineageKey(
+              existingAppointment.locationLineageKey,
+            ),
+            ruleSetId: seriesRecord.ruleSetIdAtBooking,
+          },
+        );
+        const seriesPatientDateOfBirth = asOptionalIsoDateString(
+          seriesRecord.patientDateOfBirth,
+        );
+        const schedulerAvailable =
+          await hasExactSeriesStepSchedulerAvailability(ctx, {
+            appointmentType: activeStepAppointmentType,
+            durationMinutes: calculateDurationMinutes(
+              resizedEnd,
+              asZonedDateTimeString(existingAppointment.start),
+            ),
+            excludedAppointmentIds: [existingAppointment._id],
+            locationId: stepLocationId,
+            occupancyScope: resolvedOccupancyScope,
+            ...(seriesPatientDateOfBirth === undefined
+              ? {}
+              : { patientDateOfBirth: seriesPatientDateOfBirth }),
+            planningState: createSeriesPlanningState(),
+            practiceId: existingAppointment.practiceId,
+            requestedAt: asInstantString(new Date().toISOString()),
+            ruleSetId: seriesRecord.ruleSetIdAtBooking,
+            scope: getAppointmentBookingScope(resolvedIsSimulation),
+            ...(resolvedIsSimulation === true && resolvedSimulationRuleSetId
+              ? { simulationRuleSetId: resolvedSimulationRuleSetId }
+              : {}),
+            start: asZonedDateTimeString(resolvedStart),
+          });
+        if (!schedulerAvailable) {
+          throw new Error(
+            "Der gewählte Zeitraum liegt außerhalb der Verfügbarkeit.",
+          );
+        }
+
+        const beforeSeriesPayload = await appointmentSeriesLedgerPayload(
+          ctx,
+          seriesId,
+        );
+        const now = BigInt(Date.now());
+        await ctx.db.patch("appointments", id, {
+          ...getPersistentSimulationFields(existingAppointment, now),
+          end: resizedEnd,
+          lastModified: now,
+        });
+        await ctx.db.patch("appointmentSeries", seriesRecord._id, {
+          lastModified: now,
+        });
+        return {
+          after: await appointmentSeriesLedgerPayload(ctx, seriesId),
+          before: beforeSeriesPayload,
+          kind: "appointmentSeries.updated" as const,
+        };
+      }
+
       throw appointmentChainError(
         "CHAIN_NON_ROOT_UPDATE_FORBIDDEN",
         "Folgetermine können nicht einzeln bearbeitet werden. Bitte den Starttermin bearbeiten.",
       );
+    }
+
+    if (filteredUpdateData.calendarResourceColumn !== undefined) {
+      const existingCalendarResourceColumn =
+        getAppointmentCalendarResourceColumn(
+          existingAppointment.occupancyScope,
+        );
+      const requestedCalendarResourceColumn =
+        filteredUpdateData.calendarResourceColumn ?? undefined;
+      const changesCalendarResourceColumn =
+        (existingCalendarResourceColumn === undefined &&
+          requestedCalendarResourceColumn !== undefined) ||
+        (existingCalendarResourceColumn !== undefined &&
+          requestedCalendarResourceColumn === undefined) ||
+        requestedCalendarResourceColumn !== existingCalendarResourceColumn;
+      if (changesCalendarResourceColumn) {
+        throw appointmentChainError(
+          "CHAIN_REPLAN_FAILED",
+          "Kettentermine können nicht in EKG- oder Labor-Spalten verschoben werden.",
+        );
+      }
     }
 
     if (filteredUpdateData.appointmentTypeId !== undefined) {
@@ -3231,6 +5604,25 @@ async function updateAppointmentByMode(
     const seriesAppointmentIds = seriesAppointments.map(
       (appointment) => appointment._id,
     );
+    const seriesRootCalendarResourceColumn =
+      filteredUpdateData.calendarResourceColumn === undefined
+        ? getAppointmentCalendarResourceColumn(
+            existingAppointment.occupancyScope,
+          )
+        : (filteredUpdateData.calendarResourceColumn ?? undefined);
+    const seriesRootPractitionerLineageKey =
+      seriesRootCalendarResourceColumn === undefined
+        ? (resolvedStoredReferences.practitionerLineageKey ??
+          existingPractitionerLineageKey)
+        : undefined;
+    const seriesRootOccupancyScope =
+      seriesRootCalendarResourceColumn === undefined
+        ? appointmentOccupancyScopeFromRefs({
+            practitionerLineageKey: seriesRootPractitionerLineageKey,
+          })
+        : appointmentOccupancyScopeFromRefs({
+            calendarResourceColumn: seriesRootCalendarResourceColumn,
+          });
     const resolvedPatientId =
       filteredUpdateData.patientId ?? existingAppointment.patientId;
     const provisionalDateOfBirth = asOptionalIsoDateString(
@@ -3260,24 +5652,43 @@ async function updateAppointmentByMode(
       );
     }
     const practitionerId =
-      filteredUpdateData.practitionerId ??
-      (existingPractitionerLineageKey
-        ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
-            lineageKey: asPractitionerLineageKey(
-              existingPractitionerLineageKey,
-            ),
-            ruleSetId: seriesRecord.ruleSetIdAtBooking,
-          })
-        : undefined);
-
-    if (!practitionerId) {
+      seriesRootCalendarResourceColumn === undefined
+        ? (filteredUpdateData.practitionerId ??
+          (seriesRootPractitionerLineageKey
+            ? await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+                lineageKey: asPractitionerLineageKey(
+                  seriesRootPractitionerLineageKey,
+                ),
+                ruleSetId: seriesRecord.ruleSetIdAtBooking,
+              })
+            : undefined))
+        : undefined;
+    if (
+      seriesRootCalendarResourceColumn === undefined &&
+      practitionerId === undefined
+    ) {
       throw appointmentChainError(
         "CHAIN_REPLAN_FAILED",
-        "Kettentermine benötigen einen Behandler auf dem Starttermin.",
+        "Der Starttermin hat keine Behandler-Belegung.",
       );
     }
+    const rootOccupancy: SeriesRootOccupancy = {
+      ...(seriesRootCalendarResourceColumn !== undefined && {
+        calendarResourceColumn: seriesRootCalendarResourceColumn,
+      }),
+      occupancyScope: seriesRootOccupancyScope,
+      ...(practitionerId !== undefined && { practitionerId }),
+    };
+
+    const beforeSeriesPayload = await appointmentSeriesLedgerPayload(
+      ctx,
+      seriesId,
+    );
 
     const plannedSteps = await replanAppointmentSeries(ctx, {
+      ...(seriesRootCalendarResourceColumn !== undefined && {
+        calendarResourceColumn: seriesRootCalendarResourceColumn,
+      }),
       excludedAppointmentIds: seriesAppointmentIds,
       locationId:
         filteredUpdateData.locationId ??
@@ -3292,8 +5703,9 @@ async function updateAppointmentByMode(
       }),
       ...(resolvedPatientId && { patientId: resolvedPatientId }),
       practiceId: existingAppointment.practiceId,
-      practitionerId,
+      ...(practitionerId !== undefined && { practitionerId }),
       rootDurationMinutes: calculateDurationMinutes(updatedEnd, updatedStart),
+      rootOccupancy,
       scope: getAppointmentBookingScope(existingAppointment.isSimulation),
       series: seriesRecord,
       start: updatedStart,
@@ -3337,7 +5749,9 @@ async function updateAppointmentByMode(
           await resolveStoredAppointmentReferencesForWrite(ctx.db, {
             appointmentTypeId: asAppointmentTypeId(step.appointmentTypeId),
             locationId: asLocationId(step.locationId),
-            practitionerId: asPractitionerId(step.practitionerId),
+            ...(step.practitionerId
+              ? { practitionerId: asPractitionerId(step.practitionerId) }
+              : {}),
           });
         await ctx.db.patch("appointments", matchingAppointment._id, {
           appointmentTypeLineageKey:
@@ -3347,9 +5761,7 @@ async function updateAppointmentByMode(
           end: step.end,
           lastModified: now,
           locationLineageKey: stepStoredReferences.locationLineageKey,
-          occupancyScope: appointmentOccupancyScopeFromRefs({
-            practitionerLineageKey: stepStoredReferences.practitionerLineageKey,
-          }),
+          occupancyScope: step.occupancyScope,
           ...(resolvedPatientId && { patientId: resolvedPatientId }),
           seriesId,
           seriesStepId: step.stepId,
@@ -3369,7 +5781,9 @@ async function updateAppointmentByMode(
         await resolveStoredAppointmentReferencesForWrite(ctx.db, {
           appointmentTypeId: asAppointmentTypeId(step.appointmentTypeId),
           locationId: asLocationId(step.locationId),
-          practitionerId: asPractitionerId(step.practitionerId),
+          ...(step.practitionerId
+            ? { practitionerId: asPractitionerId(step.practitionerId) }
+            : {}),
         });
       const stepAppointmentType = await ctx.db.get(
         "appointmentTypes",
@@ -3399,9 +5813,7 @@ async function updateAppointmentByMode(
         end: step.end,
         lastModified: now,
         locationLineageKey: stepStoredReferences.locationLineageKey,
-        occupancyScope: appointmentOccupancyScopeFromRefs({
-          practitionerLineageKey: stepStoredReferences.practitionerLineageKey,
-        }),
+        occupancyScope: step.occupancyScope,
         ...(resolvedPatientId && { patientId: resolvedPatientId }),
         practiceId: existingAppointment.practiceId,
         seriesId,
@@ -3430,8 +5842,8 @@ async function updateAppointmentByMode(
               existingAppointment.bookingIdentityId,
           }
         : {}),
+      appointmentPlanSnapshot: seriesRecord.appointmentPlanSnapshot,
       createdAt: seriesRecord.createdAt,
-      followUpPlanSnapshot: seriesRecord.followUpPlanSnapshot,
       lastModified: now,
       ...(resolvedPatientDateOfBirth && {
         patientDateOfBirth: resolvedPatientDateOfBirth,
@@ -3448,11 +5860,100 @@ async function updateAppointmentByMode(
       ...(resolvedUserId && { userId: resolvedUserId }),
     });
 
-    return null;
+    return {
+      after: await appointmentSeriesLedgerPayload(ctx, seriesId),
+      before: beforeSeriesPayload,
+      kind: "appointmentSeries.updated" as const,
+    };
   }
 
   const persistedUpdateData =
     persistedAppointmentUpdateData(filteredUpdateData);
+
+  if (hasSchedulingChange) {
+    const plannerRuleSetId =
+      resolvedSimulationRuleSetId ??
+      editingRuleSetId ??
+      (await requireActiveRuleSetIdForPractice(
+        ctx.db,
+        existingAppointment.practiceId,
+      ));
+    const appointmentTypeIdForPlanner =
+      filteredUpdateData.appointmentTypeId ??
+      (await resolveAppointmentTypeIdForRuleSetByLineage(ctx.db, {
+        lineageKey: resolvedAppointmentTypeLineageKey,
+        ruleSetId: plannerRuleSetId,
+      }));
+    const appointmentTypeForPlanner = requireEntityUsableForNewAppointment({
+      entity: await ctx.db.get("appointmentTypes", appointmentTypeIdForPlanner),
+      entityId: appointmentTypeIdForPlanner,
+      entityLabel: "Terminart",
+    });
+    const locationIdForPlanner =
+      filteredUpdateData.locationId ??
+      (await resolveLocationIdForRuleSetByLineage(ctx.db, {
+        lineageKey: resolvedLocationLineageKey,
+        ruleSetId: plannerRuleSetId,
+      }));
+    const resolvedPatientId =
+      filteredUpdateData.patientId ?? existingAppointment.patientId;
+    const patientDateOfBirth =
+      await resolvePreferredAppointmentPatientDateOfBirth(ctx.db, {
+        ...(resolvedPatientId === undefined
+          ? {}
+          : { patientId: resolvedPatientId }),
+      });
+    const durationMinutes = calculateDurationMinutes(
+      asZonedDateTimeString(resolvedEnd),
+      asZonedDateTimeString(resolvedStart),
+    );
+    const calendarResourceColumnForCandidate =
+      getAppointmentCalendarResourceColumn(resolvedOccupancyScope);
+    const practitionerLineageKeyForCandidate =
+      getAppointmentPractitionerLineageKey(resolvedOccupancyScope);
+    const candidatePlanningState = createSeriesPlanningState();
+    const candidateStaffPlannerSlotsByDate = new Map<
+      IsoDateString,
+      Promise<InternalSchedulingResultSlot[]>
+    >();
+    const candidateDecision = await evaluateSingleAppointmentCandidateSlot(
+      ctx,
+      {
+        appointmentType: appointmentTypeForPlanner,
+        candidate: {
+          ...(calendarResourceColumnForCandidate === undefined
+            ? {}
+            : { calendarResourceColumn: calendarResourceColumnForCandidate }),
+          duration: durationMinutes,
+          locationLineageKey: resolvedLocationLineageKey,
+          ...(practitionerLineageKeyForCandidate === undefined
+            ? {}
+            : { practitionerLineageKey: practitionerLineageKeyForCandidate }),
+          startTime: asZonedDateTimeString(resolvedStart),
+        },
+        durationMinutes,
+        excludedAppointmentIds: [existingAppointment._id],
+        locationId: locationIdForPlanner,
+        locationLineageKey: resolvedLocationLineageKey,
+        ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+        planningState: candidatePlanningState,
+        practiceId: existingAppointment.practiceId,
+        requestedAt: asInstantString(Temporal.Now.instant().toString()),
+        ruleSetId: plannerRuleSetId,
+        scope: getAppointmentBookingScope(resolvedIsSimulation),
+        ...(resolvedSimulationRuleSetId === undefined
+          ? {}
+          : { simulationRuleSetId: resolvedSimulationRuleSetId }),
+        staffPlannerSlotsByDate: candidateStaffPlannerSlotsByDate,
+      },
+    );
+
+    if (candidateDecision.status === "unavailable") {
+      throw new Error(
+        candidateDecision.reason ?? "Der Termin ist nicht planbar.",
+      );
+    }
+  }
 
   await ctx.db.patch("appointments", id, {
     ...persistedUpdateData,
@@ -3466,7 +5967,15 @@ async function updateAppointmentByMode(
     occupancyScope: resolvedOccupancyScope,
   });
 
-  return null;
+  const afterAppointment = await ctx.db.get("appointments", id);
+  if (!afterAppointment) {
+    throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+  }
+  return {
+    after: toAppointmentListItem(afterAppointment),
+    before: beforeAppointmentSnapshot,
+    kind: "appointment.updated" as const,
+  };
 }
 
 // Mutation to update an existing real appointment
@@ -3476,7 +5985,7 @@ export const updateAppointment = mutation({
     await ensureAuthenticatedIdentity(ctx);
     return await updateAppointmentByMode(ctx, args, "real");
   },
-  returns: v.null(),
+  returns: appointmentLedgerEffectValidator,
 });
 
 export const updateSimulationAppointment = mutation({
@@ -3485,7 +5994,7 @@ export const updateSimulationAppointment = mutation({
     await ensureAuthenticatedIdentity(ctx);
     return await updateAppointmentByMode(ctx, args, "simulation");
   },
-  returns: v.null(),
+  returns: appointmentLedgerEffectValidator,
 });
 
 export const updateVacationReassignmentAppointment = mutation({
@@ -3494,7 +6003,7 @@ export const updateVacationReassignmentAppointment = mutation({
     await ensureAuthenticatedIdentity(ctx);
     return await updateAppointmentByMode(ctx, args, "activationReassignment");
   },
-  returns: v.null(),
+  returns: appointmentLedgerEffectValidator,
 });
 
 export const updateAppointmentSmiley = mutation({
@@ -3516,13 +6025,23 @@ export const updateAppointmentSmiley = mutation({
       });
     }
 
+    const beforeAppointmentSnapshot =
+      toAppointmentListItem(existingAppointment);
     await ctx.db.patch("appointments", args.id, {
       lastModified: BigInt(Date.now()),
       smiley: args.smiley ?? undefined,
     });
-    return null;
+    const afterAppointment = await ctx.db.get("appointments", args.id);
+    if (!afterAppointment) {
+      throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+    }
+    return {
+      after: toAppointmentListItem(afterAppointment),
+      before: beforeAppointmentSnapshot,
+      kind: "appointment.updated" as const,
+    };
   },
-  returns: v.null(),
+  returns: appointmentLedgerEffectValidator,
 });
 
 export const updateSimulationAppointmentSmiley = mutation({
@@ -3570,17 +6089,32 @@ export const updateSimulationAppointmentSmiley = mutation({
             existingAppointment,
             realAppointment,
             replacementSmiley,
+            { compareSeriesMembership: false },
           )
         ) {
+          const deletedSnapshot = toAppointmentListItem(existingAppointment);
           await ctx.db.delete("appointments", args.id);
-          return null;
+          return {
+            kind: "appointment.deleted" as const,
+            snapshot: deletedSnapshot,
+          };
         }
       }
+      const beforeAppointmentSnapshot =
+        toAppointmentListItem(existingAppointment);
       await ctx.db.patch("appointments", args.id, {
         lastModified: now,
         smiley: replacementSmiley,
       });
-      return null;
+      const afterAppointment = await ctx.db.get("appointments", args.id);
+      if (!afterAppointment) {
+        throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+      }
+      return {
+        after: toAppointmentListItem(afterAppointment),
+        before: beforeAppointmentSnapshot,
+        kind: "appointment.updated" as const,
+      };
     }
 
     const existingReplacementsForAppointment = await ctx.db
@@ -3601,27 +6135,52 @@ export const updateSimulationAppointmentSmiley = mutation({
           replacement,
           existingAppointment,
           replacementSmiley,
+          { compareSeriesMembership: false },
         )
       ) {
+        const deletedSnapshot = toAppointmentListItem(replacement);
         await ctx.db.delete("appointments", replacement._id);
-        return null;
+        return {
+          kind: "appointment.deleted" as const,
+          snapshot: deletedSnapshot,
+        };
       }
+      const beforeAppointmentSnapshot = toAppointmentListItem(replacement);
       await ctx.db.patch("appointments", replacement._id, {
         lastModified: now,
         smiley: replacementSmiley,
       });
-      return null;
+      const afterAppointment = await ctx.db.get(
+        "appointments",
+        replacement._id,
+      );
+      if (!afterAppointment) {
+        throw appointmentChainError("CHAIN_NOT_FOUND", "Appointment not found");
+      }
+      return {
+        after: toAppointmentListItem(afterAppointment),
+        before: beforeAppointmentSnapshot,
+        kind: "appointment.updated" as const,
+      };
     }
 
     const requestedSmiley = args.smiley ?? undefined;
     if (requestedSmiley === existingAppointment.smiley) {
-      return null;
+      return {
+        after: toAppointmentListItem(existingAppointment),
+        before: toAppointmentListItem(existingAppointment),
+        kind: "appointment.updated" as const,
+      };
     }
 
-    await ctx.db.insert("appointments", {
-      ...appointmentReplacementInsertFields(existingAppointment, {
-        smiley: requestedSmiley,
-      }),
+    const appointmentId = await ctx.db.insert("appointments", {
+      ...appointmentReplacementInsertFields(
+        existingAppointment,
+        {
+          smiley: requestedSmiley,
+        },
+        { includeSeriesMembership: false },
+      ),
       createdAt: now,
       isSimulation: true,
       lastModified: now,
@@ -3630,9 +6189,9 @@ export const updateSimulationAppointmentSmiley = mutation({
       simulationRuleSetId: args.simulationRuleSetId,
       simulationValidatedAt: now,
     });
-    return null;
+    return await appointmentLedgerCreatedEffect(ctx.db, appointmentId);
   },
-  returns: v.null(),
+  returns: appointmentLedgerEffectValidator,
 });
 
 // Mutation to delete an appointment
@@ -3657,22 +6216,60 @@ export const deleteAppointment = mutation({
         );
       }
       const seriesAppointments = await getSeriesAppointments(ctx.db, seriesId);
+      const seriesRecord = await getAppointmentSeriesRecord(ctx.db, seriesId);
+      const seriesSnapshot = seriesRecord
+        ? toAppointmentSeriesRestoreSnapshot({
+            appointments: seriesAppointments,
+            series: seriesRecord,
+          })
+        : undefined;
+      const seriesSnapshotId = seriesRecord
+        ? await saveAppointmentSeriesRestoreSnapshot(ctx, {
+            appointments: seriesAppointments,
+            deletedAt: BigInt(Date.now()),
+            series: seriesRecord,
+          })
+        : undefined;
+      const seriesPayload =
+        seriesRecord && seriesSnapshot && seriesSnapshotId
+          ? {
+              appointments: seriesAppointments.map((appointment) =>
+                toAppointmentListItem(appointment),
+              ),
+              rootAppointmentId: seriesRecord.rootAppointmentId,
+              seriesId: seriesRecord.seriesId,
+              snapshot: seriesSnapshot,
+              snapshotId: seriesSnapshotId,
+            }
+          : undefined;
       for (const seriesAppointment of seriesAppointments) {
         await ctx.db.delete("appointments", seriesAppointment._id);
       }
-      const seriesRecord = await getAppointmentSeriesRecord(ctx.db, seriesId);
       if (seriesRecord) {
         await ctx.db.delete("appointmentSeries", seriesRecord._id);
       }
-      return null;
+      if (!seriesPayload) {
+        throw appointmentChainError(
+          "CHAIN_NOT_FOUND",
+          "Die gespeicherte Kettentermin-Serie wurde nicht gefunden.",
+        );
+      }
+      return {
+        kind: "appointmentSeries.deleted" as const,
+        series: seriesPayload,
+      };
     }
 
     const now = BigInt(Date.now());
+    const snapshot = toAppointmentListItem(existingAppointment);
     await saveAppointmentRestoreSnapshot(ctx, existingAppointment, now);
     await ctx.db.delete("appointments", args.id);
-    return null;
+    return {
+      kind: "appointment.deleted" as const,
+      snapshot,
+    };
   },
-  returns: v.null(),
+  returns: appointmentLedgerEffectValidator,
 });
 
 // Mutation for user self-service cancellation (soft-delete)

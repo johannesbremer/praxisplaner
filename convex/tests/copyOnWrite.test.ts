@@ -195,6 +195,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const appointmentType1 = await t.mutation(
       api.entities.createAppointmentType,
       {
+        appointmentPlan: { steps: [] },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         expectedDraftRevision: null,
         name: "Type 1",
@@ -240,6 +243,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     // Create a second rule set by making a change
     await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 45,
       expectedDraftRevision: null,
       name: "Type 2",
@@ -320,6 +326,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const appointmentType = await t.mutation(
       api.entities.createAppointmentType,
       {
+        appointmentPlan: { steps: [] },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         expectedDraftRevision: null,
         name: "Correct Type",
@@ -402,6 +411,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const appointmentType1 = await t.mutation(
       api.entities.createAppointmentType,
       {
+        appointmentPlan: { steps: [] },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         expectedDraftRevision: null,
         name: "Type 1",
@@ -478,6 +490,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     // Make a change to trigger copy-on-write (create second rule set)
     await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 45,
       expectedDraftRevision: null,
       name: "Type 2",
@@ -565,7 +580,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const sourceAppointmentTypeId = await t.run(async (ctx) => {
       return await insertWithLineage(ctx, "appointmentTypes", {
         allowedPractitionerLineageKeys: [practitioner],
+        appointmentPlan: { steps: [] },
         createdAt: BigInt(Date.now()),
+        defaultOccupancy: { kind: "selectedPractitioner" },
+
         duration: 30,
         lastModified: BigInt(Date.now()),
         name: "Surgery",
@@ -707,6 +725,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const appointmentType = await t.mutation(
       api.entities.createAppointmentType,
       {
+        appointmentPlan: { steps: [] },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 20,
         expectedDraftRevision: null,
         name: "Capacity Check",
@@ -805,7 +826,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     const sourceAppointmentTypeId = await t.run(async (ctx) => {
       return await insertWithLineage(ctx, "appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: BigInt(Date.now()),
+        defaultOccupancy: { kind: "selectedPractitioner" },
+
         duration: 25,
         lastModified: BigInt(Date.now()),
         name: "Count Copy Type",
@@ -880,6 +904,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
       );
 
       await t.mutation(api.entities.createAppointmentType, {
+        appointmentPlan: { steps: [] },
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 40,
         expectedDraftRevision: null,
         name: `${testCase.conditionType} trigger`,
@@ -1535,6 +1562,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const firstCreate = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: null,
       name: "Kontrolle",
@@ -1553,6 +1583,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     expect(firstDelete.ruleSetId).toEqual(firstCreate.ruleSetId);
 
     const secondCreate = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: firstDelete.draftRevision,
       name: "Kontrolle",
@@ -1636,6 +1669,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const createdType = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: null,
       name: "Akut",
@@ -1671,6 +1707,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const recreatedType = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: deletedType.draftRevision,
       lineageKey: createdType.entityId,
@@ -1714,6 +1753,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const createdType = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: null,
       name: "Akut-2",
@@ -1763,6 +1805,9 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const recreatedType = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: deletedType.draftRevision,
       lineageKey: createdType.entityId,
@@ -1833,9 +1878,11 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
       await insertWithLineage(ctx, "appointmentTypes", {
         allowedPractitionerLineageKeys: [practitionerLineageKey],
+        appointmentPlan: { steps: [] },
         createdAt: BigInt(Date.now()),
+        defaultOccupancy: { kind: "selectedPractitioner" },
+
         duration: 30,
-        followUpPlan: [],
         lastModified: BigInt(Date.now()),
         name: "Kontrolle",
         practiceId,
@@ -2068,9 +2115,11 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: BigInt(Date.now()),
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
-          followUpPlan: [],
           lastModified: BigInt(Date.now()),
           name: "Dependency Type",
           practiceId,
@@ -2144,9 +2193,11 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: BigInt(Date.now()),
+          defaultOccupancy: { kind: "selectedPractitioner" },
+
           duration: 30,
-          followUpPlan: [],
           lastModified: BigInt(Date.now()),
           name: "Active Type",
           practiceId,
@@ -2158,10 +2209,12 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           createdAt: BigInt(Date.now()),
+          defaultOccupancy: { kind: "selectedPractitioner" },
           deleted: true,
+
           duration: 30,
-          followUpPlan: [],
           lastModified: BigInt(Date.now()),
           name: "Deleted Type",
           practiceId,
@@ -2397,8 +2450,10 @@ describe("Copy-on-Write Entity Reference Validation", () => {
         "appointmentTypes",
         {
           allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
           color: "yellow",
           createdAt: BigInt(Date.now()),
+          defaultOccupancy: { kind: "selectedPractitioner" },
           duration: 30,
           lastModified: BigInt(Date.now()),
           name: "Color Appointment Type",
@@ -2412,6 +2467,8 @@ describe("Copy-on-Write Entity Reference Validation", () => {
     });
 
     const draft = await t.mutation(api.entities.createAppointmentType, {
+      appointmentPlan: { steps: [] },
+      defaultOccupancy: { kind: "selectedPractitioner" },
       duration: 30,
       expectedDraftRevision: null,
       name: "Draft Trigger",
@@ -2442,5 +2499,48 @@ describe("Copy-on-Write Entity Reference Validation", () => {
 
     expect(copied.copiedFolder?.color).toBe("green");
     expect(copied.copiedAppointmentType?.color).toBe("yellow");
+  });
+
+  test("appointment type folder colors can be updated and cleared", async () => {
+    const t = createAuthedTestContext();
+    const practiceId = await createPractice(t);
+    const initialRuleSetId = await getInitialRuleSetId(t, practiceId);
+
+    const created = await t.mutation(api.entities.createAppointmentTypeFolder, {
+      color: "green",
+      expectedDraftRevision: null,
+      name: "Color Folder",
+      practiceId,
+      selectedRuleSetId: initialRuleSetId,
+    });
+
+    const recolored = await t.mutation(
+      api.entities.updateAppointmentTypeFolder,
+      {
+        color: "yellow",
+        expectedDraftRevision: created.draftRevision,
+        folderId: created.entityId,
+        practiceId,
+        selectedRuleSetId: created.ruleSetId,
+      },
+    );
+
+    const folderAfterRecolor = await t.run(async (ctx) => {
+      return await ctx.db.get("appointmentTypeFolders", created.entityId);
+    });
+    expect(folderAfterRecolor?.color).toBe("yellow");
+
+    await t.mutation(api.entities.updateAppointmentTypeFolder, {
+      color: null,
+      expectedDraftRevision: recolored.draftRevision,
+      folderId: created.entityId,
+      practiceId,
+      selectedRuleSetId: recolored.ruleSetId,
+    });
+
+    const folderAfterClear = await t.run(async (ctx) => {
+      return await ctx.db.get("appointmentTypeFolders", created.entityId);
+    });
+    expect(folderAfterClear?.color).toBeUndefined();
   });
 });

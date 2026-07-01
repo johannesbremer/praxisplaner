@@ -140,7 +140,9 @@ async function createTelefonkiFixture(
       "appointmentTypes",
       {
         allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
         createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
         lastModified: now,
         name: "Akut",
@@ -617,27 +619,32 @@ describe("TelefonKI availability", () => {
     expect(slots).toEqual([]);
   }, 15_000);
 
-  test("hides appointment series types from TelefonKI config and queries", async () => {
+  test("hides appointment plans from TelefonKI config and queries", async () => {
     const t = createTestContext();
     const fixture = await createTelefonkiFixture(t);
-    const followUpAppointmentTypeId = await t.run(async (ctx) => {
+    const plannedAppointmentTypeId = await t.run(async (ctx) => {
       const now = BigInt(Date.now());
       return await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
         allowedPractitionerLineageKeys: [fixture.practitionerId],
+        appointmentPlan: {
+          steps: [
+            {
+              appointmentTypeLineageKey: fixture.appointmentTypeId,
+              occupancy: { kind: "inheritRootPractitioner" },
+              required: true,
+              stepId: "plan-step-1",
+              timing: {
+                kind: "afterPreviousEnd",
+                offsetUnit: "days",
+                offsetValue: 7,
+              },
+            },
+          ],
+        },
         createdAt: now,
+
+        defaultOccupancy: { kind: "selectedPractitioner" },
         duration: 30,
-        followUpPlan: [
-          {
-            appointmentTypeLineageKey: fixture.appointmentTypeId,
-            locationMode: "inherit",
-            offsetUnit: "days",
-            offsetValue: 7,
-            practitionerMode: "inherit",
-            required: true,
-            searchMode: "first_available_on_or_after",
-            stepId: "follow-up-1",
-          },
-        ],
         lastModified: now,
         name: "Serientermin",
         practiceId: fixture.practiceId,
@@ -654,17 +661,63 @@ describe("TelefonKI availability", () => {
     expect(
       config.appointmentTypes.some(
         (appointmentType) =>
-          appointmentType.lineageKey === followUpAppointmentTypeId,
+          appointmentType.lineageKey === plannedAppointmentTypeId,
       ),
     ).toBe(false);
-
     await expect(
       t.query(
         api.telefonki.nextAvailableSlot,
         withTelefonkiSecret({
           practiceId: fixture.practiceId,
           simulatedContext: simulatedContext({
-            appointmentTypeId: followUpAppointmentTypeId,
+            appointmentTypeId: plannedAppointmentTypeId,
+            locationId: fixture.locationId,
+          }),
+        }),
+      ),
+    ).rejects.toThrow("Appointment type is not available.");
+  });
+
+  test("hides resource-default appointment types from TelefonKI config and queries", async () => {
+    const t = createTestContext();
+    const fixture = await createTelefonkiFixture(t);
+    const resourceAppointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      return await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
+        allowedPractitionerLineageKeys: [fixture.practitionerId],
+        appointmentPlan: { steps: [] },
+        createdAt: now,
+        defaultOccupancy: {
+          calendarResourceColumn: "ekg",
+          kind: "resourceColumn",
+        },
+        duration: 30,
+        lastModified: now,
+        name: "EKG",
+        practiceId: fixture.practiceId,
+        ruleSetId: fixture.ruleSetId,
+      });
+    });
+
+    const config = await t.query(
+      api.telefonki.getActiveConfig,
+      withTelefonkiSecret({
+        practiceId: fixture.practiceId,
+      }),
+    );
+    expect(
+      config.appointmentTypes.some(
+        (appointmentType) =>
+          appointmentType.lineageKey === resourceAppointmentTypeId,
+      ),
+    ).toBe(false);
+    await expect(
+      t.query(
+        api.telefonki.nextAvailableSlot,
+        withTelefonkiSecret({
+          practiceId: fixture.practiceId,
+          simulatedContext: simulatedContext({
+            appointmentTypeId: resourceAppointmentTypeId,
             locationId: fixture.locationId,
           }),
         }),

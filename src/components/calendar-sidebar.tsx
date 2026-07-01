@@ -82,6 +82,7 @@ export function CalendarSidebar() {
     canManageCalendarPlanning,
     currentTime,
     isBlockingModeActive,
+    isManualAppointmentPlacementActive,
     locationsData,
     onAppointmentCreated,
     onAppointmentTypeSelect,
@@ -112,6 +113,12 @@ export function CalendarSidebar() {
     Id<"locations"> | undefined
   >();
 
+  const clearPendingAppointmentTitle = () => {
+    if (onPendingTitleChange) {
+      onPendingTitleChange();
+    }
+  };
+
   // Stable callback to prevent re-renders
   const handleTypeSelect = (typeId: Id<"appointmentTypes">) => {
     if (onAppointmentTypeSelect) {
@@ -120,6 +127,7 @@ export function CalendarSidebar() {
         return;
       }
       onAppointmentTypeSelect(typeId);
+      clearPendingAppointmentTitle();
       setCreationModalAppointmentTypeId(typeId);
       setCreationModalLocationId(selectedLocationId);
       setShowCreationModal(true);
@@ -134,6 +142,7 @@ export function CalendarSidebar() {
     if (onAppointmentTypeSelect) {
       onAppointmentTypeSelect();
     }
+    clearPendingAppointmentTitle();
     setCreationModalAppointmentTypeId(undefined);
     setCreationModalLocationId(undefined);
   };
@@ -294,7 +303,10 @@ export function CalendarSidebar() {
                 <SidebarGroup>
                   <SidebarGroupContent>
                     <AppointmentTypeSelector
-                      disableAutoDeselect={showCreationModal}
+                      disableAutoDeselect={
+                        showCreationModal ||
+                        isManualAppointmentPlacementActive === true
+                      }
                       isBlockingModeActive={isBlockingModeActive}
                       onBlockingModeChange={handleBlockingModeChange}
                       onTypeDeselect={handleTypeDeselect}
@@ -325,6 +337,7 @@ export function CalendarSidebar() {
       {/* Only render modal when we have all required IDs */}
       {practiceId &&
         ruleSetId &&
+        runCreateAppointment &&
         creationModalAppointmentTypeId &&
         creationModalLocationId && (
           <StaffAppointmentCreationModal
@@ -344,7 +357,7 @@ export function CalendarSidebar() {
             selectedDate={selectedDate.toString()}
             selectedPatientId={selectedPatientId}
             {...(onAppointmentCreated && { onAppointmentCreated })}
-            {...(runCreateAppointment && { runCreateAppointment })}
+            runCreateAppointment={runCreateAppointment}
           />
         )}
     </>

@@ -72,9 +72,10 @@ describe("booking attempt freshness properties", () => {
             });
             await insertSelfLineageEntity(ctx.db, "appointmentTypes", {
               allowedPractitionerLineageKeys: [fixture.practitionerId],
+              appointmentPlan: { steps: [] },
               createdAt: now,
+              defaultOccupancy: { kind: "selectedPractitioner" },
               duration: 5,
-              followUpPlan: [],
               lastModified: now,
               lineageKey: fixture.appointmentTypeId,
               name: "Fresh Checkup",

@@ -338,6 +338,17 @@ export const getAppointmentSmileyOptions = query({
   returns: v.array(appointmentSmileyOptionValidator),
 });
 
+export const getCurrentPracticeMembershipRole = query({
+  args: {
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    const membership = await requirePracticeStaff(ctx, args.practiceId);
+    return membership.role;
+  },
+  returns: organizationRoleValidator,
+});
+
 export const listPracticePhoneNumbers = query({
   args: {
     practiceId: v.id("practices"),

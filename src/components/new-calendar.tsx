@@ -175,7 +175,6 @@ export function NewCalendar({
         ...(ruleSetId === undefined ? {} : { selectedRuleSetId: ruleSetId }),
       }
     : { scope: "real" as const };
-
   // State for selected appointment (shown with blue border)
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<
     Id<"appointments"> | undefined
@@ -733,6 +732,8 @@ export function NewCalendar({
         canManageCalendarPlanning,
         currentTime,
         isBlockingModeActive: canManageCalendarPlanning && isBlockingModeActive,
+        isManualAppointmentPlacementActive:
+          pendingAppointmentTitle !== undefined,
         locationsData,
         onAppointmentCreated: handleAppointmentSelection,
         onAppointmentTypeSelect: handleAppointmentTypeSelect,

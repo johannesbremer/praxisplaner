@@ -267,4 +267,26 @@ describe("calendar appointment request builder", () => {
       },
     });
   });
+
+  it("keeps planner-rule override explicit in appointment requests", () => {
+    expect(
+      buildCalendarAppointmentRequest({
+        ...sharedArgs,
+        allowPlannerRuleOverride: true,
+        mode: "real",
+        patient: {
+          dateOfBirth: "1980-01-01",
+          isNewPatient: false,
+          userId: toTableId<"users">("user_1"),
+        },
+      }),
+    ).toMatchObject({
+      kind: "ok",
+      request: {
+        allowPlannerRuleOverride: true,
+        appointmentTypeId: "appointment_type_checkup",
+        isSimulation: false,
+      },
+    });
+  });
 });

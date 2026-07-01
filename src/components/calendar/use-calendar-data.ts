@@ -4,6 +4,10 @@ import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
 import type {
+  AppointmentPlan,
+  AppointmentTypeDefaultOccupancy,
+} from "../../../convex/appointmentPlans";
+import type {
   AppointmentTypeLineageKey,
   LocationLineageKey,
   PractitionerLineageKey,
@@ -38,17 +42,21 @@ import {
 
 interface CalendarAppointmentTypeInfo {
   allowedPractitionerLineageKeys: PractitionerLineageKey[];
+  appointmentPlan: AppointmentPlan;
   color: AppointmentColor;
+  defaultOccupancy: AppointmentTypeDefaultOccupancy;
   duration: number;
-  hasFollowUpPlan: boolean;
+  hasAppointmentPlan: boolean;
   lineageKey: AppointmentTypeLineageKey;
   name: string;
 }
 
 export function useCalendarData(args: {
+  excludedAppointmentIdsForAvailability?: readonly Id<"appointments">[];
   patient: PatientInfo | undefined;
   practiceId: Id<"practices">;
   ruleSetId: Id<"ruleSets"> | undefined;
+  schedulingAppointmentTypeLineageKey?: AppointmentTypeLineageKey | undefined;
   selectedAppointmentTypeId: Id<"appointmentTypes"> | undefined;
   selectedDate: Temporal.PlainDate;
   selectedLocationId: Id<"locations"> | undefined;
@@ -86,18 +94,13 @@ export function useCalendarData(args: {
         ? { practiceId: args.practiceId }
         : "skip",
   );
-  const appointmentTypeFoldersData = useQuery(
-    args.ruleSetId
-      ? api.entities.getAppointmentTypeFolders
-      : api.entities.getAppointmentTypeFoldersFromActive,
-    args.ruleSetId
-      ? { ruleSetId: args.ruleSetId }
-      : args.practiceId
-        ? { practiceId: args.practiceId }
-        : "skip",
-  );
   const appointmentScope = args.simulatedContext ? "simulation" : "real";
   const activeRuleSetId = activeRuleSetData?._id;
+  const effectiveRuleSetId = args.ruleSetId ?? activeRuleSetId;
+  const appointmentTypeFoldersData = useQuery(
+    api.entities.getAppointmentTypeFolders,
+    effectiveRuleSetId ? { ruleSetId: effectiveRuleSetId } : "skip",
+  );
   const effectiveLocationId =
     args.simulatedContext?.locationLineageKey === undefined
       ? args.selectedLocationId
@@ -163,10 +166,10 @@ export function useCalendarData(args: {
   );
   const vacationsData = useQuery(
     api.vacations.getVacationsInRange,
-    args.practiceId && args.ruleSetId
+    args.practiceId && effectiveRuleSetId
       ? {
           endDateExclusive: args.selectedDate.add({ days: 1 }).toString(),
-          ruleSetId: args.ruleSetId,
+          ruleSetId: effectiveRuleSetId,
           startDate: args.selectedDate.toString(),
         }
       : "skip",
@@ -486,9 +489,18 @@ export function useCalendarData(args: {
 
       map.set(asAppointmentTypeLineageKey(appointmentType.lineageKey), {
         allowedPractitionerLineageKeys,
+        appointmentPlan: {
+          steps: appointmentType.appointmentPlan.steps.map((step) => ({
+            ...step,
+            appointmentTypeLineageKey: asAppointmentTypeLineageKey(
+              step.appointmentTypeLineageKey,
+            ),
+          })),
+        },
         color: resolveAppointmentTypeColor(appointmentType),
+        defaultOccupancy: appointmentType.defaultOccupancy,
         duration: appointmentType.duration,
-        hasFollowUpPlan: (appointmentType.followUpPlan?.length ?? 0) > 0,
+        hasAppointmentPlan: appointmentType.appointmentPlan.steps.length > 0,
         lineageKey: asAppointmentTypeLineageKey(appointmentType.lineageKey),
         name: appointmentType.name,
       });
@@ -545,31 +557,50 @@ export function useCalendarData(args: {
     args.simulatedContext?.appointmentTypeLineageKey &&
       args.simulatedContext.locationLineageKey &&
       args.practiceId &&
-      args.ruleSetId
+      effectiveRuleSetId
       ? {
           date: args.selectedDate.toString(),
+          ...(args.excludedAppointmentIdsForAvailability === undefined ||
+          args.excludedAppointmentIdsForAvailability.length === 0
+            ? {}
+            : {
+                excludedAppointmentIds: [
+                  ...args.excludedAppointmentIdsForAvailability,
+                ],
+              }),
           practiceId: args.practiceId,
-          ruleSetId: args.ruleSetId,
+          ruleSetId: effectiveRuleSetId,
           scope: "simulation",
           simulatedContext: args.simulatedContext,
         }
-      : args.selectedAppointmentTypeId &&
+      : (args.schedulingAppointmentTypeLineageKey ||
+            args.selectedAppointmentTypeId) &&
           args.selectedLocationId &&
           args.practiceId &&
-          args.ruleSetId
+          effectiveRuleSetId
         ? (() => {
             const patientDateOfBirth = args.patient?.dateOfBirth;
-            const appointmentTypeLineageKey = appointmentTypesData?.find(
-              (appointmentType) =>
-                appointmentType._id === args.selectedAppointmentTypeId,
-            )?.lineageKey;
+            const appointmentTypeLineageKey =
+              args.schedulingAppointmentTypeLineageKey ??
+              appointmentTypesData?.find(
+                (appointmentType) =>
+                  appointmentType._id === args.selectedAppointmentTypeId,
+              )?.lineageKey;
             const locationLineageKey = locationsData?.find(
               (location) => location._id === args.selectedLocationId,
             )?.lineageKey;
             return {
               date: args.selectedDate.toString(),
+              ...(args.excludedAppointmentIdsForAvailability === undefined ||
+              args.excludedAppointmentIdsForAvailability.length === 0
+                ? {}
+                : {
+                    excludedAppointmentIds: [
+                      ...args.excludedAppointmentIdsForAvailability,
+                    ],
+                  }),
               practiceId: args.practiceId,
-              ruleSetId: args.ruleSetId,
+              ruleSetId: effectiveRuleSetId,
               scope: "real" as const,
               simulatedContext: createSimulatedContext({
                 ...(appointmentTypeLineageKey === undefined
@@ -595,19 +626,18 @@ export function useCalendarData(args: {
           })()
         : "skip",
   );
-
   const blockedSlotsClientType =
     args.simulatedContext === undefined
       ? "MFA"
       : args.simulatedContext.clientType;
   const blockedSlotsWithoutAppointmentTypeResult = useQuery(
     api.scheduling.getBlockedSlotsWithoutAppointmentType,
-    args.practiceId && args.ruleSetId && blockedSlotsClientType
+    args.practiceId && effectiveRuleSetId && blockedSlotsClientType
       ? {
           clientType: blockedSlotsClientType,
           date: args.selectedDate.toString(),
           practiceId: args.practiceId,
-          ruleSetId: args.ruleSetId,
+          ruleSetId: effectiveRuleSetId,
           ...(effectiveLocationId && { locationId: effectiveLocationId }),
         }
       : "skip",
@@ -665,6 +695,7 @@ export function useCalendarData(args: {
     blockedSlotsData,
     blockedSlotsWithoutAppointmentTypeResult,
     calendarDayQueryArgs,
+    effectiveRuleSetId,
     getRequiredAppointmentTypeInfo,
     locationIdByLineageKey,
     locationLineageKeyById,
