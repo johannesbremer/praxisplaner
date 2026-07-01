@@ -358,6 +358,7 @@ async function deleteAppointmentSeriesRoot(
   payload: {
     currentRootAppointmentId: Id<"appointments">;
     snapshot: CalendarAppointmentSeriesCreateCommand["payload"]["snapshot"];
+    snapshotId: Id<"appointmentSeriesRestoreSnapshots">;
   },
   context: CalendarPlanningCommandExecutorContext,
 ): Promise<CalendarPlanningReplayResult> {
@@ -1052,6 +1053,7 @@ async function restoreAppointmentSeriesSnapshot(
   payload: {
     currentRootAppointmentId: Id<"appointments">;
     snapshot: CalendarAppointmentSeriesCreateCommand["payload"]["snapshot"];
+    snapshotId: Id<"appointmentSeriesRestoreSnapshots">;
   },
   context: CalendarPlanningCommandExecutorContext,
 ): Promise<CalendarPlanningReplayResult> {
@@ -1066,7 +1068,7 @@ async function restoreAppointmentSeriesSnapshot(
   const originalRootAppointmentId = payload.currentRootAppointmentId;
   const result = await context.runRestoreAppointmentSeriesSnapshotInternal({
     seriesId: payload.snapshot.series.seriesId,
-    snapshot: payload.snapshot,
+    snapshotId: payload.snapshotId,
   });
   if (!result) {
     return { status: "conflict" };

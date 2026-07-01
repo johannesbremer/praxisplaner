@@ -169,6 +169,9 @@ const appointmentSeriesEffectPayload = (args: {
   rootAppointmentId: args.rootAppointmentId,
   seriesId: args.seriesId,
   snapshot: args.snapshot,
+  snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+    `series_snapshot_${args.seriesId}`,
+  ),
 });
 
 const makeDeferredMutation = () => {
@@ -525,6 +528,9 @@ describe("calendar planning workbench", () => {
       payload: {
         currentRootAppointmentId: appointmentId,
         snapshot: seriesSnapshot,
+        snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+          "series_snapshot_series_1",
+        ),
       },
     });
   });
@@ -667,6 +673,9 @@ describe("calendar planning workbench", () => {
       payload: {
         currentRootAppointmentId: appointmentId,
         snapshot: seriesSnapshot,
+        snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+          "series_snapshot_series_1",
+        ),
       },
     });
   });
@@ -1054,10 +1063,16 @@ describe("calendar planning workbench", () => {
         after: {
           currentRootAppointmentId: appointmentId,
           snapshot: afterSeriesSnapshot,
+          snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+            "series_snapshot_series-1",
+          ),
         },
         before: {
           currentRootAppointmentId: appointmentId,
           snapshot: beforeSeriesSnapshot,
+          snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+            "series_snapshot_series-1",
+          ),
         },
       },
     });

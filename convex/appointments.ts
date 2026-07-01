@@ -301,6 +301,7 @@ const appointmentLedgerSeriesPayloadValidator = v.object({
   rootAppointmentId: v.id("appointments"),
   seriesId: v.string(),
   snapshot: appointmentSeriesRestoreSnapshotValidator,
+  snapshotId: v.id("appointmentSeriesRestoreSnapshots"),
 });
 
 const appointmentLedgerEffectValidator = v.union(
@@ -1218,25 +1219,13 @@ async function saveAppointmentSeriesRestoreSnapshot(
     deletedAt: bigint;
     series: AppointmentSeriesDoc;
   },
-) {
+): Promise<Id<"appointmentSeriesRestoreSnapshots">> {
   const snapshot = toAppointmentSeriesRestoreSnapshot({
     appointments: args.appointments,
     series: args.series,
   });
-  const existingSnapshot = await ctx.db
-    .query("appointmentSeriesRestoreSnapshots")
-    .withIndex("by_originalSeriesId", (q) =>
-      q.eq("originalSeriesId", args.series.seriesId),
-    )
-    .first();
-  if (existingSnapshot) {
-    await ctx.db.delete(
-      "appointmentSeriesRestoreSnapshots",
-      existingSnapshot._id,
-    );
-  }
 
-  await ctx.db.insert("appointmentSeriesRestoreSnapshots", {
+  return await ctx.db.insert("appointmentSeriesRestoreSnapshots", {
     deletedAt: args.deletedAt,
     originalSeriesId: args.series.seriesId,
     practiceId: args.series.practiceId,
@@ -1654,24 +1643,32 @@ async function appointmentLedgerCreatedEffect(
 }
 
 async function appointmentSeriesLedgerPayload(
-  db: DatabaseReader,
+  ctx: MutationCtx,
   seriesId: string,
 ): Promise<Infer<typeof appointmentLedgerSeriesPayloadValidator>> {
-  const series = await getAppointmentSeriesRecord(db, seriesId);
+  const series = await getAppointmentSeriesRecord(ctx.db, seriesId);
   if (!series) {
     throw appointmentChainError(
       "CHAIN_NOT_FOUND",
       "Die gespeicherte Kettentermin-Serie wurde nicht gefunden.",
     );
   }
-  const appointments = await getSeriesAppointments(db, seriesId);
+  const appointments = await getSeriesAppointments(ctx.db, seriesId);
+  const snapshot = toAppointmentSeriesRestoreSnapshot({ appointments, series });
+  const snapshotId = await ctx.db.insert("appointmentSeriesRestoreSnapshots", {
+    deletedAt: BigInt(Date.now()),
+    originalSeriesId: series.seriesId,
+    practiceId: series.practiceId,
+    snapshot,
+  });
   return {
     appointments: appointments.map((appointment) =>
       toAppointmentListItem(appointment),
     ),
     rootAppointmentId: series.rootAppointmentId,
     seriesId: series.seriesId,
-    snapshot: toAppointmentSeriesRestoreSnapshot({ appointments, series }),
+    snapshot,
+    snapshotId,
   };
 }
 
@@ -3694,7 +3691,7 @@ export async function createAppointmentFromTrustedSource(
 
     return {
       kind: "appointmentSeries.created" as const,
-      series: await appointmentSeriesLedgerPayload(ctx.db, result.seriesId),
+      series: await appointmentSeriesLedgerPayload(ctx, result.seriesId),
     };
   }
 
@@ -4064,23 +4061,18 @@ export const getAppointmentSeriesRestoreSnapshotByAppointmentId = query({
 export const restoreAppointmentSeriesSnapshot = mutation({
   args: {
     seriesId: v.string(),
-    snapshot: v.optional(appointmentSeriesRestoreSnapshotValidator),
+    snapshotId: v.id("appointmentSeriesRestoreSnapshots"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
-    const storedSnapshot = await ctx.db
-      .query("appointmentSeriesRestoreSnapshots")
-      .withIndex("by_originalSeriesId", (q) =>
-        q.eq("originalSeriesId", args.seriesId),
-      )
-      .first();
-    const restoreSnapshot = args.snapshot ?? storedSnapshot?.snapshot;
-    if (!restoreSnapshot) {
+    const storedSnapshot = await ctx.db.get(args.snapshotId);
+    if (!storedSnapshot) {
       throw appointmentChainError(
         "CHAIN_NOT_FOUND",
         "Kettentermin-Wiederherstellung wurde nicht gefunden.",
       );
     }
+    const restoreSnapshot = storedSnapshot.snapshot;
     if (restoreSnapshot.series.seriesId !== args.seriesId) {
       throw appointmentChainError(
         "CHAIN_RESTORE_SERIES_MISMATCH",
@@ -4320,12 +4312,7 @@ export const restoreAppointmentSeriesSnapshot = mutation({
       seriesId: series.seriesId,
       ...(series.userId === undefined ? {} : { userId: series.userId }),
     });
-    if (storedSnapshot) {
-      await ctx.db.delete(
-        "appointmentSeriesRestoreSnapshots",
-        storedSnapshot._id,
-      );
-    }
+    await ctx.db.delete("appointmentSeriesRestoreSnapshots", storedSnapshot._id);
 
     const restoredSeriesAppointments = await getSeriesAppointments(
       ctx.db,
@@ -5264,7 +5251,7 @@ async function updateAppointmentByMode(
         }
 
         const beforeSeriesPayload = await appointmentSeriesLedgerPayload(
-          ctx.db,
+          ctx,
           seriesId,
         );
         const now = BigInt(Date.now());
@@ -5277,7 +5264,7 @@ async function updateAppointmentByMode(
           lastModified: now,
         });
         return {
-          after: await appointmentSeriesLedgerPayload(ctx.db, seriesId),
+          after: await appointmentSeriesLedgerPayload(ctx, seriesId),
           before: beforeSeriesPayload,
           kind: "appointmentSeries.updated" as const,
         };
@@ -5416,7 +5403,7 @@ async function updateAppointmentByMode(
     };
 
     const beforeSeriesPayload = await appointmentSeriesLedgerPayload(
-      ctx.db,
+      ctx,
       seriesId,
     );
 
@@ -5596,7 +5583,7 @@ async function updateAppointmentByMode(
     });
 
     return {
-      after: await appointmentSeriesLedgerPayload(ctx.db, seriesId),
+      after: await appointmentSeriesLedgerPayload(ctx, seriesId),
       before: beforeSeriesPayload,
       kind: "appointmentSeries.updated" as const,
     };
@@ -5952,26 +5939,31 @@ export const deleteAppointment = mutation({
       }
       const seriesAppointments = await getSeriesAppointments(ctx.db, seriesId);
       const seriesRecord = await getAppointmentSeriesRecord(ctx.db, seriesId);
-      const seriesPayload = seriesRecord
-        ? {
-            appointments: seriesAppointments.map((appointment) =>
-              toAppointmentListItem(appointment),
-            ),
-            rootAppointmentId: seriesRecord.rootAppointmentId,
-            seriesId: seriesRecord.seriesId,
-            snapshot: toAppointmentSeriesRestoreSnapshot({
-              appointments: seriesAppointments,
-              series: seriesRecord,
-            }),
-          }
+      const seriesSnapshot = seriesRecord
+        ? toAppointmentSeriesRestoreSnapshot({
+            appointments: seriesAppointments,
+            series: seriesRecord,
+          })
         : undefined;
-      if (seriesRecord) {
-        await saveAppointmentSeriesRestoreSnapshot(ctx, {
-          appointments: seriesAppointments,
-          deletedAt: BigInt(Date.now()),
-          series: seriesRecord,
-        });
-      }
+      const seriesSnapshotId = seriesRecord
+        ? await saveAppointmentSeriesRestoreSnapshot(ctx, {
+            appointments: seriesAppointments,
+            deletedAt: BigInt(Date.now()),
+            series: seriesRecord,
+          })
+        : undefined;
+      const seriesPayload =
+        seriesRecord && seriesSnapshot && seriesSnapshotId
+          ? {
+              appointments: seriesAppointments.map((appointment) =>
+                toAppointmentListItem(appointment),
+              ),
+              rootAppointmentId: seriesRecord.rootAppointmentId,
+              seriesId: seriesRecord.seriesId,
+              snapshot: seriesSnapshot,
+              snapshotId: seriesSnapshotId,
+            }
+          : undefined;
       for (const seriesAppointment of seriesAppointments) {
         await ctx.db.delete("appointments", seriesAppointment._id);
       }

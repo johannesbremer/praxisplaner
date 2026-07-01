@@ -6424,11 +6424,15 @@ describe("appointment series", () => {
         .first();
     });
     expect(storedSnapshot?.snapshot.appointments).toHaveLength(2);
+    if (!storedSnapshot) {
+      throw new Error("Expected stored series snapshot");
+    }
 
     const restoredSeries = await t.mutation(
       api.appointments.restoreAppointmentSeriesSnapshot,
       {
         seriesId: createdSeries.seriesId,
+        snapshotId: storedSnapshot._id,
       },
     );
     expect(restoredSeries.seriesId).toBe(createdSeries.seriesId);
@@ -6559,9 +6563,23 @@ describe("appointment series", () => {
       });
     });
 
+    const storedSnapshot = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("appointmentSeriesRestoreSnapshots")
+        .withIndex("by_originalSeriesId", (q) =>
+          q.eq("originalSeriesId", createdSeries.seriesId),
+        )
+        .first();
+    });
+    expect(storedSnapshot).not.toBeNull();
+    if (!storedSnapshot) {
+      throw new Error("Expected stored series snapshot");
+    }
+
     await expect(
       t.mutation(api.appointments.restoreAppointmentSeriesSnapshot, {
         seriesId: createdSeries.seriesId,
+        snapshotId: storedSnapshot._id,
       }),
     ).resolves.toMatchObject({
       seriesId: createdSeries.seriesId,

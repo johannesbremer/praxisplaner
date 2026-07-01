@@ -1376,6 +1376,9 @@ describe("calendar planning replay", () => {
         payload: {
           currentRootAppointmentId: originalRootAppointmentId,
           snapshot,
+          snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+            "series_snapshot_create",
+          ),
         },
       },
       "redo",
@@ -1417,7 +1420,9 @@ describe("calendar planning replay", () => {
     expect(result).toEqual({ status: "applied" });
     expect(runRestoreAppointmentSeriesSnapshotInternal).toHaveBeenCalledWith({
       seriesId: "series_1",
-      snapshot,
+      snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+        "series_snapshot_create",
+      ),
     });
     expect(hasAppointmentConflict).toHaveBeenCalledTimes(1);
     expect(hasAppointmentConflict).toHaveBeenCalledWith(
@@ -1558,10 +1563,16 @@ describe("calendar planning replay", () => {
           after: {
             currentRootAppointmentId: targetRootAppointmentId,
             snapshot: afterSnapshot,
+            snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+              "series_snapshot_after",
+            ),
           },
           before: {
             currentRootAppointmentId,
             snapshot: beforeSnapshot,
+            snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+              "series_snapshot_before",
+            ),
           },
         },
       },
@@ -1614,7 +1625,9 @@ describe("calendar planning replay", () => {
     });
     expect(runRestoreAppointmentSeriesSnapshotInternal).toHaveBeenCalledWith({
       seriesId: "series_1",
-      snapshot: afterSnapshot,
+      snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+        "series_snapshot_after",
+      ),
     });
   });
 
@@ -1690,10 +1703,16 @@ describe("calendar planning replay", () => {
           after: {
             currentRootAppointmentId: targetRootAppointmentId,
             snapshot: afterSnapshot,
+            snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+              "series_snapshot_conflict_after",
+            ),
           },
           before: {
             currentRootAppointmentId,
             snapshot: beforeSnapshot,
+            snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+              "series_snapshot_conflict_before",
+            ),
           },
         },
       },
@@ -1850,6 +1869,9 @@ describe("calendar planning replay", () => {
           rootAppointmentId: restoredRootAppointmentId,
           seriesId: "series_1",
           snapshot,
+          snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+            "series_snapshot_deleted_effect",
+          ),
         },
       }),
     );
@@ -1861,6 +1883,9 @@ describe("calendar planning replay", () => {
         payload: {
           currentRootAppointmentId: originalRootAppointmentId,
           snapshot,
+          snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+            "series_snapshot_delete",
+          ),
         },
       },
       "redo",
@@ -1998,6 +2023,9 @@ describe("calendar planning replay", () => {
         payload: {
           currentRootAppointmentId: rootAppointmentId,
           snapshot,
+          snapshotId: toTableId<"appointmentSeriesRestoreSnapshots">(
+            "series_snapshot_delete_missing",
+          ),
         },
       },
       "redo",

@@ -1737,6 +1737,7 @@ export function useCalendarPlanningWorkbench(args: {
           payload: {
             currentRootAppointmentId: effect.series.rootAppointmentId,
             snapshot: effect.series.snapshot,
+            snapshotId: effect.series.snapshotId,
           },
         });
         return effect.series.rootAppointmentId;
@@ -1967,10 +1968,12 @@ export function useCalendarPlanningWorkbench(args: {
                 after: {
                   currentRootAppointmentId: effect.after.rootAppointmentId,
                   snapshot: effect.after.snapshot,
+                  snapshotId: effect.after.snapshotId,
                 },
                 before: {
                   currentRootAppointmentId: effect.before.rootAppointmentId,
                   snapshot: effect.before.snapshot,
+                  snapshotId: effect.before.snapshotId,
                 },
               },
             });
@@ -2005,6 +2008,7 @@ export function useCalendarPlanningWorkbench(args: {
           payload: {
             currentRootAppointmentId: effect.series.rootAppointmentId,
             snapshot: effect.series.snapshot,
+            snapshotId: effect.series.snapshotId,
           },
         });
         return;

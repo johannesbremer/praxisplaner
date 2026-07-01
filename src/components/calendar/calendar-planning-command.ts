@@ -59,6 +59,7 @@ export interface CalendarAppointmentSeriesCreateCommand extends CalendarPlanning
   payload: {
     currentRootAppointmentId: Id<"appointments">;
     snapshot: AppointmentSeriesRestoreSnapshot;
+    snapshotId: Id<"appointmentSeriesRestoreSnapshots">;
   };
 }
 
@@ -67,6 +68,7 @@ export interface CalendarAppointmentSeriesDeleteCommand extends CalendarPlanning
   payload: {
     currentRootAppointmentId: Id<"appointments">;
     snapshot: AppointmentSeriesRestoreSnapshot;
+    snapshotId: Id<"appointmentSeriesRestoreSnapshots">;
   };
 }
 
@@ -76,10 +78,12 @@ export interface CalendarAppointmentSeriesUpdateCommand extends CalendarPlanning
     after: {
       currentRootAppointmentId: Id<"appointments">;
       snapshot: AppointmentSeriesRestoreSnapshot;
+      snapshotId: Id<"appointmentSeriesRestoreSnapshots">;
     };
     before: {
       currentRootAppointmentId: Id<"appointments">;
       snapshot: AppointmentSeriesRestoreSnapshot;
+      snapshotId: Id<"appointmentSeriesRestoreSnapshots">;
     };
   };
 }
