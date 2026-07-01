@@ -22,6 +22,7 @@ export type MfaId = EntityId<"mfas">;
 export type MfaLineageKey = LineageKey<"mfas">;
 export type PractitionerId = EntityId<"practitioners">;
 export type PractitionerLineageKey = LineageKey<"practitioners">;
+export type VacationId = EntityId<"vacations">;
 export type VacationLineageKey = LineageKey<"vacations">;
 type Brand<T, TBrand extends string> = T & { readonly __brand: TBrand };
 type LineageTableName = Extract<
@@ -92,6 +93,10 @@ export function asPractitionerLineageKey(
   id: Id<"practitioners">,
 ): PractitionerLineageKey {
   return asLineageKey(id);
+}
+
+export function asVacationId(id: Id<"vacations">): VacationId {
+  return asEntityId(id);
 }
 
 export function asVacationLineageKey(id: Id<"vacations">): VacationLineageKey {

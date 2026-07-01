@@ -72,6 +72,7 @@ import {
   isActivationBoundSimulation,
 } from "./appointmentSimulation";
 import {
+  type AppointmentTypeId,
   type AppointmentTypeLineageKey,
   asAppointmentTypeId,
   asAppointmentTypeLineageKey,
@@ -79,8 +80,14 @@ import {
   asLocationLineageKey,
   asPractitionerId,
   asPractitionerLineageKey,
+  asVacationId,
+  asVacationLineageKey,
+  type LocationId,
   type LocationLineageKey,
+  type PractitionerId,
   type PractitionerLineageKey,
+  type VacationId,
+  type VacationLineageKey,
 } from "./identity";
 import {
   getFutureLegacyUnmatchedBookingHoldsForUser,
@@ -1000,6 +1007,22 @@ async function requireManagerForPlannerRuleOverride(
   }
 }
 
+async function requireSnapshotAppointmentTypeDocument(
+  db: DatabaseReader,
+  appointmentTypeId: AppointmentTypeId,
+  practiceId: Id<"practices">,
+  label: string,
+) {
+  const doc = await db.get("appointmentTypes", appointmentTypeId);
+  if (doc?.practiceId !== practiceId) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return doc;
+}
+
 async function requireSnapshotAppointmentTypeLineageDocument(
   db: DatabaseReader,
   args: {
@@ -1014,13 +1037,34 @@ async function requireSnapshotAppointmentTypeLineageDocument(
       lineageKey: args.lineageKey,
       ruleSetId: args.ruleSetId,
     });
-  return await requireSnapshotPracticeDocument(
-    appointmentTypeId === undefined
-      ? Promise.resolve(null)
-      : db.get("appointmentTypes", appointmentTypeId),
+  if (appointmentTypeId === undefined) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${args.label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return await requireSnapshotAppointmentTypeDocument(
+    db,
+    appointmentTypeId,
     args.practiceId,
     args.label,
   );
+}
+
+async function requireSnapshotLocationDocument(
+  db: DatabaseReader,
+  locationId: LocationId,
+  practiceId: Id<"practices">,
+  label: string,
+) {
+  const doc = await db.get("locations", locationId);
+  if (doc?.practiceId !== practiceId) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return doc;
 }
 
 async function requireSnapshotLocationLineageDocument(
@@ -1036,24 +1080,53 @@ async function requireSnapshotLocationLineageDocument(
     lineageKey: args.lineageKey,
     ruleSetId: args.ruleSetId,
   });
-  return await requireSnapshotPracticeDocument(
-    locationId === undefined
-      ? Promise.resolve(null)
-      : db.get("locations", locationId),
+  if (locationId === undefined) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${args.label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return await requireSnapshotLocationDocument(
+    db,
+    locationId,
     args.practiceId,
     args.label,
   );
 }
 
-async function requireSnapshotPracticeDocument<
-  TDocument extends { practiceId: Id<"practices"> },
+async function requireSnapshotPracticeDocumentByRawId<
+  TableName extends
+    | "appointments"
+    | "bookingIdentities"
+    | "patients"
+    | "phoneBookingIdentities"
+    | "practices"
+    | "ruleSets",
 >(
-  docPromise: Promise<null | TDocument>,
+  db: DatabaseReader,
+  tableName: TableName,
+  id: Id<TableName>,
   practiceId: Id<"practices">,
   label: string,
-): Promise<TDocument> {
-  const doc = await docPromise;
-  if (!doc || doc.practiceId !== practiceId) {
+): Promise<Doc<TableName>> {
+  const doc = await db.get(tableName, id);
+  if (doc?.["practiceId"] !== practiceId) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return doc;
+}
+
+async function requireSnapshotPractitionerDocument(
+  db: DatabaseReader,
+  practitionerId: PractitionerId,
+  practiceId: Id<"practices">,
+  label: string,
+) {
+  const doc = await db.get("practitioners", practitionerId);
+  if (doc?.practiceId !== practiceId) {
     throw appointmentChainError(
       "CHAIN_RESTORE_PRACTICE_MISMATCH",
       `${label} gehört nicht zu dieser Praxis.`,
@@ -1075,10 +1148,15 @@ async function requireSnapshotPractitionerLineageDocument(
     lineageKey: args.lineageKey,
     ruleSetId: args.ruleSetId,
   });
-  return await requireSnapshotPracticeDocument(
-    practitionerId === undefined
-      ? Promise.resolve(null)
-      : db.get("practitioners", practitionerId),
+  if (practitionerId === undefined) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${args.label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return await requireSnapshotPractitionerDocument(
+    db,
+    practitionerId,
     args.practiceId,
     args.label,
   );
@@ -1109,6 +1187,49 @@ async function requireSnapshotUserPracticeMembership(
       `${label} gehört nicht zu dieser Praxis.`,
     );
   }
+}
+
+async function requireSnapshotVacationDocument(
+  db: DatabaseReader,
+  vacationId: VacationId,
+  practiceId: Id<"practices">,
+  label: string,
+) {
+  const doc = await db.get("vacations", vacationId);
+  if (doc?.practiceId !== practiceId) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return doc;
+}
+
+async function requireSnapshotVacationLineageDocument(
+  db: DatabaseReader,
+  args: {
+    label: string;
+    lineageKey: VacationLineageKey;
+    practiceId: Id<"practices">;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const vacationId = await tryResolveVacationIdForRuleSetByLineage(db, {
+    lineageKey: args.lineageKey,
+    ruleSetId: args.ruleSetId,
+  });
+  if (vacationId === undefined) {
+    throw appointmentChainError(
+      "CHAIN_RESTORE_PRACTICE_MISMATCH",
+      `${args.label} gehört nicht zu dieser Praxis.`,
+    );
+  }
+  return await requireSnapshotVacationDocument(
+    db,
+    vacationId,
+    args.practiceId,
+    args.label,
+  );
 }
 
 async function resolveAppointmentTypeForDisplayRuleSet(
@@ -1522,6 +1643,42 @@ async function tryResolvePractitionerIdForRuleSetByLineage(
   return;
 }
 
+async function tryResolveVacationIdForRuleSetByLineage(
+  db: DatabaseReader,
+  args: {
+    lineageKey: VacationLineageKey;
+    ruleSetId: Id<"ruleSets">;
+  },
+) {
+  const direct = await db.get("vacations", args.lineageKey);
+  const effectiveLineageKey = direct
+    ? asVacationLineageKey(
+        requireLineageKey({
+          entityId: direct._id,
+          entityType: "vacation",
+          lineageKey: direct.lineageKey,
+          ruleSetId: direct.ruleSetId,
+        }),
+      )
+    : args.lineageKey;
+  const entity = await db
+    .query("vacations")
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q.eq("ruleSetId", args.ruleSetId).eq("lineageKey", effectiveLineageKey),
+    )
+    .first();
+
+  if (entity) {
+    return asVacationId(entity._id);
+  }
+
+  if (direct?.ruleSetId === args.ruleSetId) {
+    return asVacationId(direct._id);
+  }
+
+  return;
+}
+
 async function validateAppointmentSeriesRestoreSnapshotReferences(
   ctx: MutationCtx,
   snapshot: Infer<typeof appointmentSeriesRestoreSnapshotValidator>,
@@ -1529,13 +1686,16 @@ async function validateAppointmentSeriesRestoreSnapshotReferences(
   const { appointments, series } = snapshot;
   const practiceId = series.practiceId;
 
-  await requireSnapshotPracticeDocument(
-    ctx.db.get("ruleSets", series.ruleSetIdAtBooking),
+  await requireSnapshotPracticeDocumentByRawId(
+    ctx.db,
+    "ruleSets",
+    series.ruleSetIdAtBooking,
     practiceId,
     "Regelwerk der Kettentermin-Serie",
   );
-  await requireSnapshotPracticeDocument(
-    ctx.db.get("appointmentTypes", series.rootAppointmentTypeId),
+  await requireSnapshotAppointmentTypeDocument(
+    ctx.db,
+    asAppointmentTypeId(series.rootAppointmentTypeId),
     practiceId,
     "Start-Terminart der Kettentermin-Serie",
   );
@@ -1548,15 +1708,19 @@ async function validateAppointmentSeriesRestoreSnapshotReferences(
     ruleSetId: series.ruleSetIdAtBooking,
   });
   if (series.bookingIdentityId !== undefined) {
-    await requireSnapshotPracticeDocument(
-      ctx.db.get("bookingIdentities", series.bookingIdentityId),
+    await requireSnapshotPracticeDocumentByRawId(
+      ctx.db,
+      "bookingIdentities",
+      series.bookingIdentityId,
       practiceId,
       "Buchungsidentität der Kettentermin-Serie",
     );
   }
   if (series.patientId !== undefined) {
-    await requireSnapshotPracticeDocument(
-      ctx.db.get("patients", series.patientId),
+    await requireSnapshotPracticeDocumentByRawId(
+      ctx.db,
+      "patients",
+      series.patientId,
       practiceId,
       "Patient der Kettentermin-Serie",
     );
@@ -1607,59 +1771,65 @@ async function validateAppointmentSeriesRestoreSnapshotReferences(
       });
     }
     if (appointment.bookingIdentityId !== undefined) {
-      await requireSnapshotPracticeDocument(
-        ctx.db.get("bookingIdentities", appointment.bookingIdentityId),
+      await requireSnapshotPracticeDocumentByRawId(
+        ctx.db,
+        "bookingIdentities",
+        appointment.bookingIdentityId,
         practiceId,
         "Buchungsidentität eines gespeicherten Kettentermins",
       );
     }
     if (appointment.phoneBookingIdentityId !== undefined) {
-      await requireSnapshotPracticeDocument(
-        ctx.db.get(
-          "phoneBookingIdentities",
-          appointment.phoneBookingIdentityId,
-        ),
+      await requireSnapshotPracticeDocumentByRawId(
+        ctx.db,
+        "phoneBookingIdentities",
+        appointment.phoneBookingIdentityId,
         practiceId,
         "TelefonKI-Buchungsidentität eines gespeicherten Kettentermins",
       );
     }
     if (appointment.cancelledByPhoneBookingIdentityId !== undefined) {
-      await requireSnapshotPracticeDocument(
-        ctx.db.get(
-          "phoneBookingIdentities",
-          appointment.cancelledByPhoneBookingIdentityId,
-        ),
+      await requireSnapshotPracticeDocumentByRawId(
+        ctx.db,
+        "phoneBookingIdentities",
+        appointment.cancelledByPhoneBookingIdentityId,
         practiceId,
         "TelefonKI-Stornoidentität eines gespeicherten Kettentermins",
       );
     }
     if (appointment.patientId !== undefined) {
-      await requireSnapshotPracticeDocument(
-        ctx.db.get("patients", appointment.patientId),
+      await requireSnapshotPracticeDocumentByRawId(
+        ctx.db,
+        "patients",
+        appointment.patientId,
         practiceId,
         "Patient eines gespeicherten Kettentermins",
       );
     }
     if (appointment.reassignmentSourceVacationLineageKey !== undefined) {
-      await requireSnapshotPracticeDocument(
-        ctx.db.get(
-          "vacations",
+      await requireSnapshotVacationLineageDocument(ctx.db, {
+        label: "Abwesenheit eines gespeicherten Kettentermins",
+        lineageKey: asVacationLineageKey(
           appointment.reassignmentSourceVacationLineageKey,
         ),
         practiceId,
-        "Abwesenheit eines gespeicherten Kettentermins",
-      );
+        ruleSetId: series.ruleSetIdAtBooking,
+      });
     }
     if (appointment.replacesAppointmentId !== undefined) {
-      await requireSnapshotPracticeDocument(
-        ctx.db.get("appointments", appointment.replacesAppointmentId),
+      await requireSnapshotPracticeDocumentByRawId(
+        ctx.db,
+        "appointments",
+        appointment.replacesAppointmentId,
         practiceId,
         "Ersetzter Termin eines gespeicherten Kettentermins",
       );
     }
     if (appointment.simulationRuleSetId !== undefined) {
-      await requireSnapshotPracticeDocument(
-        ctx.db.get("ruleSets", appointment.simulationRuleSetId),
+      await requireSnapshotPracticeDocumentByRawId(
+        ctx.db,
+        "ruleSets",
+        appointment.simulationRuleSetId,
         practiceId,
         "Simulations-Regelwerk eines gespeicherten Kettentermins",
       );
