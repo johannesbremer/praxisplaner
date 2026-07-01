@@ -2909,6 +2909,13 @@ export function AppointmentTypesManagement({
                       appointmentType.lineageKey === snapshot.lineageKey,
                   );
                 if (existingAppointmentType !== undefined) {
+                  if (existingAppointmentType.treeFolderId !== treeFolderId) {
+                    clearAppointmentTypeTreeOptimisticRestore();
+                    return {
+                      message: `[HISTORY:APPOINTMENT_TYPE_LINEAGE_CONFLICT] Die Terminart mit lineageKey ${snapshot.lineageKey} existiert bereits, liegt aber in einem anderen Ordner.`,
+                      status: "conflict" as const,
+                    };
+                  }
                   restoredAppointmentTypes.push({
                     appointmentTypeId: existingAppointmentType._id,
                     practitionerIds,
