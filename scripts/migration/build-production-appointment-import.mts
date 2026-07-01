@@ -87,6 +87,9 @@ const oldAppointmentsCsv = readFileSync(
   join(sourceRoot, "old-appointments.csv"),
   "utf8",
 );
+const patientSourceIds = readPatientSourceIds(
+  readFileSync(join(sourceRoot, "patients.csv"), "utf8"),
+);
 const appointmentTypeDurationsByName = new Map(
   buildReferenceImportRows(oldAppointmentsCsv).appointmentTypes.map((row) => [
     row.name,
@@ -96,7 +99,10 @@ const appointmentTypeDurationsByName = new Map(
 const appointments = parseCsv(oldAppointmentsCsv);
 const references = fetchProductionReferences();
 const reasonNormalization = readMatchedPvsReasonNormalization();
-const patientBySourceId = fetchPatientMappings();
+const patientBySourceId = fetchPatientMappings(
+  maxPatientSourceId(patientSourceIds),
+);
+assertImportedPatientsHaveMappings(patientSourceIds, patientBySourceId);
 
 const appointmentTypeByName = new Map(
   references.appointmentTypes.map((appointmentType) => [
@@ -179,7 +185,13 @@ const documents = appointments.map((appointment): AppointmentDocument => {
     );
   }
 
-  const patientSourceId = Number(readRequired(appointment, "ID"));
+  const rawPatientSourceId = readRequired(appointment, "ID").trim();
+  const patientSourceId = Number(rawPatientSourceId);
+  if (!Number.isInteger(patientSourceId) || patientSourceId <= 0) {
+    throw new Error(
+      `old-appointments.csv contains invalid patient ID ${JSON.stringify(rawPatientSourceId)}.`,
+    );
+  }
   const patientId = patientBySourceId.get(patientSourceId);
   if (patientId === undefined) {
     stats.appointmentsWithoutPatient += 1;
@@ -391,12 +403,63 @@ function fetchProductionReferences(): ProductionReferences {
   return parsed;
 }
 
-function fetchPatientMappings(): Map<number, string> {
+function readPatientSourceIds(csvText: string): ReadonlySet<number> {
+  const invalidRows: string[] = [];
+  const sourceIds = new Set<number>();
+  for (const [index, row] of parseCsv(csvText).entries()) {
+    const csvLine = index + 2;
+    const rawPatientId = row["ID"]?.trim() ?? "";
+    const patientId = Number(rawPatientId);
+    if (
+      rawPatientId.length === 0 ||
+      !Number.isInteger(patientId) ||
+      patientId <= 0
+    ) {
+      invalidRows.push(`line ${csvLine}: invalid ID`);
+      continue;
+    }
+    sourceIds.add(patientId);
+  }
+  if (invalidRows.length > 0) {
+    throw new Error(
+      `patients.csv contains invalid patient IDs: ${invalidRows
+        .slice(0, 20)
+        .join("; ")}`,
+    );
+  }
+  return sourceIds;
+}
+
+function maxPatientSourceId(patientSourceIds: ReadonlySet<number>): number {
+  let maxPatientId = 0;
+  for (const patientSourceId of patientSourceIds) {
+    maxPatientId = Math.max(maxPatientId, patientSourceId);
+  }
+  return maxPatientId;
+}
+
+function assertImportedPatientsHaveMappings(
+  patientSourceIds: ReadonlySet<number>,
+  patientBySourceId: ReadonlyMap<number, string>,
+): void {
+  const missingSourceIds = [...patientSourceIds]
+    .filter((patientSourceId) => !patientBySourceId.has(patientSourceId))
+    .toSorted((left, right) => left - right);
+  if (missingSourceIds.length > 0) {
+    throw new Error(
+      `Convex patient mappings are missing for ${missingSourceIds.length} imported patients from patients.csv: ${missingSourceIds
+        .slice(0, 20)
+        .join(", ")}`,
+    );
+  }
+}
+
+function fetchPatientMappings(maxPatientId: number): Map<number, string> {
   const mappings: PatientMapping[] = [];
   const pageSize = 250;
   for (
     let fromInclusive = 0;
-    fromInclusive < 27000;
+    fromInclusive <= maxPatientId;
     fromInclusive += pageSize
   ) {
     const output = execConvexRun(
@@ -538,19 +601,39 @@ function parseCsv(text: string): CsvRow[] {
     row.push(field);
     rows.push(row);
   }
+  if (quoted) {
+    throw new Error("Malformed CSV: unterminated quoted field.");
+  }
 
   const [headers, ...records] = rows;
   if (headers === undefined) {
     return [];
   }
 
-  return records
-    .filter((record) => record.length === headers.length)
-    .map((record) =>
-      Object.fromEntries(
-        headers.map((header, index) => [header, record[index] ?? ""]),
-      ),
+  const malformedRows = records
+    .map((record, index) => ({
+      actualFields: record.length,
+      expectedFields: headers.length,
+      line: index + 2,
+    }))
+    .filter((record) => record.actualFields !== record.expectedFields);
+  if (malformedRows.length > 0) {
+    throw new Error(
+      `Malformed CSV rows: ${malformedRows
+        .slice(0, 20)
+        .map(
+          (row) =>
+            `line ${row.line}: expected ${row.expectedFields} fields, got ${row.actualFields}`,
+        )
+        .join("; ")}`,
     );
+  }
+
+  return records.map((record) =>
+    Object.fromEntries(
+      headers.map((header, index) => [header, record[index] ?? ""]),
+    ),
+  );
 }
 
 function readRequired(row: CsvRow, key: string): string {

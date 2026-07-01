@@ -118,25 +118,47 @@ function parseCsv(text: string): PraxistimerAppointmentCsvRow[] {
     row.push(field);
     rows.push(row);
   }
+  if (quoted) {
+    throw new Error(
+      "Malformed old-appointments.csv: unterminated quoted field.",
+    );
+  }
 
   const [headers, ...records] = rows;
   if (!headers) {
     return [];
   }
 
-  return records
-    .filter((record) => record.length === headers.length)
-    .map((record) => {
-      const parsed = Object.fromEntries(
-        headers.map((header, index) => [header, record[index] ?? ""]),
-      );
-      return {
-        Arzt: readCsvString(parsed, "Arzt"),
-        Beginn: readCsvString(parsed, "Beginn"),
-        Ende: readCsvString(parsed, "Ende"),
-        Terminart: readCsvString(parsed, "Terminart"),
-      };
-    });
+  const malformedRows = records
+    .map((record, index) => ({
+      actualFields: record.length,
+      expectedFields: headers.length,
+      line: index + 2,
+    }))
+    .filter((record) => record.actualFields !== record.expectedFields);
+  if (malformedRows.length > 0) {
+    throw new Error(
+      `Malformed old-appointments.csv rows: ${malformedRows
+        .slice(0, 20)
+        .map(
+          (row) =>
+            `line ${row.line}: expected ${row.expectedFields} fields, got ${row.actualFields}`,
+        )
+        .join("; ")}`,
+    );
+  }
+
+  return records.map((record) => {
+    const parsed = Object.fromEntries(
+      headers.map((header, index) => [header, record[index] ?? ""]),
+    );
+    return {
+      Arzt: readCsvString(parsed, "Arzt"),
+      Beginn: readCsvString(parsed, "Beginn"),
+      Ende: readCsvString(parsed, "Ende"),
+      Terminart: readCsvString(parsed, "Terminart"),
+    };
+  });
 }
 
 function readCsvString(row: Record<string, string>, key: string): string {

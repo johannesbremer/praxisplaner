@@ -711,6 +711,7 @@ export const importLegacyWorkOSPatientMemberships = action({
 export const deletePristineMigrationTablePage = mutation({
   args: {
     activeRuleSetId: v.optional(v.id("ruleSets")),
+    cursor: v.optional(v.string()),
     limit: v.number(),
     practiceId: v.optional(v.id("practices")),
     tableName: pristineResetTableNameValidator,
@@ -1008,14 +1009,21 @@ export const deletePristineMigrationTablePage = mutation({
         if (args.practiceId === undefined) {
           throw new Error("practiceId is required to delete stale practices.");
         }
-        const rows = await ctx.db.query("practices").take(limit);
-        for (const row of rows) {
+        const result = await ctx.db
+          .query("practices")
+          .paginate({ cursor: args.cursor ?? null, numItems: limit });
+        for (const row of result.page) {
           if (row._id !== args.practiceId) {
             await ctx.db.delete("practices", row._id);
             deletedRows += 1;
           }
         }
-        break;
+        return {
+          continueCursor: result.continueCursor,
+          deletedRows,
+          isDone: result.isDone,
+          scannedRows: result.page.length,
+        };
       }
       case "staleRuleConditions": {
         if (args.activeRuleSetId === undefined) {
@@ -1023,14 +1031,21 @@ export const deletePristineMigrationTablePage = mutation({
             "activeRuleSetId is required to delete stale rule conditions.",
           );
         }
-        const rows = await ctx.db.query("ruleConditions").take(limit);
-        for (const row of rows) {
+        const result = await ctx.db
+          .query("ruleConditions")
+          .paginate({ cursor: args.cursor ?? null, numItems: limit });
+        for (const row of result.page) {
           if (row.ruleSetId !== args.activeRuleSetId) {
             await ctx.db.delete("ruleConditions", row._id);
             deletedRows += 1;
           }
         }
-        break;
+        return {
+          continueCursor: result.continueCursor,
+          deletedRows,
+          isDone: result.isDone,
+          scannedRows: result.page.length,
+        };
       }
       case "staleRuleSets": {
         if (args.activeRuleSetId === undefined) {
@@ -1038,14 +1053,21 @@ export const deletePristineMigrationTablePage = mutation({
             "activeRuleSetId is required to delete stale rule sets.",
           );
         }
-        const rows = await ctx.db.query("ruleSets").take(limit);
-        for (const row of rows) {
+        const result = await ctx.db
+          .query("ruleSets")
+          .paginate({ cursor: args.cursor ?? null, numItems: limit });
+        for (const row of result.page) {
           if (row._id !== args.activeRuleSetId) {
             await ctx.db.delete("ruleSets", row._id);
             deletedRows += 1;
           }
         }
-        break;
+        return {
+          continueCursor: result.continueCursor,
+          deletedRows,
+          isDone: result.isDone,
+          scannedRows: result.page.length,
+        };
       }
       case "vacations": {
         const rows = await ctx.db.query("vacations").take(limit);
@@ -1057,10 +1079,17 @@ export const deletePristineMigrationTablePage = mutation({
       }
     }
 
-    return { deletedRows };
+    return {
+      deletedRows,
+      isDone: deletedRows < limit,
+      scannedRows: deletedRows,
+    };
   },
   returns: v.object({
+    continueCursor: v.optional(v.string()),
     deletedRows: v.number(),
+    isDone: v.boolean(),
+    scannedRows: v.number(),
   }),
 });
 

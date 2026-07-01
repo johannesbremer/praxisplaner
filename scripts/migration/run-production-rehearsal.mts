@@ -72,12 +72,16 @@ const deletePristineMigrationTablePage = makeFunctionReference<
   "mutation",
   {
     activeRuleSetId?: string;
+    cursor?: string;
     limit: number;
     practiceId?: string;
     tableName: PristineResetTableName;
   },
   {
+    continueCursor?: string;
     deletedRows: number;
+    isDone: boolean;
+    scannedRows: number;
   }
 >("migrationRehearsal:deletePristineMigrationTablePage");
 
@@ -1044,17 +1048,29 @@ async function runReset(options: CliOptions): Promise<void> {
     const activeRuleSetId = target.practice?.currentActiveRuleSetId;
     for (const tableName of pristineResetTableOrder) {
       let tableDeletedRows = 0;
+      let cursor: string | undefined;
+      const usesCursor =
+        tableName === "stalePractices" ||
+        tableName === "staleRuleConditions" ||
+        tableName === "staleRuleSets";
       while (true) {
         const result = await client.mutation(deletePristineMigrationTablePage, {
           ...(activeRuleSetId === undefined ? {} : { activeRuleSetId }),
+          ...(cursor === undefined ? {} : { cursor }),
           limit: 200,
           practiceId: options.practiceId,
           tableName,
         });
         tableDeletedRows += result.deletedRows;
-        if (result.deletedRows === 0) {
+        if (result.isDone) {
           break;
         }
+        if (usesCursor && result.continueCursor === undefined) {
+          throw new Error(
+            `Reset ${tableName} did not finish and did not return a cursor after scanning ${result.scannedRows} rows.`,
+          );
+        }
+        cursor = usesCursor ? result.continueCursor : undefined;
       }
       tableResults.push({ deletedRows: tableDeletedRows, tableName });
       console.log(`Reset ${tableName}: deleted ${tableDeletedRows}`);
