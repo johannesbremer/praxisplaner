@@ -1706,6 +1706,74 @@ describe("appointments self-service cancellation", () => {
 });
 
 describe("appointments update safety", () => {
+  test("updateAppointment can set a smiley on a series root without replanning the chain", async () => {
+    const t = createTestContext();
+    const baseData = await createAppointmentBaseData(t);
+    const authId = "workos_update_series_root_smiley";
+    const userId = await createUser(
+      t,
+      authId,
+      "series-root-smiley@example.com",
+    );
+    const authed = t.withIdentity({
+      email: "series-root-smiley@example.com",
+      subject: authId,
+    });
+    const rootWindow = makeSlotWindow(4);
+    const seriesId = "series_test_root_smiley";
+
+    const rootAppointmentId = await t.run(async (ctx) => {
+      await ctx.db.insert("organizationMembers", {
+        createdAt: BigInt(Date.now()),
+        practiceId: baseData.practiceId,
+        role: "owner",
+        userId,
+      });
+      await ctx.db.patch("practices", baseData.practiceId, {
+        appointmentSmileyOptions: [
+          {
+            emoji: "👍",
+            id: "thumbs-up",
+            name: "Patient ist angekommen",
+          },
+        ],
+      });
+
+      const now = BigInt(Date.now());
+      return await ctx.db.insert("appointments", {
+        appointmentTypeLineageKey: baseData.appointmentTypeId,
+        appointmentTypeTitle: "Checkup",
+        createdAt: now,
+        end: rootWindow.end,
+        lastModified: now,
+        locationLineageKey: baseData.locationId,
+        occupancyScope: {
+          kind: "practitioner",
+          practitionerLineageKey: baseData.practitionerId,
+        },
+        practiceId: baseData.practiceId,
+        seriesId,
+        seriesStepIndex: 0n,
+        start: rootWindow.start,
+        title: "Root",
+        userId,
+      });
+    });
+
+    await expect(
+      authed.mutation(api.appointments.updateAppointment, {
+        id: rootAppointmentId,
+        smiley: "👍",
+      }),
+    ).resolves.toMatchObject({ kind: "appointment.updated" });
+
+    const stored = await t.run(async (ctx) => {
+      return await ctx.db.get("appointments", rootAppointmentId);
+    });
+
+    expect(stored?.smiley).toBe("👍");
+  });
+
   test("updateAppointment can set a smiley on a series follow-up without replanning the chain", async () => {
     const t = createTestContext();
     const baseData = await createAppointmentBaseData(t);
