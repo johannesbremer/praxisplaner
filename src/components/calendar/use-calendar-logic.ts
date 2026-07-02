@@ -616,6 +616,7 @@ export function useCalendarLogic({
       ? {
           appointmentTypeId: appointmentSeriesRootAppointmentTypeId,
           candidates: appointmentSeriesRootCandidates,
+          date: selectedDate.toString(),
           ...(dragExcludedAppointmentIds.length === 0
             ? {}
             : { excludedAppointmentIds: dragExcludedAppointmentIds }),
