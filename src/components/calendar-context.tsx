@@ -42,6 +42,7 @@ export interface CalendarContextValue {
   ) => void;
   practiceId?: Id<"practices"> | undefined;
   ruleSetId?: Id<"ruleSets"> | undefined;
+  schedulingRuleSetId?: Id<"ruleSets"> | undefined;
   selectedAppointmentTypeId?: Id<"appointmentTypes"> | undefined;
 
   // Simulation mode state

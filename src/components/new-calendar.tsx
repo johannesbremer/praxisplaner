@@ -339,6 +339,7 @@ export function NewCalendar({
     runDeleteBlockedSlot,
     runUpdateAppointment,
     runUpdateBlockedSlot,
+    schedulingRuleSetId,
     selectedDate,
     selectedLocationId,
     setBlockedSlotWarning,
@@ -750,6 +751,7 @@ export function NewCalendar({
         practiceId,
         ruleSetId,
         runCreateAppointment: handleCreateAppointment,
+        schedulingRuleSetId,
         selectedAppointmentTypeId,
         selectedDate,
         selectedLocationId,
@@ -1001,6 +1003,7 @@ export function NewCalendar({
               patientAppointments={patientAppointments}
               practiceId={practiceId}
               ruleSetId={ruleSetId}
+              schedulingRuleSetId={schedulingRuleSetId}
               selectedAppointmentId={selectedAppointmentId}
               selectedPatientId={activeSelectedPatientId}
               selectedSeriesId={selectedSeriesId}

@@ -105,6 +105,7 @@ import {
   requireTrustedRuleSetScope,
   type TrustedPracticeScope,
 } from "./practiceAccess";
+import { resolvePreferredPractitionerAssociation } from "./practitionerAssociations";
 import {
   type AppointmentContext,
   buildPreloadedDayData,
@@ -170,6 +171,10 @@ type OptionalKeys<T> = {
 }[keyof T];
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 const STAFF_PLANNER_CLIENT_TYPE = "MFA";
+const STAFF_PLACEMENT_MISSING_PRACTITIONER_ASSOCIATION_REASON =
+  "Für diesen Patienten muss zuerst ein Behandler festgelegt werden.";
+const STAFF_PLACEMENT_NON_PREFERRED_PRACTITIONER_REASON =
+  "Dieser Patient ist einem anderen Behandler zugeordnet.";
 
 type AppointmentOwner = LinkedAppointmentOwner | TemporaryAppointmentOwner;
 
@@ -3567,6 +3572,11 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
       ctx.db,
       asLocationId(args.locationId),
     );
+    const preferredPractitionerLineageKey =
+      await resolveStaffPlacementPreferredPractitionerLineageKey(ctx, {
+        ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+        practiceId: args.practiceId,
+      });
     const patientDateOfBirth =
       args.patientDateOfBirth === undefined
         ? args.patientId === undefined
@@ -3589,6 +3599,16 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
     >();
     for (const candidate of args.candidates) {
       if (candidate.locationLineageKey !== locationLineageKey) {
+        continue;
+      }
+      const practitionerAssociationBlock =
+        getStaffPlacementPractitionerAssociationBlock({
+          candidate,
+          locationLineageKey,
+          preferredPractitionerLineageKey,
+        });
+      if (practitionerAssociationBlock !== null) {
+        decisions.push(practitionerAssociationBlock);
         continue;
       }
 
@@ -3668,6 +3688,14 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
       ctx.db,
       asLocationId(args.locationId),
     );
+    const preferredPractitionerLineageKey =
+      await resolveStaffPlacementPreferredPractitionerLineageKey(ctx, {
+        ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+        practiceId: args.practiceId,
+      });
+    if (preferredPractitionerLineageKey === null) {
+      return null;
+    }
     const patientDateOfBirth =
       args.patientDateOfBirth === undefined
         ? args.patientId === undefined
@@ -3733,6 +3761,13 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
       });
 
       for (const candidate of candidates) {
+        if (
+          preferredPractitionerLineageKey !== undefined &&
+          candidate.practitionerLineageKey !== undefined &&
+          candidate.practitionerLineageKey !== preferredPractitionerLineageKey
+        ) {
+          continue;
+        }
         const decision = await resolveCandidateSlotDecisionForStaffPlacement(
           ctx,
           {
@@ -3770,6 +3805,69 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
   },
   returns: v.union(v.null(), candidateSlotDecisionValidator),
 });
+
+function getStaffPlacementPractitionerAssociationBlock(args: {
+  candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+  locationLineageKey: LocationLineageKey;
+  preferredPractitionerLineageKey: Id<"practitioners"> | null | undefined;
+}): CandidateSlotDecision | null {
+  if (args.preferredPractitionerLineageKey === undefined) {
+    return null;
+  }
+
+  if (args.preferredPractitionerLineageKey === null) {
+    return unavailableCandidateSlotDecision({
+      candidate: args.candidate,
+      locationLineageKey: args.locationLineageKey,
+      provenance: "schedulerUnavailable",
+      reason: STAFF_PLACEMENT_MISSING_PRACTITIONER_ASSOCIATION_REASON,
+    });
+  }
+
+  if (
+    args.candidate.practitionerLineageKey === undefined ||
+    args.candidate.practitionerLineageKey ===
+      args.preferredPractitionerLineageKey
+  ) {
+    return null;
+  }
+
+  return unavailableCandidateSlotDecision({
+    candidate: args.candidate,
+    locationLineageKey: args.locationLineageKey,
+    provenance: "schedulerUnavailable",
+    reason: STAFF_PLACEMENT_NON_PREFERRED_PRACTITIONER_REASON,
+  });
+}
+
+async function resolveStaffPlacementPreferredPractitionerLineageKey(
+  ctx: QueryCtx,
+  args: {
+    patientId?: Id<"patients">;
+    practiceId: Id<"practices">;
+  },
+): Promise<Id<"practitioners"> | null | undefined> {
+  if (args.patientId === undefined) {
+    return;
+  }
+
+  const patient = await ctx.db.get("patients", args.patientId);
+  if (patient?.practiceId !== args.practiceId) {
+    return null;
+  }
+  if (patient.recordType !== "pvs") {
+    return;
+  }
+
+  const association = await resolvePreferredPractitionerAssociation(ctx.db, {
+    ...(patient.bookingIdentityId === undefined
+      ? {}
+      : { bookingIdentityId: patient.bookingIdentityId }),
+    patientId: args.patientId,
+    practiceId: args.practiceId,
+  });
+  return association?.practitionerLineageKey ?? null;
+}
 
 export const createAppointmentSeries = mutation({
   args: {

@@ -97,6 +97,7 @@ export function CalendarSidebar() {
     practiceId,
     ruleSetId,
     runCreateAppointment,
+    schedulingRuleSetId,
     selectedAppointmentTypeId,
     selectedDate,
     selectedLocationId,
@@ -354,6 +355,7 @@ export function CalendarSidebar() {
             patient={patient}
             practiceId={practiceId}
             ruleSetId={ruleSetId}
+            schedulingRuleSetId={schedulingRuleSetId}
             selectedDate={selectedDate.toString()}
             selectedPatientId={selectedPatientId}
             {...(onAppointmentCreated && { onAppointmentCreated })}

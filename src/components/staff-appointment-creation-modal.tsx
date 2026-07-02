@@ -38,6 +38,7 @@ import {
 } from "../utils/frontend-errors";
 import { getPatientInfoDisplayName } from "../utils/patient-info";
 import { zonedDateTimeStringResult } from "../utils/time-calculations";
+import { PatientPractitionerChangeDialog } from "./patient-practitioner-change-dialog";
 import {
   getPatientSelectionPanelInitialSelection,
   PatientSelectionPanel,
@@ -80,6 +81,7 @@ interface StaffAppointmentCreationModalProps {
   runCreateAppointment: (
     args: CalendarAppointmentCreateCommandArgs,
   ) => Promise<Id<"appointments"> | undefined>;
+  schedulingRuleSetId: Id<"ruleSets"> | undefined;
   selectedDate: string;
   selectedPatientId: Id<"patients"> | undefined;
 }
@@ -98,6 +100,7 @@ export function StaffAppointmentCreationModal({
   practiceId,
   ruleSetId,
   runCreateAppointment,
+  schedulingRuleSetId,
   selectedDate,
   selectedPatientId,
 }: StaffAppointmentCreationModalProps) {
@@ -105,6 +108,12 @@ export function StaffAppointmentCreationModal({
   const [selectedFallbackPatient, setSelectedFallbackPatient] = useState<
     PracticePatientSelection | undefined
   >();
+  const [isPractitionerDialogOpen, setIsPractitionerDialogOpen] =
+    useState(false);
+  const [
+    pendingActionAfterPractitionerChange,
+    setPendingActionAfterPractitionerChange,
+  ] = useState<"manual" | "next" | null>(null);
   const [title, setTitle] = useState("");
 
   // Get appointment type name for display - only query when modal is open
@@ -130,10 +139,28 @@ export function StaffAppointmentCreationModal({
     selectedFallbackPatient && "id" in selectedFallbackPatient
       ? selectedFallbackPatient.id
       : selectedPatientId;
+  const patientIdForPractitionerAssociation =
+    effectivePatient?.convexPatientId ?? effectiveSelectedPatientId;
+  const requiresPractitionerAssociation =
+    effectivePatient?.recordType === "pvs" &&
+    patientIdForPractitionerAssociation !== undefined;
+  const currentPractitionerAssociation = useQuery(
+    api.practitionerAssociations.getPreferredPractitionerAssociationForPatient,
+    open && requiresPractitionerAssociation
+      ? { patientId: patientIdForPractitionerAssociation, practiceId }
+      : "skip",
+  );
+  const hasPractitionerAssociation =
+    !requiresPractitionerAssociation ||
+    (currentPractitionerAssociation !== undefined &&
+      currentPractitionerAssociation !== null);
 
   const effectiveNextAvailableSlot = useQuery(
     api.appointments.getNextAvailableCandidateSlotForStaffPlacement,
-    open && location !== undefined && appointmentType !== undefined
+    open &&
+      location !== undefined &&
+      appointmentType !== undefined &&
+      hasPractitionerAssociation
       ? {
           appointmentTypeId,
           date: selectedDate,
@@ -159,6 +186,30 @@ export function StaffAppointmentCreationModal({
       ? effectiveNextAvailableSlot.practitionerLineageKey
       : undefined;
   const availableSeriesBlueprint = effectiveNextAvailableSlot?.seriesBlueprint;
+
+  const continueAfterPractitionerChange = () => {
+    if (pendingActionAfterPractitionerChange === "next") {
+      setMode("next");
+    }
+    if (pendingActionAfterPractitionerChange === "manual") {
+      onPendingTitleChange?.(title.trim());
+      handleClose(false);
+    }
+    setPendingActionAfterPractitionerChange(null);
+  };
+
+  const requirePractitionerAssociation = (action: "manual" | "next") => {
+    if (!requiresPractitionerAssociation) {
+      return false;
+    }
+    if (hasPractitionerAssociation) {
+      return false;
+    }
+
+    setPendingActionAfterPractitionerChange(action);
+    setIsPractitionerDialogOpen(true);
+    return true;
+  };
 
   // Determine if we have a patient (from GDT or user-linked booking)
   const hasPersistedPatient = effectivePatient?.convexPatientId !== undefined;
@@ -427,6 +478,7 @@ export function StaffAppointmentCreationModal({
   const handleClose = (shouldResetAppointmentType = true) => {
     onOpenChange(false, shouldResetAppointmentType);
     setMode(null);
+    setPendingActionAfterPractitionerChange(null);
     setSelectedFallbackPatient(undefined);
     setTitle("");
     form.reset();
@@ -673,6 +725,9 @@ export function StaffAppointmentCreationModal({
                   className="w-full justify-start"
                   disabled={!title.trim() || !hasAnyPatient}
                   onClick={() => {
+                    if (requirePractitionerAssociation("next")) {
+                      return;
+                    }
                     setMode("next");
                   }}
                   variant="outline"
@@ -723,6 +778,9 @@ export function StaffAppointmentCreationModal({
                   className="w-full justify-start"
                   disabled={!title.trim() || !hasAnyPatient}
                   onClick={() => {
+                    if (requirePractitionerAssociation("manual")) {
+                      return;
+                    }
                     // Pass the appointment reason to the calendar for manual placement.
                     onPendingTitleChange?.(title.trim());
                     // Close modal but keep appointment type selected for manual placement
@@ -749,6 +807,16 @@ export function StaffAppointmentCreationModal({
           )}
         </DialogContent>
       </Dialog>
+      <PatientPractitionerChangeDialog
+        onAssociated={continueAfterPractitionerChange}
+        onOpenChange={setIsPractitionerDialogOpen}
+        open={isPractitionerDialogOpen}
+        patientDisplayName={getPatientDisplayName()}
+        patientId={patientIdForPractitionerAssociation}
+        practiceId={practiceId}
+        ruleSetId={ruleSetId}
+        schedulingRuleSetId={schedulingRuleSetId}
+      />
     </>
   );
 }

@@ -219,6 +219,7 @@ export function useCalendarLogic({
     draggedAppointment?.record.appointmentTypeLineageKey;
 
   const {
+    activeRuleSetId,
     allPracticeAppointmentDocMap,
     allPracticeAppointmentDocMapRef,
     allPracticeAppointmentsLoaded,
@@ -2046,6 +2047,7 @@ export function useCalendarLogic({
     runDeleteBlockedSlot: planningCommands.deleteBlockedSlot,
     runUpdateAppointment: planningCommands.updateAppointment,
     runUpdateBlockedSlot: planningCommands.updateBlockedSlot,
+    schedulingRuleSetId: activeRuleSetId,
     selectedDate,
     selectedLocationId:
       (simulatedContext?.locationLineageKey &&

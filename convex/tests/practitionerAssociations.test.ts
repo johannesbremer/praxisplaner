@@ -188,6 +188,78 @@ async function insertAppointment(
 }
 
 describe("practitioner associations", () => {
+  test("manual association accepts a practitioner lineage in the supplied rule set", async () => {
+    const t = createTestContext();
+    const fixture = await createAssociationFixture(t);
+    const manager = await createMigrationManager(
+      t,
+      fixture.practiceId,
+      "manual-rule-set-valid",
+    );
+
+    const result = await manager.mutation(
+      api.practitionerAssociations.setManualPractitionerAssociationForPatient,
+      {
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+        practitionerLineageKey: fixture.firstPractitionerId,
+        ruleSetId: fixture.ruleSetId,
+      },
+    );
+
+    expect(result.kind).toBe("associated");
+    const preferred = await t.run(async (ctx) =>
+      resolvePreferredPractitionerAssociation(ctx.db, {
+        patientId: fixture.patientId,
+        practiceId: fixture.practiceId,
+      }),
+    );
+    expect(preferred?.practitionerLineageKey).toBe(fixture.firstPractitionerId);
+  });
+
+  test("manual association rejects a draft-only practitioner against the active rule set", async () => {
+    const t = createTestContext();
+    const fixture = await createAssociationFixture(t);
+    const draftOnlyPractitionerId = await t.run(async (ctx) => {
+      const draftRuleSetId = await ctx.db.insert("ruleSets", {
+        createdAt: Date.now(),
+        description: "Draft Rule Set",
+        draftRevision: 1,
+        parentVersion: fixture.ruleSetId,
+        practiceId: fixture.practiceId,
+        saved: false,
+        version: 2,
+      });
+      return await insertSelfLineageEntity(ctx.db, "practitioners", {
+        name: "Dr. Draft",
+        practiceId: fixture.practiceId,
+        ruleSetId: draftRuleSetId,
+      });
+    });
+    const manager = await createMigrationManager(
+      t,
+      fixture.practiceId,
+      "manual-rule-set-draft-only",
+    );
+
+    await expect(
+      manager.mutation(
+        api.practitionerAssociations.setManualPractitionerAssociationForPatient,
+        {
+          patientId: fixture.patientId,
+          practiceId: fixture.practiceId,
+          practitionerLineageKey: draftOnlyPractitionerId,
+          ruleSetId: fixture.ruleSetId,
+        },
+      ),
+    ).rejects.toThrow("Behandler nicht in diesem Regelset.");
+
+    const rows = await t.run(async (ctx) =>
+      ctx.db.query("practitionerAssociations").collect(),
+    );
+    expect(rows).toHaveLength(0);
+  });
+
   test("validates association subject and accepts patient, booking identity, or both", async () => {
     const t = createTestContext();
     const fixture = await createAssociationFixture(t);
