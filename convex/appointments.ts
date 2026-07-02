@@ -2866,7 +2866,6 @@ const candidateSlotDecisionValidator = v.object({
 type CandidateSlotDecision = Infer<typeof candidateSlotDecisionValidator>;
 
 const NEXT_AVAILABLE_CANDIDATE_SEARCH_DAYS = 90;
-const STAFF_PLACEMENT_CANDIDATE_DAY_LIMIT = 4096;
 
 function availableCandidateSlotDecision(args: {
   candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
@@ -3332,13 +3331,6 @@ function requireStaffPlacementCandidatesWithinRequestedDate(args: {
   candidates: AppointmentSeriesRootSlotCandidate[];
   date: IsoDateString;
 }): void {
-  if (args.candidates.length > STAFF_PLACEMENT_CANDIDATE_DAY_LIMIT) {
-    throw new ConvexError({
-      code: "INVALID_ARGUMENT",
-      message: `Staff-placement candidate batches are limited to ${STAFF_PLACEMENT_CANDIDATE_DAY_LIMIT} slots for one calendar day.`,
-    });
-  }
-
   for (const candidate of args.candidates) {
     const candidateDate = Temporal.ZonedDateTime.from(
       asZonedDateTimeString(candidate.startTime),
