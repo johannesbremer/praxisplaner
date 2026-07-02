@@ -24,7 +24,6 @@ import { Temporal } from "temporal-polyfill";
 import { describe, expect, test } from "vitest";
 
 import type { Id } from "../_generated/dataModel";
-import type { ConditionTreeNode } from "../ruleEngine";
 
 import {
   conditionTreeToConditions,
@@ -32,6 +31,11 @@ import {
 } from "../../lib/rule-name-generator.js";
 import { api, internal } from "../_generated/api";
 import { insertSelfLineageEntity, requireLineageKey } from "../lineage";
+import {
+  buildPreloadedDayData,
+  type ConditionTreeNode,
+  evaluateLoadedRulesHelper,
+} from "../ruleEngine";
 import schema from "../schema";
 import { modules } from "./test.setup";
 
@@ -734,6 +738,112 @@ describe("Rule Engine: Simple Filter Conditions", () => {
     );
 
     expect(branchResult.isBlocked).toBe(false);
+  });
+
+  test("INSURANCE_STATUS treats missing status as unknown", async () => {
+    const t = createTestContext();
+
+    const practiceId = await createPractice(t);
+    const ruleSetId = await createRuleSet(t, practiceId, true);
+    const practitionerId = await createPractitioner(
+      t,
+      practiceId,
+      ruleSetId,
+      "Dr. Smith",
+    );
+    const locationId = await createLocation(t, practiceId, ruleSetId, "Office");
+    const appointmentTypeId = await createAppointmentType(
+      t,
+      practiceId,
+      ruleSetId,
+      "Checkup",
+      [practitionerId],
+    );
+
+    await createRule(t, practiceId, ruleSetId, {
+      conditionType: "INSURANCE_STATUS" as const,
+      nodeType: "CONDITION" as const,
+      operator: "IS" as const,
+      valueIds: ["unknown"],
+    });
+
+    const missingStatusResult = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId,
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
+          locationId,
+          practiceId,
+          practitionerId,
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+
+    expect(missingStatusResult.isBlocked).toBe(true);
+
+    const publicStatusResult = await t.query(
+      internal.ruleEngine.checkRulesForAppointment,
+      {
+        context: {
+          appointmentTypeId,
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
+          locationId,
+          patientInsuranceStatus: "public",
+          practiceId,
+          practitionerId,
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
+        },
+        ruleSetId,
+      },
+    );
+
+    expect(publicStatusResult.isBlocked).toBe(false);
+
+    const loadedHelperResult = await t.run(async (ctx) => {
+      const conditions = await ctx.db
+        .query("ruleConditions")
+        .withIndex("by_ruleSetId", (q) => q.eq("ruleSetId", ruleSetId))
+        .collect();
+      const practitioner = await ctx.db.get("practitioners", practitionerId);
+      if (!practitioner) {
+        throw new Error("Missing practitioner");
+      }
+      const preloadedData = await buildPreloadedDayData(
+        ctx.db,
+        practiceId,
+        "2025-10-27",
+        ruleSetId,
+        [practitioner],
+      );
+      return evaluateLoadedRulesHelper(
+        {
+          appointmentTypeId,
+          dateTime: "2025-10-27T11:00:00+01:00[Europe/Berlin]",
+          locationId,
+          practiceId,
+          practitionerId,
+          requestedAt: "2025-10-24T11:00:00+02:00[Europe/Berlin]",
+        },
+        {
+          conditions,
+          conditionsMap: new Map(
+            conditions.map((condition) => [condition._id, condition]),
+          ),
+          rules: conditions
+            .filter((condition) => condition.isRoot)
+            .map((condition) => ({
+              _id: condition._id,
+              isDayInvariant: false,
+            })),
+        },
+        preloadedData,
+      );
+    });
+
+    expect(loadedHelperResult.isBlocked).toBe(true);
   });
 
   test("DAY_OF_WEEK with IS operator - should block specific day", async () => {

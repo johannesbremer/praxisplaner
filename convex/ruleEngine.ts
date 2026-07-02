@@ -506,6 +506,7 @@ export function asAppointmentContextInput(
     ...(rawPatientDateOfBirth !== undefined && {
       patientDateOfBirth: rawPatientDateOfBirth,
     }),
+    patientInsuranceStatus: rest.patientInsuranceStatus ?? "unknown",
     ...(requestedAt !== undefined && { requestedAt }),
   };
 }
@@ -523,6 +524,15 @@ function asRuleEngineZonedDateTimeString(
   } catch {
     throw new Error(`Expected ISO zoned datetime string, got "${value}".`);
   }
+}
+
+function normalizeAppointmentContext(
+  context: AppointmentContext,
+): AppointmentContext {
+  return {
+    ...context,
+    patientInsuranceStatus: context.patientInsuranceStatus ?? "unknown",
+  };
 }
 
 /**
@@ -963,6 +973,8 @@ function evaluateConditionTree(
   conditionsMap: Map<Id<"ruleConditions">, Doc<"ruleConditions">>,
   allConditions: Doc<"ruleConditions">[],
 ): boolean {
+  const normalizedContext = normalizeAppointmentContext(context);
+
   // Inner recursive function that uses the preloaded data
   const evaluateTreeInternal = (id: Id<"ruleConditions">): boolean => {
     // Use cached node from conditionsMap
@@ -976,7 +988,7 @@ function evaluateConditionTree(
 
     // If this is a leaf condition, evaluate it directly
     if (node.nodeType === "CONDITION") {
-      return evaluateCondition(node, context, preloadedData);
+      return evaluateCondition(node, normalizedContext, preloadedData);
     }
 
     // Get ordered children from pre-loaded conditions
@@ -1791,6 +1803,7 @@ export function preEvaluateDayInvariantRulesHelper(
   blockedByRuleIds: Id<"ruleConditions">[];
   evaluatedCount: number;
 } {
+  const normalizedContext = normalizeAppointmentContext(context);
   const blockedRuleIds: Id<"ruleConditions">[] = [];
 
   // Helper to get condition from the pre-loaded map
@@ -1819,7 +1832,7 @@ export function preEvaluateDayInvariantRulesHelper(
 
     // If this is a leaf condition, evaluate it directly
     if (node.nodeType === "CONDITION") {
-      return evaluateCondition(node, context, preloadedData);
+      return evaluateCondition(node, normalizedContext, preloadedData);
     }
 
     // Get ordered children
@@ -1925,6 +1938,7 @@ export function evaluateLoadedRulesHelper(
   isBlocked: boolean;
   timeVariantEvaluated: number;
 } {
+  const normalizedContext = normalizeAppointmentContext(context);
   const blockedByRuleIds: Id<"ruleConditions">[] = [];
 
   // Start with pre-evaluated day-invariant rules if provided
@@ -1961,7 +1975,7 @@ export function evaluateLoadedRulesHelper(
 
     // If this is a leaf condition, evaluate it directly
     if (node.nodeType === "CONDITION") {
-      return evaluateCondition(node, context, preloadedData);
+      return evaluateCondition(node, normalizedContext, preloadedData);
     }
 
     // Get ordered children
