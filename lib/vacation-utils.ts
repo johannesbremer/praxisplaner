@@ -1,5 +1,7 @@
 import { Temporal } from "temporal-polyfill";
 
+import type { AbsenceReason } from "./absence-reasons";
+
 import { TIME_OF_DAY_REGEX } from "./typed-regex";
 
 export interface BreakTimeLike {
@@ -25,6 +27,7 @@ export interface VacationLike {
   date: string;
   portion: VacationPortion;
   practitionerLineageKey?: string;
+  reason?: AbsenceReason;
   staffType: "mfa" | "practitioner";
 }
 
@@ -165,6 +168,39 @@ export function getPractitionerVacationRangesForDate(
   }
 
   return mergeRanges(ranges);
+}
+
+export function getPractitionerVacationReasonForMinute(
+  date: Temporal.PlainDate,
+  practitionerLineageKey: string,
+  schedules: ScheduleLike[],
+  vacations: VacationLike[],
+  minute: number,
+  locationLineageKey?: string,
+): AbsenceReason | undefined {
+  const dateKey = date.toString();
+  for (const vacation of vacations) {
+    if (
+      vacation.staffType !== "practitioner" ||
+      vacation.practitionerLineageKey !== practitionerLineageKey ||
+      vacation.date !== dateKey
+    ) {
+      continue;
+    }
+
+    const ranges = getPractitionerVacationRangesForDate(
+      date,
+      practitionerLineageKey,
+      schedules,
+      [vacation],
+      locationLineageKey,
+    );
+    if (minuteRangeContains(ranges, minute)) {
+      return vacation.reason;
+    }
+  }
+
+  return undefined;
 }
 
 export function getPractitionerWorkingRangesForDate(

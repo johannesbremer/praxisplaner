@@ -987,6 +987,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: draftPractitioner.entityId,
+        reason: "vacation",
         reassignments: [],
         selectedRuleSetId: draftPractitioner.ruleSetId,
       },
@@ -1022,6 +1023,7 @@ describe("vacations", () => {
       portion: "morning",
       practiceId: fixture.practiceId,
       practitionerId: fixture.absentPractitionerId,
+      reason: "vacation",
       selectedRuleSetId: fixture.ruleSetId,
       staffType: "practitioner",
     });
@@ -1109,6 +1111,7 @@ describe("vacations", () => {
       portion: "morning",
       practiceId: fixture.practiceId,
       practitionerId: copiedAbsentPractitionerId,
+      reason: "vacation",
       selectedRuleSetId: copiedRuleSetId,
       staffType: "practitioner",
     });
@@ -1164,6 +1167,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: copiedAbsentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId,
@@ -1245,6 +1249,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: copiedAbsentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId,
@@ -1286,6 +1291,7 @@ describe("vacations", () => {
       portion: "morning",
       practiceId: fixture.practiceId,
       practitionerId: fixture.absentPractitionerId,
+      reason: "vacation",
       selectedRuleSetId: fixture.ruleSetId,
       staffType: "practitioner",
     });
@@ -1344,6 +1350,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: preview.suggestions.flatMap((suggestion) =>
           suggestion.targetPractitionerLineageKey
             ? [
@@ -1395,6 +1402,7 @@ describe("vacations", () => {
       portion: "morning",
       practiceId: fixture.practiceId,
       practitionerId: fixture.absentPractitionerId,
+      reason: "vacation",
       selectedRuleSetId: fixture.ruleSetId,
       staffType: "practitioner",
     });
@@ -1498,6 +1506,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId,
@@ -1629,6 +1638,7 @@ describe("vacations", () => {
       portion: "morning",
       practiceId: fixture.practiceId,
       practitionerId: fixture.absentPractitionerId,
+      reason: "vacation",
       selectedRuleSetId: fixture.ruleSetId,
       staffType: "practitioner",
     });
@@ -1758,6 +1768,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId,
@@ -1835,6 +1846,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId,
@@ -1942,6 +1954,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId,
@@ -2083,6 +2096,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId: firstAppointmentId,
@@ -2124,6 +2138,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: secondAbsentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId: secondAppointmentId,
@@ -2171,6 +2186,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId,
@@ -2233,6 +2249,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId: staleAppointmentId,
@@ -2278,6 +2295,7 @@ describe("vacations", () => {
       portion: "morning",
       practiceId: fixture.practiceId,
       practitionerId: fixture.absentPractitionerId,
+      reason: "vacation",
       selectedRuleSetId: fixture.ruleSetId,
       staffType: "practitioner",
     });
@@ -2338,6 +2356,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId,
@@ -2385,6 +2404,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId,
@@ -2447,6 +2467,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId,
@@ -2462,6 +2483,64 @@ describe("vacations", () => {
       {
         practiceId: fixture.practiceId,
         ruleSetId: draftResult.ruleSetId,
+      },
+    );
+
+    expect(discardResult.deleted).toBe(false);
+    expect(discardResult.reason).toBe("has_changes");
+  });
+
+  test("drafts with only vacation reason changes are semantic changes", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createSchedulingFixture(t);
+    const monday = nextWeekday(1).toString();
+
+    const createdVacation = await t.mutation(api.vacations.createVacation, {
+      date: monday,
+      expectedDraftRevision: null,
+      portion: "full",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.practitionerId,
+      reason: "vacation",
+      selectedRuleSetId: fixture.ruleSetId,
+      staffType: "practitioner",
+    });
+    assertDefined(createdVacation.entityId);
+
+    const savedRuleSetId = await t.mutation(api.ruleSets.saveUnsavedRuleSet, {
+      description: "Urlaubsplanung",
+      practiceId: fixture.practiceId,
+      setAsActive: true,
+    });
+
+    const reasonOnlyUpdate = await t.mutation(api.vacations.createVacation, {
+      date: monday,
+      expectedDraftRevision: null,
+      lineageKey: createdVacation.entityId,
+      portion: "full",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.practitionerId,
+      reason: "sick",
+      selectedRuleSetId: savedRuleSetId,
+      staffType: "practitioner",
+    });
+
+    const diff = await t.query(api.ruleSets.getUnsavedRuleSetDiff, {
+      practiceId: fixture.practiceId,
+      ruleSetId: reasonOnlyUpdate.ruleSetId,
+    });
+    assertDefined(diff);
+    const vacationSection = diff.sections.find(
+      (section) => section.key === "vacations",
+    );
+    expect(vacationSection?.added).toHaveLength(1);
+    expect(vacationSection?.removed).toHaveLength(1);
+
+    const discardResult = await t.mutation(
+      api.ruleSets.discardUnsavedRuleSetIfEquivalentToParent,
+      {
+        practiceId: fixture.practiceId,
+        ruleSetId: reasonOnlyUpdate.ruleSetId,
       },
     );
 
@@ -2505,6 +2584,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId,
@@ -2601,6 +2681,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: [
           {
             appointmentId: morningAppointmentId,
@@ -2639,6 +2720,7 @@ describe("vacations", () => {
         portion: "full",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: fullPreview.suggestions.flatMap((suggestion) =>
           suggestion.targetPractitionerLineageKey
             ? [
@@ -2692,6 +2774,7 @@ describe("vacations", () => {
       portion: "morning",
       practiceId: fixture.practiceId,
       practitionerId: fixture.preferredPractitionerId,
+      reason: "vacation",
       selectedRuleSetId: fixture.ruleSetId,
       staffType: "practitioner",
     });
@@ -2704,6 +2787,7 @@ describe("vacations", () => {
         portion: "morning",
         practiceId: fixture.practiceId,
         practitionerId: fixture.absentPractitionerId,
+        reason: "vacation",
         reassignments: [],
         replacingVacationLineageKeys: [existingVacation.entityId],
         selectedRuleSetId: existingVacation.ruleSetId,
@@ -2760,6 +2844,7 @@ describe("vacations", () => {
       mfaId: createdMfa._id,
       portion: "full",
       practiceId,
+      reason: "vacation",
       selectedRuleSetId: unsavedRuleSet._id,
       staffType: "mfa",
     });
@@ -2807,7 +2892,7 @@ describe("vacations", () => {
     expect(afterDelete).toHaveLength(0);
   });
 
-  test("practitioner vacations block morning slots and both halves block the full day", async () => {
+  test("practitioner vacations block morning slots and can be changed to full day", async () => {
     const t = createAuthedTestContext();
     const fixture = await createSchedulingFixture(t);
     const monday = nextWeekday(1).toString();
@@ -2818,6 +2903,7 @@ describe("vacations", () => {
       portion: "morning",
       practiceId: fixture.practiceId,
       practitionerId: fixture.practitionerId,
+      reason: "vacation",
       selectedRuleSetId: fixture.ruleSetId,
       staffType: "practitioner",
     });
@@ -2868,9 +2954,10 @@ describe("vacations", () => {
     await t.mutation(api.vacations.createVacation, {
       date: monday,
       expectedDraftRevision: unsavedRuleSet.draftRevision,
-      portion: "afternoon",
+      portion: "full",
       practiceId: fixture.practiceId,
       practitionerId: fixture.practitionerId,
+      reason: "vacation",
       selectedRuleSetId: unsavedRuleSet._id,
       staffType: "practitioner",
     });
@@ -2925,6 +3012,7 @@ describe("vacations", () => {
       portion: "full",
       practiceId: fixture.practiceId,
       practitionerId: fixture.practitionerId,
+      reason: "vacation",
       selectedRuleSetId: fixture.ruleSetId,
       staffType: "practitioner",
     });
@@ -2936,6 +3024,7 @@ describe("vacations", () => {
       portion: "full",
       practiceId: fixture.practiceId,
       practitionerId: fixture.practitionerId,
+      reason: "vacation",
       selectedRuleSetId: firstCreate.ruleSetId,
       staffType: "practitioner",
     });
@@ -2979,6 +3068,7 @@ describe("vacations", () => {
       portion: "full",
       practiceId: fixture.practiceId,
       practitionerId: fixture.practitionerId,
+      reason: "vacation",
       selectedRuleSetId: fixture.ruleSetId,
       staffType: "practitioner",
     });
@@ -2990,6 +3080,7 @@ describe("vacations", () => {
       portion: "full",
       practiceId: fixture.practiceId,
       practitionerId: fixture.practitionerId,
+      reason: "vacation",
       selectedRuleSetId: firstRedo.ruleSetId,
       staffType: "practitioner",
     });
@@ -3124,6 +3215,7 @@ describe("vacations", () => {
       portion: "morning",
       practiceId: fixture.practiceId,
       practitionerId: fixture.absentPractitionerId,
+      reason: "vacation",
       selectedRuleSetId: fixture.ruleSetId,
       staffType: "practitioner",
     });

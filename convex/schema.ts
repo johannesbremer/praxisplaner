@@ -1008,24 +1008,31 @@ export default defineSchema({
     ),
     practiceId: v.id("practices"),
     practitionerLineageKey: v.optional(v.id("practitioners")),
+    reason: v.union(
+      v.literal("vacation"),
+      v.literal("sick"),
+      v.literal("overtime"),
+      v.literal("training"),
+      v.literal("child-sick"),
+      v.literal("other"),
+      v.literal("birthday"),
+    ),
     ruleSetId: v.id("ruleSets"),
     staffType: v.union(v.literal("mfa"), v.literal("practitioner")),
   })
     .index("by_practiceId", ["practiceId"])
     .index("by_ruleSetId", ["ruleSetId"])
     .index("by_ruleSetId_date", ["ruleSetId", "date"])
-    .index("by_ruleSetId_date_staffType_portion_mfaLineageKey", [
+    .index("by_ruleSetId_date_staffType_mfaLineageKey", [
       "ruleSetId",
       "date",
       "staffType",
-      "portion",
       "mfaLineageKey",
     ])
-    .index("by_ruleSetId_date_staffType_portion_practitionerLineageKey", [
+    .index("by_ruleSetId_date_staffType_practitionerLineageKey", [
       "ruleSetId",
       "date",
       "staffType",
-      "portion",
       "practitionerLineageKey",
     ])
     .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"])

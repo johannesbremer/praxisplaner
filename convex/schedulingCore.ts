@@ -5,8 +5,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, QueryCtx } from "./_generated/server";
 import type { AppointmentBookingScope } from "./appointmentConflicts";
 
+import { formatAbsenceReason } from "../lib/absence-reasons";
 import {
   getPractitionerVacationRangesForDate,
+  getPractitionerVacationReasonForMinute,
   type MinuteRange,
   minuteRangeContains,
 } from "../lib/vacation-utils";
@@ -805,7 +807,17 @@ async function markSlotsBlockedByAbsence(
     );
 
     if (minuteRangeContains(vacationRanges, slotMinute)) {
-      slot.reason = "Urlaub";
+      const absenceReason = getPractitionerVacationReasonForMinute(
+        args.date,
+        slot.practitionerLineageKey,
+        ruleSetBaseSchedules,
+        practitionerVacationsForDay,
+        slotMinute,
+        slot.locationLineageKey,
+      );
+      slot.reason = absenceReason
+        ? formatAbsenceReason(absenceReason)
+        : "Abwesenheit";
       slot.status = "BLOCKED";
     }
   }

@@ -142,6 +142,7 @@ async function querySlotStatus(blockers: ReadonlySet<BlockerKind>) {
         portion: "full",
         practiceId: fixture.practiceId,
         practitionerLineageKey: fixture.practitionerId,
+        reason: "vacation",
         ruleSetId: fixture.ruleSetId,
         staffType: "practitioner",
       });
