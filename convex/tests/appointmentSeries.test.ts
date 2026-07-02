@@ -5894,6 +5894,79 @@ describe("appointment series", () => {
     expect(decisions).toEqual([]);
   });
 
+  test("candidate slot decisions mark stale practitioners unavailable", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const { appointmentTypeId, stalePractitionerId } = await t.run(
+      async (ctx) => {
+        const now = Date.now();
+        const otherRuleSetId = await ctx.db.insert("ruleSets", {
+          createdAt: now,
+          description: "Other rule set",
+          draftRevision: 0,
+          practiceId,
+          saved: true,
+          version: 2,
+        });
+        const staleId = await insertWithLineage(ctx, "practitioners", {
+          name: "Dr. Stale",
+          practiceId,
+          ruleSetId: otherRuleSetId,
+        });
+        const typeId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
+          createdAt: BigInt(Date.now()),
+          defaultOccupancy: { kind: "selectedPractitioner" },
+          duration: 20,
+          lastModified: BigInt(Date.now()),
+          name: "Regular Type",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", typeId, {
+          lineageKey: typeId,
+        });
+        return { appointmentTypeId: typeId, stalePractitionerId: staleId };
+      },
+    );
+
+    const start = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+    const decisions = await t.query(
+      api.appointments.getCandidateSlotDecisionsForStaffPlacement,
+      {
+        appointmentTypeId,
+        candidates: [
+          {
+            duration: 20,
+            locationLineageKey: locationId,
+            practitionerLineageKey: stalePractitionerId,
+            practitionerName: "Dr. Stale",
+            startTime: start,
+          },
+        ],
+        locationId,
+        practiceId,
+        ruleSetId,
+      },
+    );
+
+    expect(decisions).toEqual([
+      expect.objectContaining({
+        practitionerLineageKey: stalePractitionerId,
+        provenance: "schedulerUnavailable",
+        status: "unavailable",
+      }),
+    ]);
+  });
+
   test("series next-available search skips practitioners disallowed for the root type", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =

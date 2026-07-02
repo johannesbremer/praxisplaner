@@ -3001,16 +3001,25 @@ async function evaluateSingleAppointmentCandidateSlot(
   const practitionerId =
     practitionerLineageKey === undefined
       ? undefined
-      : await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+      : await resolveCandidatePractitionerIdForStaffPlacement(ctx.db, {
           lineageKey: practitionerLineageKey,
           ruleSetId: args.ruleSetId,
         });
+  if (practitionerLineageKey !== undefined && practitionerId === null) {
+    return unavailableCandidateSlotDecision({
+      candidate: args.candidate,
+      locationLineageKey: args.locationLineageKey,
+      provenance: "schedulerUnavailable",
+      reason:
+        "Der ausgewählte Behandler ist in diesem Regelset nicht verfügbar.",
+    });
+  }
   const storedReferences = await resolveStoredAppointmentReferencesForWrite(
     ctx.db,
     {
       appointmentTypeId: asAppointmentTypeId(args.appointmentType._id),
       locationId: asLocationId(args.locationId),
-      ...(practitionerId === undefined
+      ...(practitionerId === undefined || practitionerId === null
         ? {}
         : { practitionerId: asPractitionerId(practitionerId) }),
     },
@@ -3289,6 +3298,20 @@ function isSchedulerSlotBlockedOnlyByAppointmentOccupancy(slot: {
   );
 }
 
+async function resolveCandidatePractitionerIdForStaffPlacement(
+  db: DatabaseReader,
+  args: {
+    lineageKey: PractitionerLineageKey;
+    ruleSetId: Id<"ruleSets">;
+  },
+): Promise<Id<"practitioners"> | null> {
+  try {
+    return await resolvePractitionerIdForRuleSetByLineage(db, args);
+  } catch {
+    return null;
+  }
+}
+
 async function resolveCandidateSlotDecisionForStaffPlacement(
   ctx: MutationCtx | QueryCtx,
   args: {
@@ -3332,11 +3355,24 @@ async function resolveCandidateSlotDecisionForStaffPlacement(
     cachedPractitionerId ??
     (practitionerLineageKey === undefined
       ? undefined
-      : await resolvePractitionerIdForRuleSetByLineage(ctx.db, {
+      : await resolveCandidatePractitionerIdForStaffPlacement(ctx.db, {
           lineageKey: practitionerLineageKey,
           ruleSetId: args.ruleSetId,
         }));
-  if (practitionerLineageKey !== undefined && practitionerId !== undefined) {
+  if (practitionerLineageKey !== undefined && practitionerId === null) {
+    return unavailableCandidateSlotDecision({
+      candidate: args.candidate,
+      locationLineageKey: args.locationLineageKey,
+      provenance: "schedulerUnavailable",
+      reason:
+        "Der ausgewählte Behandler ist in diesem Regelset nicht verfügbar.",
+    });
+  }
+  if (
+    practitionerLineageKey !== undefined &&
+    practitionerId !== undefined &&
+    practitionerId !== null
+  ) {
     args.practitionerIdsByLineageKey.set(
       practitionerLineageKey,
       practitionerId,
@@ -3362,7 +3398,9 @@ async function resolveCandidateSlotDecisionForStaffPlacement(
         ...(args.candidate.calendarResourceColumn === undefined
           ? {}
           : { calendarResourceColumn: args.candidate.calendarResourceColumn }),
-        ...(practitionerId === undefined ? {} : { practitionerId }),
+        ...(practitionerId === undefined || practitionerId === null
+          ? {}
+          : { practitionerId }),
         rootAppointmentTypeId: args.appointmentType._id,
         ruleSetId: args.ruleSetId,
         ...(args.scope === undefined ? {} : { scope: args.scope }),
