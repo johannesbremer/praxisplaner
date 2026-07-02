@@ -5,6 +5,11 @@
 
 import type { ConditionTreeNode, ConditionType } from "./condition-tree";
 
+import {
+  INSURANCE_STATUS_LABELS,
+  type InsuranceStatus,
+} from "./insurance-status";
+
 export type AdvanceTimeUnit = "days" | "hours" | "minutes";
 
 // Condition types matching the UI
@@ -249,6 +254,21 @@ export function generateRuleName(
         parts.push(`der Termin weniger als ${hours} ${hourLabel}`);
         break;
       }
+      case "INSURANCE_STATUS": {
+        const names =
+          condition.valueIds
+            ?.map(
+              (status) => INSURANCE_STATUS_LABELS[status as InsuranceStatus],
+            )
+            .filter(isDefined) ?? [];
+        const isExclude = condition.operator === "IS_NOT";
+        const formattedValue =
+          names.length > 0 ? formatNames(names) : "[Versicherung]";
+        parts.push(
+          `die Versicherung ${isExclude ? "nicht " : ""}${formattedValue} ist,`,
+        );
+        break;
+      }
       case "LOCATION": {
         const names =
           condition.valueIds
@@ -415,6 +435,7 @@ function parseConditionNode(
     }
     case "CLIENT_TYPE":
     case "DATE_RANGE":
+    case "INSURANCE_STATUS":
     case "TIME_RANGE": {
       return {
         id,

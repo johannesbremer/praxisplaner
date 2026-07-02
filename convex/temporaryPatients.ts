@@ -1,5 +1,6 @@
 import { ConvexError } from "convex/values";
 
+import type { KnownInsuranceStatus } from "../lib/insurance-status";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 
@@ -14,6 +15,7 @@ export const INVALID_TEMPORARY_PATIENT_MESSAGE =
 export async function createTemporaryPatientRecord(
   ctx: MutationCtx,
   args: {
+    insuranceStatus?: KnownInsuranceStatus;
     name: string;
     phoneNumber: string;
     practiceId: Id<"practices">;
@@ -29,6 +31,7 @@ export async function createTemporaryPatientRecord(
 export async function createTemporaryPatientRecordWithIdentity(
   ctx: MutationCtx,
   args: {
+    insuranceStatus?: KnownInsuranceStatus;
     name: string;
     phoneNumber: string;
     practiceId: Id<"practices">;
@@ -49,6 +52,7 @@ export async function createTemporaryPatientRecordWithIdentity(
   const patientId = await ctx.db.insert("patients", {
     bookingIdentityId,
     createdAt: now,
+    insuranceStatus: args.insuranceStatus ?? "unknown",
     lastModified: now,
     name,
     phoneNumber,

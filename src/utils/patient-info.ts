@@ -103,6 +103,7 @@ export function patientDocToInfo(
         ...(patient.city !== undefined && { city: patient.city }),
         convexPatientId: patient._id,
         ...(dateOfBirth !== undefined && { dateOfBirth }),
+        insuranceStatus: patient.insuranceStatus,
         isNewPatient: false,
         name:
           patient.name ??
@@ -118,6 +119,7 @@ export function patientDocToInfo(
       convexPatientId: patient._id,
       ...(dateOfBirth !== undefined && { dateOfBirth }),
       ...(patient.firstName !== undefined && { firstName: patient.firstName }),
+      insuranceStatus: patient.insuranceStatus,
       isNewPatient: false,
       ...(patient.lastName !== undefined && { lastName: patient.lastName }),
       ...(patient.patientId !== undefined && { patientId: patient.patientId }),

@@ -26,6 +26,7 @@ import {
   getPractitionerLineageKeyFromColumn,
   sameCalendarColumnScope,
 } from "../../../lib/calendar-occupancy";
+import { isKnownInsuranceStatus } from "../../../lib/insurance-status";
 import { createSimulatedContext } from "../../../lib/utils";
 import { findIdInList } from "../../utils/convex-ids";
 import { captureErrorGlobal } from "../../utils/error-tracking";
@@ -605,10 +606,16 @@ export function useCalendarLogic({
     placementAppointmentTypeLineageKey === undefined
       ? undefined
       : appointmentTypeIdByLineageKey.get(placementAppointmentTypeLineageKey);
+  const knownPatientInsuranceStatus = isKnownInsuranceStatus(
+    patient?.insuranceStatus,
+  )
+    ? patient.insuranceStatus
+    : undefined;
   const shouldQueryAppointmentSeriesRootBlockedSlots =
     appointmentSeriesRootCandidates.length > 0 &&
     appointmentSeriesRootAppointmentTypeId !== undefined &&
     placementLocationId !== undefined &&
+    knownPatientInsuranceStatus !== undefined &&
     effectiveRuleSetId !== undefined;
   const appointmentSeriesRootBlockedSlots = useQuery(
     api.appointments.getCandidateSlotDecisionsForStaffPlacement,
@@ -625,6 +632,7 @@ export function useCalendarLogic({
           ...(patient?.isNewPatient === undefined
             ? {}
             : { isNewPatient: patient.isNewPatient }),
+          patientInsuranceStatus: knownPatientInsuranceStatus,
           ...(patient?.recordType === "pvs"
             ? { patientId: patient.convexPatientId }
             : {}),

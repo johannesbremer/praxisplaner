@@ -60,6 +60,7 @@ export type CalendarAppointmentRecord = Omit<
 
 export interface CalendarAppointmentView {
   color: AppointmentColor;
+  hasPrivateInsurance?: boolean;
   layout: CalendarAppointmentLayout;
   patientName?: string;
 }

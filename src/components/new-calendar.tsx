@@ -69,7 +69,7 @@ import { useCalendarLogic } from "./calendar/use-calendar-logic";
 const TIMEZONE = "Europe/Berlin";
 type SelectedPatient =
   | { id: Id<"patients">; info?: PatientInfo; type: "patient" }
-  | { id: Id<"users">; type: "user" }
+  | { id: Id<"users">; info?: PatientInfo; type: "user" }
   | { info: PatientInfo; type: "draftTemporaryPatient" };
 
 export function getSidebarAppointmentCalendarTarget(args: {
@@ -661,10 +661,18 @@ export function NewCalendar({
         return;
       }
 
-      setSelectedPatient({
-        info: selected.info,
-        type: "draftTemporaryPatient",
-      });
+      setSelectedPatient(
+        selected.info.userId === undefined
+          ? {
+              info: selected.info,
+              type: "draftTemporaryPatient",
+            }
+          : {
+              id: selected.info.userId,
+              info: selected.info,
+              type: "user",
+            },
+      );
     },
     [],
   );

@@ -1063,6 +1063,7 @@ export const getBlockedSlotsWithoutAppointmentType = query({
         clientType: args.clientType,
         dateTime: asZonedDateTimeString(slot.startTime),
         locationId: displayReferences.locationId,
+        patientInsuranceStatus: "public",
         practiceId: args.practiceId,
         practitionerId: displayReferences.practitionerId,
         requestedAt: getNowAsZonedString(),

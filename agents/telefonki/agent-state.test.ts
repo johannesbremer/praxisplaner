@@ -54,6 +54,7 @@ describe("TelefonKI agent state helpers", () => {
       criteria: buildTelefonkiOfferCriteria({
         appointmentTypeLineageKey: "appointmentType_a",
         birthDate: "1980-01-01",
+        insuranceStatus: "public",
         isNewPatient: false,
         locationLineageKey: "locations_a",
       }),
@@ -88,6 +89,7 @@ describe("TelefonKI agent state helpers", () => {
     const originalCriteria = buildTelefonkiOfferCriteria({
       appointmentTypeLineageKey: "appointmentType_a",
       birthDate: "1980-01-01",
+      insuranceStatus: "public",
       isNewPatient: false,
       locationLineageKey: "locations_a",
       practitionerLineageKey: "practitioners_a",
@@ -95,6 +97,7 @@ describe("TelefonKI agent state helpers", () => {
     const changedCriteria = buildTelefonkiOfferCriteria({
       appointmentTypeLineageKey: "appointmentType_b",
       birthDate: "1980-01-01",
+      insuranceStatus: "public",
       isNewPatient: false,
       locationLineageKey: "locations_a",
       practitionerLineageKey: "practitioners_a",
@@ -138,6 +141,7 @@ describe("TelefonKI agent state helpers", () => {
     const activeOffers = createActiveOffers();
     const criteria = buildTelefonkiOfferCriteria({
       appointmentTypeLineageKey: "appointmentType_a",
+      insuranceStatus: "public",
       isNewPatient: false,
       locationLineageKey: "locations_a",
     });
@@ -179,6 +183,7 @@ describe("TelefonKI agent state helpers", () => {
       activeOffers,
       criteria: buildTelefonkiOfferCriteria({
         appointmentTypeLineageKey: "appointmentType_a",
+        insuranceStatus: "public",
         isNewPatient: false,
         locationLineageKey: "locations_a",
       }),
@@ -201,6 +206,7 @@ describe("TelefonKI agent state helpers", () => {
     const activeOffers = createActiveOffers();
     const criteria = buildTelefonkiOfferCriteria({
       appointmentTypeLineageKey: "appointmentType_a",
+      insuranceStatus: "public",
       isNewPatient: false,
       locationLineageKey: "locations_a",
     });
@@ -238,6 +244,7 @@ describe("TelefonKI agent state helpers", () => {
       appointmentType: { id: "appointmentType" },
       birthDate: "1980-01-01",
       firstName: "Ada",
+      insuranceStatus: "public",
       isNewPatient: false,
       lastName: "Lovelace",
       location: { id: "location" },
@@ -253,6 +260,7 @@ describe("TelefonKI agent state helpers", () => {
       appointmentType: { id: "appointmentType" },
       birthDate: "1980-01-01",
       firstName: "Ada",
+      insuranceStatus: "public",
       isNewPatient: false,
       lastName: "Lovelace",
       location: { id: "location" },

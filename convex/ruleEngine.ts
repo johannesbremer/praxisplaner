@@ -21,6 +21,7 @@ import type {
   ConditionTreeNode,
   LogicalNode,
 } from "../lib/condition-tree.js";
+import type { KnownInsuranceStatus } from "../lib/insurance-status";
 import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
@@ -48,6 +49,7 @@ import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts
 import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
 import { requireLineageKey } from "./lineage";
 import { createDepthBoundedRecursiveUnionValidator } from "./recursiveValidator";
+import { knownInsuranceStatusValidator } from "./validators";
 
 // ============================================================================
 // Pre-loaded Data Types and Builder
@@ -452,6 +454,7 @@ export const appointmentContextValidator = v.object({
   locationId: v.optional(v.id("locations")),
   // Patient birth date as YYYY-MM-DD
   patientDateOfBirth: v.optional(v.string()),
+  patientInsuranceStatus: knownInsuranceStatusValidator,
   practiceId: v.id("practices"),
   practitionerId: v.optional(v.id("practitioners")),
   // For DAYS_AHEAD / HOURS_AHEAD conditions: when was this appointment requested
@@ -470,6 +473,7 @@ export type AppointmentContext = Omit<
 > & {
   dateTime: RuleEngineZonedDateTimeString;
   patientDateOfBirth?: IsoDateString;
+  patientInsuranceStatus: KnownInsuranceStatus;
   requestedAt?: RuleEngineZonedDateTimeString;
 };
 
@@ -501,6 +505,7 @@ export function asAppointmentContextInput(
     ...(rawPatientDateOfBirth !== undefined && {
       patientDateOfBirth: rawPatientDateOfBirth,
     }),
+    patientInsuranceStatus: rest.patientInsuranceStatus,
     ...(requestedAt !== undefined && { requestedAt }),
   };
 }
@@ -528,7 +533,7 @@ function asRuleEngineZonedDateTimeString(
  * INCLUDED (query-invariant, no DB reads, fixed per query execution):
  * - APPOINTMENT_TYPE: Fixed in simulatedContext for entire query
  * - LOCATION: Fixed in simulatedContext for entire query
- * - CLIENT_TYPE: Fixed (patient.isNew) for entire query
+ * - CLIENT_TYPE, INSURANCE_STATUS: Fixed for entire query
  * - DATE_RANGE, DAY_OF_WEEK, DAYS_AHEAD, PATIENT_AGE: Only depend on target date + fixed patient context
  *
  * EXCLUDED conditions (vary per slot OR require DB reads during evaluation):
@@ -543,6 +548,7 @@ const DAY_INVARIANT_CONDITION_TYPES = new Set([
   "DATE_RANGE",
   "DAY_OF_WEEK",
   "DAYS_AHEAD",
+  "INSURANCE_STATUS",
   "LOCATION",
   "PATIENT_AGE",
 ]);
@@ -850,6 +856,10 @@ function evaluateCondition(
         (60 * 60 * 1000);
 
       return compareValue(hoursAhead, valueNumber);
+    }
+
+    case "INSURANCE_STATUS": {
+      return checkIdMembership(context.patientInsuranceStatus, valueIds);
     }
 
     case "LOCATION": {
@@ -1282,6 +1292,7 @@ const [
   CONDITION_TYPE_DAY_OF_WEEK,
   CONDITION_TYPE_DAYS_AHEAD,
   CONDITION_TYPE_HOURS_AHEAD,
+  CONDITION_TYPE_INSURANCE_STATUS,
   CONDITION_TYPE_LOCATION,
   CONDITION_TYPE_MINIMUM_ADVANCE_TIME,
   CONDITION_TYPE_PATIENT_AGE,
@@ -1306,6 +1317,7 @@ const conditionTypeValidator = v.union(
   v.literal(CONDITION_TYPE_DAY_OF_WEEK),
   v.literal(CONDITION_TYPE_DAYS_AHEAD),
   v.literal(CONDITION_TYPE_HOURS_AHEAD),
+  v.literal(CONDITION_TYPE_INSURANCE_STATUS),
   v.literal(CONDITION_TYPE_LOCATION),
   v.literal(CONDITION_TYPE_MINIMUM_ADVANCE_TIME),
   v.literal(CONDITION_TYPE_PATIENT_AGE),
@@ -1530,10 +1542,10 @@ function isRuleTreeDayInvariant(
 }
 
 /**
- * Helper to recursively determine if a rule tree is independent of appointment type.
- * A tree is appointment-type-independent if it contains NO APPOINTMENT_TYPE conditions.
+ * Helper to recursively determine if a rule tree can be evaluated before the
+ * user selects an appointment type and patient insurance status.
  */
-function isRuleTreeAppointmentTypeIndependent(
+function isRuleTreePreselectionIndependent(
   nodeId: Id<"ruleConditions">,
   conditionsMap: Map<Id<"ruleConditions">, Doc<"ruleConditions">>,
   allConditions: Doc<"ruleConditions">[],
@@ -1548,7 +1560,10 @@ function isRuleTreeAppointmentTypeIndependent(
 
   // If this is a leaf condition, check if it's NOT appointment type
   if (node.nodeType === "CONDITION") {
-    return node.conditionType !== "APPOINTMENT_TYPE";
+    return (
+      node.conditionType !== "APPOINTMENT_TYPE" &&
+      node.conditionType !== "INSURANCE_STATUS"
+    );
   }
 
   // For AND/NOT nodes, check all children recursively
@@ -1562,11 +1577,7 @@ function isRuleTreeAppointmentTypeIndependent(
 
   // A tree is appointment-type-independent only if ALL children are
   return children.every((child) =>
-    isRuleTreeAppointmentTypeIndependent(
-      child._id,
-      conditionsMap,
-      allConditions,
-    ),
+    isRuleTreePreselectionIndependent(child._id, conditionsMap, allConditions),
   );
 }
 
@@ -1653,8 +1664,8 @@ export const loadRulesForRuleSet = internalQuery({
 });
 
 /**
- * Load rules that are independent of appointment type.
- * These rules can be evaluated and displayed even before a user selects an appointment type.
+ * Load rules that are independent of appointment type and patient insurance status.
+ * These rules can be evaluated and displayed before a user selects a patient.
  */
 export const loadAppointmentTypeIndependentRules = internalQuery({
   args: {
@@ -1687,7 +1698,7 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
       conditionsMap.set(condition._id, condition);
     }
 
-    // Filter rules that are appointment-type-independent
+    // Filter rules that are safe to evaluate before patient-specific context exists.
     const appointmentTypeIndependentRules = rules.filter((r) => {
       const rootChildren = allConditions.filter(
         (c) => c.parentConditionId === r._id,
@@ -1696,7 +1707,7 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
       return (
         rootChildren.length === 1 &&
         firstChild !== undefined &&
-        isRuleTreeAppointmentTypeIndependent(
+        isRuleTreePreselectionIndependent(
           firstChild._id,
           conditionsMap,
           allConditions,

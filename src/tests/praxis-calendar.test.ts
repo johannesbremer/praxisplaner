@@ -113,6 +113,7 @@ describe("calendar appointment request builder", () => {
   it("builds the same payload shape for real and simulation modes", () => {
     const patient = {
       dateOfBirth: "1980-01-01",
+      insuranceStatus: "public",
       userId: toTableId<"users">("user_1"),
     } as const;
 
@@ -134,6 +135,7 @@ describe("calendar appointment request builder", () => {
         isNewPatient: false,
         isSimulation: false,
         patientDateOfBirth: "1980-01-01",
+        patientInsuranceStatus: "public",
         placement: practitionerPlacement,
         practiceId: "practice_main",
         start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
@@ -148,6 +150,7 @@ describe("calendar appointment request builder", () => {
         isNewPatient: false,
         isSimulation: true,
         patientDateOfBirth: "1980-01-01",
+        patientInsuranceStatus: "public",
         placement: practitionerPlacement,
         practiceId: "practice_main",
         start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
@@ -206,6 +209,7 @@ describe("calendar appointment request builder", () => {
         isNewPatient: true,
         mode: "simulation",
         patient: {
+          insuranceStatus: "private",
           isNewPatient: true,
           name: "Grace Hopper",
           phoneNumber: "+491709999999",
@@ -218,6 +222,7 @@ describe("calendar appointment request builder", () => {
         appointmentTypeId: "appointment_type_checkup",
         isNewPatient: true,
         isSimulation: true,
+        patientInsuranceStatus: "private",
         placement: practitionerPlacement,
         practiceId: "practice_main",
         start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",
@@ -235,6 +240,7 @@ describe("calendar appointment request builder", () => {
         mode: "real",
         patient: {
           dateOfBirth: "1980-01-01",
+          insuranceStatus: "public",
           isNewPatient: false,
           userId: toTableId<"users">("user_1"),
         },
@@ -253,6 +259,7 @@ describe("calendar appointment request builder", () => {
         isNewPatient: false,
         isSimulation: false,
         patientDateOfBirth: "1980-01-01",
+        patientInsuranceStatus: "public",
         placement: {
           ...resourcePlacement,
           occupancyScope: {
@@ -276,6 +283,7 @@ describe("calendar appointment request builder", () => {
         mode: "real",
         patient: {
           dateOfBirth: "1980-01-01",
+          insuranceStatus: "public",
           isNewPatient: false,
           userId: toTableId<"users">("user_1"),
         },
@@ -286,6 +294,7 @@ describe("calendar appointment request builder", () => {
         allowPlannerRuleOverride: true,
         appointmentTypeId: "appointment_type_checkup",
         isSimulation: false,
+        patientInsuranceStatus: "public",
       },
     });
   });

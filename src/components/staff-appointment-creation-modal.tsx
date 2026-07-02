@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
 import { asPractitionerLineageKey } from "@/convex/identity";
 import { createCalendarPlacement } from "@/lib/calendar-occupancy";
+import { isKnownInsuranceStatus } from "@/lib/insurance-status";
 
 import type { PatientInfo, PracticePatientSelection } from "../types";
 import type { CalendarAppointmentCreateCommandArgs } from "./calendar/use-calendar-planning-workbench";
@@ -126,6 +127,11 @@ export function StaffAppointmentCreationModal({
     ? ("simulation" as const)
     : ("real" as const);
   const effectivePatient = selectedFallbackPatient?.info ?? patient;
+  const patientInsuranceStatus = isKnownInsuranceStatus(
+    effectivePatient?.insuranceStatus,
+  )
+    ? effectivePatient.insuranceStatus
+    : undefined;
   const effectiveSelectedPatientId =
     selectedFallbackPatient && "id" in selectedFallbackPatient
       ? selectedFallbackPatient.id
@@ -133,13 +139,17 @@ export function StaffAppointmentCreationModal({
 
   const effectiveNextAvailableSlot = useQuery(
     api.appointments.getNextAvailableCandidateSlotForStaffPlacement,
-    open && location !== undefined && appointmentType !== undefined
+    open &&
+      location !== undefined &&
+      appointmentType !== undefined &&
+      patientInsuranceStatus !== undefined
       ? {
           appointmentTypeId,
           date: selectedDate,
           ...(effectivePatient?.dateOfBirth && {
             patientDateOfBirth: effectivePatient.dateOfBirth,
           }),
+          patientInsuranceStatus,
           ...(effectivePatient?.convexPatientId && {
             patientId: effectivePatient.convexPatientId,
           }),
@@ -170,6 +180,7 @@ export function StaffAppointmentCreationModal({
     effectivePatient.phoneNumber.trim().length > 0;
   const hasAnyPatient =
     hasPersistedPatient || hasUserLinkedPatient || hasTemporaryPatientDraft;
+  const hasKnownInsuranceStatus = patientInsuranceStatus !== undefined;
 
   // Get display name for patient
   const getPatientDisplayName = (): string => {
@@ -227,6 +238,10 @@ export function StaffAppointmentCreationModal({
       },
     );
     if (!createTarget) {
+      return;
+    }
+    if (patientInsuranceStatus === undefined) {
+      toast.error("Bitte wählen Sie zuerst den Versicherungsstatus.");
       return;
     }
 
@@ -322,6 +337,7 @@ export function StaffAppointmentCreationModal({
               ...(effectivePatient?.dateOfBirth && {
                 patientDateOfBirth: effectivePatient.dateOfBirth,
               }),
+              patientInsuranceStatus,
               ...(availableSeriesBlueprint === undefined
                 ? {}
                 : { optimisticSeriesBlueprint: availableSeriesBlueprint }),
@@ -339,6 +355,7 @@ export function StaffAppointmentCreationModal({
                 ...(effectivePatient?.dateOfBirth && {
                   patientDateOfBirth: effectivePatient.dateOfBirth,
                 }),
+                patientInsuranceStatus,
                 ...(availableSeriesBlueprint === undefined
                   ? {}
                   : { optimisticSeriesBlueprint: availableSeriesBlueprint }),
@@ -355,6 +372,7 @@ export function StaffAppointmentCreationModal({
                 ...(effectivePatient?.dateOfBirth && {
                   patientDateOfBirth: effectivePatient.dateOfBirth,
                 }),
+                patientInsuranceStatus,
                 ...(availableSeriesBlueprint === undefined
                   ? {}
                   : { optimisticSeriesBlueprint: availableSeriesBlueprint }),
@@ -448,6 +466,7 @@ export function StaffAppointmentCreationModal({
     isNextAvailableSlotLoading ||
     hasNoNextAvailableSlot ||
     !hasAnyPatient ||
+    !hasKnownInsuranceStatus ||
     (hasAppointmentPlan &&
       (availableSeriesBlueprint === undefined ||
         availableSeriesBlueprint.length === 0));
@@ -616,6 +635,11 @@ export function StaffAppointmentCreationModal({
                     Es konnte kein freier Termin gefunden werden.
                   </div>
                 )}
+                {hasAnyPatient && !hasKnownInsuranceStatus && (
+                  <div className="mr-auto text-sm text-muted-foreground">
+                    Bitte wählen Sie zuerst den Versicherungsstatus.
+                  </div>
+                )}
                 <Button
                   onClick={() => {
                     setMode(null);
@@ -671,7 +695,9 @@ export function StaffAppointmentCreationModal({
 
                 <Button
                   className="w-full justify-start"
-                  disabled={!title.trim() || !hasAnyPatient}
+                  disabled={
+                    !title.trim() || !hasAnyPatient || !hasKnownInsuranceStatus
+                  }
                   onClick={() => {
                     setMode("next");
                   }}
@@ -718,10 +744,18 @@ export function StaffAppointmentCreationModal({
                     verfügbaren Termin zuerst die Patientenauswahl.
                   </div>
                 )}
+                {hasAnyPatient && !hasKnownInsuranceStatus && (
+                  <div className="text-sm text-muted-foreground">
+                    Wählen Sie in der rechten Seitenleiste den
+                    Versicherungsstatus aus.
+                  </div>
+                )}
 
                 <Button
                   className="w-full justify-start"
-                  disabled={!title.trim() || !hasAnyPatient}
+                  disabled={
+                    !title.trim() || !hasAnyPatient || !hasKnownInsuranceStatus
+                  }
                   onClick={() => {
                     // Pass the appointment reason to the calendar for manual placement.
                     onPendingTitleChange?.(title.trim());

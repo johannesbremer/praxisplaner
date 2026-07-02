@@ -90,6 +90,7 @@ async function createAssociationFixture(t: TestContext) {
     const patientId = await ctx.db.insert("patients", {
       createdAt: now,
       firstName: "Ada",
+      insuranceStatus: "unknown",
       lastModified: now,
       lastName: "Lovelace",
       patientId: 123,

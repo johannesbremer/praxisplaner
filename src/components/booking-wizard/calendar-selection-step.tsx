@@ -28,6 +28,10 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/convex/_generated/api";
+import {
+  insuranceStatusFromBookingInsuranceType,
+  isKnownInsuranceStatus,
+} from "@/lib/insurance-status";
 
 import type { StepComponentProps } from "./types";
 
@@ -106,6 +110,16 @@ export function CalendarSelectionStep({
   const locationName = isCalendarState ? state.locationName : undefined;
   const practitionerName =
     isCalendarState && !state.isNewPatient ? state.practitionerName : undefined;
+  const patientInsuranceStatus = isCalendarState
+    ? state.isNewPatient
+      ? insuranceStatusFromBookingInsuranceType(state.insuranceType)
+      : state.insuranceStatus
+    : undefined;
+  const knownPatientInsuranceStatus = isKnownInsuranceStatus(
+    patientInsuranceStatus,
+  )
+    ? patientInsuranceStatus
+    : undefined;
 
   // Build simulated context for slot query - only include lineage references.
   const simulatedContext = {
@@ -113,6 +127,9 @@ export function CalendarSelectionStep({
     patient: {
       isNew: isNewPatient,
       ...(patientDateOfBirth && { dateOfBirth: patientDateOfBirth }),
+      ...(knownPatientInsuranceStatus === undefined
+        ? {}
+        : { insuranceStatus: knownPatientInsuranceStatus }),
     },
     ...(selectedAppointmentTypeLineageKey && {
       appointmentTypeLineageKey: selectedAppointmentTypeLineageKey,
@@ -123,7 +140,9 @@ export function CalendarSelectionStep({
   // Query slots for the selected day
   const slotsResult = useQuery(
     api.scheduling.getSlotsForDay,
-    selectedDate && selectedAppointmentTypeLineageKey
+    selectedDate &&
+      selectedAppointmentTypeLineageKey &&
+      knownPatientInsuranceStatus !== undefined
       ? {
           date: formatDateISO(dateToTemporal(selectedDate)),
           enforceFutureOnly: true,

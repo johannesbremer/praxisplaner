@@ -56,7 +56,15 @@ export function buildCalendarAppointmentViews(args: {
   appointments: readonly CalendarAppointmentLayout[];
   patientData:
     | null
-    | Record<string, { firstName?: string; lastName?: string; name?: string }>
+    | Record<
+        string,
+        {
+          firstName?: string;
+          insuranceStatus: "private" | "public" | "unknown";
+          lastName?: string;
+          name?: string;
+        }
+      >
     | undefined;
   userData:
     | null
@@ -66,9 +74,11 @@ export function buildCalendarAppointmentViews(args: {
   return args.appointments
     .map((appointment): CalendarAppointmentView | null => {
       let patientName: string | undefined;
+      let hasPrivateInsurance = false;
       if (appointment.record.patientId && args.patientData) {
         const patientInfo = args.patientData[appointment.record.patientId];
         if (patientInfo) {
+          hasPrivateInsurance = patientInfo.insuranceStatus === "private";
           patientName =
             patientInfo.name ??
             [patientInfo.lastName, patientInfo.firstName]
@@ -87,6 +97,7 @@ export function buildCalendarAppointmentViews(args: {
 
       return {
         color: appointment.record.color,
+        ...(hasPrivateInsurance ? { hasPrivateInsurance } : {}),
         layout: appointment,
         ...(patientName && { patientName }),
       };

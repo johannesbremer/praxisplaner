@@ -24,6 +24,7 @@ import {
   pkvInsuranceTypeValidator,
   pkvTariffValidator,
 } from "./bookingValidators";
+import { insuranceStatusValidator } from "./validators";
 
 export const appointmentSmileyValidator = v.string();
 export const appointmentColorValidator = v.union(
@@ -313,6 +314,7 @@ export const bookingSessionStepValidator = v.union(
 
   // B3: Personal data input completed
   v.object({
+    insuranceStatus: v.optional(insuranceStatusValidator),
     isNewPatient: v.literal(false),
     locationLineageKey: v.id("locations"),
     locationName: v.string(),
@@ -900,6 +902,7 @@ export default defineSchema({
     city: v.optional(v.string()), // FK 3106 - City
     dateOfBirth: v.optional(v.string()), // FK 3103, must already be YYYY-MM-DD
     firstName: v.optional(v.string()), // FK 3102
+    insuranceStatus: insuranceStatusValidator,
     lastName: v.optional(v.string()), // FK 3101
     name: v.optional(v.string()), // Temporary patients use a single display name
     patientId: v.optional(v.number()), // FK 3000 - Present for PVS patients
@@ -1191,6 +1194,7 @@ export default defineSchema({
 
         // Client source
         v.literal("CLIENT_TYPE"), // Online, MFA, Phone-AI, etc.
+        v.literal("INSURANCE_STATUS"), // Test patient insurance status
       ),
     ),
 
