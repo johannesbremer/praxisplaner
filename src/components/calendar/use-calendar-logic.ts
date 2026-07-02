@@ -527,28 +527,21 @@ export function useCalendarLogic({
     [businessStartHour],
   );
 
-  const appointmentSeriesRootCandidates = useMemo(() => {
+  const appointmentSeriesRootGrid = useMemo(() => {
     if (
       placementAppointmentTypeLineageKey === undefined ||
-      placementLocationLineageKey === undefined
+      placementLocationLineageKey === undefined ||
+      totalSlots <= 0
     ) {
-      return [];
+      return;
     }
 
     const rootAppointmentType = appointmentTypeInfoByLineageKey.get(
       placementAppointmentTypeLineageKey,
     );
     if (rootAppointmentType === undefined) {
-      return [];
+      return;
     }
-
-    const startForSlot = (slot: number) =>
-      selectedDate
-        .toZonedDateTime({
-          plainTime: Temporal.PlainTime.from(slotToTime(slot)),
-          timeZone: TIMEZONE,
-        })
-        .toString();
 
     const rootDefaultOccupancy = rootAppointmentType.defaultOccupancy;
     if (rootDefaultOccupancy.kind === "resourceColumn") {
@@ -558,47 +551,36 @@ export function useCalendarLogic({
           rootDefaultOccupancy.calendarResourceColumn,
       );
       if (resourceColumn === undefined) {
-        return [];
+        return;
       }
 
-      return Array.from({ length: totalSlots }, (_, slot) => ({
-        calendarResourceColumn: rootDefaultOccupancy.calendarResourceColumn,
-        duration: rootAppointmentType.duration,
-        locationLineageKey: placementLocationLineageKey,
-        startTime: startForSlot(slot),
-      }));
+      return {
+        visibleEndMinute: businessStartHour * 60 + totalSlots * SLOT_DURATION,
+        visiblePractitionerLineageKeys: [],
+        visibleStartMinute: businessStartHour * 60,
+      };
     }
 
-    return columns.flatMap((column) => {
-      const practitionerLineageKey = getPractitionerLineageKeyFromColumn(
-        column.id,
-      );
-      if (practitionerLineageKey === undefined) {
-        return [];
-      }
-
-      const practitionerName =
-        workingPractitioners.find(
-          (practitioner) => practitioner.lineageKey === practitionerLineageKey,
-        )?.name ?? column.title;
-
-      return Array.from({ length: totalSlots }, (_, slot) => ({
-        duration: rootAppointmentType.duration,
-        locationLineageKey: placementLocationLineageKey,
-        practitionerLineageKey,
-        practitionerName,
-        startTime: startForSlot(slot),
-      }));
+    const visiblePractitionerLineageKeys = columns.flatMap((column) => {
+      const lineageKey = getPractitionerLineageKeyFromColumn(column.id);
+      return lineageKey === undefined ? [] : [lineageKey];
     });
+    if (visiblePractitionerLineageKeys.length === 0) {
+      return;
+    }
+
+    return {
+      visibleEndMinute: businessStartHour * 60 + totalSlots * SLOT_DURATION,
+      visiblePractitionerLineageKeys,
+      visibleStartMinute: businessStartHour * 60,
+    };
   }, [
     appointmentTypeInfoByLineageKey,
+    businessStartHour,
     columns,
     placementAppointmentTypeLineageKey,
     placementLocationLineageKey,
-    selectedDate,
-    slotToTime,
     totalSlots,
-    workingPractitioners,
   ]);
 
   const appointmentSeriesRootAppointmentTypeId =
@@ -606,7 +588,7 @@ export function useCalendarLogic({
       ? undefined
       : appointmentTypeIdByLineageKey.get(placementAppointmentTypeLineageKey);
   const shouldQueryAppointmentSeriesRootBlockedSlots =
-    appointmentSeriesRootCandidates.length > 0 &&
+    appointmentSeriesRootGrid !== undefined &&
     appointmentSeriesRootAppointmentTypeId !== undefined &&
     placementLocationId !== undefined &&
     effectiveRuleSetId !== undefined;
@@ -615,7 +597,6 @@ export function useCalendarLogic({
     shouldQueryAppointmentSeriesRootBlockedSlots
       ? {
           appointmentTypeId: appointmentSeriesRootAppointmentTypeId,
-          candidates: appointmentSeriesRootCandidates,
           date: selectedDate.toString(),
           ...(dragExcludedAppointmentIds.length === 0
             ? {}
@@ -634,6 +615,10 @@ export function useCalendarLogic({
           ruleSetId: effectiveRuleSetId,
           scope: simulatedContext === undefined ? "real" : "simulation",
           ...(patient?.userId === undefined ? {} : { userId: patient.userId }),
+          visibleEndMinute: appointmentSeriesRootGrid.visibleEndMinute,
+          visiblePractitionerLineageKeys:
+            appointmentSeriesRootGrid.visiblePractitionerLineageKeys,
+          visibleStartMinute: appointmentSeriesRootGrid.visibleStartMinute,
         }
       : "skip",
   );
