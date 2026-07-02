@@ -1,3 +1,4 @@
+import { usePostHog } from "@posthog/react";
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
@@ -45,6 +46,13 @@ import {
   PvsConsentStep,
   type StepComponentProps,
 } from "../components/booking-wizard/index";
+import {
+  buildBookingAnalyticsScopeProperties,
+  buildBookingStepAnalyticsProperties,
+  buildBookingStepTargetAnalyticsProperties,
+  captureBookingAnalyticsEvent,
+  getBookingStepAnalyticsKey,
+} from "../utils/booking-analytics";
 import {
   captureFrontendError,
   frontendErrorFromUnknown,
@@ -467,6 +475,7 @@ function BookingPage() {
  */
 function AuthenticatedBookingFlow() {
   const organizationSlug = readOrganizationSlugParam(Route.useParams());
+  const posthog = usePostHog();
   const [bookedAppointmentRefreshNonce, setBookedAppointmentRefreshNonce] =
     useState(0);
   const [sessionError, setSessionError] = useState<null | string>(null);
@@ -474,6 +483,7 @@ function AuthenticatedBookingFlow() {
     BookingSessionState["step"] | null
   >(null);
   const isCreatingSessionRef = useRef(false);
+  const lastStepAnalyticsKeyRef = useRef<null | string>(null);
   const stepContainerRef = useRef<HTMLDivElement>(null);
 
   // Fetch practice data
@@ -536,7 +546,16 @@ function AuthenticatedBookingFlow() {
           }),
       )
         .match(
-          () => void 0,
+          () => {
+            captureBookingAnalyticsEvent(
+              posthog,
+              "booking_flow:flow_start",
+              buildBookingAnalyticsScopeProperties({
+                organizationSlug,
+                practiceId: currentPractice._id,
+              }),
+            );
+          },
           (error) => {
             captureFrontendError(error, {
               context: "BookingPage.createSession",
@@ -558,6 +577,8 @@ function AuthenticatedBookingFlow() {
     hasActiveRuleSet,
     bookedAppointments,
     createSession,
+    organizationSlug,
+    posthog,
     sessionError,
     activeRuleSetSession,
   ]);
@@ -571,11 +592,29 @@ function AuthenticatedBookingFlow() {
   const handleStartOver = useCallback(() => {
     setDisplayStepOverride(null);
     if (currentPractice && hasActiveRuleSet) {
+      captureBookingAnalyticsEvent(
+        posthog,
+        "booking_flow:flow_reset",
+        buildBookingAnalyticsScopeProperties({
+          organizationSlug,
+          practiceId: currentPractice._id,
+          ...(activeRuleSetSession?.ruleSetId === undefined
+            ? {}
+            : { ruleSetId: activeRuleSetSession.ruleSetId }),
+        }),
+      );
       void removeSession({
         practiceId: currentPractice._id,
       });
     }
-  }, [currentPractice, hasActiveRuleSet, removeSession]);
+  }, [
+    activeRuleSetSession,
+    currentPractice,
+    hasActiveRuleSet,
+    organizationSlug,
+    posthog,
+    removeSession,
+  ]);
 
   const handleBookedAppointmentCancelled = useCallback(() => {
     setSessionError(null);
@@ -583,7 +622,7 @@ function AuthenticatedBookingFlow() {
   }, []);
 
   const handleBack = useCallback(() => {
-    if (!activeRuleSetSession) {
+    if (!activeRuleSetSession || !currentPractice) {
       return;
     }
     const currentState = buildDisplayedBookingState(
@@ -614,6 +653,15 @@ function AuthenticatedBookingFlow() {
         }),
     ).match(
       () => {
+        captureBookingAnalyticsEvent(posthog, "booking_flow:step_back", {
+          ...buildBookingStepAnalyticsProperties({
+            organizationSlug,
+            practiceId: currentPractice._id,
+            ruleSetId: activeRuleSetSession.ruleSetId,
+            state: currentState,
+          }),
+          ...buildBookingStepTargetAnalyticsProperties(previousStep),
+        });
         setDisplayStepOverride(null);
       },
       (error) => {
@@ -626,10 +674,20 @@ function AuthenticatedBookingFlow() {
         });
       },
     );
-  }, [activeRuleSetSession, displayStepOverride, goBackToStep]);
+  }, [
+    activeRuleSetSession,
+    currentPractice,
+    displayStepOverride,
+    goBackToStep,
+    organizationSlug,
+    posthog,
+  ]);
+
+  const isShowingBookedAppointment =
+    bookedAppointments !== undefined && bookedAppointments.length > 0;
 
   const effectiveDisplayStepOverride =
-    (bookedAppointments !== undefined && bookedAppointments.length > 0) ||
+    isShowingBookedAppointment ||
     (displayStepOverride !== null &&
       activeRuleSetSession?.state.step === displayStepOverride)
       ? null
@@ -641,6 +699,69 @@ function AuthenticatedBookingFlow() {
       )
     : null;
   const currentStep = displayedState?.step;
+
+  useEffect(() => {
+    if (!activeRuleSetSession || !currentPractice || !displayedState) {
+      return;
+    }
+    if (isShowingBookedAppointment) {
+      return;
+    }
+
+    const analyticsKey = getBookingStepAnalyticsKey({
+      organizationSlug,
+      practiceId: currentPractice._id,
+      ruleSetId: activeRuleSetSession.ruleSetId,
+      state: displayedState,
+    });
+    if (lastStepAnalyticsKeyRef.current === analyticsKey) {
+      return;
+    }
+
+    lastStepAnalyticsKeyRef.current = analyticsKey;
+    captureBookingAnalyticsEvent(
+      posthog,
+      "booking_flow:step_view",
+      buildBookingStepAnalyticsProperties({
+        organizationSlug,
+        practiceId: currentPractice._id,
+        ruleSetId: activeRuleSetSession.ruleSetId,
+        state: displayedState,
+      }),
+    );
+  }, [
+    activeRuleSetSession,
+    currentPractice,
+    displayedState,
+    isShowingBookedAppointment,
+    organizationSlug,
+    posthog,
+  ]);
+
+  const handleAppointmentCreated = useCallback(
+    (args: { appointmentTypeLineageKey: Id<"appointmentTypes"> }) => {
+      if (!activeRuleSetSession || !currentPractice || !displayedState) {
+        return;
+      }
+
+      captureBookingAnalyticsEvent(posthog, "booking_flow:appointment_create", {
+        ...buildBookingStepAnalyticsProperties({
+          organizationSlug,
+          practiceId: currentPractice._id,
+          ruleSetId: activeRuleSetSession.ruleSetId,
+          state: displayedState,
+        }),
+        appointment_type_lineage_key: args.appointmentTypeLineageKey,
+      });
+    },
+    [
+      activeRuleSetSession,
+      currentPractice,
+      displayedState,
+      organizationSlug,
+      posthog,
+    ],
+  );
 
   const handleForward = useCallback(() => {
     const container = stepContainerRef.current;
@@ -759,8 +880,6 @@ function AuthenticatedBookingFlow() {
     };
   }, [bookedAppointmentId, bookedAppointmentStart]);
 
-  const isShowingBookedAppointment =
-    bookedAppointments !== undefined && bookedAppointments.length > 0;
   const isLoadingBookedAppointmentPractitioners =
     isShowingBookedAppointment &&
     practitioners === undefined &&
@@ -926,6 +1045,7 @@ function AuthenticatedBookingFlow() {
       showBackButton = canGoBack(displayedState.step);
       stepContent = (
         <StepRenderer
+          onAppointmentCreated={handleAppointmentCreated}
           onStartOver={handleStartOver}
           step={displayedState.step}
           stepProps={{
@@ -1019,15 +1139,28 @@ function AuthenticatedBookingFlow() {
 
 // Step renderer component
 interface StepRendererProps {
+  onAppointmentCreated: (args: {
+    appointmentTypeLineageKey: Id<"appointmentTypes">;
+  }) => void;
   onStartOver: () => void;
   step: BookingSessionState["step"];
   stepProps: StepComponentProps;
 }
 
-function StepRenderer({ onStartOver, step, stepProps }: StepRendererProps) {
+function StepRenderer({
+  onAppointmentCreated,
+  onStartOver,
+  step,
+  stepProps,
+}: StepRendererProps) {
   switch (getBookingSessionStepKind(step)) {
     case "calendar-selection": {
-      return <CalendarSelectionStep {...stepProps} />;
+      return (
+        <CalendarSelectionStep
+          {...stepProps}
+          onAppointmentCreated={onAppointmentCreated}
+        />
+      );
     }
     case "data-input": {
       return <DataInputStep {...stepProps} />;
