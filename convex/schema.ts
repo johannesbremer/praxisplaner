@@ -1023,18 +1023,16 @@ export default defineSchema({
     .index("by_practiceId", ["practiceId"])
     .index("by_ruleSetId", ["ruleSetId"])
     .index("by_ruleSetId_date", ["ruleSetId", "date"])
-    .index("by_ruleSetId_date_staffType_portion_mfaLineageKey", [
+    .index("by_ruleSetId_date_staffType_mfaLineageKey", [
       "ruleSetId",
       "date",
       "staffType",
-      "portion",
       "mfaLineageKey",
     ])
-    .index("by_ruleSetId_date_staffType_portion_practitionerLineageKey", [
+    .index("by_ruleSetId_date_staffType_practitionerLineageKey", [
       "ruleSetId",
       "date",
       "staffType",
-      "portion",
       "practitionerLineageKey",
     ])
     .index("by_ruleSetId_lineageKey", ["ruleSetId", "lineageKey"])

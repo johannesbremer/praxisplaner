@@ -54,7 +54,7 @@ describe("vacation utils", () => {
     expect(afternoonRanges).toEqual([{ endMinutes: 960, startMinutes: 720 }]);
   });
 
-  it("resolves absence reasons by vacation portion", () => {
+  it("resolves the single absence reason for blocked vacation minutes", () => {
     const date = Temporal.PlainDate.from("2026-04-06");
     const schedules = [
       {
@@ -72,13 +72,6 @@ describe("vacation utils", () => {
         portion: "morning" as const,
         practitionerLineageKey: "doc-1",
         reason: "sick" as const,
-        staffType: "practitioner" as const,
-      },
-      {
-        date: "2026-04-06",
-        portion: "afternoon" as const,
-        practitionerLineageKey: "doc-1",
-        reason: "training" as const,
         staffType: "practitioner" as const,
       },
     ];
@@ -102,7 +95,7 @@ describe("vacation utils", () => {
         780,
         "loc-1",
       ),
-    ).toBe("training");
+    ).toBeUndefined();
   });
 
   it("uses the equally large break closest to the center as the split", () => {

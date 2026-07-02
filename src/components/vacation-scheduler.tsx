@@ -480,33 +480,31 @@ export function VacationScheduler({
     vacationRows: NonNullable<typeof vacations>,
     staff: StaffRow,
     date: Temporal.PlainDate,
-  ): VacationReplaySnapshot[] =>
-    ORDERED_PORTIONS.flatMap((portion) => {
-      const vacation = vacationRows.find((candidate) => {
-        const staffId =
-          candidate.staffType === "practitioner"
-            ? candidate.practitionerLineageKey
-            : candidate.mfaLineageKey;
-        return (
-          candidate.staffType === staff.kind &&
-          staffId === staff.lineageKey &&
-          candidate.date === date.toString() &&
-          candidate.portion === portion
-        );
-      });
-
-      if (!vacation) {
-        return [];
-      }
-
-      return [
-        {
-          lineageKey: vacation.lineageKey,
-          portion: vacation.portion,
-          reason: vacation.reason,
-        },
-      ];
+  ): VacationReplaySnapshot[] => {
+    const vacation = vacationRows.find((candidate) => {
+      const staffId =
+        candidate.staffType === "practitioner"
+          ? candidate.practitionerLineageKey
+          : candidate.mfaLineageKey;
+      return (
+        candidate.staffType === staff.kind &&
+        staffId === staff.lineageKey &&
+        candidate.date === date.toString()
+      );
     });
+
+    if (!vacation) {
+      return [];
+    }
+
+    return [
+      {
+        lineageKey: vacation.lineageKey,
+        portion: vacation.portion,
+        reason: vacation.reason,
+      },
+    ];
+  };
 
   const locationNameById = useMemo(
     () =>
@@ -665,40 +663,38 @@ export function VacationScheduler({
       reason?: VacationReason;
     },
   ): Promise<VacationReplaySnapshot[]> => {
-    await clearVacationsForDay(staff, date, options?.clearSnapshots);
+    const portion = portions[0];
+    if (!portion) {
+      await clearVacationsForDay(staff, date, options?.clearSnapshots);
+      return [];
+    }
 
-    const createdSnapshots: VacationReplaySnapshot[] = [];
-    for (const portion of portions) {
-      const existingSnapshot = options?.createSnapshots?.find(
-        (snapshot) => snapshot.portion === portion,
+    const existingSnapshot =
+      options?.createSnapshots?.[0] ?? options?.clearSnapshots?.[0];
+    const reason = options?.reason ?? existingSnapshot?.reason;
+    if (!reason) {
+      return await Promise.reject(
+        new Error("Bitte einen Abwesenheitsgrund auswählen."),
       );
-      const reason = existingSnapshot?.reason ?? options?.reason;
-      if (!reason) {
-        return await Promise.reject(
-          new Error("Bitte einen Abwesenheitsgrund auswählen."),
-        );
-      }
-      const result = await createVacation({
-        date: date.toString(),
-        ...(existingSnapshot
-          ? { lineageKey: existingSnapshot.lineageKey }
-          : {}),
-        ...vacationStaffMutationArgs(staff),
-        portion,
-        practiceId,
-        reason,
-        staffType: staff.kind,
-        ...getCowMutationArgs(),
-      });
-      handleDraftMutationResult(result);
-      createdSnapshots.push({
+    }
+    const result = await createVacation({
+      date: date.toString(),
+      ...(existingSnapshot ? { lineageKey: existingSnapshot.lineageKey } : {}),
+      ...vacationStaffMutationArgs(staff),
+      portion,
+      practiceId,
+      reason,
+      staffType: staff.kind,
+      ...getCowMutationArgs(),
+    });
+    handleDraftMutationResult(result);
+    return [
+      {
         lineageKey: result.entityId,
         portion,
         reason,
-      });
-    }
-
-    return createdSnapshots;
+      },
+    ];
   };
 
   const commitVacationChange = async (

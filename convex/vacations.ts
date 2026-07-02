@@ -338,13 +338,11 @@ async function findExistingVacationForDateAndStaff(
     | {
         date: string;
         mfaLineageKey: MfaLineageKey;
-        portion: Doc<"vacations">["portion"];
         ruleSetId: Id<"ruleSets">;
         staffType: "mfa";
       }
     | {
         date: string;
-        portion: Doc<"vacations">["portion"];
         practitionerLineageKey: PractitionerLineageKey;
         ruleSetId: Id<"ruleSets">;
         staffType: "practitioner";
@@ -353,27 +351,23 @@ async function findExistingVacationForDateAndStaff(
   if (args.staffType === "practitioner") {
     return await db
       .query("vacations")
-      .withIndex(
-        "by_ruleSetId_date_staffType_portion_practitionerLineageKey",
-        (q) =>
-          q
-            .eq("ruleSetId", args.ruleSetId)
-            .eq("date", args.date)
-            .eq("staffType", args.staffType)
-            .eq("portion", args.portion)
-            .eq("practitionerLineageKey", args.practitionerLineageKey),
+      .withIndex("by_ruleSetId_date_staffType_practitionerLineageKey", (q) =>
+        q
+          .eq("ruleSetId", args.ruleSetId)
+          .eq("date", args.date)
+          .eq("staffType", args.staffType)
+          .eq("practitionerLineageKey", args.practitionerLineageKey),
       )
       .first();
   }
 
   return await db
     .query("vacations")
-    .withIndex("by_ruleSetId_date_staffType_portion_mfaLineageKey", (q) =>
+    .withIndex("by_ruleSetId_date_staffType_mfaLineageKey", (q) =>
       q
         .eq("ruleSetId", args.ruleSetId)
         .eq("date", args.date)
         .eq("staffType", args.staffType)
-        .eq("portion", args.portion)
         .eq("mfaLineageKey", args.mfaLineageKey),
     )
     .first();
@@ -434,7 +428,6 @@ export const createVacation = mutation({
       if (
         existingByLineage.practiceId !== args.practiceId ||
         existingByLineage.date !== args.date ||
-        existingByLineage.portion !== args.portion ||
         existingByLineage.staffType !== args.staffType ||
         (args.staffType === "practitioner"
           ? existingByLineage.practitionerLineageKey !==
@@ -446,8 +439,12 @@ export const createVacation = mutation({
         );
       }
 
-      if (existingByLineage.reason !== args.reason) {
+      if (
+        existingByLineage.portion !== args.portion ||
+        existingByLineage.reason !== args.reason
+      ) {
         await ctx.db.patch("vacations", existingByLineage._id, {
+          portion: args.portion,
           reason: args.reason,
         });
       }
@@ -463,7 +460,6 @@ export const createVacation = mutation({
       "practitionerLineageKey" in resolved
         ? await findExistingVacationForDateAndStaff(ctx.db, {
             date: args.date,
-            portion: args.portion,
             practitionerLineageKey: resolved.practitionerLineageKey,
             ruleSetId,
             staffType: "practitioner",
@@ -471,7 +467,6 @@ export const createVacation = mutation({
         : await findExistingVacationForDateAndStaff(ctx.db, {
             date: args.date,
             mfaLineageKey: resolved.mfaLineageKey,
-            portion: args.portion,
             ruleSetId,
             staffType: "mfa",
           });
@@ -491,10 +486,12 @@ export const createVacation = mutation({
       const lineageKey = args.lineageKey ?? requireVacationLineageKey(existing);
       if (
         existing.lineageKey !== lineageKey ||
+        existing.portion !== args.portion ||
         existing.reason !== args.reason
       ) {
         await ctx.db.patch("vacations", existing._id, {
           lineageKey,
+          portion: args.portion,
           reason: args.reason,
         });
       }
@@ -577,7 +574,6 @@ async function createVacationInDraft(
     if (
       existingByLineage.practiceId !== args.practiceId ||
       existingByLineage.date !== args.date ||
-      existingByLineage.portion !== args.portion ||
       existingByLineage.staffType !== args.staffType ||
       (args.staffType === "practitioner"
         ? existingByLineage.practitionerLineageKey !==
@@ -589,8 +585,12 @@ async function createVacationInDraft(
       );
     }
 
-    if (existingByLineage.reason !== args.reason) {
+    if (
+      existingByLineage.portion !== args.portion ||
+      existingByLineage.reason !== args.reason
+    ) {
       await ctx.db.patch("vacations", existingByLineage._id, {
+        portion: args.portion,
         reason: args.reason,
       });
     }
@@ -606,7 +606,6 @@ async function createVacationInDraft(
     "practitionerLineageKey" in resolved
       ? await findExistingVacationForDateAndStaff(ctx.db, {
           date: args.date,
-          portion: args.portion,
           practitionerLineageKey: resolved.practitionerLineageKey,
           ruleSetId,
           staffType: "practitioner",
@@ -614,7 +613,6 @@ async function createVacationInDraft(
       : await findExistingVacationForDateAndStaff(ctx.db, {
           date: args.date,
           mfaLineageKey: resolved.mfaLineageKey,
-          portion: args.portion,
           ruleSetId,
           staffType: "mfa",
         });
@@ -632,9 +630,14 @@ async function createVacationInDraft(
     }
     entityId = existing._id;
     const lineageKey = args.lineageKey ?? requireVacationLineageKey(existing);
-    if (existing.lineageKey !== lineageKey || existing.reason !== args.reason) {
+    if (
+      existing.lineageKey !== lineageKey ||
+      existing.portion !== args.portion ||
+      existing.reason !== args.reason
+    ) {
       await ctx.db.patch("vacations", existing._id, {
         lineageKey,
+        portion: args.portion,
         reason: args.reason,
       });
     }
@@ -1074,7 +1077,6 @@ export const deleteVacation = mutation({
         : "practitionerLineageKey" in resolved
           ? await findExistingVacationForDateAndStaff(ctx.db, {
               date: args.date,
-              portion: args.portion,
               practitionerLineageKey: resolved.practitionerLineageKey,
               ruleSetId,
               staffType: "practitioner",
@@ -1082,7 +1084,6 @@ export const deleteVacation = mutation({
           : await findExistingVacationForDateAndStaff(ctx.db, {
               date: args.date,
               mfaLineageKey: resolved.mfaLineageKey,
-              portion: args.portion,
               ruleSetId,
               staffType: "mfa",
             }));
@@ -1091,7 +1092,6 @@ export const deleteVacation = mutation({
       existingByLineage &&
       (existingByLineage.practiceId !== args.practiceId ||
         existingByLineage.date !== args.date ||
-        existingByLineage.portion !== args.portion ||
         existingByLineage.staffType !== args.staffType ||
         (args.staffType === "practitioner"
           ? existingByLineage.practitionerLineageKey !==

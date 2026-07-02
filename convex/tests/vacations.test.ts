@@ -2892,7 +2892,7 @@ describe("vacations", () => {
     expect(afterDelete).toHaveLength(0);
   });
 
-  test("practitioner vacations block morning slots and both halves block the full day", async () => {
+  test("practitioner vacations block morning slots and can be changed to full day", async () => {
     const t = createAuthedTestContext();
     const fixture = await createSchedulingFixture(t);
     const monday = nextWeekday(1).toString();
@@ -2954,7 +2954,7 @@ describe("vacations", () => {
     await t.mutation(api.vacations.createVacation, {
       date: monday,
       expectedDraftRevision: unsavedRuleSet.draftRevision,
-      portion: "afternoon",
+      portion: "full",
       practiceId: fixture.practiceId,
       practitionerId: fixture.practitionerId,
       reason: "vacation",
