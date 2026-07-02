@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
+import type { InsuranceStatus } from "../lib/insurance-status";
 import type { InstantString, IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type {
@@ -66,6 +67,7 @@ import {
   asOptionalIsoDateString,
   asZonedDateTimeString,
 } from "./typedDtos";
+import { insuranceStatusValidator } from "./validators";
 
 const MAX_SERIES_SEARCH_DAYS = 370;
 
@@ -102,6 +104,7 @@ export const appointmentSeriesArgsValidator = {
   locationId: v.id("locations"),
   patientDateOfBirth: v.optional(v.string()),
   patientId: v.optional(v.id("patients")),
+  patientInsuranceStatus: v.optional(insuranceStatusValidator),
   practiceId: v.id("practices"),
   practitionerId: v.optional(v.id("practitioners")),
   rootAppointmentTypeId: v.id("appointmentTypes"),
@@ -129,6 +132,7 @@ interface RootSeriesCandidate {
   locationId: Id<"locations">;
   patientDateOfBirth?: IsoDateString;
   patientId?: Id<"patients">;
+  patientInsuranceStatus?: InsuranceStatus;
   practiceId: Id<"practices">;
   practitionerId?: Id<"practitioners">;
   scope?: AppointmentBookingScope;
@@ -178,6 +182,7 @@ export async function createAppointmentSeries(
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
+    patientInsuranceStatus?: InsuranceStatus;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     rootAppointmentTypeId: Id<"appointmentTypes">;
@@ -411,6 +416,7 @@ export async function hasExactSeriesStepSchedulerAvailability(
     locationId: Id<"locations">;
     occupancyScope: AppointmentOccupancyScope;
     patientDateOfBirth?: IsoDateString;
+    patientInsuranceStatus?: InsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     requestedAt: InstantString;
@@ -443,6 +449,9 @@ export async function hasExactSeriesStepSchedulerAvailability(
     planningState: args.planningState,
     ...(args.patientDateOfBirth && {
       patientDateOfBirth: args.patientDateOfBirth,
+    }),
+    ...(args.patientInsuranceStatus && {
+      patientInsuranceStatus: args.patientInsuranceStatus,
     }),
     practiceId: args.practiceId,
     ...(practitionerId === undefined
@@ -485,6 +494,7 @@ export async function hasResourceRootSchedulerAvailability(
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
+    patientInsuranceStatus?: InsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     requestedAt: InstantString;
@@ -513,6 +523,9 @@ export async function hasResourceRootSchedulerAvailability(
     planningState: args.planningState,
     ...(args.patientDateOfBirth && {
       patientDateOfBirth: args.patientDateOfBirth,
+    }),
+    ...(args.patientInsuranceStatus && {
+      patientInsuranceStatus: args.patientInsuranceStatus,
     }),
     practiceId: args.practiceId,
     requestedAt: args.requestedAt,
@@ -571,6 +584,9 @@ export async function planSeriesFromRootCandidate(
     locationId: args.rootCandidate.locationId,
     ...(args.rootCandidate.patientDateOfBirth && {
       patientDateOfBirth: args.rootCandidate.patientDateOfBirth,
+    }),
+    ...(args.rootCandidate.patientInsuranceStatus && {
+      patientInsuranceStatus: args.rootCandidate.patientInsuranceStatus,
     }),
     ...(args.rootCandidate.isNewPatient !== undefined && {
       isNewPatient: args.rootCandidate.isNewPatient,
@@ -646,6 +662,9 @@ export async function planSeriesFromRootCandidate(
       }),
       ...(args.rootCandidate.patientDateOfBirth && {
         patientDateOfBirth: args.rootCandidate.patientDateOfBirth,
+      }),
+      ...(args.rootCandidate.patientInsuranceStatus && {
+        patientInsuranceStatus: args.rootCandidate.patientInsuranceStatus,
       }),
       locationId: args.rootCandidate.locationId,
       plannedSteps,
@@ -724,6 +743,7 @@ export async function previewAppointmentSeries(
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
+    patientInsuranceStatus?: InsuranceStatus;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     rootAppointmentTypeId: Id<"appointmentTypes">;
@@ -741,6 +761,12 @@ export async function previewAppointmentSeries(
       patientDateOfBirth: args.patientDateOfBirth,
     }),
     ...(args.patientId && { patientId: args.patientId }),
+  });
+  const patientInsuranceStatus = await resolvePatientInsuranceStatus(ctx, {
+    ...(args.patientId && { patientId: args.patientId }),
+    ...(args.patientInsuranceStatus && {
+      patientInsuranceStatus: args.patientInsuranceStatus,
+    }),
   });
   const requestedAt = asInstantString(Temporal.Now.instant().toString());
   const simulationRuleSetId = resolveSeriesSimulationRuleSetId(args);
@@ -761,6 +787,7 @@ export async function previewAppointmentSeries(
       locationId: args.locationId,
       ...(patientDateOfBirth && { patientDateOfBirth }),
       ...(args.patientId && { patientId: args.patientId }),
+      ...(patientInsuranceStatus && { patientInsuranceStatus }),
       practiceId: args.practiceId,
       ...(args.calendarResourceColumn && {
         calendarResourceColumn: args.calendarResourceColumn,
@@ -1110,6 +1137,7 @@ async function findFirstAvailableStepStart(
     locationId: Id<"locations">;
     occupancy: ResolvedPlanOccupancy;
     patientDateOfBirth?: IsoDateString;
+    patientInsuranceStatus?: InsuranceStatus;
     plannedSteps: PlannedSeriesStep[];
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
@@ -1153,6 +1181,7 @@ async function findFirstAvailableStepStartOnOrAfter(
     locationId: Id<"locations">;
     occupancy: ResolvedPlanOccupancy;
     patientDateOfBirth?: IsoDateString;
+    patientInsuranceStatus?: InsuranceStatus;
     plannedSteps: PlannedSeriesStep[];
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
@@ -1196,6 +1225,9 @@ async function findFirstAvailableStepStartOnOrAfter(
         planningState: args.planningState,
         ...(args.patientDateOfBirth && {
           patientDateOfBirth: args.patientDateOfBirth,
+        }),
+        ...(args.patientInsuranceStatus && {
+          patientInsuranceStatus: args.patientInsuranceStatus,
         }),
         practiceId: args.practiceId,
         requestedAt: args.requestedAt,
@@ -1279,6 +1311,9 @@ async function findFirstAvailableStepStartOnOrAfter(
       planningState: args.planningState,
       ...(args.patientDateOfBirth && {
         patientDateOfBirth: args.patientDateOfBirth,
+      }),
+      ...(args.patientInsuranceStatus && {
+        patientInsuranceStatus: args.patientInsuranceStatus,
       }),
       practiceId: args.practiceId,
       practitionerId: args.occupancy.practitionerId,
@@ -1468,6 +1503,7 @@ async function getExactPractitionerSlotAvailability(
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
+    patientInsuranceStatus?: InsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     practitionerId: Id<"practitioners">;
@@ -1503,6 +1539,9 @@ async function getExactPractitionerSlotAvailability(
     planningState: args.planningState,
     ...(args.patientDateOfBirth && {
       patientDateOfBirth: args.patientDateOfBirth,
+    }),
+    ...(args.patientInsuranceStatus && {
+      patientInsuranceStatus: args.patientInsuranceStatus,
     }),
     practiceId: args.practiceId,
     practitionerId: args.practitionerId,
@@ -1550,6 +1589,7 @@ async function getExactResourceSlotAvailability(
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
+    patientInsuranceStatus?: InsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     requestedAt: InstantString;
@@ -1584,6 +1624,9 @@ async function getExactResourceSlotAvailability(
     planningState: args.planningState,
     ...(args.patientDateOfBirth && {
       patientDateOfBirth: args.patientDateOfBirth,
+    }),
+    ...(args.patientInsuranceStatus && {
+      patientInsuranceStatus: args.patientInsuranceStatus,
     }),
     practiceId: args.practiceId,
     requestedAt: args.requestedAt,
@@ -1820,6 +1863,7 @@ async function planAppointmentPlanStep(
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
+    patientInsuranceStatus?: InsuranceStatus;
     plannedSteps: PlannedSeriesStep[];
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
@@ -1918,6 +1962,7 @@ async function queryAvailableSlotsForDay(
     isNewPatient?: boolean;
     locationId?: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
+    patientInsuranceStatus?: InsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
@@ -1948,6 +1993,7 @@ async function querySchedulingSlotsForDay(
     isNewPatient?: boolean;
     locationId?: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
+    patientInsuranceStatus?: InsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
@@ -1965,6 +2011,7 @@ async function querySchedulingSlotsForDay(
     args.isNewPatient === true ? "new" : "existing",
     args.locationId ?? "",
     args.patientDateOfBirth ?? "",
+    args.patientInsuranceStatus ?? "",
     args.practiceId,
     args.practitionerId ?? "",
     args.requestedAt,
@@ -2028,6 +2075,9 @@ async function querySchedulingSlotsForDay(
         patient: {
           ...(args.patientDateOfBirth && {
             dateOfBirth: args.patientDateOfBirth,
+          }),
+          ...(args.patientInsuranceStatus && {
+            insuranceStatus: args.patientInsuranceStatus,
           }),
           isNew: args.isNewPatient ?? false,
         },
@@ -2148,6 +2198,21 @@ async function resolvePatientDateOfBirth(
 
   const patient = await ctx.db.get("patients", args.patientId);
   return asOptionalIsoDateString(patient?.dateOfBirth);
+}
+
+async function resolvePatientInsuranceStatus(
+  ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
+  args: {
+    patientId?: Id<"patients">;
+    patientInsuranceStatus?: InsuranceStatus;
+  },
+): Promise<InsuranceStatus | undefined> {
+  if (args.patientId) {
+    const patient = await ctx.db.get("patients", args.patientId);
+    return patient?.insuranceStatus;
+  }
+
+  return args.patientInsuranceStatus;
 }
 
 async function resolvePractitionerOccupancy(
@@ -2375,6 +2440,7 @@ async function validateRootCandidate(
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
+    patientInsuranceStatus?: InsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     requestedAt: InstantString;
@@ -2429,6 +2495,9 @@ async function validateRootCandidate(
       planningState: args.planningState,
       ...(args.patientDateOfBirth && {
         patientDateOfBirth: args.patientDateOfBirth,
+      }),
+      ...(args.patientInsuranceStatus && {
+        patientInsuranceStatus: args.patientInsuranceStatus,
       }),
       practiceId: args.practiceId,
       practitionerId: args.rootOccupancy.practitionerId,
@@ -2488,6 +2557,9 @@ async function validateRootCandidate(
         ...(args.patientDateOfBirth && {
           patientDateOfBirth: args.patientDateOfBirth,
         }),
+        ...(args.patientInsuranceStatus && {
+          patientInsuranceStatus: args.patientInsuranceStatus,
+        }),
         practiceId: args.practiceId,
         requestedAt: args.requestedAt,
         rootDurationMinutes: args.rootDurationMinutes,
@@ -2515,6 +2587,9 @@ async function validateRootCandidate(
         planningState: args.planningState,
         ...(args.patientDateOfBirth && {
           patientDateOfBirth: args.patientDateOfBirth,
+        }),
+        ...(args.patientInsuranceStatus && {
+          patientInsuranceStatus: args.patientInsuranceStatus,
         }),
         practiceId: args.practiceId,
         requestedAt: args.requestedAt,

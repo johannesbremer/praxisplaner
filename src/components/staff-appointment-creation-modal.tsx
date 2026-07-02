@@ -174,6 +174,7 @@ export function StaffAppointmentCreationModal({
   const hasAnyPatient =
     hasPersistedPatient || hasUserLinkedPatient || hasTemporaryPatientDraft;
   const hasKnownInsuranceStatus =
+    hasUserLinkedPatient ||
     effectivePatient?.insuranceStatus === "private" ||
     effectivePatient?.insuranceStatus === "public";
 
@@ -328,6 +329,9 @@ export function StaffAppointmentCreationModal({
               ...(effectivePatient?.dateOfBirth && {
                 patientDateOfBirth: effectivePatient.dateOfBirth,
               }),
+              ...(effectivePatient?.insuranceStatus && {
+                patientInsuranceStatus: effectivePatient.insuranceStatus,
+              }),
               ...(availableSeriesBlueprint === undefined
                 ? {}
                 : { optimisticSeriesBlueprint: availableSeriesBlueprint }),
@@ -345,6 +349,9 @@ export function StaffAppointmentCreationModal({
                 ...(effectivePatient?.dateOfBirth && {
                   patientDateOfBirth: effectivePatient.dateOfBirth,
                 }),
+                ...(effectivePatient?.insuranceStatus && {
+                  patientInsuranceStatus: effectivePatient.insuranceStatus,
+                }),
                 ...(availableSeriesBlueprint === undefined
                   ? {}
                   : { optimisticSeriesBlueprint: availableSeriesBlueprint }),
@@ -360,6 +367,9 @@ export function StaffAppointmentCreationModal({
                 ...(isSimulation && { isSimulation: true }),
                 ...(effectivePatient?.dateOfBirth && {
                   patientDateOfBirth: effectivePatient.dateOfBirth,
+                }),
+                ...(effectivePatient?.insuranceStatus && {
+                  patientInsuranceStatus: effectivePatient.insuranceStatus,
                 }),
                 ...(availableSeriesBlueprint === undefined
                   ? {}

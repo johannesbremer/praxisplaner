@@ -3146,6 +3146,9 @@ async function evaluateSingleAppointmentCandidateSlot(
         ...(args.patientDateOfBirth === undefined
           ? {}
           : { patientDateOfBirth: args.patientDateOfBirth }),
+        ...(args.patientInsuranceStatus === undefined
+          ? {}
+          : { patientInsuranceStatus: args.patientInsuranceStatus }),
         practiceId: args.practiceId,
         requestedAt: args.requestedAt,
         ruleSetId: args.ruleSetId,
@@ -3439,6 +3442,9 @@ async function resolveCandidateSlotDecisionForStaffPlacement(
     ...(args.patientDateOfBirth === undefined
       ? {}
       : { patientDateOfBirth: args.patientDateOfBirth }),
+    ...(args.patientInsuranceStatus === undefined
+      ? {}
+      : { patientInsuranceStatus: args.patientInsuranceStatus }),
     planningState: args.planningState,
     practiceId: args.practiceId,
     requestedAt: args.requestedAt,
@@ -4017,6 +4023,7 @@ export async function createAppointmentFromTrustedSource(
       locationId,
       ...(isNewPatient !== undefined && { isNewPatient }),
       ...(patientDateOfBirth !== undefined && { patientDateOfBirth }),
+      ...(patientInsuranceStatus !== undefined && { patientInsuranceStatus }),
       ...(ownerRefs.patientId !== undefined && {
         patientId: ownerRefs.patientId,
       }),
