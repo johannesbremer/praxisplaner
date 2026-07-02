@@ -351,8 +351,11 @@ function BlockedAccountsTab({
     api.onlineAccountBlocks.listForPractice,
     practiceId ? { practiceId } : "skip",
   );
+  const blockBookingIdentity = useMutation(
+    api.onlineAccountBlocks.blockBookingIdentity,
+  );
+  const blockUser = useMutation(api.onlineAccountBlocks.blockUser);
   const unblock = useMutation(api.onlineAccountBlocks.unblock);
-  const restore = useMutation(api.onlineAccountBlocks.restore);
   const [history, setHistory] = useState<{
     future: BlockHistoryCommand[];
     past: BlockHistoryCommand[];
@@ -367,21 +370,25 @@ function BlockedAccountsTab({
         setOperationError("Keine Praxis ausgewählt.");
         return null;
       }
-      const restoredId = await restore({
-        ...(block.bookingIdentityId === undefined
-          ? {}
-          : { bookingIdentityId: block.bookingIdentityId }),
-        ...(block.legacyUserId === undefined
-          ? {}
-          : { legacyUserId: block.legacyUserId }),
-        practiceId,
-        reason: block.reason,
-        sourceSystem: block.sourceSystem,
-        userId: block.userId,
-      });
-      return { ...block, _id: restoredId };
+      const restoredId =
+        block.bookingIdentityId === undefined
+          ? await blockUser({
+              practiceId,
+              reason: block.reason,
+              userId: block.userId,
+            })
+          : await blockBookingIdentity({
+              bookingIdentityId: block.bookingIdentityId,
+              practiceId,
+              reason: block.reason,
+            });
+      return {
+        ...block,
+        _id: restoredId,
+        sourceSystem: "online",
+      };
     },
-    [practiceId, restore],
+    [blockBookingIdentity, blockUser, practiceId],
   );
 
   const runUnblock = useCallback(
