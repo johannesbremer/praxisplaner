@@ -8,6 +8,7 @@ import {
   Link2,
   PanelRightIcon,
   Plus,
+  UserCog,
   X,
 } from "lucide-react";
 import { err, ok, type Result } from "neverthrow";
@@ -50,6 +51,7 @@ import {
   missingContextError,
 } from "../utils/frontend-errors";
 import { getPatientInfoDisplayName } from "../utils/patient-info";
+import { PatientPractitionerChangeDialog } from "./patient-practitioner-change-dialog";
 import {
   getPatientSelectionPanelInitialSelection,
   PatientSelectionPanel,
@@ -587,242 +589,276 @@ function RightSidebarContent({
   const updateAppointmentSmiley = useMutation(
     api.appointments.updateAppointmentSmiley,
   );
+  const [isPractitionerDialogOpen, setIsPractitionerDialogOpen] =
+    React.useState(false);
   const bookingFieldEntries =
     patient?.userId === undefined ? [] : getBookingFieldEntries(patient);
+  const patientConvexId = patient?.convexPatientId;
 
   return (
-    <ScrollArea className="flex-1">
-      <div className="p-4 pb-[100%]">
-        {showGdtAlert && (
-          <div className="mb-4">
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Keine GDT-Verbindung</AlertTitle>
-              <AlertDescription>
-                Keine Verbindung mit dem PVS möglich!
-              </AlertDescription>
-            </Alert>
-          </div>
-        )}
-        {practiceId && onPatientSelected && (
-          <div className="mb-4">
-            <PatientSelectionPanel
-              initialSelection={getPatientSelectionPanelInitialSelection({
-                patient,
-                selectedPatientId,
-              })}
-              key={
-                selectedPatientId ??
-                (patient?.userId
-                  ? `user:${patient.userId}`
-                  : patient?.recordType === "pvs"
-                    ? `pvs:${patient.convexPatientId}`
-                    : "empty")
-              }
-              onPatientSelected={onPatientSelected}
-              practiceId={practiceId}
-            />
-          </div>
-        )}
-        {patient ? (
-          <div className="space-y-3">
-            {/* Patient Name */}
-            <p className="text-lg font-semibold">{patientDisplayName}</p>
+    <>
+      <ScrollArea className="flex-1">
+        <div className="p-4 pb-[100%]">
+          {showGdtAlert && (
+            <div className="mb-4">
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Keine GDT-Verbindung</AlertTitle>
+                <AlertDescription>
+                  Keine Verbindung mit dem PVS möglich!
+                </AlertDescription>
+              </Alert>
+            </div>
+          )}
+          {practiceId && onPatientSelected && (
+            <div className="mb-4">
+              <PatientSelectionPanel
+                initialSelection={getPatientSelectionPanelInitialSelection({
+                  patient,
+                  selectedPatientId,
+                })}
+                key={
+                  selectedPatientId ??
+                  (patient?.userId
+                    ? `user:${patient.userId}`
+                    : patient?.recordType === "pvs"
+                      ? `pvs:${patient.convexPatientId}`
+                      : "empty")
+                }
+                onPatientSelected={onPatientSelected}
+                practiceId={practiceId}
+              />
+            </div>
+          )}
+          {patient ? (
+            <div className="space-y-3">
+              {/* Patient Name */}
+              <p className="text-lg font-semibold">{patientDisplayName}</p>
 
-            {bookingFieldEntries.length > 0 ? (
-              <div className="space-y-1">
-                {bookingFieldEntries.map((entry) => (
-                  <p className="text-sm" key={entry.field}>
-                    <span className="text-muted-foreground">
-                      {entry.label}:
-                    </span>{" "}
-                    {entry.value}
-                  </p>
-                ))}
-              </div>
-            ) : (
-              <>
-                {/* Date of Birth */}
-                {patient.dateOfBirth !== undefined && (
-                  <p className="text-sm text-muted-foreground">
-                    {formatGermanDate(patient.dateOfBirth)}
-                  </p>
-                )}
+              {bookingFieldEntries.length > 0 ? (
+                <div className="space-y-1">
+                  {bookingFieldEntries.map((entry) => (
+                    <p className="text-sm" key={entry.field}>
+                      <span className="text-muted-foreground">
+                        {entry.label}:
+                      </span>{" "}
+                      {entry.value}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  {/* Date of Birth */}
+                  {patient.dateOfBirth !== undefined && (
+                    <p className="text-sm text-muted-foreground">
+                      {formatGermanDate(patient.dateOfBirth)}
+                    </p>
+                  )}
 
-                {/* Email (online booking) */}
-                {patient.email && (
-                  <p className="text-sm text-muted-foreground">
-                    {patient.email}
-                  </p>
-                )}
+                  {/* Email (online booking) */}
+                  {patient.email && (
+                    <p className="text-sm text-muted-foreground">
+                      {patient.email}
+                    </p>
+                  )}
 
-                {patient.phoneNumber && (
-                  <p className="text-sm text-muted-foreground">
-                    {patient.phoneNumber}
-                  </p>
-                )}
+                  {patient.phoneNumber && (
+                    <p className="text-sm text-muted-foreground">
+                      {patient.phoneNumber}
+                    </p>
+                  )}
 
-                {/* Address - Street */}
-                {patient.street && <p className="text-sm">{patient.street}</p>}
+                  {/* Address - Street */}
+                  {patient.street && (
+                    <p className="text-sm">{patient.street}</p>
+                  )}
 
-                {/* Address - City */}
-                {patient.city && <p className="text-sm">{patient.city}</p>}
-              </>
-            )}
+                  {/* Address - City */}
+                  {patient.city && <p className="text-sm">{patient.city}</p>}
+                </>
+              )}
 
-            <Separator />
+              <Separator />
 
-            {/* Patient Status */}
-            {patient.isNewPatient !== undefined && (
-              <p className="text-sm">
-                {patient.isNewPatient ? "Neupatient" : "Bestandspatient"}
-              </p>
-            )}
+              {/* Patient Status */}
+              {patient.isNewPatient !== undefined && (
+                <p className="text-sm">
+                  {patient.isNewPatient ? "Neupatient" : "Bestandspatient"}
+                </p>
+              )}
 
-            {/* Open in PVS Button */}
-            {patient.patientId !== undefined && (
-              <Button
-                className="w-full gap-1.5"
-                onClick={handleOpenInPvs}
-                size="sm"
-                variant="outline"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                Im PVS öffnen
-              </Button>
-            )}
-
-            {practiceId !== undefined &&
-              patient.recordType === "temporary" &&
-              patient.bookingIdentityId !== undefined && (
+              {/* Open in PVS Button */}
+              {patient.patientId !== undefined && (
                 <Button
                   className="w-full gap-1.5"
-                  onClick={handleLinkWithPvs}
+                  onClick={handleOpenInPvs}
                   size="sm"
-                  type="button"
                   variant="outline"
                 >
-                  <Link2 className="h-3.5 w-3.5" />
-                  Mit dem PVS verknüpfen
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Im PVS öffnen
                 </Button>
               )}
 
-            {/* Patient ID */}
-            {patient.patientId !== undefined && (
-              <p className="text-xs text-muted-foreground">
-                {patient.patientId}
-              </p>
-            )}
+              {practiceId !== undefined &&
+                patient.recordType === "temporary" &&
+                patient.bookingIdentityId !== undefined && (
+                  <Button
+                    className="w-full gap-1.5"
+                    onClick={handleLinkWithPvs}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <Link2 className="h-3.5 w-3.5" />
+                    Mit dem PVS verknüpfen
+                  </Button>
+                )}
 
-            {/* Patient Appointments List */}
-            {patientAppointments !== undefined &&
-              patientAppointments.length > 0 && (
-                <>
-                  <Separator />
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-1.5">
-                      <Calendar className="h-4 w-4 text-muted-foreground" />
-                      <p className="text-sm font-medium">Termine</p>
-                      <Badge className="ml-auto text-xs" variant="secondary">
-                        {patientAppointments.length}
-                      </Badge>
-                    </div>
-                    <div className="space-y-1">
-                      {patientAppointments.toReversed().map((appointment) => {
-                        const isExactSelectedAppointment =
-                          shouldShowAppointmentSmileyEditor({
-                            appointmentId: appointment._id,
-                            selectedAppointmentId,
-                          });
-                        const showSmileyInTitle =
-                          shouldShowAppointmentSmileyInTitle({
-                            appointmentId: appointment._id,
-                            selectedAppointmentId,
-                            smiley: appointment.smiley,
-                          });
-                        const isSelected =
-                          isExactSelectedAppointment ||
-                          (selectedSeriesId !== undefined &&
-                            appointment.seriesId === selectedSeriesId);
-                        return (
-                          <div
-                            className={cn(
-                              "rounded-md p-2 text-sm transition-colors",
-                              isSelected &&
-                                "bg-info-muted text-info-foreground ring-2 ring-selection-ring",
-                            )}
-                            key={appointment._id}
-                          >
-                            <button
-                              className={cn(
-                                "w-full rounded-sm text-left transition-colors",
-                                "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                              )}
-                              onClick={() => onSelectAppointment?.(appointment)}
-                              type="button"
-                            >
-                              <div className="flex min-w-0 items-center gap-1.5">
-                                {showSmileyInTitle ? (
-                                  <span
-                                    aria-hidden="true"
-                                    className="shrink-0 text-sm leading-none"
-                                  >
-                                    {appointment.smiley}
-                                  </span>
-                                ) : null}
-                                <p className="truncate font-medium">
-                                  {appointment.title}
-                                </p>
-                              </div>
-                              <p className="text-xs text-muted-foreground truncate">
-                                {appointment.appointmentTypeTitle}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {formatAppointmentDateTime(appointment.start)}
-                              </p>
-                            </button>
-                            {isExactSelectedAppointment &&
-                              appointmentSmileyOptions && (
-                                <AppointmentSmileyEditor
-                                  appointment={appointment}
-                                  disabled={pendingSmileyAppointmentId}
-                                  onChange={(smiley) => {
-                                    startSmileyTransition(() => {
-                                      void (onUpdateAppointmentSmiley
-                                        ? onUpdateAppointmentSmiley({
-                                            id: appointment._id,
-                                            smiley,
-                                          })
-                                        : updateAppointmentSmiley({
-                                            id: appointment._id,
-                                            smiley,
-                                          }));
-                                    });
-                                  }}
-                                  options={appointmentSmileyOptions}
-                                />
-                              )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </>
+              {practiceId !== undefined &&
+                ruleSetId !== undefined &&
+                patientConvexId !== undefined && (
+                  <Button
+                    className="w-full gap-1.5"
+                    onClick={() => {
+                      setIsPractitionerDialogOpen(true);
+                    }}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <UserCog className="h-3.5 w-3.5" />
+                    Behandler ändern
+                  </Button>
+                )}
+
+              {/* Patient ID */}
+              {patient.patientId !== undefined && (
+                <p className="text-xs text-muted-foreground">
+                  {patient.patientId}
+                </p>
               )}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              Kein Patient ausgewählt.
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Wählen Sie einen Patienten aus oder legen Sie beim Erstellen eines
-              Termins einen temporären Patienten an.
-            </p>
-          </div>
-        )}
-      </div>
-    </ScrollArea>
+
+              {/* Patient Appointments List */}
+              {patientAppointments !== undefined &&
+                patientAppointments.length > 0 && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <p className="text-sm font-medium">Termine</p>
+                        <Badge className="ml-auto text-xs" variant="secondary">
+                          {patientAppointments.length}
+                        </Badge>
+                      </div>
+                      <div className="space-y-1">
+                        {patientAppointments.toReversed().map((appointment) => {
+                          const isExactSelectedAppointment =
+                            shouldShowAppointmentSmileyEditor({
+                              appointmentId: appointment._id,
+                              selectedAppointmentId,
+                            });
+                          const showSmileyInTitle =
+                            shouldShowAppointmentSmileyInTitle({
+                              appointmentId: appointment._id,
+                              selectedAppointmentId,
+                              smiley: appointment.smiley,
+                            });
+                          const isSelected =
+                            isExactSelectedAppointment ||
+                            (selectedSeriesId !== undefined &&
+                              appointment.seriesId === selectedSeriesId);
+                          return (
+                            <div
+                              className={cn(
+                                "rounded-md p-2 text-sm transition-colors",
+                                isSelected &&
+                                  "bg-info-muted text-info-foreground ring-2 ring-selection-ring",
+                              )}
+                              key={appointment._id}
+                            >
+                              <button
+                                className={cn(
+                                  "w-full rounded-sm text-left transition-colors",
+                                  "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                )}
+                                onClick={() =>
+                                  onSelectAppointment?.(appointment)
+                                }
+                                type="button"
+                              >
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                  {showSmileyInTitle ? (
+                                    <span
+                                      aria-hidden="true"
+                                      className="shrink-0 text-sm leading-none"
+                                    >
+                                      {appointment.smiley}
+                                    </span>
+                                  ) : null}
+                                  <p className="truncate font-medium">
+                                    {appointment.title}
+                                  </p>
+                                </div>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {appointment.appointmentTypeTitle}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatAppointmentDateTime(appointment.start)}
+                                </p>
+                              </button>
+                              {isExactSelectedAppointment &&
+                                appointmentSmileyOptions && (
+                                  <AppointmentSmileyEditor
+                                    appointment={appointment}
+                                    disabled={pendingSmileyAppointmentId}
+                                    onChange={(smiley) => {
+                                      startSmileyTransition(() => {
+                                        void (onUpdateAppointmentSmiley
+                                          ? onUpdateAppointmentSmiley({
+                                              id: appointment._id,
+                                              smiley,
+                                            })
+                                          : updateAppointmentSmiley({
+                                              id: appointment._id,
+                                              smiley,
+                                            }));
+                                      });
+                                    }}
+                                    options={appointmentSmileyOptions}
+                                  />
+                                )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Kein Patient ausgewählt.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Wählen Sie einen Patienten aus oder legen Sie beim Erstellen
+                eines Termins einen temporären Patienten an.
+              </p>
+            </div>
+          )}
+        </div>
+      </ScrollArea>
+      <PatientPractitionerChangeDialog
+        onOpenChange={setIsPractitionerDialogOpen}
+        open={isPractitionerDialogOpen}
+        patientDisplayName={patientDisplayName}
+        patientId={patientConvexId}
+        practiceId={practiceId}
+        ruleSetId={ruleSetId}
+      />
+    </>
   );
 }
 
