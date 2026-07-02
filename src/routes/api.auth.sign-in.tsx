@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { getSignInUrl } from "@workos/authkit-tanstack-react-start";
 import { z } from "zod";
 
@@ -9,16 +9,22 @@ const signInSearchSchema = z.object({
 type SignInSearch = z.infer<typeof signInSearchSchema>;
 
 export const Route = createFileRoute("/api/auth/sign-in")({
-  beforeLoad: async ({ search }) => {
-    const returnTo = sanitizeReturnPath(search.returnTo);
-    const callbackReturnPath = createCallbackReturnPath({
-      ...(search.practiceSlug ? { practiceSlug: search.practiceSlug } : {}),
-      returnTo,
-    });
-    const signInUrl = await getSignInUrl({ data: callbackReturnPath });
-    return redirect({ href: signInUrl });
+  server: {
+    handlers: {
+      GET: async ({ request }) => {
+        const search = validateSignInSearch(
+          Object.fromEntries(new URL(request.url).searchParams),
+        );
+        const returnTo = sanitizeReturnPath(search.returnTo);
+        const callbackReturnPath = createCallbackReturnPath({
+          ...(search.practiceSlug ? { practiceSlug: search.practiceSlug } : {}),
+          returnTo,
+        });
+        const signInUrl = await getSignInUrl({ data: callbackReturnPath });
+        return Response.redirect(signInUrl);
+      },
+    },
   },
-  validateSearch: validateSignInSearch,
 });
 
 function createCallbackReturnPath({
