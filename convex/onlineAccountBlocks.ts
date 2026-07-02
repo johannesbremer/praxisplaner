@@ -50,6 +50,37 @@ async function buildBlockRecord(
   };
 }
 
+async function canBlockUserForPractice(
+  ctx: ReaderCtx,
+  args: {
+    practiceId: Id<"practices">;
+    userId: Id<"users">;
+  },
+): Promise<boolean> {
+  const user = await ctx.db.get("users", args.userId);
+  if (!user) {
+    return false;
+  }
+
+  const membership = await ctx.db
+    .query("organizationMembers")
+    .withIndex("by_practiceId_userId", (q) =>
+      q.eq("practiceId", args.practiceId).eq("userId", args.userId),
+    )
+    .first();
+  if (membership) {
+    return true;
+  }
+
+  const appointments = await ctx.db
+    .query("appointments")
+    .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+    .collect();
+  return appointments.some(
+    (appointment) => appointment.practiceId === args.practiceId,
+  );
+}
+
 async function getActiveBlockForUser(
   ctx: ReaderCtx,
   args: {
@@ -63,6 +94,28 @@ async function getActiveBlockForUser(
       q.eq("userId", args.userId).eq("practiceId", args.practiceId),
     )
     .first();
+}
+
+async function getBlockStatusForUser(
+  ctx: ReaderCtx,
+  args: {
+    practiceId: Id<"practices">;
+    userId: Id<"users">;
+  },
+) {
+  if (!(await canBlockUserForPractice(ctx, args))) {
+    return {
+      block: null,
+      canBlock: false,
+    };
+  }
+
+  const block = await getActiveBlockForUser(ctx, args);
+  return {
+    block: block ? await buildBlockRecord(ctx, block) : null,
+    canBlock: true,
+    ...(block ? { reason: block.reason } : {}),
+  };
 }
 
 function normalizeBlockReason(reason: string): string {
@@ -114,15 +167,22 @@ export const getStatusForBookingIdentity = query({
         canBlock: false,
       };
     }
-    const block = await getActiveBlockForUser(ctx, {
+    return await getBlockStatusForUser(ctx, {
       practiceId: args.practiceId,
       userId: bookingIdentity.userId,
     });
-    return {
-      block: block ? await buildBlockRecord(ctx, block) : null,
-      canBlock: true,
-      ...(block ? { reason: block.reason } : {}),
-    };
+  },
+  returns: bookingIdentityBlockStatusValidator,
+});
+
+export const getStatusForUser = query({
+  args: {
+    practiceId: v.id("practices"),
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    await requirePracticeStaff(ctx, args.practiceId);
+    return await getBlockStatusForUser(ctx, args);
   },
   returns: bookingIdentityBlockStatusValidator,
 });
@@ -183,6 +243,37 @@ export const blockBookingIdentity = mutation({
       reason,
       sourceSystem: "online",
       userId: bookingIdentity.userId,
+    });
+  },
+  returns: v.id("onlineAccountBlocks"),
+});
+
+export const blockUser = mutation({
+  args: {
+    practiceId: v.id("practices"),
+    reason: v.string(),
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    await requirePracticeStaffForMutation(ctx, args.practiceId);
+    if (!(await canBlockUserForPractice(ctx, args))) {
+      throw new Error("Online booking user not found for this practice.");
+    }
+    const reason = normalizeBlockReason(args.reason);
+    const existingBlock = await getActiveBlockForUser(ctx, args);
+    if (existingBlock) {
+      await ctx.db.patch("onlineAccountBlocks", existingBlock._id, {
+        reason,
+        sourceSystem: "online",
+      });
+      return existingBlock._id;
+    }
+    return await ctx.db.insert("onlineAccountBlocks", {
+      createdAt: BigInt(Date.now()),
+      practiceId: args.practiceId,
+      reason,
+      sourceSystem: "online",
+      userId: args.userId,
     });
   },
   returns: v.id("onlineAccountBlocks"),

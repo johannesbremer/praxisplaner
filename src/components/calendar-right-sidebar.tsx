@@ -577,12 +577,25 @@ function RightSidebarContent({
   const [blockModalOpen, setBlockModalOpen] = React.useState(false);
   const [isBlockPending, startBlockTransition] = React.useTransition();
   const bookingIdentityId = getPatientBookingIdentityId(patient);
+  const onlineBookingUserId = getPatientOnlineBookingUserId(patient);
   const bookingIdentityBlockStatus = useQuery(
     api.onlineAccountBlocks.getStatusForBookingIdentity,
     practiceId !== undefined && bookingIdentityId !== undefined
       ? { bookingIdentityId, practiceId }
       : "skip",
   );
+  const userBlockStatus = useQuery(
+    api.onlineAccountBlocks.getStatusForUser,
+    practiceId !== undefined &&
+      bookingIdentityId === undefined &&
+      onlineBookingUserId !== undefined
+      ? { practiceId, userId: onlineBookingUserId }
+      : "skip",
+  );
+  const onlineAccountBlockStatus =
+    bookingIdentityId === undefined
+      ? userBlockStatus
+      : bookingIdentityBlockStatus;
   const appointmentSmileyOptionsRuleSetId =
     resolveAppointmentSmileyOptionsRuleSetId({
       defaultRuleSetId: ruleSetId,
@@ -610,16 +623,17 @@ function RightSidebarContent({
   const blockBookingIdentity = useMutation(
     api.onlineAccountBlocks.blockBookingIdentity,
   );
+  const blockUser = useMutation(api.onlineAccountBlocks.blockUser);
   const bookingFieldEntries =
     patient?.userId === undefined ? [] : getBookingFieldEntries(patient);
   const trimmedBlockReason = blockReason.trim();
   const canSubmitBlock =
     practiceId !== undefined &&
-    bookingIdentityId !== undefined &&
+    (bookingIdentityId !== undefined || onlineBookingUserId !== undefined) &&
     trimmedBlockReason.length >= 3 &&
     !isBlockPending;
-  const showBlockPatientButton = bookingIdentityBlockStatus?.canBlock === true;
-  const isPatientBlocked = bookingIdentityBlockStatus?.block !== null;
+  const showBlockPatientButton = onlineAccountBlockStatus?.canBlock === true;
+  const isPatientBlocked = onlineAccountBlockStatus?.block !== null;
 
   return (
     <ScrollArea className="flex-1">
@@ -715,7 +729,7 @@ function RightSidebarContent({
                 {isPatientBlocked ? (
                   <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
                     Online-Buchung gesperrt:{" "}
-                    {bookingIdentityBlockStatus.block?.reason}
+                    {onlineAccountBlockStatus.block?.reason}
                   </div>
                 ) : (
                   <Button
@@ -793,16 +807,30 @@ function RightSidebarContent({
                         onClick={() => {
                           if (
                             practiceId === undefined ||
-                            bookingIdentityId === undefined
+                            (bookingIdentityId === undefined &&
+                              onlineBookingUserId === undefined)
                           ) {
                             return;
                           }
                           startBlockTransition(() => {
-                            blockBookingIdentity({
-                              bookingIdentityId,
-                              practiceId,
-                              reason: trimmedBlockReason,
-                            })
+                            const blockPromise =
+                              bookingIdentityId === undefined
+                                ? onlineBookingUserId === undefined
+                                  ? null
+                                  : blockUser({
+                                      practiceId,
+                                      reason: trimmedBlockReason,
+                                      userId: onlineBookingUserId,
+                                    })
+                                : blockBookingIdentity({
+                                    bookingIdentityId,
+                                    practiceId,
+                                    reason: trimmedBlockReason,
+                                  });
+                            if (blockPromise === null) {
+                              return;
+                            }
+                            blockPromise
                               .then(() => {
                                 setBlockModalOpen(false);
                                 setBlockReason("");
@@ -1035,4 +1063,10 @@ function getPatientBookingIdentityId(
     return undefined;
   }
   return patient.bookingIdentityId;
+}
+
+function getPatientOnlineBookingUserId(
+  patient: PatientInfo | undefined,
+): Id<"users"> | undefined {
+  return patient?.userId;
 }
