@@ -534,4 +534,30 @@ describe("WorkOS AuthKit user sync", () => {
       }),
     ).resolves.toBeNull();
   });
+
+  test("membership event before user backfill is ignored without failing", async () => {
+    const t = createTestContext();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("practices", {
+        name: "Webhook Race Practice",
+        workOSOrganizationId: "org_webhook_race",
+      });
+    });
+
+    await t.mutation(internal.auth.authKitEvent, {
+      data: {
+        id: "om_webhook_race",
+        object: "organization_membership",
+        organization_id: "org_webhook_race",
+        role: { slug: "admin" },
+        status: "active",
+        user_id: "user_missing_until_backfill",
+      },
+      event: "organization_membership.created",
+    });
+
+    await expect(
+      t.run(async (ctx) => await ctx.db.query("organizationMembers").collect()),
+    ).resolves.toEqual([]);
+  });
 });

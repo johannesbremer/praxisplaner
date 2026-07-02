@@ -128,6 +128,15 @@ async function createMigrationManager(
   const now = BigInt(Date.now());
   const subject = `migration-manager:${suffix}`;
   const email = `migration-manager-${suffix}@example.com`;
+  const previousOperators =
+    process.env["MIGRATION_OPERATOR_WORKOS_USER_IDS"] ?? "";
+  process.env["MIGRATION_OPERATOR_WORKOS_USER_IDS"] = [
+    ...previousOperators
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0),
+    subject,
+  ].join(",");
 
   await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", {

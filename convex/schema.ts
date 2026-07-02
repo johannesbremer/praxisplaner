@@ -1052,6 +1052,7 @@ export default defineSchema({
   })
     .index("by_practiceId", ["practiceId"])
     .index("by_practiceId_userId", ["practiceId", "userId"])
+    .index("by_role", ["role"])
     .index("by_userId", ["userId"]),
 
   practitioners: defineTable({

@@ -3,12 +3,16 @@ import { type Infer, v } from "convex/values";
 
 import type { Doc, Id } from "./_generated/dataModel";
 
+import { internal } from "./_generated/api";
 import {
+  action,
+  type ActionCtx,
   internalMutation,
   internalQuery,
   mutation,
   type MutationCtx,
   query,
+  type QueryCtx,
 } from "./_generated/server";
 import { resolveActivePvsPatientIdForBookingIdentity } from "./bookingIdentities";
 import {
@@ -23,6 +27,10 @@ import {
 } from "./bookingValidators";
 import { insertSelfLineageEntity } from "./lineage";
 import {
+  buildPatientSearchFirstName,
+  buildPatientSearchLastName,
+} from "./patientSearch";
+import {
   requireManagerRuleSetScope,
   requirePracticeManager,
 } from "./practiceAccess";
@@ -35,13 +43,1055 @@ import {
 
 const legacyMissingOnlineBookingPractitionerName = "Dr. Verena Meyer zu Hörste";
 
+const pvsPatientImportRowValidator = v.object({
+  firstName: v.string(),
+  lastName: v.string(),
+  patientId: v.number(),
+});
+
+const legacyWorkOSUserImportRowValidator = v.object({
+  email: v.string(),
+  emailVerified: v.boolean(),
+  firstName: v.optional(v.string()),
+  lastName: v.optional(v.string()),
+  sourceUserId: v.string(),
+  username: v.string(),
+});
+
+const legacyWorkOSPatientMembershipImportRowValidator = v.object({
+  email: v.string(),
+  sourceUserId: v.string(),
+  workOSUserId: v.string(),
+});
+
+const pristineResetTableNameValidator = v.union(
+  v.literal("appointmentRestoreSnapshots"),
+  v.literal("appointments"),
+  v.literal("appointmentSeries"),
+  v.literal("appointmentTypeFolders"),
+  v.literal("appointmentTypes"),
+  v.literal("baseSchedules"),
+  v.literal("blockedSlots"),
+  v.literal("bookingCalendarReachedSteps"),
+  v.literal("bookingExistingDoctorSelectionSteps"),
+  v.literal("bookingIdentities"),
+  v.literal("bookingIdentityPatientAssociations"),
+  v.literal("bookingLocationSteps"),
+  v.literal("bookingMedicalHistoryEntries"),
+  v.literal("bookingNewDataSharingContactRows"),
+  v.literal("bookingNewDataSharingSteps"),
+  v.literal("bookingNewGkvDetailSteps"),
+  v.literal("bookingNewInsuranceTypeSteps"),
+  v.literal("bookingNewPkvConsentSteps"),
+  v.literal("bookingNewPkvDetailSteps"),
+  v.literal("bookingPatientStatusSteps"),
+  v.literal("bookingPersonalDataSteps"),
+  v.literal("bookingPrivacySteps"),
+  v.literal("legacyUnmatchedFutureBookingHolds"),
+  v.literal("locations"),
+  v.literal("mfas"),
+  v.literal("onlineAccountBlocks"),
+  v.literal("organizationMembersPatient"),
+  v.literal("patients"),
+  v.literal("phoneBookingIdentities"),
+  v.literal("practicePhoneNumbers"),
+  v.literal("practitionerAssociations"),
+  v.literal("practitioners"),
+  v.literal("stalePractices"),
+  v.literal("staleRuleConditions"),
+  v.literal("staleRuleSets"),
+  v.literal("vacations"),
+);
+
 function assertMigrationRehearsalEnabled(): void {
   if (process.env["MIGRATION_REHEARSAL_ENABLED"] !== "true") {
     throw new Error(
-      "Migration rehearsal mutations are disabled. Set MIGRATION_REHEARSAL_ENABLED=true on a local deployment.",
+      "Migration rehearsal functions are disabled. Set MIGRATION_REHEARSAL_ENABLED=true only for a controlled migration window.",
     );
   }
 }
+
+async function createWorkOSPatientMembership(args: {
+  organizationId: string;
+  userId: string;
+}): Promise<{
+  id: string;
+  organizationId: string;
+  roleSlugs: string[];
+  status: string;
+  userId: string;
+}> {
+  const response = await fetch(
+    `${getWorkOSApiBase()}/user_management/organization_memberships`,
+    {
+      body: JSON.stringify({
+        organization_id: args.organizationId,
+        role_slug: "patient",
+        user_id: args.userId,
+      }),
+      headers: workOSHeaders(),
+      method: "POST",
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `WorkOS organization membership creation failed with status ${response.status}: ${await readWorkOSError(response)}`,
+    );
+  }
+  return parseWorkOSOrganizationMembership(await response.json());
+}
+
+async function createWorkOSUser(args: {
+  email: string;
+  emailVerified: boolean;
+  externalId: string;
+  firstName?: string;
+  lastName?: string;
+  sourceUserId: string;
+  username: string;
+}): Promise<{ email: string; externalId?: string; id: string }> {
+  const response = await fetch(`${getWorkOSApiBase()}/user_management/users`, {
+    body: JSON.stringify({
+      email: args.email,
+      email_verified: args.emailVerified,
+      external_id: args.externalId,
+      ...(args.firstName === undefined ? {} : { first_name: args.firstName }),
+      ...(args.lastName === undefined ? {} : { last_name: args.lastName }),
+      metadata: {
+        legacy_source: "pocketbase",
+        legacy_user_id: args.sourceUserId,
+        legacy_username: args.username,
+      },
+    }),
+    headers: workOSHeaders(),
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(
+      `WorkOS user creation failed with status ${response.status}: ${await readWorkOSError(response)}`,
+    );
+  }
+  return parseWorkOSUser(await response.json());
+}
+
+function getMigrationOperatorWorkOSUserIds(): Set<string> {
+  return new Set(
+    (process.env["MIGRATION_OPERATOR_WORKOS_USER_IDS"] ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0),
+  );
+}
+
+function getWorkOSApiBase(): string {
+  const apiHostname = process.env["WORKOS_API_HOSTNAME"]?.trim();
+  if (
+    apiHostname !== undefined &&
+    (apiHostname.includes("://") ||
+      apiHostname.includes("/") ||
+      apiHostname.endsWith(".authkit.app"))
+  ) {
+    throw new Error(
+      "WORKOS_API_HOSTNAME must be a WorkOS Authentication API hostname, not an AuthKit app URL.",
+    );
+  }
+  return `https://${apiHostname && apiHostname.length > 0 ? apiHostname : "api.workos.com"}`;
+}
+
+function getWorkOSRoleObjectSlugs(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => getWorkOSRoleObjectSlugs(item));
+  }
+  if (isRecord(value) && typeof value["slug"] === "string") {
+    return [value["slug"]];
+  }
+  if (typeof value === "string") {
+    return [value];
+  }
+  return [];
+}
+
+async function getWorkOSUserByExternalId(
+  externalId: string,
+): Promise<null | { email: string; externalId?: string; id: string }> {
+  const response = await fetch(
+    `${getWorkOSApiBase()}/user_management/users/external_id/${encodeURIComponent(
+      externalId,
+    )}`,
+    {
+      headers: workOSHeaders(),
+      method: "GET",
+    },
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(
+      `WorkOS user lookup failed with status ${response.status}: ${await readWorkOSError(response)}`,
+    );
+  }
+  return parseWorkOSUser(await response.json());
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function listActiveWorkOSOrganizationMemberships(args: {
+  organizationId: string;
+  userId: string;
+}): Promise<
+  {
+    id: string;
+    organizationId: string;
+    roleSlugs: string[];
+    status: string;
+    userId: string;
+  }[]
+> {
+  const url = new URL(
+    `${getWorkOSApiBase()}/user_management/organization_memberships`,
+  );
+  url.searchParams.set("organization_id", args.organizationId);
+  url.searchParams.set("user_id", args.userId);
+  url.searchParams.set("statuses[]", "active");
+
+  const response = await fetch(url, {
+    headers: workOSHeaders(),
+    method: "GET",
+  });
+  if (!response.ok) {
+    throw new Error(
+      `WorkOS organization membership lookup failed with status ${response.status}: ${await readWorkOSError(response)}`,
+    );
+  }
+
+  const payload: unknown = await response.json();
+  if (!isRecord(payload) || !Array.isArray(payload["data"])) {
+    throw new Error("WorkOS organization memberships response was invalid.");
+  }
+  return payload["data"].map((membership: unknown) =>
+    parseWorkOSOrganizationMembership(membership),
+  );
+}
+
+function parseWorkOSOrganizationMembership(value: unknown): {
+  id: string;
+  organizationId: string;
+  roleSlugs: string[];
+  status: string;
+  userId: string;
+} {
+  const payload =
+    isRecord(value) && isRecord(value["organization_membership"])
+      ? value["organization_membership"]
+      : value;
+  if (
+    !isRecord(payload) ||
+    typeof payload["id"] !== "string" ||
+    typeof payload["organization_id"] !== "string" ||
+    typeof payload["status"] !== "string" ||
+    typeof payload["user_id"] !== "string"
+  ) {
+    throw new Error("WorkOS organization membership response was invalid.");
+  }
+  return {
+    id: payload["id"],
+    organizationId: payload["organization_id"],
+    roleSlugs: [
+      ...getWorkOSRoleObjectSlugs(payload["role"]),
+      ...getWorkOSRoleObjectSlugs(payload["roles"]),
+    ],
+    status: payload["status"],
+    userId: payload["user_id"],
+  };
+}
+
+function parseWorkOSUser(value: unknown): {
+  email: string;
+  externalId?: string;
+  id: string;
+} {
+  const payload =
+    isRecord(value) && isRecord(value["user"]) ? value["user"] : value;
+  if (
+    !isRecord(payload) ||
+    typeof payload["id"] !== "string" ||
+    typeof payload["email"] !== "string"
+  ) {
+    throw new Error("WorkOS user response was invalid.");
+  }
+  return {
+    email: payload["email"],
+    ...(typeof payload["external_id"] === "string"
+      ? { externalId: payload["external_id"] }
+      : {}),
+    id: payload["id"],
+  };
+}
+
+async function readWorkOSError(response: Response): Promise<string> {
+  const body = await response.text();
+  return body.length > 0 ? body : response.statusText;
+}
+
+async function requireMigrationOperator(
+  ctx: Pick<ActionCtx | MutationCtx | QueryCtx, "auth">,
+): Promise<void> {
+  const operatorIds = getMigrationOperatorWorkOSUserIds();
+  if (operatorIds.size === 0) {
+    throw new Error(
+      "Migration operator allowlist is empty. Set MIGRATION_OPERATOR_WORKOS_USER_IDS before enabling migration functions.",
+    );
+  }
+
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity || !operatorIds.has(identity.subject)) {
+    throw new Error("Migration operator authorization required.");
+  }
+}
+
+function workOSHeaders(): Record<string, string> {
+  const apiKey = process.env["WORKOS_API_KEY"];
+  if (apiKey === undefined || apiKey.trim().length === 0) {
+    throw new Error("Missing WORKOS_API_KEY environment variable.");
+  }
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  };
+}
+
+export const describeProductionRehearsalTarget = internalQuery({
+  args: {
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    const practice = await ctx.db.get("practices", args.practiceId);
+    const activeRuleSet =
+      practice?.currentActiveRuleSetId === undefined
+        ? null
+        : await ctx.db.get("ruleSets", practice.currentActiveRuleSetId);
+
+    return {
+      authBypassEnabled: process.env["AUTH_BYPASS_ENABLED"] === "true",
+      migrationOperatorAllowlistConfigured:
+        getMigrationOperatorWorkOSUserIds().size > 0,
+      migrationRehearsalEnabled:
+        process.env["MIGRATION_REHEARSAL_ENABLED"] === "true",
+      practice:
+        practice === null
+          ? null
+          : {
+              _id: practice._id,
+              name: practice.name,
+              ...(practice.currentActiveRuleSetId === undefined
+                ? {}
+                : { currentActiveRuleSetId: practice.currentActiveRuleSetId }),
+              ...(practice.slug === undefined ? {} : { slug: practice.slug }),
+              ...(practice.workOSOrganizationId === undefined
+                ? {}
+                : { workOSOrganizationId: practice.workOSOrganizationId }),
+            },
+      ruleSet:
+        activeRuleSet === null
+          ? null
+          : {
+              _id: activeRuleSet._id,
+              description: activeRuleSet.description,
+              saved: activeRuleSet.saved,
+              version: activeRuleSet.version,
+            },
+      workOSEnvironment: {
+        hasApiKey: process.env["WORKOS_API_KEY"] !== undefined,
+        hasClientId: process.env["WORKOS_CLIENT_ID"] !== undefined,
+        hasWebhookSecret: process.env["WORKOS_WEBHOOK_SECRET"] !== undefined,
+      },
+    };
+  },
+  returns: v.object({
+    authBypassEnabled: v.boolean(),
+    migrationOperatorAllowlistConfigured: v.boolean(),
+    migrationRehearsalEnabled: v.boolean(),
+    practice: v.union(
+      v.object({
+        _id: v.id("practices"),
+        currentActiveRuleSetId: v.optional(v.id("ruleSets")),
+        name: v.string(),
+        slug: v.optional(v.string()),
+        workOSOrganizationId: v.optional(v.string()),
+      }),
+      v.null(),
+    ),
+    ruleSet: v.union(
+      v.object({
+        _id: v.id("ruleSets"),
+        description: v.string(),
+        saved: v.boolean(),
+        version: v.number(),
+      }),
+      v.null(),
+    ),
+    workOSEnvironment: v.object({
+      hasApiKey: v.boolean(),
+      hasClientId: v.boolean(),
+      hasWebhookSecret: v.boolean(),
+    }),
+  }),
+});
+
+export const importLegacyWorkOSUsers = action({
+  args: {
+    dryRun: v.boolean(),
+    users: v.array(legacyWorkOSUserImportRowValidator),
+  },
+  handler: async (ctx, args) => {
+    assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
+
+    const results: {
+      email: string;
+      errorMessage?: string;
+      sourceUserId: string;
+      status: "created" | "error" | "reused" | "would_create";
+      workOSUserId?: string;
+    }[] = [];
+
+    for (const user of args.users) {
+      const email = user.email.trim().toLowerCase();
+      const sourceUserId = user.sourceUserId.trim();
+      const externalId = `legacy-pocketbase:user:${sourceUserId}`;
+      if (
+        email.length === 0 ||
+        sourceUserId.length === 0 ||
+        !email.includes("@")
+      ) {
+        throw new Error("Legacy WorkOS user import row is invalid.");
+      }
+
+      try {
+        const existing = await getWorkOSUserByExternalId(externalId);
+        if (existing !== null) {
+          results.push({
+            email: existing.email,
+            sourceUserId,
+            status: "reused",
+            workOSUserId: existing.id,
+          });
+          continue;
+        }
+
+        if (args.dryRun) {
+          results.push({
+            email,
+            sourceUserId,
+            status: "would_create",
+          });
+          continue;
+        }
+
+        const created = await createWorkOSUser({
+          email,
+          emailVerified: user.emailVerified,
+          externalId,
+          ...(user.firstName === undefined
+            ? {}
+            : { firstName: user.firstName }),
+          ...(user.lastName === undefined ? {} : { lastName: user.lastName }),
+          sourceUserId,
+          username: user.username,
+        });
+        results.push({
+          email: created.email,
+          sourceUserId,
+          status: "created",
+          workOSUserId: created.id,
+        });
+      } catch (error) {
+        results.push({
+          email,
+          errorMessage:
+            error instanceof Error ? error.message : "Unknown WorkOS error.",
+          sourceUserId,
+          status: "error",
+        });
+      }
+    }
+
+    return {
+      createdUsers: results.filter((result) => result.status === "created")
+        .length,
+      erroredUsers: results.filter((result) => result.status === "error")
+        .length,
+      results,
+      reusedUsers: results.filter((result) => result.status === "reused")
+        .length,
+      wouldCreateUsers: results.filter(
+        (result) => result.status === "would_create",
+      ).length,
+    };
+  },
+  returns: v.object({
+    createdUsers: v.number(),
+    erroredUsers: v.number(),
+    results: v.array(
+      v.object({
+        email: v.string(),
+        errorMessage: v.optional(v.string()),
+        sourceUserId: v.string(),
+        status: v.union(
+          v.literal("created"),
+          v.literal("error"),
+          v.literal("would_create"),
+          v.literal("reused"),
+        ),
+        workOSUserId: v.optional(v.string()),
+      }),
+    ),
+    reusedUsers: v.number(),
+    wouldCreateUsers: v.number(),
+  }),
+});
+
+export const importLegacyWorkOSPatientMemberships = action({
+  args: {
+    dryRun: v.boolean(),
+    organizationId: v.string(),
+    users: v.array(legacyWorkOSPatientMembershipImportRowValidator),
+  },
+  handler: async (ctx, args) => {
+    assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
+
+    const results: {
+      email: string;
+      errorMessage?: string;
+      sourceUserId: string;
+      status: "conflict" | "created" | "error" | "reused" | "would_create";
+      workOSMembershipId?: string;
+      workOSUserId: string;
+    }[] = [];
+
+    for (const user of args.users) {
+      const email = user.email.trim().toLowerCase();
+      const sourceUserId = user.sourceUserId.trim();
+      const workOSUserId = user.workOSUserId.trim();
+      if (
+        email.length === 0 ||
+        sourceUserId.length === 0 ||
+        workOSUserId.length === 0
+      ) {
+        throw new Error("Legacy WorkOS patient membership row is invalid.");
+      }
+
+      try {
+        const memberships = await listActiveWorkOSOrganizationMemberships({
+          organizationId: args.organizationId,
+          userId: workOSUserId,
+        });
+        const membership = memberships.at(0);
+        if (membership !== undefined) {
+          if (!membership.roleSlugs.includes("patient")) {
+            results.push({
+              email,
+              errorMessage: `Existing WorkOS membership has non-patient role(s): ${membership.roleSlugs.join(", ")}`,
+              sourceUserId,
+              status: "conflict",
+              workOSMembershipId: membership.id,
+              workOSUserId,
+            });
+            continue;
+          }
+          if (!args.dryRun) {
+            await ctx.runMutation(
+              internal.workosOrganizations
+                .upsertOrganizationMemberByWorkOSOrganization,
+              {
+                organizationId: args.organizationId,
+                role: "patient",
+                workOSUserId,
+              },
+            );
+          }
+          results.push({
+            email,
+            sourceUserId,
+            status: "reused",
+            workOSMembershipId: membership.id,
+            workOSUserId,
+          });
+          continue;
+        }
+
+        if (args.dryRun) {
+          results.push({
+            email,
+            sourceUserId,
+            status: "would_create",
+            workOSUserId,
+          });
+          continue;
+        }
+
+        const created = await createWorkOSPatientMembership({
+          organizationId: args.organizationId,
+          userId: workOSUserId,
+        });
+        await ctx.runMutation(
+          internal.workosOrganizations
+            .upsertOrganizationMemberByWorkOSOrganization,
+          {
+            organizationId: args.organizationId,
+            role: "patient",
+            workOSUserId,
+          },
+        );
+        results.push({
+          email,
+          sourceUserId,
+          status: "created",
+          workOSMembershipId: created.id,
+          workOSUserId,
+        });
+      } catch (error) {
+        results.push({
+          email,
+          errorMessage:
+            error instanceof Error ? error.message : "Unknown WorkOS error.",
+          sourceUserId,
+          status: "error",
+          workOSUserId,
+        });
+      }
+    }
+
+    return {
+      conflictedMemberships: results.filter(
+        (result) => result.status === "conflict",
+      ).length,
+      createdMemberships: results.filter(
+        (result) => result.status === "created",
+      ).length,
+      erroredMemberships: results.filter((result) => result.status === "error")
+        .length,
+      results,
+      reusedMemberships: results.filter((result) => result.status === "reused")
+        .length,
+      wouldCreateMemberships: results.filter(
+        (result) => result.status === "would_create",
+      ).length,
+    };
+  },
+  returns: v.object({
+    conflictedMemberships: v.number(),
+    createdMemberships: v.number(),
+    erroredMemberships: v.number(),
+    results: v.array(
+      v.object({
+        email: v.string(),
+        errorMessage: v.optional(v.string()),
+        sourceUserId: v.string(),
+        status: v.union(
+          v.literal("conflict"),
+          v.literal("created"),
+          v.literal("error"),
+          v.literal("reused"),
+          v.literal("would_create"),
+        ),
+        workOSMembershipId: v.optional(v.string()),
+        workOSUserId: v.string(),
+      }),
+    ),
+    reusedMemberships: v.number(),
+    wouldCreateMemberships: v.number(),
+  }),
+});
+
+export const deletePristineMigrationTablePage = mutation({
+  args: {
+    activeRuleSetId: v.optional(v.id("ruleSets")),
+    cursor: v.optional(v.string()),
+    limit: v.number(),
+    practiceId: v.optional(v.id("practices")),
+    tableName: pristineResetTableNameValidator,
+  },
+  handler: async (ctx, args) => {
+    assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
+
+    const limit = Math.max(1, Math.min(200, Math.trunc(args.limit)));
+    let deletedRows = 0;
+
+    switch (args.tableName) {
+      case "appointmentRestoreSnapshots": {
+        const rows = await ctx.db
+          .query("appointmentRestoreSnapshots")
+          .take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("appointmentRestoreSnapshots", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "appointments": {
+        const rows = await ctx.db.query("appointments").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("appointments", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "appointmentSeries": {
+        const rows = await ctx.db.query("appointmentSeries").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("appointmentSeries", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "appointmentTypeFolders": {
+        const rows = await ctx.db.query("appointmentTypeFolders").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("appointmentTypeFolders", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "appointmentTypes": {
+        const rows = await ctx.db.query("appointmentTypes").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("appointmentTypes", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "baseSchedules": {
+        const rows = await ctx.db.query("baseSchedules").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("baseSchedules", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "blockedSlots": {
+        const rows = await ctx.db.query("blockedSlots").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("blockedSlots", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingCalendarReachedSteps": {
+        const rows = await ctx.db
+          .query("bookingCalendarReachedSteps")
+          .take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingCalendarReachedSteps", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingExistingDoctorSelectionSteps": {
+        const rows = await ctx.db
+          .query("bookingExistingDoctorSelectionSteps")
+          .take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingExistingDoctorSelectionSteps", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingIdentities": {
+        const rows = await ctx.db.query("bookingIdentities").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingIdentities", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingIdentityPatientAssociations": {
+        const rows = await ctx.db
+          .query("bookingIdentityPatientAssociations")
+          .take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingIdentityPatientAssociations", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingLocationSteps": {
+        const rows = await ctx.db.query("bookingLocationSteps").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingLocationSteps", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingMedicalHistoryEntries": {
+        const rows = await ctx.db
+          .query("bookingMedicalHistoryEntries")
+          .take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingMedicalHistoryEntries", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingNewDataSharingContactRows": {
+        const rows = await ctx.db
+          .query("bookingNewDataSharingContactRows")
+          .take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingNewDataSharingContactRows", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingNewDataSharingSteps": {
+        const rows = await ctx.db
+          .query("bookingNewDataSharingSteps")
+          .take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingNewDataSharingSteps", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingNewGkvDetailSteps": {
+        const rows = await ctx.db.query("bookingNewGkvDetailSteps").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingNewGkvDetailSteps", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingNewInsuranceTypeSteps": {
+        const rows = await ctx.db
+          .query("bookingNewInsuranceTypeSteps")
+          .take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingNewInsuranceTypeSteps", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingNewPkvConsentSteps": {
+        const rows = await ctx.db
+          .query("bookingNewPkvConsentSteps")
+          .take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingNewPkvConsentSteps", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingNewPkvDetailSteps": {
+        const rows = await ctx.db.query("bookingNewPkvDetailSteps").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingNewPkvDetailSteps", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingPatientStatusSteps": {
+        const rows = await ctx.db
+          .query("bookingPatientStatusSteps")
+          .take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingPatientStatusSteps", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingPersonalDataSteps": {
+        const rows = await ctx.db.query("bookingPersonalDataSteps").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingPersonalDataSteps", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "bookingPrivacySteps": {
+        const rows = await ctx.db.query("bookingPrivacySteps").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("bookingPrivacySteps", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "legacyUnmatchedFutureBookingHolds": {
+        const rows = await ctx.db
+          .query("legacyUnmatchedFutureBookingHolds")
+          .take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("legacyUnmatchedFutureBookingHolds", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "locations": {
+        const rows = await ctx.db.query("locations").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("locations", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "mfas": {
+        const rows = await ctx.db.query("mfas").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("mfas", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "onlineAccountBlocks": {
+        const rows = await ctx.db.query("onlineAccountBlocks").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("onlineAccountBlocks", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "organizationMembersPatient": {
+        const rows = await ctx.db
+          .query("organizationMembers")
+          .withIndex("by_role", (q) => q.eq("role", "patient"))
+          .take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("organizationMembers", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "patients": {
+        const rows = await ctx.db.query("patients").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("patients", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "phoneBookingIdentities": {
+        const rows = await ctx.db.query("phoneBookingIdentities").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("phoneBookingIdentities", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "practicePhoneNumbers": {
+        const rows = await ctx.db.query("practicePhoneNumbers").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("practicePhoneNumbers", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "practitionerAssociations": {
+        const rows = await ctx.db.query("practitionerAssociations").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("practitionerAssociations", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "practitioners": {
+        const rows = await ctx.db.query("practitioners").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("practitioners", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+      case "stalePractices": {
+        if (args.practiceId === undefined) {
+          throw new Error("practiceId is required to delete stale practices.");
+        }
+        const result = await ctx.db
+          .query("practices")
+          .paginate({ cursor: args.cursor ?? null, numItems: limit });
+        for (const row of result.page) {
+          if (row._id !== args.practiceId) {
+            await ctx.db.delete("practices", row._id);
+            deletedRows += 1;
+          }
+        }
+        return {
+          continueCursor: result.continueCursor,
+          deletedRows,
+          isDone: result.isDone,
+          scannedRows: result.page.length,
+        };
+      }
+      case "staleRuleConditions": {
+        if (args.activeRuleSetId === undefined) {
+          throw new Error(
+            "activeRuleSetId is required to delete stale rule conditions.",
+          );
+        }
+        const result = await ctx.db
+          .query("ruleConditions")
+          .paginate({ cursor: args.cursor ?? null, numItems: limit });
+        for (const row of result.page) {
+          if (row.ruleSetId !== args.activeRuleSetId) {
+            await ctx.db.delete("ruleConditions", row._id);
+            deletedRows += 1;
+          }
+        }
+        return {
+          continueCursor: result.continueCursor,
+          deletedRows,
+          isDone: result.isDone,
+          scannedRows: result.page.length,
+        };
+      }
+      case "staleRuleSets": {
+        if (args.activeRuleSetId === undefined) {
+          throw new Error(
+            "activeRuleSetId is required to delete stale rule sets.",
+          );
+        }
+        const result = await ctx.db
+          .query("ruleSets")
+          .paginate({ cursor: args.cursor ?? null, numItems: limit });
+        for (const row of result.page) {
+          if (row._id !== args.activeRuleSetId) {
+            await ctx.db.delete("ruleSets", row._id);
+            deletedRows += 1;
+          }
+        }
+        return {
+          continueCursor: result.continueCursor,
+          deletedRows,
+          isDone: result.isDone,
+          scannedRows: result.page.length,
+        };
+      }
+      case "vacations": {
+        const rows = await ctx.db.query("vacations").take(limit);
+        for (const row of rows) {
+          await ctx.db.delete("vacations", row._id);
+          deletedRows += 1;
+        }
+        break;
+      }
+    }
+
+    return {
+      deletedRows,
+      isDone: deletedRows < limit,
+      scannedRows: deletedRows,
+    };
+  },
+  returns: v.object({
+    continueCursor: v.optional(v.string()),
+    deletedRows: v.number(),
+    isDone: v.boolean(),
+    scannedRows: v.number(),
+  }),
+});
 
 export const replaceReferenceTables = mutation({
   args: {
@@ -58,6 +1108,7 @@ export const replaceReferenceTables = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
     await requireManagerRuleSetScope(ctx, args.ruleSetId);
 
     const [appointmentTypes, baseSchedules, locations, practitioners] =
@@ -216,6 +1267,7 @@ export const listPatientMappingsByPatientIdRange = query({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
     await requirePracticeManager(ctx, args.practiceId);
 
     const patients = await ctx.db
@@ -242,12 +1294,112 @@ export const listPatientMappingsByPatientIdRange = query({
   ),
 });
 
+export const importPvsPatients = mutation({
+  args: {
+    patients: v.array(pvsPatientImportRowValidator),
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
+    await requirePracticeManager(ctx, args.practiceId);
+
+    const now = BigInt(Date.now());
+    let insertedPatients = 0;
+    let updatedPatients = 0;
+    let unchangedPatients = 0;
+
+    for (const patient of args.patients) {
+      const firstName = patient.firstName.trim();
+      const lastName = patient.lastName.trim();
+      if (
+        !Number.isInteger(patient.patientId) ||
+        patient.patientId <= 0 ||
+        firstName.length === 0 ||
+        lastName.length === 0
+      ) {
+        throw new Error("PVS patient import row is invalid.");
+      }
+
+      const searchFirstName = buildPatientSearchFirstName({
+        firstName,
+        lastName,
+      });
+      const searchLastName = buildPatientSearchLastName({
+        firstName,
+        lastName,
+      });
+      const existingPatient = await ctx.db
+        .query("patients")
+        .withIndex("by_practiceId_patientId", (q) =>
+          q
+            .eq("practiceId", args.practiceId)
+            .eq("patientId", patient.patientId),
+        )
+        .first();
+
+      if (existingPatient === null) {
+        await ctx.db.insert("patients", {
+          createdAt: now,
+          firstName,
+          lastModified: now,
+          lastName,
+          patientId: patient.patientId,
+          practiceId: args.practiceId,
+          recordType: "pvs",
+          searchFirstName,
+          searchLastName,
+        });
+        insertedPatients += 1;
+        continue;
+      }
+
+      if (existingPatient.recordType !== "pvs") {
+        throw new Error(
+          `Patient ${patient.patientId} already exists as ${existingPatient.recordType}.`,
+        );
+      }
+
+      if (
+        existingPatient.firstName === firstName &&
+        existingPatient.lastName === lastName &&
+        existingPatient.searchFirstName === searchFirstName &&
+        existingPatient.searchLastName === searchLastName
+      ) {
+        unchangedPatients += 1;
+        continue;
+      }
+
+      await ctx.db.patch("patients", existingPatient._id, {
+        firstName,
+        lastModified: now,
+        lastName,
+        searchFirstName,
+        searchLastName,
+      });
+      updatedPatients += 1;
+    }
+
+    return {
+      insertedPatients,
+      unchangedPatients,
+      updatedPatients,
+    };
+  },
+  returns: v.object({
+    insertedPatients: v.number(),
+    unchangedPatients: v.number(),
+    updatedPatients: v.number(),
+  }),
+});
+
 export const listReferenceTableRows = query({
   args: {
     ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
     await requireManagerRuleSetScope(ctx, args.ruleSetId);
 
     const [appointmentTypes, locations, practitioners] = await Promise.all([
@@ -316,6 +1468,7 @@ const bookingIdentityImportRowValidator = v.object({
     v.literal("legacy-online"),
     v.literal("legacy-telefonki"),
   ),
+  userAuthId: v.optional(v.string()),
   userEmail: v.optional(v.string()),
   userSourceId: v.optional(v.string()),
 });
@@ -448,14 +1601,13 @@ async function ensureBookingIdentityImported(
     return { bookingIdentityId: existing._id, inserted: false };
   }
 
+  const userAuthId = args.identity.userAuthId;
   const user =
-    args.identity.userSourceId === undefined
+    userAuthId === undefined
       ? null
       : await ctx.db
           .query("users")
-          .withIndex("by_authId", (q) =>
-            q.eq("authId", `legacy-pocketbase:${args.identity.userSourceId}`),
-          )
+          .withIndex("by_authId", (q) => q.eq("authId", userAuthId))
           .first();
 
   const bookingIdentityId = await ctx.db.insert("bookingIdentities", {
@@ -520,6 +1672,7 @@ export const importBookingIdentities = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
     await requirePracticeManager(ctx, args.practiceId);
 
     const now = BigInt(Date.now());
@@ -554,6 +1707,7 @@ export const importBookingIdentityAssociations = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
     await requirePracticeManager(ctx, args.practiceId);
 
     const now = BigInt(Date.now());
@@ -739,6 +1893,59 @@ export const importLegacyUsers = internalMutation({
   }),
 });
 
+export const deleteLegacyUsersByAuthIds = mutation({
+  args: {
+    authIds: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
+
+    let deletedUsers = 0;
+    let skippedMissingUsers = 0;
+    let skippedMemberUsers = 0;
+
+    for (const authId of args.authIds) {
+      const normalizedAuthId = authId.trim();
+      if (normalizedAuthId.length === 0) {
+        continue;
+      }
+
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_authId", (q) => q.eq("authId", normalizedAuthId))
+        .first();
+      if (user === null) {
+        skippedMissingUsers += 1;
+        continue;
+      }
+
+      const membership = await ctx.db
+        .query("organizationMembers")
+        .withIndex("by_userId", (q) => q.eq("userId", user._id))
+        .first();
+      if (membership !== null) {
+        skippedMemberUsers += 1;
+        continue;
+      }
+
+      await ctx.db.delete("users", user._id);
+      deletedUsers += 1;
+    }
+
+    return {
+      deletedUsers,
+      skippedMemberUsers,
+      skippedMissingUsers,
+    };
+  },
+  returns: v.object({
+    deletedUsers: v.number(),
+    skippedMemberUsers: v.number(),
+    skippedMissingUsers: v.number(),
+  }),
+});
+
 export const importPvsPatientPractitionerAssociations = mutation({
   args: {
     associations: v.array(pvsPatientPractitionerAssociationImportRowValidator),
@@ -746,6 +1953,7 @@ export const importPvsPatientPractitionerAssociations = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
     await requirePracticeManager(ctx, args.practiceId);
 
     const now = BigInt(Date.now());
@@ -790,6 +1998,7 @@ export const importLegacyBookingBlocks = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
     await requirePracticeManager(ctx, args.practiceId);
 
     const now = BigInt(Date.now());
@@ -851,6 +2060,7 @@ export const importLegacyBookingStepReplay = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
     await requirePracticeManager(ctx, args.practiceId);
 
     let insertedSessions = 0;
@@ -1035,6 +2245,7 @@ export const importLegacyUnmatchedFutureBookingHolds = mutation({
   },
   handler: async (ctx, args) => {
     assertMigrationRehearsalEnabled();
+    await requireMigrationOperator(ctx);
     await requirePracticeManager(ctx, args.practiceId);
 
     let insertedHolds = 0;
