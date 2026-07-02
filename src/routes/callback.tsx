@@ -391,6 +391,10 @@ function navigateToReturnPath(
 
   const fullPath = `${returnUrl.pathname}${returnUrl.search}${returnUrl.hash}`;
   switch (returnUrl.pathname) {
+    case "/": {
+      void navigate({ replace: true, to: fullPath });
+      return ok();
+    }
     case "/account": {
       void navigate({ replace: true, to: fullPath });
       return ok();

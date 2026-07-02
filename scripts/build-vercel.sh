@@ -35,10 +35,26 @@ get_workos_client_id() {
   printf '%s' "$workos_client_id"
 }
 
+get_workos_redirect_uri() {
+  workos_redirect_uri="$(printenv WORKOS_REDIRECT_URI 2> /dev/null || true)"
+  if [ -n "$workos_redirect_uri" ]; then
+    printf '%s' "$workos_redirect_uri"
+    return
+  fi
+  vercel_url="$(printenv VERCEL_URL 2> /dev/null || true)"
+  if [ -n "$vercel_url" ]; then
+    printf 'https://%s/api/auth/callback' "$vercel_url"
+    return
+  fi
+  printf 'http://localhost:3000/api/auth/callback'
+}
+
 append_auth_config_env() {
   file="$1"
   append_if_set WORKOS_API_KEY "$file"
   append_if_set WORKOS_API_HOSTNAME "$file"
+  append_if_set WORKOS_COOKIE_PASSWORD "$file"
+  printf 'WORKOS_REDIRECT_URI=%s\n' "$(get_workos_redirect_uri)" >> "$file"
   workos_client_id="$(get_workos_client_id)"
   if [ -n "$workos_client_id" ]; then
     printf 'WORKOS_CLIENT_ID=%s\n' "$workos_client_id" >> "$file"
@@ -70,6 +86,7 @@ export_vite_auth_config_env() {
 
 require_real_auth_env() {
   require_env WORKOS_API_KEY
+  require_env WORKOS_COOKIE_PASSWORD
   workos_client_id="$(get_workos_client_id)"
   if [ -z "$workos_client_id" ]; then
     printf 'Missing required environment variable: WORKOS_CLIENT_ID or VITE_WORKOS_CLIENT_ID\n' >&2
@@ -81,6 +98,8 @@ append_preview_auth_bypass_env() {
   file="$1"
   printf 'WORKOS_CLIENT_ID=client_local_preview_placeholder\n' >> "$file"
   printf 'WORKOS_API_KEY=sk_test_local_preview_placeholder\n' >> "$file"
+  printf 'WORKOS_COOKIE_PASSWORD=local_preview_cookie_password_32_chars\n' >> "$file"
+  printf 'WORKOS_REDIRECT_URI=%s\n' "$(get_workos_redirect_uri)" >> "$file"
   printf 'WORKOS_WEBHOOK_SECRET=whsec_local_preview_placeholder\n' >> "$file"
   printf 'AUTH_BYPASS_ENABLED=true\n' >> "$file"
   printf 'VITE_AUTH_BYPASS_ENABLED=true\n' >> "$file"
