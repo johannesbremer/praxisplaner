@@ -29,6 +29,7 @@ interface PatientPractitionerChangeDialogProps {
   patientId: Id<"patients"> | undefined;
   practiceId: Id<"practices"> | undefined;
   ruleSetId: Id<"ruleSets"> | undefined;
+  schedulingRuleSetId: Id<"ruleSets"> | undefined;
 }
 
 interface PractitionerComboboxOption {
@@ -45,6 +46,7 @@ export function PatientPractitionerChangeDialog({
   patientId,
   practiceId,
   ruleSetId,
+  schedulingRuleSetId,
 }: PatientPractitionerChangeDialogProps) {
   const [
     manuallySelectedPractitionerLineageKey,
@@ -81,6 +83,7 @@ export function PatientPractitionerChangeDialog({
   const canSave =
     patientId !== undefined &&
     practiceId !== undefined &&
+    schedulingRuleSetId !== undefined &&
     selectedPractitionerLineageKey.length > 0 &&
     !isSaving;
 
@@ -88,6 +91,7 @@ export function PatientPractitionerChangeDialog({
     if (
       patientId === undefined ||
       practiceId === undefined ||
+      schedulingRuleSetId === undefined ||
       selectedPractitionerLineageKey === "" ||
       isSaving
     ) {
@@ -99,6 +103,7 @@ export function PatientPractitionerChangeDialog({
         patientId,
         practiceId,
         practitionerLineageKey: selectedPractitionerLineageKey,
+        ruleSetId: schedulingRuleSetId,
       })
         .then(() => {
           toast.success("Behandler wurde geändert.");

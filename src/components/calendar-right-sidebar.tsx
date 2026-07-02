@@ -78,6 +78,7 @@ interface CalendarRightSidebarProps {
   patientAppointments?: SidebarAppointment[] | undefined;
   practiceId?: Id<"practices"> | undefined;
   ruleSetId?: Id<"ruleSets"> | undefined;
+  schedulingRuleSetId?: Id<"ruleSets"> | undefined;
   selectedAppointmentId?: Id<"appointments"> | undefined;
   selectedPatientId?: Id<"patients"> | undefined;
   selectedSeriesId?: string | undefined;
@@ -191,6 +192,7 @@ export function CalendarRightSidebar({
   patientAppointments,
   practiceId,
   ruleSetId,
+  schedulingRuleSetId,
   selectedAppointmentId,
   selectedPatientId,
   selectedSeriesId,
@@ -267,6 +269,7 @@ export function CalendarRightSidebar({
                   patientDisplayName={patientDisplayName}
                   practiceId={practiceId}
                   ruleSetId={ruleSetId}
+                  schedulingRuleSetId={schedulingRuleSetId}
                   selectedAppointmentId={selectedAppointmentId}
                   selectedPatientId={selectedPatientId}
                   selectedSeriesId={selectedSeriesId}
@@ -314,6 +317,7 @@ export function CalendarRightSidebar({
                 patientDisplayName={patientDisplayName}
                 practiceId={practiceId}
                 ruleSetId={ruleSetId}
+                schedulingRuleSetId={schedulingRuleSetId}
                 selectedAppointmentId={selectedAppointmentId}
                 selectedPatientId={selectedPatientId}
                 selectedSeriesId={selectedSeriesId}
@@ -538,6 +542,7 @@ function RightSidebarContent({
   patientDisplayName,
   practiceId,
   ruleSetId,
+  schedulingRuleSetId,
   selectedAppointmentId,
   selectedPatientId,
   selectedSeriesId,
@@ -558,6 +563,7 @@ function RightSidebarContent({
   patientDisplayName: string;
   practiceId: Id<"practices"> | undefined;
   ruleSetId: Id<"ruleSets"> | undefined;
+  schedulingRuleSetId: Id<"ruleSets"> | undefined;
   selectedAppointmentId: Id<"appointments"> | undefined;
   selectedPatientId: Id<"patients"> | undefined;
   selectedSeriesId: string | undefined;
@@ -857,6 +863,7 @@ function RightSidebarContent({
         patientId={patientConvexId}
         practiceId={practiceId}
         ruleSetId={ruleSetId}
+        schedulingRuleSetId={schedulingRuleSetId}
       />
     </>
   );

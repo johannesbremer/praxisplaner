@@ -81,6 +81,7 @@ interface StaffAppointmentCreationModalProps {
   runCreateAppointment: (
     args: CalendarAppointmentCreateCommandArgs,
   ) => Promise<Id<"appointments"> | undefined>;
+  schedulingRuleSetId: Id<"ruleSets"> | undefined;
   selectedDate: string;
   selectedPatientId: Id<"patients"> | undefined;
 }
@@ -99,6 +100,7 @@ export function StaffAppointmentCreationModal({
   practiceId,
   ruleSetId,
   runCreateAppointment,
+  schedulingRuleSetId,
   selectedDate,
   selectedPatientId,
 }: StaffAppointmentCreationModalProps) {
@@ -813,6 +815,7 @@ export function StaffAppointmentCreationModal({
         patientId={patientIdForPractitionerAssociation}
         practiceId={practiceId}
         ruleSetId={ruleSetId}
+        schedulingRuleSetId={schedulingRuleSetId}
       />
     </>
   );

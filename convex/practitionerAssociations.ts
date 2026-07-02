@@ -11,6 +11,7 @@ import { regex } from "../lib/arkregex.js";
 import { mutation, query } from "./_generated/server";
 import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
 import {
+  ensureRuleSetAccessForMutation,
   requirePracticeStaff,
   requirePracticeStaffForMutation,
 } from "./practiceAccess";
@@ -86,18 +87,27 @@ export const setManualPractitionerAssociationForPatient = mutation({
     patientId: v.id("patients"),
     practiceId: v.id("practices"),
     practitionerLineageKey: v.id("practitioners"),
+    ruleSetId: v.id("ruleSets"),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
     await requirePracticeStaffForMutation(ctx, args.practiceId);
+    const ruleSetPracticeId = await ensureRuleSetAccessForMutation(
+      ctx,
+      args.ruleSetId,
+    );
+    if (ruleSetPracticeId !== args.practiceId) {
+      throw new Error("Rule set does not belong to this practice.");
+    }
     const userId = await ensureAuthenticatedUserId(ctx);
     const patient = await ctx.db.get("patients", args.patientId);
     if (patient?.practiceId !== args.practiceId) {
       throw new Error("Patient does not belong to this practice.");
     }
-    await requireActivePractitionerLineageInPractice(ctx.db, {
+    await requireActivePractitionerLineageInRuleSet(ctx.db, {
       practiceId: args.practiceId,
       practitionerLineageKey: args.practitionerLineageKey,
+      ruleSetId: args.ruleSetId,
     });
 
     return await setPractitionerAssociation(ctx.db, {
@@ -515,35 +525,30 @@ async function listActivePatientAssociations(
   return rows.filter((row) => row.practiceId === args.practiceId);
 }
 
-async function requireActivePractitionerLineageInPractice(
+async function requireActivePractitionerLineageInRuleSet(
   db: Reader,
   args: {
     practiceId: Id<"practices">;
     practitionerLineageKey: Id<"practitioners">;
+    ruleSetId: Id<"ruleSets">;
   },
 ): Promise<void> {
-  const lineageRoot = await db.get(args.practitionerLineageKey);
+  const practitioner = await db
+    .query("practitioners")
+    .withIndex("by_ruleSetId_lineageKey", (q) =>
+      q
+        .eq("ruleSetId", args.ruleSetId)
+        .eq("lineageKey", args.practitionerLineageKey),
+    )
+    .first();
   if (
-    lineageRoot?.practiceId === args.practiceId &&
-    !isRuleSetEntityDeleted(lineageRoot)
+    practitioner?.practiceId === args.practiceId &&
+    !isRuleSetEntityDeleted(practitioner)
   ) {
     return;
   }
 
-  const lineageRows = await db
-    .query("practitioners")
-    .withIndex("by_lineageKey", (q) =>
-      q.eq("lineageKey", args.practitionerLineageKey),
-    )
-    .collect();
-  const activePractitioner = lineageRows.find(
-    (practitioner) =>
-      practitioner.practiceId === args.practiceId &&
-      !isRuleSetEntityDeleted(practitioner),
-  );
-  if (activePractitioner === undefined) {
-    throw new Error("Behandler nicht in dieser Praxis.");
-  }
+  throw new Error("Behandler nicht in diesem Regelset.");
 }
 
 async function resolveAssociatedPatientIdForBookingIdentity(
