@@ -9,6 +9,7 @@ import {
   Link2,
   PanelRightIcon,
   Plus,
+  Unlock,
   X,
 } from "lucide-react";
 import { err, ok, type Result } from "neverthrow";
@@ -576,6 +577,8 @@ function RightSidebarContent({
   const [blockError, setBlockError] = React.useState<null | string>(null);
   const [blockModalOpen, setBlockModalOpen] = React.useState(false);
   const [isBlockPending, startBlockTransition] = React.useTransition();
+  const [unblockError, setUnblockError] = React.useState<null | string>(null);
+  const [isUnblockPending, startUnblockTransition] = React.useTransition();
   const bookingIdentityId = getPatientBookingIdentityId(patient);
   const onlineBookingUserId = getPatientOnlineBookingUserId(patient);
   const bookingIdentityBlockStatus = useQuery(
@@ -624,6 +627,7 @@ function RightSidebarContent({
     api.onlineAccountBlocks.blockBookingIdentity,
   );
   const blockUser = useMutation(api.onlineAccountBlocks.blockUser);
+  const unblock = useMutation(api.onlineAccountBlocks.unblock);
   const bookingFieldEntries =
     patient?.userId === undefined ? [] : getBookingFieldEntries(patient);
   const trimmedBlockReason = blockReason.trim();
@@ -633,7 +637,8 @@ function RightSidebarContent({
     trimmedBlockReason.length >= 3 &&
     !isBlockPending;
   const showBlockPatientButton = onlineAccountBlockStatus?.canBlock === true;
-  const isPatientBlocked = onlineAccountBlockStatus?.block !== null;
+  const activeOnlineAccountBlock = onlineAccountBlockStatus?.block ?? null;
+  const isPatientBlocked = activeOnlineAccountBlock !== null;
 
   return (
     <ScrollArea className="flex-1">
@@ -727,9 +732,43 @@ function RightSidebarContent({
             {showBlockPatientButton ? (
               <>
                 {isPatientBlocked ? (
-                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
-                    Online-Buchung gesperrt:{" "}
-                    {onlineAccountBlockStatus.block?.reason}
+                  <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
+                    <p>
+                      Online-Buchung gesperrt: {activeOnlineAccountBlock.reason}
+                    </p>
+                    {unblockError ? (
+                      <p className="text-xs text-destructive">{unblockError}</p>
+                    ) : null}
+                    <Button
+                      className="w-full gap-1.5"
+                      disabled={isUnblockPending}
+                      onClick={() => {
+                        if (practiceId === undefined) {
+                          return;
+                        }
+                        setUnblockError(null);
+                        startUnblockTransition(() => {
+                          unblock({
+                            blockId: activeOnlineAccountBlock._id,
+                            practiceId,
+                          }).catch((error: unknown) => {
+                            setUnblockError(
+                              error instanceof Error
+                                ? error.message
+                                : "Patient konnte nicht entsperrt werden.",
+                            );
+                          });
+                        });
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      <Unlock className="h-3.5 w-3.5" />
+                      {isUnblockPending
+                        ? "Entsperren..."
+                        : "Online-Buchung entsperren"}
+                    </Button>
                   </div>
                 ) : (
                   <Button
