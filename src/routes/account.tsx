@@ -43,6 +43,7 @@ export const Route = createFileRoute("/account")({
 
 interface BlockHistoryCommand {
   block: OnlineAccountBlock;
+  deletionSnapshotId?: Id<"onlineAccountBlockDeletionSnapshots">;
   kind: "unblock";
 }
 
@@ -351,10 +352,9 @@ function BlockedAccountsTab({
     api.onlineAccountBlocks.listForPractice,
     practiceId ? { practiceId } : "skip",
   );
-  const blockBookingIdentity = useMutation(
-    api.onlineAccountBlocks.blockBookingIdentity,
+  const restoreDeletedSnapshot = useMutation(
+    api.onlineAccountBlocks.restoreDeletedSnapshot,
   );
-  const blockUser = useMutation(api.onlineAccountBlocks.blockUser);
   const unblock = useMutation(api.onlineAccountBlocks.unblock);
   const [history, setHistory] = useState<{
     future: BlockHistoryCommand[];
@@ -365,58 +365,50 @@ function BlockedAccountsTab({
   const [operationError, setOperationError] = useState<null | string>(null);
 
   const restoreBlock = useCallback(
-    async (block: OnlineAccountBlock): Promise<null | OnlineAccountBlock> => {
+    async (
+      command: BlockHistoryCommand,
+    ): Promise<null | OnlineAccountBlock> => {
       if (!practiceId) {
         setOperationError("Keine Praxis ausgewählt.");
         return null;
       }
-      const restoredId =
-        block.bookingIdentityId === undefined
-          ? await blockUser({
-              practiceId,
-              reason: block.reason,
-              userId: block.userId,
-            })
-          : await blockBookingIdentity({
-              bookingIdentityId: block.bookingIdentityId,
-              practiceId,
-              reason: block.reason,
-            });
+      if (command.deletionSnapshotId === undefined) {
+        setOperationError("Keine Wiederherstellung verfügbar.");
+        return null;
+      }
+      const restoredId = await restoreDeletedSnapshot({
+        deletionSnapshotId: command.deletionSnapshotId,
+        practiceId,
+      });
       return {
-        ...block,
+        ...command.block,
         _id: restoredId,
-        sourceSystem: "online",
       };
     },
-    [blockBookingIdentity, blockUser, practiceId],
+    [practiceId, restoreDeletedSnapshot],
   );
 
   const runUnblock = useCallback(
-    async (
-      block: OnlineAccountBlock,
-      recordHistory: boolean,
-    ): Promise<boolean> => {
+    async (block: OnlineAccountBlock): Promise<BlockHistoryCommand | null> => {
       if (!practiceId || pendingBlockId) {
-        return false;
+        return null;
       }
       setPendingBlockId(block._id);
       setOperationError(null);
       try {
-        await unblock({ blockId: block._id, practiceId });
-        if (recordHistory) {
-          setHistory((current) => ({
-            future: [],
-            past: [...current.past, { block, kind: "unblock" }],
-          }));
-        }
-        return true;
+        const result = await unblock({ blockId: block._id, practiceId });
+        return {
+          block,
+          deletionSnapshotId: result.deletionSnapshotId,
+          kind: "unblock",
+        };
       } catch (error) {
         setOperationError(
           error instanceof Error
             ? error.message
             : "Konto konnte nicht entsperrt werden.",
         );
-        return false;
+        return null;
       } finally {
         setPendingBlockId(null);
       }
@@ -432,7 +424,7 @@ function BlockedAccountsTab({
     setPendingBlockId(command.block._id);
     setOperationError(null);
     try {
-      const restoredBlock = await restoreBlock(command.block);
+      const restoredBlock = await restoreBlock(command);
       if (!restoredBlock) {
         return;
       }
@@ -456,13 +448,13 @@ function BlockedAccountsTab({
     if (!command || pendingBlockId) {
       return;
     }
-    const didApply = await runUnblock(command.block, false);
-    if (!didApply) {
+    const appliedCommand = await runUnblock(command.block);
+    if (!appliedCommand) {
       return;
     }
     setHistory((current) => ({
       future: current.future.slice(1),
-      past: [...current.past, command],
+      past: [...current.past, appliedCommand],
     }));
   }, [history.future, pendingBlockId, runUnblock]);
 
@@ -559,7 +551,15 @@ function BlockedAccountsTab({
               <Button
                 disabled={pendingBlockId !== null}
                 onClick={() => {
-                  void runUnblock(block, true);
+                  void runUnblock(block).then((command) => {
+                    if (!command) {
+                      return;
+                    }
+                    setHistory((current) => ({
+                      future: [],
+                      past: [...current.past, command],
+                    }));
+                  });
                 }}
                 size="sm"
                 type="button"

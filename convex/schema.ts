@@ -1135,6 +1135,20 @@ export default defineSchema({
    *      └─ Child (NOT)
    *          └─ Leaf: location IS 'Dissen'
    */
+  onlineAccountBlockDeletionSnapshots: defineTable({
+    bookingIdentityId: v.optional(v.id("bookingIdentities")),
+    createdAt: v.int64(),
+    deletedAt: v.int64(),
+    legacyUserId: v.optional(v.string()),
+    originalBlockId: v.id("onlineAccountBlocks"),
+    practiceId: v.id("practices"),
+    reason: v.string(),
+    sourceSystem: v.union(v.literal("legacy-online"), v.literal("online")),
+    userId: v.id("users"),
+  })
+    .index("by_practiceId", ["practiceId"])
+    .index("by_userId_practiceId", ["userId", "practiceId"]),
+
   onlineAccountBlocks: defineTable({
     bookingIdentityId: v.optional(v.id("bookingIdentities")),
     createdAt: v.int64(),

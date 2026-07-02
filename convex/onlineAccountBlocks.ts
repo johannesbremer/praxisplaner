@@ -37,6 +37,11 @@ const bookingIdentityBlockStatusValidator = v.object({
   reason: v.optional(v.string()),
 });
 
+const unblockResultValidator = v.object({
+  blockId: v.id("onlineAccountBlocks"),
+  deletionSnapshotId: v.id("onlineAccountBlockDeletionSnapshots"),
+});
+
 async function buildBlockRecord(
   ctx: ReaderCtx,
   block: NonNullable<Awaited<ReturnType<typeof getActiveBlockForUser>>>,
@@ -290,8 +295,84 @@ export const unblock = mutation({
     if (block?.practiceId !== args.practiceId) {
       throw new Error("Online account block not found for this practice.");
     }
+    const deletionSnapshotId = await ctx.db.insert(
+      "onlineAccountBlockDeletionSnapshots",
+      {
+        ...(block.bookingIdentityId === undefined
+          ? {}
+          : { bookingIdentityId: block.bookingIdentityId }),
+        createdAt: block.createdAt,
+        deletedAt: BigInt(Date.now()),
+        ...(block.legacyUserId === undefined
+          ? {}
+          : { legacyUserId: block.legacyUserId }),
+        originalBlockId: block._id,
+        practiceId: block.practiceId,
+        reason: block.reason,
+        sourceSystem: block.sourceSystem,
+        userId: block.userId,
+      },
+    );
     await ctx.db.delete("onlineAccountBlocks", args.blockId);
-    return args.blockId;
+    return {
+      blockId: args.blockId,
+      deletionSnapshotId,
+    };
+  },
+  returns: unblockResultValidator,
+});
+
+export const restoreDeletedSnapshot = mutation({
+  args: {
+    deletionSnapshotId: v.id("onlineAccountBlockDeletionSnapshots"),
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    await requirePracticeStaffForMutation(ctx, args.practiceId);
+    const snapshot = await ctx.db.get(
+      "onlineAccountBlockDeletionSnapshots",
+      args.deletionSnapshotId,
+    );
+    if (snapshot?.practiceId !== args.practiceId) {
+      throw new Error("Online account block snapshot not found.");
+    }
+
+    const existingBlock = await getActiveBlockForUser(ctx, {
+      practiceId: snapshot.practiceId,
+      userId: snapshot.userId,
+    });
+    if (existingBlock) {
+      await ctx.db.patch("onlineAccountBlocks", existingBlock._id, {
+        bookingIdentityId: snapshot.bookingIdentityId,
+        legacyUserId: snapshot.legacyUserId,
+        reason: snapshot.reason,
+        sourceSystem: snapshot.sourceSystem,
+      });
+      await ctx.db.delete(
+        "onlineAccountBlockDeletionSnapshots",
+        args.deletionSnapshotId,
+      );
+      return existingBlock._id;
+    }
+
+    const blockId = await ctx.db.insert("onlineAccountBlocks", {
+      ...(snapshot.bookingIdentityId === undefined
+        ? {}
+        : { bookingIdentityId: snapshot.bookingIdentityId }),
+      createdAt: snapshot.createdAt,
+      ...(snapshot.legacyUserId === undefined
+        ? {}
+        : { legacyUserId: snapshot.legacyUserId }),
+      practiceId: snapshot.practiceId,
+      reason: snapshot.reason,
+      sourceSystem: snapshot.sourceSystem,
+      userId: snapshot.userId,
+    });
+    await ctx.db.delete(
+      "onlineAccountBlockDeletionSnapshots",
+      args.deletionSnapshotId,
+    );
+    return blockId;
   },
   returns: v.id("onlineAccountBlocks"),
 });

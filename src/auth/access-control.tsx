@@ -340,6 +340,9 @@ function getAuthReturnToPath(): string {
 }
 
 function getBookingPracticeSlugFromPath(): null | string {
+  if (import.meta.env.SSR) {
+    return null;
+  }
   const pathSegments = globalThis.location.pathname.split("/").filter(Boolean);
   const [practiceSlug] = pathSegments;
   return pathSegments.length === 1 && practiceSlug ? practiceSlug : null;
