@@ -5,6 +5,8 @@ export AUTH_BYPASS_ENABLED="${AUTH_BYPASS_ENABLED:-true}"
 if [ "$AUTH_BYPASS_ENABLED" = "true" ]; then
   export WORKOS_API_KEY="${WORKOS_API_KEY:-sk_test_local_preview_placeholder}"
   export WORKOS_CLIENT_ID="${WORKOS_CLIENT_ID:-client_local_preview_placeholder}"
+  export WORKOS_COOKIE_PASSWORD="${WORKOS_COOKIE_PASSWORD:-local_preview_cookie_password_32_chars}"
+  export WORKOS_REDIRECT_URI="${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}"
   export WORKOS_WEBHOOK_SECRET="${WORKOS_WEBHOOK_SECRET:-whsec_local_preview_placeholder}"
 fi
 

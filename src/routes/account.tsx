@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useAuth } from "@workos-inc/authkit-react";
 import { UsersManagement, WorkOsWidgets } from "@workos-inc/widgets";
+import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { useAction, useQuery } from "convex/react";
 import { AlertTriangle, Building2, Loader2, UsersRound } from "lucide-react";
 import {
@@ -19,10 +19,6 @@ import { api } from "../../convex/_generated/api";
 import { AccountAuthGate } from "../auth/access-control";
 import { isAuthBypassEnabled } from "../auth/auth-bypass";
 
-function getAuthReturnToPath(): string {
-  return `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
-}
-
 export const Route = createFileRoute("/account")({
   component: AccountRoute,
 });
@@ -34,7 +30,7 @@ interface WorkOSOrganizationOption {
 }
 
 function AccountPage() {
-  const { isLoading, organizationId, switchToOrganization } = useAuth();
+  const { loading, organizationId, switchToOrganization } = useAuth();
   const authBypassEnabled = isAuthBypassEnabled();
   const createOrganizationPractice = useAction(
     api.workosOrganizations.createOrganizationPractice,
@@ -88,16 +84,21 @@ function AccountPage() {
     }
     void syncCurrentOrganizationMembership({ organizationId: organization.id });
     if (!authBypassEnabled && organization.id !== organizationId) {
-      switchToOrganization({
-        organizationId: organization.id,
-        signInOpts: { state: { returnTo: getAuthReturnToPath() } },
-      }).catch((error: unknown) => {
-        setOrganizationListError(
-          error instanceof Error
-            ? error.message
-            : "Organisation konnte nicht aktiviert werden.",
-        );
-      });
+      switchToOrganization(organization.id).then(
+        (result) => {
+          const switchError = getOrganizationSwitchError(result);
+          if (switchError) {
+            setOrganizationListError(switchError);
+          }
+        },
+        (error: unknown) => {
+          setOrganizationListError(
+            error instanceof Error
+              ? error.message
+              : "Organisation konnte nicht aktiviert werden.",
+          );
+        },
+      );
     }
   }, [
     organizationId,
@@ -128,12 +129,15 @@ function AccountPage() {
         setCreatedOrganizationId(nextOrganizationId);
         setPracticeName("");
         refreshOrganizations();
-        return authBypassEnabled
-          ? undefined
-          : switchToOrganization({
-              organizationId: nextOrganizationId,
-              signInOpts: { state: { returnTo: getAuthReturnToPath() } },
-            });
+        if (authBypassEnabled) {
+          return;
+        }
+        return switchToOrganization(nextOrganizationId).then((switchResult) => {
+          const switchError = getOrganizationSwitchError(switchResult);
+          if (switchError) {
+            setCreateError(switchError);
+          }
+        });
       })
       .catch((error: unknown) => {
         setCreateWarning(null);
@@ -148,7 +152,7 @@ function AccountPage() {
       });
   };
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="flex items-center gap-2 text-muted-foreground">
@@ -381,6 +385,23 @@ function formatUsername(
   }
   const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ");
   return fullName || user.email;
+}
+
+function getOrganizationSwitchError(result: unknown): null | string {
+  if (!isRecord(result)) {
+    return null;
+  }
+  if ("error" in result && typeof result["error"] === "string") {
+    return result["error"];
+  }
+  if ("user" in result && result["user"] === null) {
+    return "Organisation konnte nicht aktiviert werden. Bitte melden Sie sich erneut an.";
+  }
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function UsersManagementForOrganization({

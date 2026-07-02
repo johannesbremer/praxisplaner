@@ -6,7 +6,7 @@ import {
   useHydrated,
   useNavigate,
 } from "@tanstack/react-router";
-import { useAuth } from "@workos-inc/authkit-react";
+import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { useQuery } from "convex/react";
 import { del as idbDel, get as idbGet, set as idbSet } from "idb-keyval";
 import { Calendar as CalendarIcon, Palmtree, Settings } from "lucide-react";
@@ -185,7 +185,11 @@ function PraxisPlanerComponent() {
   const canManageCalendarPlanning = hasPraxismanagerAccess(
     isAuthBypassEnabled()
       ? getDevAuthPersonaAccess("staff")
-      : { permissions, role, roles },
+      : {
+          permissions: permissions ?? [],
+          role: role ?? null,
+          roles: roles ?? null,
+        },
   );
   const organizationSlug = readOrganizationSlugParam(Route.useParams());
   const navigate = useNavigate({ from: Route.fullPath });
