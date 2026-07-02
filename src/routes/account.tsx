@@ -387,12 +387,21 @@ function formatUsername(
   return fullName || user.email;
 }
 
-function getOrganizationSwitchError(
-  result: Awaited<
-    ReturnType<ReturnType<typeof useAuth>["switchToOrganization"]>
-  >,
-): null | string {
-  return result && "error" in result ? result.error : null;
+function getOrganizationSwitchError(result: unknown): null | string {
+  if (!isRecord(result)) {
+    return null;
+  }
+  if ("error" in result && typeof result["error"] === "string") {
+    return result["error"];
+  }
+  if ("user" in result && result["user"] === null) {
+    return "Organisation konnte nicht aktiviert werden. Bitte melden Sie sich erneut an.";
+  }
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function UsersManagementForOrganization({
