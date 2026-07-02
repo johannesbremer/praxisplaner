@@ -1,6 +1,6 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { createFileRoute } from "@tanstack/react-router";
-import { useAuth } from "@workos-inc/authkit-react";
+import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import {
@@ -442,7 +442,7 @@ function BookingPage() {
                 className="w-full"
                 onClick={() => {
                   resetPostHogIdentity();
-                  signOut();
+                  void signOut();
                 }}
               >
                 Erneut anmelden

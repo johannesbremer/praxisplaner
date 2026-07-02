@@ -1,22 +1,29 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useAuth } from "@workos-inc/authkit-react";
+import {
+  useAccessToken,
+  useAuth,
+} from "@workos/authkit-tanstack-react-start/client";
 import { useAction, useConvexAuth } from "convex/react";
 import { err, ok, type Result } from "neverthrow";
 import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
 
 import { Button } from "../../components/ui/button";
 import { api } from "../../convex/_generated/api";
-import {
-  clearAuthReturnToState,
-  readAuthReturnToState,
-} from "../auth/auth-return-to";
 import {
   type FrontendError,
   invalidStateError,
 } from "../utils/frontend-errors";
 
+const callbackSearchSchema = z.object({
+  practiceSlug: z.string().optional(),
+  returnTo: z.string().catch("/"),
+});
+type CallbackSearch = z.infer<typeof callbackSearchSchema>;
+
 export const Route = createFileRoute("/callback")({
   component: CallbackComponent,
+  validateSearch: validateCallbackSearch,
 });
 
 const CALLBACK_TIMEOUT_MS = 15_000;
@@ -27,7 +34,9 @@ const CALLBACK_TIMEOUT_MESSAGE =
   "Anmeldung konnte nicht innerhalb von 15 Sekunden abgeschlossen werden. Bitte prüfen Sie die WorkOS-Tokenausgabe und Convex-Authentifizierung für diese Preview.";
 
 function CallbackComponent() {
-  const { getAccessToken, isLoading, organizationId, signIn, user } = useAuth();
+  const { getAccessToken } = useAccessToken();
+  const { loading, organizationId, user } = useAuth();
+  const returnState = validateCallbackSearch(Route.useSearch());
   const convexAuth = useConvexAuth();
   const joinBookingPracticeBySlug = useAction(
     api.workosOrganizations.joinBookingPracticeBySlug,
@@ -62,7 +71,7 @@ function CallbackComponent() {
   const activeProvisioningError =
     provisioningError?.userId === userId ? provisioningError.message : null;
   const activeConvexAuthError =
-    !isLoading &&
+    !loading &&
     user &&
     userId &&
     accessTokenReadyUserId === userId &&
@@ -71,7 +80,7 @@ function CallbackComponent() {
       ? CONVEX_AUTH_FAILED_MESSAGE
       : null;
   const activeCallbackTimeoutError =
-    !isLoading &&
+    !loading &&
     user &&
     userId &&
     callbackTimedOutUserId === userId &&
@@ -91,7 +100,7 @@ function CallbackComponent() {
   };
 
   useEffect(() => {
-    if (isLoading || !userId || provisioningUserIdRef.current === userId) {
+    if (loading || !userId || provisioningUserIdRef.current === userId) {
       return;
     }
     const timeoutId = globalThis.setTimeout(() => {
@@ -109,7 +118,7 @@ function CallbackComponent() {
     accessTokenReadyUserId,
     convexAuth.isAuthenticated,
     convexAuth.isLoading,
-    isLoading,
+    loading,
     userId,
   ]);
 
@@ -137,7 +146,7 @@ function CallbackComponent() {
 
   useEffect(() => {
     if (
-      isLoading ||
+      loading ||
       !user ||
       !userId ||
       accessTokenUserIdRef.current === userId ||
@@ -178,14 +187,14 @@ function CallbackComponent() {
     convexAuth.isAuthenticated,
     convexAuth.isLoading,
     getAccessToken,
-    isLoading,
+    loading,
     user,
     userId,
   ]);
 
   useEffect(() => {
     if (
-      isLoading ||
+      loading ||
       !user ||
       !userId ||
       accessTokenReadyUserId !== userId ||
@@ -204,8 +213,12 @@ function CallbackComponent() {
       convexAuthenticated: convexAuth.isAuthenticated,
     });
     provisioningUserIdRef.current = userId;
-    const returnState = readAuthReturnToState();
-    returnState.match(
+    readCallbackReturnState({
+      ...(returnState.practiceSlug
+        ? { practiceSlug: returnState.practiceSlug }
+        : {}),
+      returnTo: returnState.returnTo,
+    }).match(
       ({ practiceSlug, returnTo }) => {
         const backendAction = practiceSlug
           ? joinBookingPracticeBySlug({ practiceSlug })
@@ -225,10 +238,7 @@ function CallbackComponent() {
             );
             const result = navigateToReturnPath(navigate, returnTo);
             result.match(
-              () => {
-                clearAuthReturnToState();
-                return true;
-              },
+              () => true,
               (error) => {
                 provisioningUserIdRef.current = null;
                 setProvisioningError({
@@ -273,18 +283,19 @@ function CallbackComponent() {
     accessTokenReadyUserId,
     convexAuth.isAuthenticated,
     convexAuth.isLoading,
-    isLoading,
+    loading,
     joinBookingPracticeBySlug,
     navigate,
     organizationId,
     provisionCurrentUser,
+    returnState,
     syncCurrentOrganizationMembership,
     user,
     userId,
   ]);
 
   // Auth completed but no user - keep retry path only.
-  if (!isLoading && !user) {
+  if (!loading && !user) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center space-y-4">
@@ -295,9 +306,9 @@ function CallbackComponent() {
             Die Authentifizierung konnte nicht abgeschlossen werden.
           </p>
           <Button
-            onClick={() =>
-              void signIn({ state: { returnTo: CALLBACK_RETRY_RETURN_TO } })
-            }
+            onClick={() => {
+              redirectToSignIn(CALLBACK_RETRY_RETURN_TO);
+            }}
           >
             Erneut anmelden
           </Button>
@@ -353,6 +364,10 @@ function getSameOriginReturnUrl(returnTo: string): null | URL {
   return returnUrl.origin === globalThis.location.origin ? returnUrl : null;
 }
 
+function isAllowedReturnToPath(returnTo: string): boolean {
+  return returnTo.startsWith("/") && !returnTo.startsWith("//");
+}
+
 function logPreviewAuthCallback(
   event: string,
   details: Record<string, boolean | string> = {},
@@ -396,4 +411,38 @@ function navigateToReturnPath(
       );
     }
   }
+}
+
+function readCallbackReturnState({
+  practiceSlug,
+  returnTo,
+}: {
+  practiceSlug?: string;
+  returnTo: string;
+}): Result<{ practiceSlug?: string; returnTo: string }, FrontendError> {
+  if (!isAllowedReturnToPath(returnTo) || returnTo === "/callback") {
+    return err(
+      invalidStateError(
+        `Invalid WorkOS auth return target: ${returnTo}`,
+        "callback",
+      ),
+    );
+  }
+  return ok({
+    ...(practiceSlug ? { practiceSlug } : {}),
+    returnTo,
+  });
+}
+
+function redirectToSignIn(returnTo: string): void {
+  const params = new URLSearchParams({ returnTo });
+  globalThis.location.assign(`/api/auth/sign-in?${params.toString()}`);
+}
+
+function validateCallbackSearch(search: unknown): CallbackSearch {
+  const result = callbackSearchSchema.safeParse(search);
+  if (result.success) {
+    return result.data;
+  }
+  return { returnTo: "/" };
 }

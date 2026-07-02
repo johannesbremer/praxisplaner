@@ -12,7 +12,7 @@ import {
   Scripts,
   useRouterState,
 } from "@tanstack/react-router";
-import { useAuth } from "@workos-inc/authkit-react";
+import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { useConvexAuth, useQuery } from "convex/react";
 import {
   Clock,
@@ -174,7 +174,7 @@ function PostHogClientRegistrar() {
 
 function PostHogIdentitySync() {
   const posthog = usePostHog();
-  const { isLoading, user } = useAuth();
+  const { loading, user } = useAuth();
   const identifiedUserSignatureRef = React.useRef<null | string>(null);
   const resetUnauthenticatedIdentityRef = React.useRef(false);
   const userIdentitySignature = user
@@ -182,7 +182,7 @@ function PostHogIdentitySync() {
     : null;
 
   React.useEffect(() => {
-    if (isLoading) {
+    if (loading) {
       return;
     }
 
@@ -202,7 +202,7 @@ function PostHogIdentitySync() {
     identifyPostHogUser(posthog, user);
     identifiedUserSignatureRef.current = userIdentitySignature;
     resetUnauthenticatedIdentityRef.current = false;
-  }, [isLoading, posthog, user, userIdentitySignature]);
+  }, [loading, posthog, user, userIdentitySignature]);
 
   return null;
 }
@@ -356,7 +356,7 @@ export function PraxisplanerHomePageContent() {
   if (
     authenticatedHomeDestinationsLoading ||
     (practiceRouteState.kind === "unknown" &&
-      (workosAuth.isLoading || workosAuth.user || convexAuth.isLoading))
+      (workosAuth.loading || workosAuth.user || convexAuth.isLoading))
   ) {
     return (
       <div className="container mx-auto p-6">
@@ -639,7 +639,7 @@ function RootLayout() {
           <Button
             onClick={() => {
               resetPostHogIdentity();
-              signOut();
+              void signOut();
             }}
             size="sm"
             variant="outline"

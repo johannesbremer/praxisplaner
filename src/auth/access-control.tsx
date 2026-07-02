@@ -1,14 +1,7 @@
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import { useAuth } from "@workos-inc/authkit-react";
+import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { useConvexAuth } from "convex/react";
-import {
-  type ReactElement,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type ReactElement, type ReactNode, useEffect, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -62,7 +55,11 @@ export function AccountAuthGate({
   const { permissions, role, roles } = useAuth();
   const access = isAuthBypassEnabled()
     ? getDevAuthPersonaAccess("owner")
-    : { permissions, role, roles };
+    : {
+        permissions: permissions ?? [],
+        role: role ?? null,
+        roles: roles ?? null,
+      };
 
   return (
     <AuthenticatedGate devPersona="owner">
@@ -86,39 +83,29 @@ export function AuthenticatedGate({
   devPersona?: DevAuthPersona;
 }): ReactElement {
   const convexAuth = useConvexAuth();
-  const { isLoading, signIn, user } = useAuth();
-  const [signInError, setSignInError] = useState<null | string>(null);
+  const { loading, user } = useAuth();
   const signInRequestedRef = useRef(false);
 
-  const startSignIn = useCallback(() => {
-    if (signInRequestedRef.current) {
+  useEffect(() => {
+    if (
+      loading ||
+      user ||
+      isAuthBypassEnabled() ||
+      signInRequestedRef.current
+    ) {
       return;
     }
     signInRequestedRef.current = true;
-    signIn({ state: getAuthReturnState(devPersona) }).catch(
-      (error: unknown) => {
-        signInRequestedRef.current = false;
-        setSignInError(
-          error instanceof Error
-            ? error.message
-            : "Anmeldung konnte nicht gestartet werden",
-        );
-      },
-    );
-  }, [devPersona, signIn]);
-
-  useEffect(() => {
-    if (isLoading || user || isAuthBypassEnabled()) {
-      return;
-    }
-    startSignIn();
-  }, [isLoading, startSignIn, user]);
+    globalThis.queueMicrotask(() => {
+      redirectToSignIn(getAuthReturnState(devPersona));
+    });
+  }, [devPersona, loading, user]);
 
   const authBypassEnabled = isAuthBypassEnabled();
   const activeDevPersona = authBypassEnabled && isDevPersonaActive(devPersona);
   const shouldWaitForConvexAuth = authBypassEnabled ? activeDevPersona : true;
 
-  if (isLoading || (shouldWaitForConvexAuth && convexAuth.isLoading)) {
+  if (loading || (shouldWaitForConvexAuth && convexAuth.isLoading)) {
     return <AuthLoadingScreen />;
   }
 
@@ -129,10 +116,10 @@ export function AuthenticatedGate({
   if (!user) {
     return (
       <SignInScreen
-        error={signInError}
+        error={null}
         onRetry={() => {
-          setSignInError(null);
-          startSignIn();
+          signInRequestedRef.current = true;
+          redirectToSignIn(getAuthReturnState(devPersona));
         }}
       />
     );
@@ -143,9 +130,8 @@ export function AuthenticatedGate({
       <SignInScreen
         error="Die Anmeldung ist abgelaufen. Bitte starten Sie die Anmeldung erneut."
         onRetry={() => {
-          setSignInError(null);
-          signInRequestedRef.current = false;
-          startSignIn();
+          signInRequestedRef.current = true;
+          redirectToSignIn(getAuthReturnState(devPersona));
         }}
       />
     );
@@ -274,7 +260,11 @@ function AuthorizedGate({
   const { permissions, role, roles } = useAuth();
   const access = isAuthBypassEnabled()
     ? getDevAuthPersonaAccess(devPersona)
-    : { permissions, role, roles };
+    : {
+        permissions: permissions ?? [],
+        role: role ?? null,
+        roles: roles ?? null,
+      };
 
   return (
     <AuthenticatedGate devPersona={devPersona}>
@@ -305,6 +295,20 @@ function isDevPersonaActive(persona: DevAuthPersona | undefined): boolean {
     return true;
   }
   return getDevAuthPersonaForPath(globalThis.location.pathname) === persona;
+}
+
+function redirectToSignIn({
+  practiceSlug,
+  returnTo,
+}: {
+  practiceSlug?: string;
+  returnTo: string;
+}): void {
+  const searchParams = new URLSearchParams({ returnTo });
+  if (practiceSlug) {
+    searchParams.set("practiceSlug", practiceSlug);
+  }
+  globalThis.location.assign(`/api/auth/sign-in?${searchParams.toString()}`);
 }
 
 function SignInScreen({

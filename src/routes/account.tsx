@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useAuth } from "@workos-inc/authkit-react";
 import { UsersManagement, WorkOsWidgets } from "@workos-inc/widgets";
+import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import { useAction, useQuery } from "convex/react";
 import { AlertTriangle, Building2, Loader2, UsersRound } from "lucide-react";
 import {
@@ -19,10 +19,6 @@ import { api } from "../../convex/_generated/api";
 import { AccountAuthGate } from "../auth/access-control";
 import { isAuthBypassEnabled } from "../auth/auth-bypass";
 
-function getAuthReturnToPath(): string {
-  return `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
-}
-
 export const Route = createFileRoute("/account")({
   component: AccountRoute,
 });
@@ -34,7 +30,7 @@ interface WorkOSOrganizationOption {
 }
 
 function AccountPage() {
-  const { isLoading, organizationId, switchToOrganization } = useAuth();
+  const { loading, organizationId, switchToOrganization } = useAuth();
   const authBypassEnabled = isAuthBypassEnabled();
   const createOrganizationPractice = useAction(
     api.workosOrganizations.createOrganizationPractice,
@@ -88,10 +84,7 @@ function AccountPage() {
     }
     void syncCurrentOrganizationMembership({ organizationId: organization.id });
     if (!authBypassEnabled && organization.id !== organizationId) {
-      switchToOrganization({
-        organizationId: organization.id,
-        signInOpts: { state: { returnTo: getAuthReturnToPath() } },
-      }).catch((error: unknown) => {
+      switchToOrganization(organization.id).catch((error: unknown) => {
         setOrganizationListError(
           error instanceof Error
             ? error.message
@@ -130,10 +123,7 @@ function AccountPage() {
         refreshOrganizations();
         return authBypassEnabled
           ? undefined
-          : switchToOrganization({
-              organizationId: nextOrganizationId,
-              signInOpts: { state: { returnTo: getAuthReturnToPath() } },
-            });
+          : switchToOrganization(nextOrganizationId);
       })
       .catch((error: unknown) => {
         setCreateWarning(null);
@@ -148,7 +138,7 @@ function AccountPage() {
       });
   };
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="flex items-center gap-2 text-muted-foreground">
