@@ -1,7 +1,10 @@
 import { Temporal } from "temporal-polyfill";
 import { describe, expect, it } from "vitest";
 
-import { getPractitionerVacationRangesForDate } from "../../lib/vacation-utils";
+import {
+  getPractitionerVacationRangesForDate,
+  getPractitionerVacationReasonForMinute,
+} from "../../lib/vacation-utils";
 
 describe("vacation utils", () => {
   it("uses the largest break as the split between morning and afternoon", () => {
@@ -49,6 +52,57 @@ describe("vacation utils", () => {
 
     expect(morningRanges).toEqual([{ endMinutes: 660, startMinutes: 480 }]);
     expect(afternoonRanges).toEqual([{ endMinutes: 960, startMinutes: 720 }]);
+  });
+
+  it("resolves absence reasons by vacation portion", () => {
+    const date = Temporal.PlainDate.from("2026-04-06");
+    const schedules = [
+      {
+        breakTimes: [{ end: "12:00", start: "11:00" }],
+        dayOfWeek: 1,
+        endTime: "16:00",
+        locationLineageKey: "loc-1",
+        practitionerLineageKey: "doc-1",
+        startTime: "08:00",
+      },
+    ];
+    const vacations = [
+      {
+        date: "2026-04-06",
+        portion: "morning" as const,
+        practitionerLineageKey: "doc-1",
+        reason: "sick" as const,
+        staffType: "practitioner" as const,
+      },
+      {
+        date: "2026-04-06",
+        portion: "afternoon" as const,
+        practitionerLineageKey: "doc-1",
+        reason: "training" as const,
+        staffType: "practitioner" as const,
+      },
+    ];
+
+    expect(
+      getPractitionerVacationReasonForMinute(
+        date,
+        "doc-1",
+        schedules,
+        vacations,
+        600,
+        "loc-1",
+      ),
+    ).toBe("sick");
+    expect(
+      getPractitionerVacationReasonForMinute(
+        date,
+        "doc-1",
+        schedules,
+        vacations,
+        780,
+        "loc-1",
+      ),
+    ).toBe("training");
   });
 
   it("uses the equally large break closest to the center as the split", () => {

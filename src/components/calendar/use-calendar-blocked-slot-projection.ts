@@ -22,12 +22,19 @@ import {
 } from "../../../convex/appointmentOccupancy";
 import { asPractitionerLineageKey } from "../../../convex/identity";
 import {
+  type AbsenceReason,
+  formatAbsenceReason,
+} from "../../../lib/absence-reasons";
+import {
   calendarColumnScopeFromPractitioner,
   calendarColumnScopeFromResourceColumn,
   getCalendarResourceColumnFromOccupancy,
   sameCalendarColumnScope,
 } from "../../../lib/calendar-occupancy";
-import { getPractitionerVacationRangesForDate } from "../../../lib/vacation-utils";
+import {
+  getPractitionerVacationRangesForDate,
+  getPractitionerVacationReasonForMinute,
+} from "../../../lib/vacation-utils";
 import {
   captureFrontendError,
   invalidStateError,
@@ -48,6 +55,7 @@ interface BlockedSlotVacation {
   date: string;
   portion: "afternoon" | "full" | "morning";
   practitionerLineageKey?: string;
+  reason?: AbsenceReason;
   staffType: "mfa" | "practitioner";
 }
 
@@ -441,11 +449,22 @@ export function useCalendarBlockedSlotProjection({
         );
 
         for (let slot = Math.max(0, startSlot); slot < endSlot; slot++) {
+          const slotMinute = businessStartHour * 60 + slot * SLOT_DURATION;
+          const absenceReason = getPractitionerVacationReasonForMinute(
+            selectedDate,
+            practitioner.lineageKey,
+            [...baseSchedulesData],
+            [...vacationsData],
+            slotMinute,
+            effectiveLocationLineageKey,
+          );
           blocked.push({
             column: calendarColumnScopeFromPractitioner(
               practitioner.lineageKey,
             ),
-            reason: "Urlaub",
+            reason: absenceReason
+              ? formatAbsenceReason(absenceReason)
+              : "Abwesenheit",
             slot,
           });
         }

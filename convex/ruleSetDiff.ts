@@ -492,6 +492,7 @@ async function buildRuleSetCanonicalSnapshot(
         ),
         date: vacation.date,
         portion: vacation.portion,
+        reason: vacation.reason,
         staffName:
           vacation.staffType === "practitioner"
             ? vacation.practitionerLineageKey

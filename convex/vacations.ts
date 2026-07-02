@@ -435,7 +435,6 @@ export const createVacation = mutation({
         existingByLineage.practiceId !== args.practiceId ||
         existingByLineage.date !== args.date ||
         existingByLineage.portion !== args.portion ||
-        existingByLineage.reason !== args.reason ||
         existingByLineage.staffType !== args.staffType ||
         (args.staffType === "practitioner"
           ? existingByLineage.practitionerLineageKey !==
@@ -447,6 +446,11 @@ export const createVacation = mutation({
         );
       }
 
+      if (existingByLineage.reason !== args.reason) {
+        await ctx.db.patch("vacations", existingByLineage._id, {
+          reason: args.reason,
+        });
+      }
       const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
       return {
         draftRevision,
@@ -485,9 +489,13 @@ export const createVacation = mutation({
       }
       entityId = existing._id;
       const lineageKey = args.lineageKey ?? requireVacationLineageKey(existing);
-      if (existing.lineageKey !== lineageKey) {
+      if (
+        existing.lineageKey !== lineageKey ||
+        existing.reason !== args.reason
+      ) {
         await ctx.db.patch("vacations", existing._id, {
           lineageKey,
+          reason: args.reason,
         });
       }
     } else {
@@ -570,7 +578,6 @@ async function createVacationInDraft(
       existingByLineage.practiceId !== args.practiceId ||
       existingByLineage.date !== args.date ||
       existingByLineage.portion !== args.portion ||
-      existingByLineage.reason !== args.reason ||
       existingByLineage.staffType !== args.staffType ||
       (args.staffType === "practitioner"
         ? existingByLineage.practitionerLineageKey !==
@@ -582,6 +589,11 @@ async function createVacationInDraft(
       );
     }
 
+    if (existingByLineage.reason !== args.reason) {
+      await ctx.db.patch("vacations", existingByLineage._id, {
+        reason: args.reason,
+      });
+    }
     const draftRevision = await bumpDraftRevision(ctx.db, ruleSetId);
     return {
       draftRevision,
@@ -620,9 +632,10 @@ async function createVacationInDraft(
     }
     entityId = existing._id;
     const lineageKey = args.lineageKey ?? requireVacationLineageKey(existing);
-    if (existing.lineageKey !== lineageKey) {
+    if (existing.lineageKey !== lineageKey || existing.reason !== args.reason) {
       await ctx.db.patch("vacations", existing._id, {
         lineageKey,
+        reason: args.reason,
       });
     }
   } else {

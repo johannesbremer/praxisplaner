@@ -2490,6 +2490,64 @@ describe("vacations", () => {
     expect(discardResult.reason).toBe("has_changes");
   });
 
+  test("drafts with only vacation reason changes are semantic changes", async () => {
+    const t = createAuthedTestContext();
+    const fixture = await createSchedulingFixture(t);
+    const monday = nextWeekday(1).toString();
+
+    const createdVacation = await t.mutation(api.vacations.createVacation, {
+      date: monday,
+      expectedDraftRevision: null,
+      portion: "full",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.practitionerId,
+      reason: "vacation",
+      selectedRuleSetId: fixture.ruleSetId,
+      staffType: "practitioner",
+    });
+    assertDefined(createdVacation.entityId);
+
+    const savedRuleSetId = await t.mutation(api.ruleSets.saveUnsavedRuleSet, {
+      description: "Urlaubsplanung",
+      practiceId: fixture.practiceId,
+      setAsActive: true,
+    });
+
+    const reasonOnlyUpdate = await t.mutation(api.vacations.createVacation, {
+      date: monday,
+      expectedDraftRevision: null,
+      lineageKey: createdVacation.entityId,
+      portion: "full",
+      practiceId: fixture.practiceId,
+      practitionerId: fixture.practitionerId,
+      reason: "sick",
+      selectedRuleSetId: savedRuleSetId,
+      staffType: "practitioner",
+    });
+
+    const diff = await t.query(api.ruleSets.getUnsavedRuleSetDiff, {
+      practiceId: fixture.practiceId,
+      ruleSetId: reasonOnlyUpdate.ruleSetId,
+    });
+    assertDefined(diff);
+    const vacationSection = diff.sections.find(
+      (section) => section.key === "vacations",
+    );
+    expect(vacationSection?.added).toHaveLength(1);
+    expect(vacationSection?.removed).toHaveLength(1);
+
+    const discardResult = await t.mutation(
+      api.ruleSets.discardUnsavedRuleSetIfEquivalentToParent,
+      {
+        practiceId: fixture.practiceId,
+        ruleSetId: reasonOnlyUpdate.ruleSetId,
+      },
+    );
+
+    expect(discardResult.deleted).toBe(false);
+    expect(discardResult.reason).toBe("has_changes");
+  });
+
   test("deleting a vacation removes its staged coverage simulations", async () => {
     const t = createAuthedTestContext();
     const fixture = await createCoverageFixture(t);

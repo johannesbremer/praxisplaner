@@ -42,6 +42,11 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { api } from "@/convex/_generated/api";
 import { asMfaId, asMfaLineageKey } from "@/convex/identity";
+import {
+  ABSENCE_REASON_META,
+  ABSENCE_REASON_OPTIONS,
+  type AbsenceReason,
+} from "@/lib/absence-reasons";
 import { GDT_DATE_REGEX } from "@/lib/typed-regex";
 import { cn } from "@/lib/utils";
 
@@ -129,14 +134,7 @@ type StaffRow =
     };
 
 type VacationPortion = "afternoon" | "full" | "morning";
-type VacationReason =
-  | "birthday"
-  | "child-sick"
-  | "other"
-  | "overtime"
-  | "sick"
-  | "training"
-  | "vacation";
+type VacationReason = AbsenceReason;
 
 interface VacationReplaySnapshot {
   lineageKey: Id<"vacations">;
@@ -176,33 +174,6 @@ const PORTION_META: Record<
 };
 
 const ORDERED_PORTIONS: VacationPortion[] = ["full", "morning", "afternoon"];
-
-const ABSENCE_REASON_OPTIONS = [
-  { label: "Urlaub", short: "U", value: "vacation" },
-  { label: "Krank", short: "K", value: "sick" },
-  { label: "Überstunden", short: "Ü", value: "overtime" },
-  { label: "Fortbildung", short: "F", value: "training" },
-  { label: "Kinderkrank", short: "KK", value: "child-sick" },
-  { label: "Sonstiges", short: "S", value: "other" },
-  { label: "Geburtstag", short: "G", value: "birthday" },
-] as const satisfies readonly {
-  label: string;
-  short: string;
-  value: VacationReason;
-}[];
-
-const ABSENCE_REASON_META: Record<
-  VacationReason,
-  { label: string; short: string }
-> = {
-  birthday: { label: "Geburtstag", short: "G" },
-  "child-sick": { label: "Kinderkrank", short: "KK" },
-  other: { label: "Sonstiges", short: "S" },
-  overtime: { label: "Überstunden", short: "Ü" },
-  sick: { label: "Krank", short: "K" },
-  training: { label: "Fortbildung", short: "F" },
-  vacation: { label: "Urlaub", short: "U" },
-};
 
 const ABSENCE_REASON_COMBOBOX_OPTIONS: ComboboxOption[] =
   ABSENCE_REASON_OPTIONS.map((option) => ({

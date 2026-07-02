@@ -1,5 +1,7 @@
 import { Temporal } from "temporal-polyfill";
 
+import type { AbsenceReason } from "./absence-reasons";
+
 import { TIME_OF_DAY_REGEX } from "./typed-regex";
 
 export interface BreakTimeLike {
@@ -25,6 +27,7 @@ export interface VacationLike {
   date: string;
   portion: VacationPortion;
   practitionerLineageKey?: string;
+  reason?: AbsenceReason;
   staffType: "mfa" | "practitioner";
 }
 
@@ -165,6 +168,93 @@ export function getPractitionerVacationRangesForDate(
   }
 
   return mergeRanges(ranges);
+}
+
+export function getPractitionerVacationReasonForMinute(
+  date: Temporal.PlainDate,
+  practitionerLineageKey: string,
+  schedules: ScheduleLike[],
+  vacations: VacationLike[],
+  minute: number,
+  locationLineageKey?: string,
+): AbsenceReason | undefined {
+  const dateKey = date.toString();
+  const practitionerVacations = vacations.filter(
+    (vacation) =>
+      vacation.staffType === "practitioner" &&
+      vacation.practitionerLineageKey === practitionerLineageKey &&
+      vacation.date === dateKey,
+  );
+
+  const fullVacation = practitionerVacations.find(
+    (vacation) => vacation.portion === "full",
+  );
+  if (fullVacation) {
+    return fullVacation.reason;
+  }
+
+  const workingRanges = getPractitionerWorkingRangesForDate(
+    date,
+    practitionerLineageKey,
+    schedules,
+    locationLineageKey,
+  );
+  if (!minuteRangeContains(workingRanges, minute)) {
+    return undefined;
+  }
+
+  const matchingSchedules = getMatchingSchedules(
+    date,
+    practitionerLineageKey,
+    schedules,
+    locationLineageKey,
+  );
+  const splitBreak = getPreferredSplitBreak(matchingSchedules);
+  const morningVacation = practitionerVacations.find(
+    (vacation) => vacation.portion === "morning",
+  );
+  const afternoonVacation = practitionerVacations.find(
+    (vacation) => vacation.portion === "afternoon",
+  );
+
+  if (splitBreak) {
+    if (morningVacation && minute < splitBreak.startMinutes) {
+      return morningVacation.reason;
+    }
+    if (afternoonVacation && minute >= splitBreak.endMinutes) {
+      return afternoonVacation.reason;
+    }
+    return undefined;
+  }
+
+  const totalMinutes = workingRanges.reduce(
+    (sum, range) => sum + (range.endMinutes - range.startMinutes),
+    0,
+  );
+  if (totalMinutes === 0) {
+    return undefined;
+  }
+
+  const midpoint = Math.ceil(totalMinutes / 10) * 5;
+  let minutesBeforeSlot = 0;
+  for (const range of workingRanges) {
+    if (minute >= range.endMinutes) {
+      minutesBeforeSlot += range.endMinutes - range.startMinutes;
+      continue;
+    }
+    if (minute < range.startMinutes) {
+      continue;
+    }
+    minutesBeforeSlot += minute - range.startMinutes;
+  }
+
+  if (morningVacation && minutesBeforeSlot < midpoint) {
+    return morningVacation.reason;
+  }
+  if (afternoonVacation && minutesBeforeSlot >= midpoint) {
+    return afternoonVacation.reason;
+  }
+  return undefined;
 }
 
 export function getPractitionerWorkingRangesForDate(

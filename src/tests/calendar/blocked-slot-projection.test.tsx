@@ -226,6 +226,66 @@ describe("useCalendarBlockedSlotProjection", () => {
     ]);
   });
 
+  it("projects vacation blocks with the selected absence reason", () => {
+    const { result } = renderHook(() =>
+      useCalendarBlockedSlotProjection({
+        appointmentsData: [],
+        appointmentSeriesRootBlockedSlots: undefined,
+        appointmentTypeSelected: false,
+        baseSchedulesData: [
+          {
+            dayOfWeek: 6,
+            endTime: "12:00",
+            locationLineageKey,
+            practitionerId,
+            practitionerLineageKey,
+            startTime: "08:00",
+          },
+        ],
+        blockedSlotsData: [],
+        blockedSlotsWithoutAppointmentTypeSlots: undefined,
+        businessStartHour: 8,
+        columns: [{ id: practitionerColumn, title: "Dr. Chain" }],
+        getPractitionerIdForLineageKey: (lineageKey) =>
+          lineageKey === practitionerLineageKey ? practitionerId : undefined,
+        locationLineageKeyById: new Map([[locationId, locationLineageKey]]),
+        practitionerLineageKeyById: new Map([
+          [practitionerId, practitionerLineageKey],
+        ]),
+        resourceDefaultCalendarResourceColumn: undefined,
+        selectedDate,
+        selectedLocationId: locationId,
+        simulatedContext: undefined,
+        slots: undefined,
+        timeToSlot,
+        totalSlots: 108,
+        vacationsData: [
+          {
+            date: selectedDate.toString(),
+            portion: "morning",
+            practitionerLineageKey,
+            reason: "sick",
+            staffType: "practitioner",
+          },
+        ],
+        workingPractitioners: [
+          {
+            endTime: "17:00",
+            lineageKey: practitionerLineageKey,
+            name: "Dr. Chain",
+            startTime: "08:00",
+          },
+        ],
+      }),
+    );
+
+    expect(result.current.baseVacationBlockedSlots[0]).toMatchObject({
+      column: practitionerColumn,
+      reason: "Krank",
+      slot: 0,
+    });
+  });
+
   it("projects server-planned Candidate Slot decisions as exact start blocks", () => {
     const { result } = renderProjection({
       appointmentSeriesRootBlockedSlots: [
