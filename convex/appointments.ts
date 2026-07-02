@@ -19,9 +19,15 @@ import {
 } from "./appointmentColors";
 import {
   type AppointmentBookingScope,
+  type AppointmentConflictCandidate,
+  type AppointmentOccupancyView,
   appointmentOverlapsCandidate,
+  type CalendarOccupancyConflictSet,
   findConflictingCalendarOccupancy,
+  findConflictingCalendarOccupancyInSet,
+  getCalendarOccupancyQueryWindow,
   getOccupancyViewForBookingScope,
+  loadCalendarOccupancyConflictSet,
 } from "./appointmentConflicts";
 import {
   appointmentOccupancyScopeFromRefs,
@@ -2981,6 +2987,10 @@ async function evaluateSingleAppointmentCandidateSlot(
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     locationLineageKey: LocationLineageKey;
+    occupancyConflictSetsByWindow?: Map<
+      string,
+      Promise<CalendarOccupancyConflictSet>
+    >;
     patientDateOfBirth?: IsoDateString;
     planningState: ReturnType<typeof createSeriesPlanningState>;
     practiceId: Id<"practices">;
@@ -3036,23 +3046,38 @@ async function evaluateSingleAppointmentCandidateSlot(
     asZonedDateTimeString(args.candidate.startTime),
     durationMinutes,
   );
+  const conflictCandidate = {
+    end: candidateEnd,
+    locationLineageKey: storedReferences.locationLineageKey,
+    occupancyScope,
+    start: args.candidate.startTime,
+  };
 
-  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
-    candidate: {
-      end: candidateEnd,
-      locationLineageKey: storedReferences.locationLineageKey,
-      occupancyScope,
-      start: args.candidate.startTime,
-    },
-    ...(args.simulationRuleSetId === undefined
-      ? {}
-      : { draftRuleSetId: args.simulationRuleSetId }),
-    ...(args.excludedAppointmentIds === undefined
-      ? {}
-      : { excludeAppointmentIds: args.excludedAppointmentIds }),
-    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
-    practiceId: args.practiceId,
-  });
+  const conflictingOccupancy =
+    args.occupancyConflictSetsByWindow === undefined
+      ? await findConflictingCalendarOccupancy(ctx.db, {
+          candidate: conflictCandidate,
+          ...(args.simulationRuleSetId === undefined
+            ? {}
+            : { draftRuleSetId: args.simulationRuleSetId }),
+          ...(args.excludedAppointmentIds === undefined
+            ? {}
+            : { excludeAppointmentIds: args.excludedAppointmentIds }),
+          occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
+          practiceId: args.practiceId,
+        })
+      : await findConflictingCalendarOccupancyForStaffPlacement(ctx.db, {
+          candidate: conflictCandidate,
+          ...(args.simulationRuleSetId === undefined
+            ? {}
+            : { draftRuleSetId: args.simulationRuleSetId }),
+          ...(args.excludedAppointmentIds === undefined
+            ? {}
+            : { excludeAppointmentIds: args.excludedAppointmentIds }),
+          occupancyConflictSetsByWindow: args.occupancyConflictSetsByWindow,
+          occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
+          practiceId: args.practiceId,
+        });
 
   if (conflictingOccupancy) {
     return unavailableCandidateSlotDecision({
@@ -3193,6 +3218,52 @@ async function evaluateSingleAppointmentCandidateSlot(
   });
 }
 
+async function findConflictingCalendarOccupancyForStaffPlacement(
+  db: DatabaseReader,
+  args: {
+    candidate: AppointmentConflictCandidate;
+    draftRuleSetId?: Id<"ruleSets">;
+    excludeAppointmentIds?: Id<"appointments">[];
+    occupancyConflictSetsByWindow: Map<
+      string,
+      Promise<CalendarOccupancyConflictSet>
+    >;
+    occupancyView: AppointmentOccupancyView;
+    practiceId: Id<"practices">;
+  },
+) {
+  const queryWindow = getCalendarOccupancyQueryWindow(args.candidate);
+  const cacheKey = occupancyConflictSetCacheKey({
+    ...(args.draftRuleSetId === undefined
+      ? {}
+      : { draftRuleSetId: args.draftRuleSetId }),
+    occupancyView: args.occupancyView,
+    practiceId: args.practiceId,
+    queryEnd: queryWindow.queryEnd,
+    queryStart: queryWindow.queryStart,
+  });
+  let conflictSetPromise = args.occupancyConflictSetsByWindow.get(cacheKey);
+  if (conflictSetPromise === undefined) {
+    conflictSetPromise = loadCalendarOccupancyConflictSet(db, {
+      ...(args.draftRuleSetId === undefined
+        ? {}
+        : { draftRuleSetId: args.draftRuleSetId }),
+      occupancyView: args.occupancyView,
+      practiceId: args.practiceId,
+      queryWindow,
+    });
+    args.occupancyConflictSetsByWindow.set(cacheKey, conflictSetPromise);
+  }
+  const conflictSet = await conflictSetPromise;
+  return findConflictingCalendarOccupancyInSet({
+    candidate: args.candidate,
+    conflictSet,
+    ...(args.excludeAppointmentIds === undefined
+      ? {}
+      : { excludeAppointmentIds: args.excludeAppointmentIds }),
+  });
+}
+
 async function getStaffPlannerSlotsForDate(
   ctx: MutationCtx | QueryCtx,
   args: {
@@ -3306,6 +3377,22 @@ function isSchedulerSlotBlockedOnlyByAppointmentOccupancy(slot: {
   );
 }
 
+function occupancyConflictSetCacheKey(args: {
+  draftRuleSetId?: Id<"ruleSets">;
+  occupancyView: AppointmentOccupancyView;
+  practiceId: Id<"practices">;
+  queryEnd: string;
+  queryStart: string;
+}): string {
+  return [
+    args.practiceId,
+    args.occupancyView,
+    args.draftRuleSetId ?? "active",
+    args.queryStart,
+    args.queryEnd,
+  ].join("|");
+}
+
 async function resolveCandidatePractitionerIdForStaffPlacement(
   db: DatabaseReader,
   args: {
@@ -3332,6 +3419,10 @@ async function resolveCandidateSlotDecisionForStaffPlacement(
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     locationLineageKey: LocationLineageKey;
+    occupancyConflictSetsByWindow?: Map<
+      string,
+      Promise<CalendarOccupancyConflictSet>
+    >;
     patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
     planningState: ReturnType<typeof createSeriesPlanningState>;
@@ -3453,6 +3544,9 @@ async function resolveCandidateSlotDecisionForStaffPlacement(
       : { isNewPatient: args.isNewPatient }),
     locationId: args.locationId,
     locationLineageKey: args.locationLineageKey,
+    ...(args.occupancyConflictSetsByWindow === undefined
+      ? {}
+      : { occupancyConflictSetsByWindow: args.occupancyConflictSetsByWindow }),
     ...(args.patientDateOfBirth === undefined
       ? {}
       : { patientDateOfBirth: args.patientDateOfBirth }),
@@ -3587,6 +3681,10 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
       PractitionerLineageKey,
       Id<"practitioners">
     >();
+    const occupancyConflictSetsByWindow = new Map<
+      string,
+      Promise<CalendarOccupancyConflictSet>
+    >();
     for (const candidate of args.candidates) {
       if (candidate.locationLineageKey !== locationLineageKey) {
         continue;
@@ -3609,6 +3707,7 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
           ...(args.patientId === undefined
             ? {}
             : { patientId: args.patientId }),
+          occupancyConflictSetsByWindow,
           planningState,
           practiceId: args.practiceId,
           practitionerIdsByLineageKey,
