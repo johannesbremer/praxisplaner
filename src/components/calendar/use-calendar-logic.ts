@@ -625,6 +625,9 @@ export function useCalendarLogic({
           ...(patient?.isNewPatient === undefined
             ? {}
             : { isNewPatient: patient.isNewPatient }),
+          ...(patient?.insuranceStatus === undefined
+            ? {}
+            : { patientInsuranceStatus: patient.insuranceStatus }),
           ...(patient?.recordType === "pvs"
             ? { patientId: patient.convexPatientId }
             : {}),

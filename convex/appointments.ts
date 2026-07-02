@@ -142,6 +142,7 @@ import {
   ensureAuthenticatedUserId,
   requireAuthenticatedUserIdForQuery,
 } from "./userIdentity";
+import { insuranceStatusValidator } from "./validators";
 
 type AppointmentDoc = Doc<"appointments">;
 type AppointmentListItem = AppointmentResult &
@@ -464,6 +465,7 @@ function asTrustedAppointmentInput(args: {
   locationId: Id<"locations">;
   patientDateOfBirth?: string;
   patientId?: Id<"patients">;
+  patientInsuranceStatus?: InsuranceStatus;
   phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
   practiceId: Id<"practices">;
   practitionerId?: Id<"practitioners">;
@@ -1315,16 +1317,12 @@ async function resolvePreferredAppointmentPatientInsuranceStatus(
     provisionalInsuranceStatus?: InsuranceStatus;
   },
 ): Promise<InsuranceStatus | undefined> {
-  if (args.provisionalInsuranceStatus !== undefined) {
-    return args.provisionalInsuranceStatus;
-  }
-
   if (args.patientId) {
     const patient = await db.get("patients", args.patientId);
     return patient?.insuranceStatus;
   }
 
-  return undefined;
+  return args.provisionalInsuranceStatus;
 }
 
 async function saveAppointmentRestoreSnapshot(
@@ -3851,6 +3849,7 @@ export async function createAppointmentFromTrustedSource(
     locationId: Id<"locations">;
     patientDateOfBirth?: string;
     patientId?: Id<"patients">;
+    patientInsuranceStatus?: InsuranceStatus;
     phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
@@ -3881,6 +3880,7 @@ export async function createAppointmentFromTrustedSource(
     isSimulation,
     locationId,
     patientDateOfBirth,
+    patientInsuranceStatus: provisionalPatientInsuranceStatus,
     practiceId,
     practitionerId,
     replacesAppointmentId,
@@ -3913,6 +3913,15 @@ export async function createAppointmentFromTrustedSource(
     owner,
     scope: await requireTrustedPracticeScope(ctx, practiceId),
   });
+  const patientInsuranceStatus =
+    await resolvePreferredAppointmentPatientInsuranceStatus(ctx.db, {
+      ...(ownerRefs.patientId === undefined
+        ? {}
+        : { patientId: ownerRefs.patientId }),
+      ...(provisionalPatientInsuranceStatus === undefined
+        ? {}
+        : { provisionalInsuranceStatus: provisionalPatientInsuranceStatus }),
+    });
   if (simulationKind && isSimulation !== true) {
     throw new Error(
       "simulationKind can only be used with simulated appointments.",
@@ -4100,6 +4109,7 @@ export async function createAppointmentFromTrustedSource(
     locationId,
     locationLineageKey: storedReferences.locationLineageKey,
     ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+    ...(patientInsuranceStatus === undefined ? {} : { patientInsuranceStatus }),
     planningState: candidatePlanningState,
     practiceId,
     requestedAt: asInstantString(Temporal.Now.instant().toString()),
@@ -4299,6 +4309,7 @@ export const createAppointment = mutation({
     locationId: v.id("locations"),
     patientDateOfBirth: v.optional(v.string()),
     patientId: v.optional(v.id("patients")),
+    patientInsuranceStatus: v.optional(insuranceStatusValidator),
     phoneBookingIdentityId: v.optional(v.id("phoneBookingIdentities")),
     practiceId: v.id("practices"),
     practitionerId: v.optional(v.id("practitioners")),

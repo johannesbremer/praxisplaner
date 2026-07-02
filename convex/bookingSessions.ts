@@ -4,6 +4,10 @@ import { z } from "zod";
 
 import type { Doc, Id } from "./_generated/dataModel";
 
+import {
+  type InsuranceStatus,
+  insuranceStatusFromBookingInsuranceType,
+} from "../lib/insurance-status";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import {
@@ -19,6 +23,7 @@ import {
   createAppointmentFromTrustedSource,
   rootAppointmentIdFromCreateEffect,
 } from "./appointments";
+import { resolveActivePvsPatientIdForBookingIdentity } from "./bookingIdentities";
 import {
   APPOINTMENT_TIMEZONE,
   type BookingFlowKey,
@@ -162,6 +167,7 @@ async function assertSlotAllowedByRules(
     appointmentTypeId: Id<"appointmentTypes">;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth: string;
+    patientInsuranceStatus?: InsuranceStatus;
     practitionerLineageKey: PractitionerLineageKey;
     scope: PatientBookingScope;
     startTime: ZonedDateTimeString;
@@ -187,6 +193,9 @@ async function assertSlotAllowedByRules(
         dateTime: args.startTime,
         locationId,
         patientDateOfBirth: args.patientDateOfBirth,
+        ...(args.patientInsuranceStatus === undefined
+          ? {}
+          : { patientInsuranceStatus: args.patientInsuranceStatus }),
         practiceId: args.scope.practiceId,
         practitionerId,
         requestedAt: Temporal.Now.instant()
@@ -713,6 +722,7 @@ function hasRequiredMedicalHistoryEntries(
 ): boolean {
   return row?.isComplete === true;
 }
+
 async function loadFlowRows(
   ctx: MutationCtx | QueryCtx,
   flowKey: BookingFlowKey,
@@ -779,6 +789,7 @@ async function loadFlowRows(
     privacy,
   };
 }
+
 async function markCalendarReached(
   ctx: MutationCtx,
   flowKey: BookingFlowKey,
@@ -1109,7 +1120,13 @@ async function materializeState(
     };
   }
 
+  const insuranceStatus = await resolveOnlineExistingPatientInsuranceStatus(
+    ctx,
+    flowKey,
+  );
+
   return {
+    ...(insuranceStatus === undefined ? {} : { insuranceStatus }),
     isNewPatient: false,
     locationLineageKey,
     locationName,
@@ -1200,7 +1217,6 @@ function normalizeBookingPhoneNumber(args: {
   }
   return phoneNumber;
 }
-
 function normalizeDataSharingContactInput(
   contact: Parameters<typeof asDataSharingContactInput>[0],
   index: number,
@@ -1673,6 +1689,7 @@ async function requireOfferedNewPatientSlot(
     appointmentTypeLineageKey: Id<"appointmentTypes">;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth: string;
+    patientInsuranceStatus: InsuranceStatus;
     scope: PatientBookingScope;
     selectedSlot: {
       practitionerLineageKey: Id<"practitioners">;
@@ -1686,6 +1703,7 @@ async function requireOfferedNewPatientSlot(
     isNewPatient: true,
     locationLineageKey: args.locationLineageKey,
     patientDateOfBirth: args.patientDateOfBirth,
+    patientInsuranceStatus: args.patientInsuranceStatus,
     practitionerLineageKey: asPractitionerLineageKey(
       args.selectedSlot.practitionerLineageKey,
     ),
@@ -1702,6 +1720,7 @@ async function requireOfferedPatientSlot(
     isNewPatient: boolean;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth: string;
+    patientInsuranceStatus?: InsuranceStatus;
     practitionerLineageKey: PractitionerLineageKey;
     scope: PatientBookingScope;
     startTime: ZonedDateTimeString;
@@ -1724,6 +1743,9 @@ async function requireOfferedPatientSlot(
         locationLineageKey: args.locationLineageKey,
         patient: {
           dateOfBirth: args.patientDateOfBirth,
+          ...(args.patientInsuranceStatus === undefined
+            ? {}
+            : { insuranceStatus: args.patientInsuranceStatus }),
           isNew: args.isNewPatient,
         },
       },
@@ -1815,6 +1837,44 @@ async function resolveLocationNameForPublicState(
     throw new Error(`Standort ${locationLineageKey} ist nicht verfügbar.`);
   }
   return location.name;
+}
+
+async function resolveOnlineExistingPatientInsuranceStatus(
+  ctx: MutationCtx | QueryCtx,
+  flowKey: BookingFlowKey,
+): Promise<InsuranceStatus | undefined> {
+  const bookingIdentities = await ctx.db
+    .query("bookingIdentities")
+    .withIndex("by_userId", (q) => q.eq("userId", flowKey.userId))
+    .collect();
+  const matchingBookingIdentities = bookingIdentities
+    .filter(
+      (identity) =>
+        identity.practiceId === flowKey.practiceId &&
+        identity.kind === "online",
+    )
+    .toSorted((left, right) => {
+      if (left.lastModified !== right.lastModified) {
+        return Number(right.lastModified - left.lastModified);
+      }
+      return right._id.localeCompare(left._id);
+    });
+
+  for (const bookingIdentity of matchingBookingIdentities) {
+    const patientId = await resolveActivePvsPatientIdForBookingIdentity(
+      ctx.db,
+      bookingIdentity._id,
+    );
+    if (patientId === null) {
+      continue;
+    }
+    const patient = await ctx.db.get("patients", patientId);
+    if (patient?.practiceId === flowKey.practiceId) {
+      return patient.insuranceStatus;
+    }
+  }
+
+  return undefined;
 }
 
 async function resolvePractitionerNameForPublicState(
@@ -2628,7 +2688,13 @@ export const selectNewPatientSlot = mutation({
     if (reasonDescription.length === 0) {
       throw new Error("Reason description is required");
     }
+    if (!rows.newInsuranceType) {
+      throw new Error("Insurance type is not available in the current flow.");
+    }
     assertSlotStartIsInFuture(selectedSlot.startTime);
+    const patientInsuranceStatus = insuranceStatusFromBookingInsuranceType(
+      rows.newInsuranceType.insuranceType,
+    );
 
     const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
       ctx.db,
@@ -2649,6 +2715,7 @@ export const selectNewPatientSlot = mutation({
         rows.location.locationLineageKey,
       ),
       patientDateOfBirth: personalData.dateOfBirth,
+      patientInsuranceStatus,
       practitionerLineageKey: asPractitionerLineageKey(
         selectedSlot.practitionerLineageKey,
       ),
@@ -2662,6 +2729,7 @@ export const selectNewPatientSlot = mutation({
         rows.location.locationLineageKey,
       ),
       patientDateOfBirth: personalData.dateOfBirth,
+      patientInsuranceStatus,
       scope: bookingScope,
       selectedSlot,
     });
@@ -2685,6 +2753,7 @@ export const selectNewPatientSlot = mutation({
       isNewPatient: true,
       locationId,
       patientDateOfBirth: personalData.dateOfBirth,
+      patientInsuranceStatus,
       practiceId: flowKey.practiceId,
       practitionerId,
       start: selectedSlot.startTime,
@@ -2735,6 +2804,8 @@ export const selectExistingPatientSlot = mutation({
       throw new Error("Reason description is required");
     }
     assertSlotStartIsInFuture(selectedSlot.startTime);
+    const patientInsuranceStatus =
+      await resolveOnlineExistingPatientInsuranceStatus(ctx, flowKey);
 
     const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
       ctx.db,
@@ -2755,6 +2826,9 @@ export const selectExistingPatientSlot = mutation({
         rows.location.locationLineageKey,
       ),
       patientDateOfBirth: personalData.dateOfBirth,
+      ...(patientInsuranceStatus === undefined
+        ? {}
+        : { patientInsuranceStatus }),
       practitionerLineageKey: asPractitionerLineageKey(
         rows.existingDoctor.practitionerLineageKey,
       ),
@@ -2769,6 +2843,9 @@ export const selectExistingPatientSlot = mutation({
         rows.location.locationLineageKey,
       ),
       patientDateOfBirth: personalData.dateOfBirth,
+      ...(patientInsuranceStatus === undefined
+        ? {}
+        : { patientInsuranceStatus }),
       practitionerLineageKey: asPractitionerLineageKey(
         rows.existingDoctor.practitionerLineageKey,
       ),
@@ -2795,6 +2872,9 @@ export const selectExistingPatientSlot = mutation({
       isNewPatient: false,
       locationId,
       patientDateOfBirth: personalData.dateOfBirth,
+      ...(patientInsuranceStatus === undefined
+        ? {}
+        : { patientInsuranceStatus }),
       practiceId: flowKey.practiceId,
       practitionerId,
       start: selectedSlot.startTime,

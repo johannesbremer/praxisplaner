@@ -34,6 +34,7 @@ interface CreateAppointmentArgs {
   isSimulation: boolean;
   patientDateOfBirth?: string;
   patientId?: Id<"patients">;
+  patientInsuranceStatus?: NonNullable<PatientInfo["insuranceStatus"]>;
   placement: CalendarAppointmentPlacement;
   practiceId: Id<"practices">;
   start: string;
@@ -148,6 +149,9 @@ export function buildCalendarAppointmentRequest(args: {
       ...(args.patient?.convexPatientId && {
         patientId: args.patient.convexPatientId,
       }),
+      ...(args.patient?.insuranceStatus === undefined
+        ? {}
+        : { patientInsuranceStatus: args.patient.insuranceStatus }),
       placement: args.placement,
       practiceId: args.practiceId,
       start: startISO,

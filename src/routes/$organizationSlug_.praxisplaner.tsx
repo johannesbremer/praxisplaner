@@ -731,7 +731,7 @@ function PraxisPlanerComponent() {
             // Update current patient in sidebar
             const patientInfo: PatientInfo = {
               convexPatientId: result.convexPatientId,
-              insuranceStatus: "unknown",
+              insuranceStatus: result.insuranceStatus,
               isNewPatient: result.isNewPatient,
               patientId: patientData.patientId,
               recordType: "pvs",

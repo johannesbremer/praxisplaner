@@ -219,6 +219,7 @@ describe("calendar appointment request builder", () => {
         appointmentTypeId: "appointment_type_checkup",
         isNewPatient: true,
         isSimulation: true,
+        patientInsuranceStatus: "unknown",
         placement: practitionerPlacement,
         practiceId: "practice_main",
         start: "2026-04-23T09:00:00+02:00[Europe/Berlin]",

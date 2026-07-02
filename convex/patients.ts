@@ -131,6 +131,7 @@ export const createOrUpdatePatient = mutation({
 
       return {
         convexPatientId: newPatientId,
+        insuranceStatus: "unknown" as const,
         isNewPatient: true,
         patientId: args.patientId,
         success: true,
@@ -165,6 +166,7 @@ export const createOrUpdatePatient = mutation({
 
     return {
       convexPatientId: existingPatient._id,
+      insuranceStatus: existingPatient.insuranceStatus,
       isNewPatient: false,
       patientId: args.patientId,
       success: true,

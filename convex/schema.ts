@@ -314,6 +314,7 @@ export const bookingSessionStepValidator = v.union(
 
   // B3: Personal data input completed
   v.object({
+    insuranceStatus: v.optional(insuranceStatusValidator),
     isNewPatient: v.literal(false),
     locationLineageKey: v.id("locations"),
     locationName: v.string(),
