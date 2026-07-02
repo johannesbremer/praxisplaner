@@ -5,6 +5,7 @@ import type {
   PersonalDataInput,
   SimulatedContextInput,
 } from "../convex/typedDtos";
+import type { InsuranceStatus } from "../lib/insurance-status";
 import type { InstantString, IsoDateString } from "../lib/typed-regex";
 
 // Use getSlotsForDay as the base query type since getAvailableSlots was removed
@@ -27,6 +28,7 @@ type PvsPatientInfo = Omit<
 > & {
   convexPatientId: Id<"patients">;
   dateOfBirth?: IsoDateString;
+  insuranceStatus: InsuranceStatus;
   isNewPatient: boolean;
   phoneNumber?: string;
   recordType: "pvs";
@@ -43,6 +45,7 @@ type TemporaryPatientInfo = Omit<
   bookingIdentityId?: Id<"bookingIdentities">;
   convexPatientId?: Id<"patients">;
   dateOfBirth?: IsoDateString;
+  insuranceStatus: InsuranceStatus;
   isNewPatient: boolean;
   name: string;
   patientId?: undefined;
@@ -55,6 +58,7 @@ type UserPatientInfo = Omit<BookingPersonalData, "dateOfBirth"> & {
   convexPatientId?: undefined;
   dateOfBirth?: IsoDateString;
   email?: string;
+  insuranceStatus?: InsuranceStatus;
   isNewPatient?: boolean;
   patientId?: undefined;
   recordType?: undefined;

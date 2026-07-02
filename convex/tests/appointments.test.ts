@@ -2975,6 +2975,7 @@ describe("appointments update safety", () => {
       const patientId = await ctx.db.insert("patients", {
         createdAt: BigInt(Date.now()),
         firstName: "Pat",
+        insuranceStatus: "unknown",
         lastModified: BigInt(Date.now()),
         lastName: "Missing",
         practiceId: baseData.practiceId,

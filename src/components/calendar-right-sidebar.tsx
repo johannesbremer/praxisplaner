@@ -22,6 +22,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
@@ -31,6 +38,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  INSURANCE_STATUS_LABELS,
+  INSURANCE_STATUS_VALUES,
+  type InsuranceStatus,
+} from "@/lib/insurance-status";
 import { cn } from "@/lib/utils";
 
 import type { Id } from "../../convex/_generated/dataModel";
@@ -165,6 +177,12 @@ function isBookingGender(
   value: string,
 ): value is NonNullable<BookingPersonalData["gender"]> {
   return value in GENDER_LABELS;
+}
+
+function parseInsuranceStatus(value: string): InsuranceStatus | undefined {
+  return INSURANCE_STATUS_VALUES.includes(value as InsuranceStatus)
+    ? (value as InsuranceStatus)
+    : undefined;
 }
 
 // Context for controlling the right sidebar from anywhere
@@ -587,6 +605,9 @@ function RightSidebarContent({
   const updateAppointmentSmiley = useMutation(
     api.appointments.updateAppointmentSmiley,
   );
+  const updatePatientInsuranceStatus = useMutation(
+    api.patients.updatePatientInsuranceStatus,
+  );
   const bookingFieldEntries =
     patient?.userId === undefined ? [] : getBookingFieldEntries(patient);
 
@@ -678,6 +699,47 @@ function RightSidebarContent({
                 {patient.isNewPatient ? "Neupatient" : "Bestandspatient"}
               </p>
             )}
+
+            {practiceId !== undefined &&
+              patient.convexPatientId !== undefined && (
+                <div className="space-y-1.5">
+                  <p className="text-sm font-medium">Versicherung</p>
+                  <Select
+                    onValueChange={(value) => {
+                      const insuranceStatus = parseInsuranceStatus(value);
+                      if (insuranceStatus === undefined) {
+                        return;
+                      }
+                      const patientId = patient.convexPatientId;
+                      if (patientId === undefined) {
+                        return;
+                      }
+                      void updatePatientInsuranceStatus({
+                        insuranceStatus,
+                        patientId,
+                        practiceId,
+                      }).then(() => {
+                        onPatientSelected?.({
+                          id: patientId,
+                          info: { ...patient, insuranceStatus },
+                        });
+                      });
+                    }}
+                    value={patient.insuranceStatus}
+                  >
+                    <SelectTrigger className="h-8 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INSURANCE_STATUS_VALUES.map((status) => (
+                        <SelectItem key={status} value={status}>
+                          {INSURANCE_STATUS_LABELS[status]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
             {/* Open in PVS Button */}
             {patient.patientId !== undefined && (

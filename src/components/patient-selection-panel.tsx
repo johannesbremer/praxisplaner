@@ -173,6 +173,7 @@ export function PatientSelectionPanel({
           id: patientId,
           info: {
             convexPatientId: patientId,
+            insuranceStatus: "unknown",
             isNewPatient: false,
             name: temporaryPatient.name,
             phoneNumber: temporaryPatient.phoneNumber,

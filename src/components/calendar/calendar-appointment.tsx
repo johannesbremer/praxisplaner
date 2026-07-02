@@ -154,6 +154,9 @@ export function CalendarAppointment({
       <CalendarItemContent
         appointmentTypeTitle={appointment.layout.record.appointmentTypeTitle}
         patientName={appointment.patientName}
+        privateInsuranceMarker={
+          appointment.hasPrivateInsurance ? "🪪" : undefined
+        }
         slotCount={slotCount}
         smiley={appointment.layout.record.smiley}
         startTime={appointment.layout.startTime}

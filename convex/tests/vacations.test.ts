@@ -216,6 +216,7 @@ async function createCoverageFixture(
       createdAt: BigInt(Date.now()),
       dateOfBirth: "1980-01-01",
       firstName: "Paula",
+      insuranceStatus: "unknown",
       lastModified: BigInt(Date.now()),
       lastName: "Patientin",
       patientId: 1001,

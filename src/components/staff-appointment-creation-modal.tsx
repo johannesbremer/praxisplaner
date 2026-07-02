@@ -140,6 +140,9 @@ export function StaffAppointmentCreationModal({
           ...(effectivePatient?.dateOfBirth && {
             patientDateOfBirth: effectivePatient.dateOfBirth,
           }),
+          ...(effectivePatient?.insuranceStatus && {
+            patientInsuranceStatus: effectivePatient.insuranceStatus,
+          }),
           ...(effectivePatient?.convexPatientId && {
             patientId: effectivePatient.convexPatientId,
           }),
@@ -170,6 +173,9 @@ export function StaffAppointmentCreationModal({
     effectivePatient.phoneNumber.trim().length > 0;
   const hasAnyPatient =
     hasPersistedPatient || hasUserLinkedPatient || hasTemporaryPatientDraft;
+  const hasKnownInsuranceStatus =
+    effectivePatient?.insuranceStatus === "private" ||
+    effectivePatient?.insuranceStatus === "public";
 
   // Get display name for patient
   const getPatientDisplayName = (): string => {
@@ -448,6 +454,7 @@ export function StaffAppointmentCreationModal({
     isNextAvailableSlotLoading ||
     hasNoNextAvailableSlot ||
     !hasAnyPatient ||
+    !hasKnownInsuranceStatus ||
     (hasAppointmentPlan &&
       (availableSeriesBlueprint === undefined ||
         availableSeriesBlueprint.length === 0));
@@ -616,6 +623,11 @@ export function StaffAppointmentCreationModal({
                     Es konnte kein freier Termin gefunden werden.
                   </div>
                 )}
+                {hasAnyPatient && !hasKnownInsuranceStatus && (
+                  <div className="mr-auto text-sm text-muted-foreground">
+                    Bitte wählen Sie zuerst den Versicherungsstatus.
+                  </div>
+                )}
                 <Button
                   onClick={() => {
                     setMode(null);
@@ -671,7 +683,9 @@ export function StaffAppointmentCreationModal({
 
                 <Button
                   className="w-full justify-start"
-                  disabled={!title.trim() || !hasAnyPatient}
+                  disabled={
+                    !title.trim() || !hasAnyPatient || !hasKnownInsuranceStatus
+                  }
                   onClick={() => {
                     setMode("next");
                   }}
@@ -718,10 +732,18 @@ export function StaffAppointmentCreationModal({
                     verfügbaren Termin zuerst die Patientenauswahl.
                   </div>
                 )}
+                {hasAnyPatient && !hasKnownInsuranceStatus && (
+                  <div className="text-sm text-muted-foreground">
+                    Wählen Sie in der rechten Seitenleiste den
+                    Versicherungsstatus aus.
+                  </div>
+                )}
 
                 <Button
                   className="w-full justify-start"
-                  disabled={!title.trim() || !hasAnyPatient}
+                  disabled={
+                    !title.trim() || !hasAnyPatient || !hasKnownInsuranceStatus
+                  }
                   onClick={() => {
                     // Pass the appointment reason to the calendar for manual placement.
                     onPendingTitleChange?.(title.trim());

@@ -900,6 +900,10 @@ function markSlotsBlockedByRules(
         patientDateOfBirth:
           args.bookingContext.simulatedContext.patient.dateOfBirth,
       }),
+      ...(args.bookingContext.simulatedContext.patient.insuranceStatus && {
+        patientInsuranceStatus:
+          args.bookingContext.simulatedContext.patient.insuranceStatus,
+      }),
       locationId: displayReferences.locationId,
       practiceId: args.practiceId,
       practitionerId: displayReferences.practitionerId,
@@ -961,6 +965,10 @@ function preEvaluateCandidateDayRules(args: {
     ...(args.bookingContext.simulatedContext.patient.dateOfBirth && {
       patientDateOfBirth:
         args.bookingContext.simulatedContext.patient.dateOfBirth,
+    }),
+    ...(args.bookingContext.simulatedContext.patient.insuranceStatus && {
+      patientInsuranceStatus:
+        args.bookingContext.simulatedContext.patient.insuranceStatus,
     }),
     locationId: firstSlotDisplayReferences.locationId,
     practiceId: args.practiceId,

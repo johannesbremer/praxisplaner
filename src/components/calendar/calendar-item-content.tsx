@@ -3,6 +3,8 @@ export interface CalendarItemContentProps {
   appointmentTypeTitle?: string | undefined;
   /** Patient name (optional, for appointments). */
   patientName?: string | undefined;
+  /** Optional private insurance marker for the main calendar. */
+  privateInsuranceMarker?: string | undefined;
   /** Optional appointment smiley marker. */
   smiley?: string | undefined;
   /** Number of 5-minute slots this item spans. */
@@ -24,6 +26,7 @@ export interface CalendarItemContentProps {
 export function CalendarItemContent({
   appointmentTypeTitle,
   patientName,
+  privateInsuranceMarker,
   slotCount,
   smiley,
   startTime,
@@ -33,7 +36,9 @@ export function CalendarItemContent({
   const isCompact = slotCount <= 4; // 20 minutes or less
 
   // Build content parts for the dot-separated display
-  const line1Parts = [startTime, smiley, title].filter(Boolean);
+  const line1Parts = [startTime, privateInsuranceMarker, smiley, title].filter(
+    Boolean,
+  );
   const line2Parts = [appointmentTypeTitle, patientName].filter(Boolean);
 
   if (isVeryCompact) {
@@ -92,7 +97,7 @@ export function CalendarItemContent({
     <div className="h-full overflow-hidden flex flex-col p-1 pb-2">
       <div className="text-xs">{startTime}</div>
       <div className="text-xs font-medium">
-        {smiley ? `${smiley} ${title}` : title}
+        {[privateInsuranceMarker, smiley, title].filter(Boolean).join(" ")}
       </div>
       {appointmentTypeTitle && (
         <div className="text-xs">{appointmentTypeTitle}</div>

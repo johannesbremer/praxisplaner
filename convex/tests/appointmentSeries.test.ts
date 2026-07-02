@@ -127,6 +127,7 @@ async function createPatient(
     return await ctx.db.insert("patients", {
       createdAt: BigInt(Date.now()),
       ...(args.dateOfBirth && { dateOfBirth: args.dateOfBirth }),
+      insuranceStatus: "unknown",
       lastModified: BigInt(Date.now()),
       patientId: args.patientId,
       practiceId: args.practiceId,

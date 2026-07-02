@@ -1,6 +1,7 @@
 import { ConvexError, type Infer, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
+import type { InsuranceStatus } from "../lib/insurance-status";
 import type { InstantString, IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type {
@@ -219,6 +220,7 @@ interface TrustedAppointmentInput {
   locationId: Id<"locations">;
   patientDateOfBirth?: IsoDateString;
   patientId?: Id<"patients">;
+  patientInsuranceStatus?: InsuranceStatus;
   phoneBookingIdentityId?: Id<"phoneBookingIdentities">;
   practiceId: Id<"practices">;
   practitionerId?: Id<"practitioners">;
@@ -585,6 +587,7 @@ async function findPlannerBlockingRuleIdsForAppointmentWrite(
     appointmentTypeId: Id<"appointmentTypes">;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
+    patientInsuranceStatus?: InsuranceStatus;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     ruleSetId: Id<"ruleSets">;
@@ -1303,6 +1306,25 @@ async function resolvePreferredAppointmentPatientDateOfBirth(
   }
 
   return args.provisionalDateOfBirth;
+}
+
+async function resolvePreferredAppointmentPatientInsuranceStatus(
+  db: DatabaseReader,
+  args: {
+    patientId?: Id<"patients">;
+    provisionalInsuranceStatus?: InsuranceStatus;
+  },
+): Promise<InsuranceStatus | undefined> {
+  if (args.provisionalInsuranceStatus !== undefined) {
+    return args.provisionalInsuranceStatus;
+  }
+
+  if (args.patientId) {
+    const patient = await db.get("patients", args.patientId);
+    return patient?.insuranceStatus;
+  }
+
+  return undefined;
 }
 
 async function saveAppointmentRestoreSnapshot(
@@ -2982,6 +3004,7 @@ async function evaluateSingleAppointmentCandidateSlot(
     locationId: Id<"locations">;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth?: IsoDateString;
+    patientInsuranceStatus?: InsuranceStatus;
     planningState: ReturnType<typeof createSeriesPlanningState>;
     practiceId: Id<"practices">;
     requestedAt: InstantString;
@@ -3082,6 +3105,9 @@ async function evaluateSingleAppointmentCandidateSlot(
         ...(args.patientDateOfBirth === undefined
           ? {}
           : { patientDateOfBirth: args.patientDateOfBirth }),
+        ...(args.patientInsuranceStatus === undefined
+          ? {}
+          : { patientInsuranceStatus: args.patientInsuranceStatus }),
         practiceId: args.practiceId,
         requestedAt: args.requestedAt,
         rootDurationMinutes: durationMinutes,
@@ -3192,6 +3218,7 @@ async function getStaffPlannerSlotsForDate(
     isNewPatient?: boolean;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth?: IsoDateString;
+    patientInsuranceStatus?: InsuranceStatus;
     practiceId: Id<"practices">;
     requestedAt: InstantString;
     ruleSetId: Id<"ruleSets">;
@@ -3224,6 +3251,9 @@ async function getStaffPlannerSlotsForDate(
           ...(args.patientDateOfBirth === undefined
             ? {}
             : { dateOfBirth: args.patientDateOfBirth }),
+          ...(args.patientInsuranceStatus === undefined
+            ? {}
+            : { insuranceStatus: args.patientInsuranceStatus }),
           isNew: args.isNewPatient ?? false,
         },
         requestedAt: args.requestedAt,
@@ -3300,6 +3330,7 @@ async function resolveCandidateSlotDecisionForStaffPlacement(
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
+    patientInsuranceStatus?: InsuranceStatus;
     planningState: ReturnType<typeof createSeriesPlanningState>;
     practiceId: Id<"practices">;
     practitionerIdsByLineageKey: Map<
@@ -3357,6 +3388,9 @@ async function resolveCandidateSlotDecisionForStaffPlacement(
         ...(args.patientDateOfBirth === undefined
           ? {}
           : { patientDateOfBirth: args.patientDateOfBirth }),
+        ...(args.patientInsuranceStatus === undefined
+          ? {}
+          : { patientInsuranceStatus: args.patientInsuranceStatus }),
         ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
         practiceId: args.practiceId,
         ...(args.candidate.calendarResourceColumn === undefined
@@ -3488,6 +3522,9 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
     locationId: v.id("locations"),
     patientDateOfBirth: v.optional(v.string()),
     patientId: v.optional(v.id("patients")),
+    patientInsuranceStatus: v.optional(
+      v.union(v.literal("private"), v.literal("public"), v.literal("unknown")),
+    ),
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
     scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
@@ -3526,6 +3563,13 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
               patientId: args.patientId,
             })
         : asOptionalIsoDateString(args.patientDateOfBirth);
+    const patientInsuranceStatus =
+      await resolvePreferredAppointmentPatientInsuranceStatus(ctx.db, {
+        ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+        ...(args.patientInsuranceStatus === undefined
+          ? {}
+          : { provisionalInsuranceStatus: args.patientInsuranceStatus }),
+      });
 
     const requestedAt = asInstantString(Temporal.Now.instant().toString());
     const planningState = createSeriesPlanningState();
@@ -3557,6 +3601,9 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
           locationId: args.locationId,
           locationLineageKey,
           ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+          ...(patientInsuranceStatus === undefined
+            ? {}
+            : { patientInsuranceStatus }),
           ...(args.patientId === undefined
             ? {}
             : { patientId: args.patientId }),
@@ -3589,6 +3636,9 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
     locationId: v.id("locations"),
     patientDateOfBirth: v.optional(v.string()),
     patientId: v.optional(v.id("patients")),
+    patientInsuranceStatus: v.optional(
+      v.union(v.literal("private"), v.literal("public"), v.literal("unknown")),
+    ),
     practiceId: v.id("practices"),
     ruleSetId: v.id("ruleSets"),
     scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
@@ -3627,6 +3677,13 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
               patientId: args.patientId,
             })
         : asOptionalIsoDateString(args.patientDateOfBirth);
+    const patientInsuranceStatus =
+      await resolvePreferredAppointmentPatientInsuranceStatus(ctx.db, {
+        ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+        ...(args.patientInsuranceStatus === undefined
+          ? {}
+          : { provisionalInsuranceStatus: args.patientInsuranceStatus }),
+      });
 
     const requestedAt = asInstantString(Temporal.Now.instant().toString());
     const now = Temporal.Now.zonedDateTimeISO(APPOINTMENT_TIMEZONE);
@@ -3666,6 +3723,9 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
           : { isNewPatient: args.isNewPatient }),
         locationLineageKey,
         ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+        ...(patientInsuranceStatus === undefined
+          ? {}
+          : { patientInsuranceStatus }),
         practiceId: args.practiceId,
         requestedAt,
         ruleSetId: args.ruleSetId,
@@ -3698,6 +3758,9 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
             locationId: args.locationId,
             locationLineageKey,
             ...(patientDateOfBirth === undefined ? {} : { patientDateOfBirth }),
+            ...(patientInsuranceStatus === undefined
+              ? {}
+              : { patientInsuranceStatus }),
             ...(args.patientId === undefined
               ? {}
               : { patientId: args.patientId }),

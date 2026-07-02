@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
 
 import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -15,7 +15,10 @@ import {
 } from "./practiceAccess";
 import { createTemporaryPatientRecord } from "./temporaryPatients";
 import { ensureAuthenticatedIdentity } from "./userIdentity";
-import { patientUpsertResultValidator } from "./validators";
+import {
+  insuranceStatusValidator,
+  patientUpsertResultValidator,
+} from "./validators";
 
 const patientRecordTypeValidator = v.union(
   v.literal("pvs"),
@@ -30,6 +33,7 @@ const patientDocumentValidator = v.object({
   createdAt: v.int64(),
   dateOfBirth: v.optional(v.string()),
   firstName: v.optional(v.string()),
+  insuranceStatus: insuranceStatusValidator,
   lastModified: v.int64(),
   lastName: v.optional(v.string()),
   name: v.optional(v.string()),
@@ -45,6 +49,7 @@ const patientDocumentValidator = v.object({
 
 const patientNameLookupValidator = v.object({
   firstName: v.optional(v.string()),
+  insuranceStatus: insuranceStatusValidator,
   lastName: v.optional(v.string()),
   name: v.optional(v.string()),
 });
@@ -53,6 +58,7 @@ const patientSidebarDetailsValidator = v.object({
   city: v.optional(v.string()),
   dateOfBirth: v.optional(v.string()),
   firstName: v.optional(v.string()),
+  insuranceStatus: insuranceStatusValidator,
   lastName: v.optional(v.string()),
   name: v.optional(v.string()),
   patientId: v.optional(v.number()),
@@ -110,6 +116,7 @@ export const createOrUpdatePatient = mutation({
         ...restArgs,
         ...(dateOfBirth !== undefined && { dateOfBirth }),
         createdAt: now,
+        insuranceStatus: "unknown",
         lastModified: now,
         recordType: "pvs",
         searchFirstName: buildPatientSearchFirstName({
@@ -178,6 +185,31 @@ export const createTemporaryPatient = mutation({
     return await createTemporaryPatientRecord(ctx, args);
   },
   returns: v.id("patients"),
+});
+
+export const updatePatientInsuranceStatus = mutation({
+  args: {
+    insuranceStatus: insuranceStatusValidator,
+    patientId: v.id("patients"),
+    practiceId: v.id("practices"),
+  },
+  handler: async (ctx, args) => {
+    await ensureAuthenticatedIdentity(ctx);
+    await requirePracticeStaffForMutation(ctx, args.practiceId);
+
+    const patient = await ctx.db.get("patients", args.patientId);
+    if (patient?.practiceId !== args.practiceId) {
+      throw new Error("Patient not found");
+    }
+
+    await ctx.db.patch("patients", args.patientId, {
+      insuranceStatus: args.insuranceStatus,
+      lastModified: BigInt(Date.now()),
+    });
+
+    return null;
+  },
+  returns: v.null(),
 });
 
 /** List patients with flexible ordering options */
@@ -263,7 +295,12 @@ export const getPatientsByIds = query({
     // Filter out nulls and return patient map for easy lookup
     const patientMap: Record<
       string,
-      { firstName?: string; lastName?: string; name?: string }
+      {
+        firstName?: string;
+        insuranceStatus: Infer<typeof insuranceStatusValidator>;
+        lastName?: string;
+        name?: string;
+      }
     > = {};
     for (const patient of patients) {
       if (patient) {
@@ -272,9 +309,10 @@ export const getPatientsByIds = query({
         }
         const entry: {
           firstName?: string;
+          insuranceStatus: Infer<typeof insuranceStatusValidator>;
           lastName?: string;
           name?: string;
-        } = {};
+        } = { insuranceStatus: patient.insuranceStatus };
         if (patient.firstName !== undefined) {
           entry.firstName = patient.firstName;
         }
@@ -310,6 +348,7 @@ export const getPatientSidebarDetailsByIds = query({
         city?: string;
         dateOfBirth?: string;
         firstName?: string;
+        insuranceStatus: Infer<typeof insuranceStatusValidator>;
         lastName?: string;
         name?: string;
         patientId?: number;
@@ -334,6 +373,7 @@ export const getPatientSidebarDetailsByIds = query({
           ? {}
           : { patientId: patient.patientId }),
         ...(patient.phoneNumber ? { phoneNumber: patient.phoneNumber } : {}),
+        insuranceStatus: patient.insuranceStatus,
         recordType: patient.recordType,
         ...(patient.street ? { street: patient.street } : {}),
       };

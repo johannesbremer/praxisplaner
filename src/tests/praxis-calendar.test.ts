@@ -206,6 +206,7 @@ describe("calendar appointment request builder", () => {
         isNewPatient: true,
         mode: "simulation",
         patient: {
+          insuranceStatus: "unknown",
           isNewPatient: true,
           name: "Grace Hopper",
           phoneNumber: "+491709999999",

@@ -35,6 +35,10 @@ import type {
 } from "./rule-builder-types";
 
 import {
+  INSURANCE_STATUS_LABELS,
+  INSURANCE_STATUS_VALUES,
+} from "../../lib/insurance-status";
+import {
   conditionTreeToConditions,
   dayNameToNumber,
   generateRuleName,
@@ -336,6 +340,7 @@ export function validateCondition(condition: Condition): string[] {
     case "APPOINTMENT_TYPE":
     case "CLIENT_TYPE":
     case "DAY_OF_WEEK":
+    case "INSURANCE_STATUS":
     case "LOCATION":
     case "PRACTITIONER": {
       if (!condition.operator) {
@@ -501,6 +506,7 @@ function ConditionEditor({
     { label: "Behandler", value: "PRACTITIONER" },
     { label: "Standort", value: "LOCATION" },
     { label: "Patientenalter", value: "PATIENT_AGE" },
+    { label: "Versicherung", value: "INSURANCE_STATUS" },
     { label: "Patiententyp", value: "CLIENT_TYPE" },
     { label: "Datumsbereich", value: "DATE_RANGE" },
     { label: "Wochentag", value: "DAY_OF_WEEK" },
@@ -557,6 +563,7 @@ function ConditionEditor({
           {[
             "APPOINTMENT_TYPE",
             "CLIENT_TYPE",
+            "INSURANCE_STATUS",
             "LOCATION",
             "PRACTITIONER",
           ].includes(condition.type) && (
@@ -793,6 +800,7 @@ function getErrorMessage(condition: Condition, invalidField: string): string {
   switch (condition.type) {
     case "APPOINTMENT_TYPE":
     case "CLIENT_TYPE":
+    case "INSURANCE_STATUS":
     case "LOCATION":
     case "PRACTITIONER": {
       if (invalidField === "operator") {
@@ -1017,6 +1025,7 @@ function parseConditionType(value: string): ConditionType | undefined {
     case "DAILY_CAPACITY":
     case "DATE_RANGE":
     case "DAY_OF_WEEK":
+    case "INSURANCE_STATUS":
     case "LOCATION":
     case "MINIMUM_ADVANCE_TIME":
     case "PATIENT_AGE":
@@ -1244,6 +1253,12 @@ function SimpleValueCondition({
           { label: "MFA", value: "MFA" },
           { label: "Phone-AI", value: "Phone-AI" },
         ];
+      }
+      case "INSURANCE_STATUS": {
+        return INSURANCE_STATUS_VALUES.map((status) => ({
+          label: INSURANCE_STATUS_LABELS[status],
+          value: status,
+        }));
       }
       case "LOCATION": {
         return locations.map((location) => ({

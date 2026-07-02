@@ -606,6 +606,7 @@ async function copyConditionNode(
       | "DAY_OF_WEEK"
       | "DAYS_AHEAD"
       | "HOURS_AHEAD"
+      | "INSURANCE_STATUS"
       | "LOCATION"
       | "MINIMUM_ADVANCE_TIME"
       | "PATIENT_AGE"

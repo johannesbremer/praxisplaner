@@ -4,7 +4,12 @@
 import { AuthKit } from "@convex-dev/workos-authkit";
 import { type Infer, v } from "convex/values";
 
+import { INSURANCE_STATUS_VALUES } from "../lib/insurance-status";
+
 // Common reusable validators based on schema definitions
+export const insuranceStatusValidator = v.union(
+  ...INSURANCE_STATUS_VALUES.map((value) => v.literal(value)),
+);
 
 // Date range validator (used in scheduling and other places)
 export const dateRangeValidator = v.object({
@@ -29,6 +34,7 @@ export const simulatedContextValidator = v.object({
   locationLineageKey: v.optional(v.id("locations")),
   patient: v.object({
     dateOfBirth: v.optional(v.string()),
+    insuranceStatus: v.optional(insuranceStatusValidator),
     isNew: v.boolean(),
   }),
   practitionerLineageKey: v.optional(v.id("practitioners")),

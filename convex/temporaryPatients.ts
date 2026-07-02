@@ -49,6 +49,7 @@ export async function createTemporaryPatientRecordWithIdentity(
   const patientId = await ctx.db.insert("patients", {
     bookingIdentityId,
     createdAt: now,
+    insuranceStatus: "unknown",
     lastModified: now,
     name,
     phoneNumber,
