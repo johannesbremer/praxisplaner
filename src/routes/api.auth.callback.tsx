@@ -6,7 +6,6 @@ export const Route = createFileRoute("/api/auth/callback")({
     handlers: {
       GET: handleCallbackRoute({
         errorRedirectUrl: "/",
-        returnPathname: "/callback",
       }),
     },
   },

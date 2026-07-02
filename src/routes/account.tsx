@@ -84,13 +84,21 @@ function AccountPage() {
     }
     void syncCurrentOrganizationMembership({ organizationId: organization.id });
     if (!authBypassEnabled && organization.id !== organizationId) {
-      switchToOrganization(organization.id).catch((error: unknown) => {
-        setOrganizationListError(
-          error instanceof Error
-            ? error.message
-            : "Organisation konnte nicht aktiviert werden.",
-        );
-      });
+      switchToOrganization(organization.id).then(
+        (result) => {
+          const switchError = getOrganizationSwitchError(result);
+          if (switchError) {
+            setOrganizationListError(switchError);
+          }
+        },
+        (error: unknown) => {
+          setOrganizationListError(
+            error instanceof Error
+              ? error.message
+              : "Organisation konnte nicht aktiviert werden.",
+          );
+        },
+      );
     }
   }, [
     organizationId,
@@ -121,9 +129,15 @@ function AccountPage() {
         setCreatedOrganizationId(nextOrganizationId);
         setPracticeName("");
         refreshOrganizations();
-        return authBypassEnabled
-          ? undefined
-          : switchToOrganization(nextOrganizationId);
+        if (authBypassEnabled) {
+          return;
+        }
+        return switchToOrganization(nextOrganizationId).then((switchResult) => {
+          const switchError = getOrganizationSwitchError(switchResult);
+          if (switchError) {
+            setCreateError(switchError);
+          }
+        });
       })
       .catch((error: unknown) => {
         setCreateWarning(null);
@@ -371,6 +385,14 @@ function formatUsername(
   }
   const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ");
   return fullName || user.email;
+}
+
+function getOrganizationSwitchError(
+  result: Awaited<
+    ReturnType<ReturnType<typeof useAuth>["switchToOrganization"]>
+  >,
+): null | string {
+  return result && "error" in result ? result.error : null;
 }
 
 function UsersManagementForOrganization({
