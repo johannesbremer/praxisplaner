@@ -21,19 +21,24 @@ export interface AppointmentConflictCandidate {
 }
 export type AppointmentOccupancyView = "draftEffective" | "live";
 
+export type CalendarOccupancyConflict =
+  | { kind: "appointment"; record: Doc<"appointments"> }
+  | { kind: "blockedSlot"; record: Doc<"blockedSlots"> };
+
 export interface CalendarOccupancyConflictSet {
   appointments: Doc<"appointments">[];
   blockedSlots: Doc<"blockedSlots">[];
 }
 
+export type CalendarOccupancyConflictSetCache = Map<
+  string,
+  Promise<CalendarOccupancyConflictSet>
+>;
+
 export interface CalendarOccupancyQueryWindow {
   queryEnd: string;
   queryStart: string;
 }
-
-type CalendarOccupancyConflict =
-  | { kind: "appointment"; record: Doc<"appointments"> }
-  | { kind: "blockedSlot"; record: Doc<"blockedSlots"> };
 
 type DatabaseLike =
   | GenericDatabaseReader<DataModel>
@@ -114,6 +119,54 @@ export function findConflictingCalendarOccupancyInSet(args: {
     candidate: args.candidate,
     excludeAppointmentIds: new Set(args.excludeAppointmentIds),
     excludeBlockedSlotIds: new Set(args.excludeBlockedSlotIds),
+  });
+}
+
+export async function findConflictingCalendarOccupancyWithCache(
+  db: DatabaseLike,
+  args: {
+    candidate: AppointmentConflictCandidate;
+    conflictSetsByWindow: CalendarOccupancyConflictSetCache;
+    draftRuleSetId?: Id<"ruleSets">;
+    excludeAppointmentIds?: Id<"appointments">[];
+    excludeBlockedSlotIds?: Id<"blockedSlots">[];
+    occupancyView: AppointmentOccupancyView;
+    practiceId: Id<"practices">;
+  },
+): Promise<CalendarOccupancyConflict | null> {
+  const queryWindow = getCalendarOccupancyQueryWindow(args.candidate);
+  const cacheKey = calendarOccupancyConflictSetCacheKey({
+    ...(args.draftRuleSetId === undefined
+      ? {}
+      : { draftRuleSetId: args.draftRuleSetId }),
+    occupancyView: args.occupancyView,
+    practiceId: args.practiceId,
+    queryEnd: queryWindow.queryEnd,
+    queryStart: queryWindow.queryStart,
+  });
+  let conflictSetPromise = args.conflictSetsByWindow.get(cacheKey);
+  if (conflictSetPromise === undefined) {
+    conflictSetPromise = loadCalendarOccupancyConflictSet(db, {
+      ...(args.draftRuleSetId === undefined
+        ? {}
+        : { draftRuleSetId: args.draftRuleSetId }),
+      occupancyView: args.occupancyView,
+      practiceId: args.practiceId,
+      queryWindow,
+    });
+    args.conflictSetsByWindow.set(cacheKey, conflictSetPromise);
+  }
+
+  const conflictSet = await conflictSetPromise;
+  return findConflictingCalendarOccupancyInSet({
+    candidate: args.candidate,
+    conflictSet,
+    ...(args.excludeAppointmentIds === undefined
+      ? {}
+      : { excludeAppointmentIds: args.excludeAppointmentIds }),
+    ...(args.excludeBlockedSlotIds === undefined
+      ? {}
+      : { excludeBlockedSlotIds: args.excludeBlockedSlotIds }),
   });
 }
 
@@ -252,6 +305,22 @@ export async function loadCalendarOccupancyConflictSet(
       args.occupancyView,
     ),
   };
+}
+
+function calendarOccupancyConflictSetCacheKey(args: {
+  draftRuleSetId?: Id<"ruleSets">;
+  occupancyView: AppointmentOccupancyView;
+  practiceId: Id<"practices">;
+  queryEnd: string;
+  queryStart: string;
+}): string {
+  return [
+    args.practiceId,
+    args.occupancyView,
+    args.draftRuleSetId ?? "active",
+    args.queryStart,
+    args.queryEnd,
+  ].join("|");
 }
 
 function dedupeAppointmentsById(

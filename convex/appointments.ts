@@ -19,15 +19,11 @@ import {
 } from "./appointmentColors";
 import {
   type AppointmentBookingScope,
-  type AppointmentConflictCandidate,
-  type AppointmentOccupancyView,
   appointmentOverlapsCandidate,
   type CalendarOccupancyConflictSet,
   findConflictingCalendarOccupancy,
-  findConflictingCalendarOccupancyInSet,
-  getCalendarOccupancyQueryWindow,
+  findConflictingCalendarOccupancyWithCache,
   getOccupancyViewForBookingScope,
-  loadCalendarOccupancyConflictSet,
 } from "./appointmentConflicts";
 import {
   appointmentOccupancyScopeFromRefs,
@@ -3067,15 +3063,15 @@ async function evaluateSingleAppointmentCandidateSlot(
           occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
           practiceId: args.practiceId,
         })
-      : await findConflictingCalendarOccupancyForStaffPlacement(ctx.db, {
+      : await findConflictingCalendarOccupancyWithCache(ctx.db, {
           candidate: conflictCandidate,
+          conflictSetsByWindow: args.occupancyConflictSetsByWindow,
           ...(args.simulationRuleSetId === undefined
             ? {}
             : { draftRuleSetId: args.simulationRuleSetId }),
           ...(args.excludedAppointmentIds === undefined
             ? {}
             : { excludeAppointmentIds: args.excludedAppointmentIds }),
-          occupancyConflictSetsByWindow: args.occupancyConflictSetsByWindow,
           occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
           practiceId: args.practiceId,
         });
@@ -3219,52 +3215,6 @@ async function evaluateSingleAppointmentCandidateSlot(
   });
 }
 
-async function findConflictingCalendarOccupancyForStaffPlacement(
-  db: DatabaseReader,
-  args: {
-    candidate: AppointmentConflictCandidate;
-    draftRuleSetId?: Id<"ruleSets">;
-    excludeAppointmentIds?: Id<"appointments">[];
-    occupancyConflictSetsByWindow: Map<
-      string,
-      Promise<CalendarOccupancyConflictSet>
-    >;
-    occupancyView: AppointmentOccupancyView;
-    practiceId: Id<"practices">;
-  },
-) {
-  const queryWindow = getCalendarOccupancyQueryWindow(args.candidate);
-  const cacheKey = occupancyConflictSetCacheKey({
-    ...(args.draftRuleSetId === undefined
-      ? {}
-      : { draftRuleSetId: args.draftRuleSetId }),
-    occupancyView: args.occupancyView,
-    practiceId: args.practiceId,
-    queryEnd: queryWindow.queryEnd,
-    queryStart: queryWindow.queryStart,
-  });
-  let conflictSetPromise = args.occupancyConflictSetsByWindow.get(cacheKey);
-  if (conflictSetPromise === undefined) {
-    conflictSetPromise = loadCalendarOccupancyConflictSet(db, {
-      ...(args.draftRuleSetId === undefined
-        ? {}
-        : { draftRuleSetId: args.draftRuleSetId }),
-      occupancyView: args.occupancyView,
-      practiceId: args.practiceId,
-      queryWindow,
-    });
-    args.occupancyConflictSetsByWindow.set(cacheKey, conflictSetPromise);
-  }
-  const conflictSet = await conflictSetPromise;
-  return findConflictingCalendarOccupancyInSet({
-    candidate: args.candidate,
-    conflictSet,
-    ...(args.excludeAppointmentIds === undefined
-      ? {}
-      : { excludeAppointmentIds: args.excludeAppointmentIds }),
-  });
-}
-
 async function getStaffPlannerSlotsForDate(
   ctx: MutationCtx | QueryCtx,
   args: {
@@ -3376,22 +3326,6 @@ function isSchedulerSlotBlockedOnlyByAppointmentOccupancy(slot: {
       slot.reason ===
         "Dieser Zeitfenster ist bereits durch einen Termin belegt.")
   );
-}
-
-function occupancyConflictSetCacheKey(args: {
-  draftRuleSetId?: Id<"ruleSets">;
-  occupancyView: AppointmentOccupancyView;
-  practiceId: Id<"practices">;
-  queryEnd: string;
-  queryStart: string;
-}): string {
-  return [
-    args.practiceId,
-    args.occupancyView,
-    args.draftRuleSetId ?? "active",
-    args.queryStart,
-    args.queryEnd,
-  ].join("|");
 }
 
 function requireStaffPlacementCandidatesWithinRequestedDate(args: {
