@@ -3282,6 +3282,14 @@ function hasSchedulerCoverageForCandidate(args: {
   return true;
 }
 
+function isPractitionerMissingFromRuleSetError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.startsWith("Behandler mit Lineage-Key ") &&
+    error.message.endsWith(" nicht gefunden.")
+  );
+}
+
 function isSchedulerSlotBlockedOnlyByAppointmentOccupancy(slot: {
   blockedByBlockedSlotId?: Id<"blockedSlots">;
   blockedByRuleId?: Id<"ruleConditions">;
@@ -3307,8 +3315,11 @@ async function resolveCandidatePractitionerIdForStaffPlacement(
 ): Promise<Id<"practitioners"> | null> {
   try {
     return await resolvePractitionerIdForRuleSetByLineage(db, args);
-  } catch {
-    return null;
+  } catch (error) {
+    if (isPractitionerMissingFromRuleSetError(error)) {
+      return null;
+    }
+    throw error;
   }
 }
 

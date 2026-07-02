@@ -5967,6 +5967,66 @@ describe("appointment series", () => {
     ]);
   });
 
+  test("candidate slot decisions surface corrupted practitioner lineage data", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const { appointmentTypeId, corruptedPractitionerId } = await t.run(
+      async (ctx) => {
+        const now = BigInt(Date.now());
+        const corruptedId = await ctx.db.insert("practitioners", {
+          name: "Dr. Corrupt",
+          practiceId,
+          ruleSetId,
+        });
+        const typeId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId],
+          appointmentPlan: { steps: [] },
+          createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+          duration: 20,
+          lastModified: now,
+          name: "Regular Type",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", typeId, {
+          lineageKey: typeId,
+        });
+        return {
+          appointmentTypeId: typeId,
+          corruptedPractitionerId: corruptedId,
+        };
+      },
+    );
+
+    const start = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    await expect(
+      t.query(api.appointments.getCandidateSlotDecisionsForStaffPlacement, {
+        appointmentTypeId,
+        candidates: [
+          {
+            duration: 20,
+            locationLineageKey: locationId,
+            practitionerLineageKey: corruptedPractitionerId,
+            practitionerName: "Dr. Corrupt",
+            startTime: start,
+          },
+        ],
+        locationId,
+        practiceId,
+        ruleSetId,
+      }),
+    ).rejects.toThrow("[INVARIANT:LINEAGE_KEY_MISSING]");
+  });
+
   test("series next-available search skips practitioners disallowed for the root type", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
