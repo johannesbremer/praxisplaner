@@ -3569,16 +3569,11 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
       asLocationId(args.locationId),
     );
     const preferredPractitionerLineageKey =
-      args.patientId === undefined
-        ? undefined
-        : await resolveStaffPlacementPreferredPractitionerLineageKey(ctx, {
-            patientId: args.patientId,
-            practiceId: args.practiceId,
-          });
-    if (
-      args.patientId !== undefined &&
-      preferredPractitionerLineageKey === undefined
-    ) {
+      await resolveStaffPlacementPreferredPractitionerLineageKey(ctx, {
+        ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+        practiceId: args.practiceId,
+      });
+    if (preferredPractitionerLineageKey === null) {
       return [];
     }
     const patientDateOfBirth =
@@ -3607,6 +3602,7 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
       }
       if (
         preferredPractitionerLineageKey !== undefined &&
+        candidate.practitionerLineageKey !== undefined &&
         candidate.practitionerLineageKey !== preferredPractitionerLineageKey
       ) {
         continue;
@@ -3689,16 +3685,11 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
       asLocationId(args.locationId),
     );
     const preferredPractitionerLineageKey =
-      args.patientId === undefined
-        ? undefined
-        : await resolveStaffPlacementPreferredPractitionerLineageKey(ctx, {
-            patientId: args.patientId,
-            practiceId: args.practiceId,
-          });
-    if (
-      args.patientId !== undefined &&
-      preferredPractitionerLineageKey === undefined
-    ) {
+      await resolveStaffPlacementPreferredPractitionerLineageKey(ctx, {
+        ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
+        practiceId: args.practiceId,
+      });
+    if (preferredPractitionerLineageKey === null) {
       return null;
     }
     const patientDateOfBirth =
@@ -3768,6 +3759,7 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
       for (const candidate of candidates) {
         if (
           preferredPractitionerLineageKey !== undefined &&
+          candidate.practitionerLineageKey !== undefined &&
           candidate.practitionerLineageKey !== preferredPractitionerLineageKey
         ) {
           continue;
@@ -3813,12 +3805,19 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
 async function resolveStaffPlacementPreferredPractitionerLineageKey(
   ctx: QueryCtx,
   args: {
-    patientId: Id<"patients">;
+    patientId?: Id<"patients">;
     practiceId: Id<"practices">;
   },
-): Promise<Id<"practitioners"> | undefined> {
+): Promise<Id<"practitioners"> | null | undefined> {
+  if (args.patientId === undefined) {
+    return;
+  }
+
   const patient = await ctx.db.get("patients", args.patientId);
   if (patient?.practiceId !== args.practiceId) {
+    return null;
+  }
+  if (patient.recordType !== "pvs") {
     return;
   }
 
@@ -3829,7 +3828,7 @@ async function resolveStaffPlacementPreferredPractitionerLineageKey(
     patientId: args.patientId,
     practiceId: args.practiceId,
   });
-  return association?.practitionerLineageKey;
+  return association?.practitionerLineageKey ?? null;
 }
 
 export const createAppointmentSeries = mutation({

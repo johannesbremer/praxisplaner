@@ -139,15 +139,19 @@ export function StaffAppointmentCreationModal({
       : selectedPatientId;
   const patientIdForPractitionerAssociation =
     effectivePatient?.convexPatientId ?? effectiveSelectedPatientId;
+  const requiresPractitionerAssociation =
+    effectivePatient?.recordType === "pvs" &&
+    patientIdForPractitionerAssociation !== undefined;
   const currentPractitionerAssociation = useQuery(
     api.practitionerAssociations.getPreferredPractitionerAssociationForPatient,
-    open && patientIdForPractitionerAssociation !== undefined
+    open && requiresPractitionerAssociation
       ? { patientId: patientIdForPractitionerAssociation, practiceId }
       : "skip",
   );
   const hasPractitionerAssociation =
-    currentPractitionerAssociation !== undefined &&
-    currentPractitionerAssociation !== null;
+    !requiresPractitionerAssociation ||
+    (currentPractitionerAssociation !== undefined &&
+      currentPractitionerAssociation !== null);
 
   const effectiveNextAvailableSlot = useQuery(
     api.appointments.getNextAvailableCandidateSlotForStaffPlacement,
@@ -193,6 +197,9 @@ export function StaffAppointmentCreationModal({
   };
 
   const requirePractitionerAssociation = (action: "manual" | "next") => {
+    if (!requiresPractitionerAssociation) {
+      return false;
+    }
     if (hasPractitionerAssociation) {
       return false;
     }
