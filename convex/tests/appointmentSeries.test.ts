@@ -1605,6 +1605,7 @@ describe("appointment series", () => {
             startTime: rootStart,
           },
         ],
+        date: Temporal.ZonedDateTime.from(rootStart).toPlainDate().toString(),
         locationId,
         practiceId,
         ruleSetId,
@@ -1863,6 +1864,7 @@ describe("appointment series", () => {
             startTime: rootStart,
           },
         ],
+        date: Temporal.ZonedDateTime.from(rootStart).toPlainDate().toString(),
         locationId,
         practiceId,
         ruleSetId,
@@ -5885,6 +5887,7 @@ describe("appointment series", () => {
             startTime: start,
           },
         ],
+        date: Temporal.ZonedDateTime.from(start).toPlainDate().toString(),
         locationId,
         practiceId,
         ruleSetId: deletedAppointmentType.ruleSetId,
@@ -5892,6 +5895,54 @@ describe("appointment series", () => {
     );
 
     expect(decisions).toEqual([]);
+  });
+
+  test("candidate slot decisions reject candidates outside the requested date", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const appointmentType = await t.mutation(
+      api.entities.createAppointmentType,
+      {
+        appointmentPlan: { steps: [] },
+        defaultOccupancy: { kind: "selectedPractitioner" },
+        duration: 20,
+        expectedDraftRevision: null,
+        name: "Single Day Type",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      },
+    );
+    const start = nextWeekday(1)
+      .add({ days: 1 })
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    await expect(
+      t.query(api.appointments.getCandidateSlotDecisionsForStaffPlacement, {
+        appointmentTypeId: appointmentType.entityId,
+        candidates: [
+          {
+            duration: 20,
+            locationLineageKey: locationId,
+            practitionerLineageKey: practitionerId,
+            practitionerName: "Dr. Tomorrow",
+            startTime: start,
+          },
+        ],
+        date: nextWeekday(1).toString(),
+        locationId,
+        practiceId,
+        ruleSetId,
+      }),
+    ).rejects.toThrow(
+      "Staff-placement candidate batches must contain only slots from the requested calendar day.",
+    );
   });
 
   test("candidate slot decisions mark stale practitioners unavailable", async () => {
@@ -5952,6 +6003,7 @@ describe("appointment series", () => {
             startTime: start,
           },
         ],
+        date: Temporal.ZonedDateTime.from(start).toPlainDate().toString(),
         locationId,
         practiceId,
         ruleSetId,
@@ -6020,6 +6072,7 @@ describe("appointment series", () => {
             startTime: start,
           },
         ],
+        date: Temporal.ZonedDateTime.from(start).toPlainDate().toString(),
         locationId,
         practiceId,
         ruleSetId,

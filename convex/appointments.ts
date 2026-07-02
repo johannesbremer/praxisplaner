@@ -2870,6 +2870,7 @@ const candidateSlotDecisionValidator = v.object({
 type CandidateSlotDecision = Infer<typeof candidateSlotDecisionValidator>;
 
 const NEXT_AVAILABLE_CANDIDATE_SEARCH_DAYS = 90;
+const STAFF_PLACEMENT_CANDIDATE_DAY_LIMIT = 4096;
 
 function availableCandidateSlotDecision(args: {
   candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
@@ -3393,6 +3394,33 @@ function occupancyConflictSetCacheKey(args: {
   ].join("|");
 }
 
+function requireStaffPlacementCandidatesWithinRequestedDate(args: {
+  candidates: AppointmentSeriesRootSlotCandidate[];
+  date: IsoDateString;
+}): void {
+  if (args.candidates.length > STAFF_PLACEMENT_CANDIDATE_DAY_LIMIT) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: `Staff-placement candidate batches are limited to ${STAFF_PLACEMENT_CANDIDATE_DAY_LIMIT} slots for one calendar day.`,
+    });
+  }
+
+  for (const candidate of args.candidates) {
+    const candidateDate = Temporal.ZonedDateTime.from(
+      asZonedDateTimeString(candidate.startTime),
+    )
+      .toPlainDate()
+      .toString();
+    if (candidateDate !== args.date) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message:
+          "Staff-placement candidate batches must contain only slots from the requested calendar day.",
+      });
+    }
+  }
+}
+
 async function resolveCandidatePractitionerIdForStaffPlacement(
   db: DatabaseReader,
   args: {
@@ -3626,6 +3654,7 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
   args: {
     appointmentTypeId: v.id("appointmentTypes"),
     candidates: v.array(appointmentSeriesRootSlotCandidateValidator),
+    date: v.string(),
     excludedAppointmentIds: v.optional(v.array(v.id("appointments"))),
     isNewPatient: v.optional(v.boolean()),
     locationId: v.id("locations"),
@@ -3643,6 +3672,11 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
       practiceId: args.practiceId,
       ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
       ...(args.userId === undefined ? {} : { userId: args.userId }),
+    });
+    const requestedDate = asIsoDateString(args.date);
+    requireStaffPlacementCandidatesWithinRequestedDate({
+      candidates: args.candidates,
+      date: requestedDate,
     });
 
     const appointmentType = await ctx.db.get(
