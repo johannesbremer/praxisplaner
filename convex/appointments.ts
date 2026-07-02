@@ -171,6 +171,10 @@ type OptionalKeys<T> = {
 }[keyof T];
 const APPOINTMENT_TIMEZONE = "Europe/Berlin";
 const STAFF_PLANNER_CLIENT_TYPE = "MFA";
+const STAFF_PLACEMENT_MISSING_PRACTITIONER_ASSOCIATION_REASON =
+  "Für diesen Patienten muss zuerst ein Behandler festgelegt werden.";
+const STAFF_PLACEMENT_NON_PREFERRED_PRACTITIONER_REASON =
+  "Dieser Patient ist einem anderen Behandler zugeordnet.";
 
 type AppointmentOwner = LinkedAppointmentOwner | TemporaryAppointmentOwner;
 
@@ -3573,9 +3577,6 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
         ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
         practiceId: args.practiceId,
       });
-    if (preferredPractitionerLineageKey === null) {
-      return [];
-    }
     const patientDateOfBirth =
       args.patientDateOfBirth === undefined
         ? args.patientId === undefined
@@ -3600,11 +3601,14 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
       if (candidate.locationLineageKey !== locationLineageKey) {
         continue;
       }
-      if (
-        preferredPractitionerLineageKey !== undefined &&
-        candidate.practitionerLineageKey !== undefined &&
-        candidate.practitionerLineageKey !== preferredPractitionerLineageKey
-      ) {
+      const practitionerAssociationBlock =
+        getStaffPlacementPractitionerAssociationBlock({
+          candidate,
+          locationLineageKey,
+          preferredPractitionerLineageKey,
+        });
+      if (practitionerAssociationBlock !== null) {
+        decisions.push(practitionerAssociationBlock);
         continue;
       }
 
@@ -3801,6 +3805,40 @@ export const getNextAvailableCandidateSlotForStaffPlacement = query({
   },
   returns: v.union(v.null(), candidateSlotDecisionValidator),
 });
+
+function getStaffPlacementPractitionerAssociationBlock(args: {
+  candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+  locationLineageKey: LocationLineageKey;
+  preferredPractitionerLineageKey: Id<"practitioners"> | null | undefined;
+}): CandidateSlotDecision | null {
+  if (args.preferredPractitionerLineageKey === undefined) {
+    return null;
+  }
+
+  if (args.preferredPractitionerLineageKey === null) {
+    return unavailableCandidateSlotDecision({
+      candidate: args.candidate,
+      locationLineageKey: args.locationLineageKey,
+      provenance: "schedulerUnavailable",
+      reason: STAFF_PLACEMENT_MISSING_PRACTITIONER_ASSOCIATION_REASON,
+    });
+  }
+
+  if (
+    args.candidate.practitionerLineageKey === undefined ||
+    args.candidate.practitionerLineageKey ===
+      args.preferredPractitionerLineageKey
+  ) {
+    return null;
+  }
+
+  return unavailableCandidateSlotDecision({
+    candidate: args.candidate,
+    locationLineageKey: args.locationLineageKey,
+    provenance: "schedulerUnavailable",
+    reason: STAFF_PLACEMENT_NON_PREFERRED_PRACTITIONER_REASON,
+  });
+}
 
 async function resolveStaffPlacementPreferredPractitionerLineageKey(
   ctx: QueryCtx,

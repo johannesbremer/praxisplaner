@@ -6027,6 +6027,171 @@ describe("appointment series", () => {
     ).rejects.toThrow("[INVARIANT:LINEAGE_KEY_MISSING]");
   });
 
+  test("manual staff placement blocks non-preferred practitioner candidates for PVS patients", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const patientId = await createPatient(t, {
+      patientId: 10_001,
+      practiceId,
+    });
+
+    const { appointmentTypeId, nonPreferredPractitionerId } = await t.run(
+      async (ctx) => {
+        const now = BigInt(Date.now());
+        const otherPractitionerId = await insertWithLineage(
+          ctx,
+          "practitioners",
+          {
+            name: "Dr. Other",
+            practiceId,
+            ruleSetId,
+          },
+        );
+        const typeId = await ctx.db.insert("appointmentTypes", {
+          allowedPractitionerLineageKeys: [practitionerId, otherPractitionerId],
+          appointmentPlan: { steps: [] },
+          createdAt: now,
+          defaultOccupancy: { kind: "selectedPractitioner" },
+          duration: 20,
+          lastModified: now,
+          name: "Manual PVS",
+          practiceId,
+          ruleSetId,
+        });
+        await ctx.db.patch("appointmentTypes", typeId, {
+          lineageKey: typeId,
+        });
+        await ctx.db.insert("practitionerAssociations", {
+          createdAt: now,
+          lastModified: now,
+          patientId,
+          practiceId,
+          practitionerLineageKey: practitionerId,
+          source: "manual",
+          status: "active",
+        });
+
+        return {
+          appointmentTypeId: typeId,
+          nonPreferredPractitionerId: otherPractitionerId,
+        };
+      },
+    );
+    const start = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    const decisions = await t.query(
+      api.appointments.getCandidateSlotDecisionsForStaffPlacement,
+      {
+        appointmentTypeId,
+        candidates: [
+          {
+            duration: 20,
+            locationLineageKey: locationId,
+            practitionerLineageKey: nonPreferredPractitionerId,
+            practitionerName: "Dr. Other",
+            startTime: start,
+          },
+        ],
+        locationId,
+        patientId,
+        practiceId,
+        ruleSetId,
+      },
+    );
+
+    expect(decisions).toEqual([
+      expect.objectContaining({
+        practitionerLineageKey: nonPreferredPractitionerId,
+        provenance: "schedulerUnavailable",
+        reason: "Dieser Patient ist einem anderen Behandler zugeordnet.",
+        status: "unavailable",
+      }),
+    ]);
+  });
+
+  test("manual staff placement blocks every candidate for PVS patients without practitioner association", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+    const patientId = await createPatient(t, {
+      patientId: 10_002,
+      practiceId,
+    });
+    const appointmentTypeId = await t.run(async (ctx) => {
+      const now = BigInt(Date.now());
+      const typeId = await ctx.db.insert("appointmentTypes", {
+        allowedPractitionerLineageKeys: [practitionerId],
+        appointmentPlan: { steps: [] },
+        createdAt: now,
+        defaultOccupancy: { kind: "selectedPractitioner" },
+        duration: 20,
+        lastModified: now,
+        name: "Manual PVS ohne Behandler",
+        practiceId,
+        ruleSetId,
+      });
+      await ctx.db.patch("appointmentTypes", typeId, {
+        lineageKey: typeId,
+      });
+      return typeId;
+    });
+    const start = nextWeekday(1)
+      .toZonedDateTime({
+        plainTime: { hour: 9, minute: 0 },
+        timeZone: TIMEZONE,
+      })
+      .toString();
+
+    const decisions = await t.query(
+      api.appointments.getCandidateSlotDecisionsForStaffPlacement,
+      {
+        appointmentTypeId,
+        candidates: [
+          {
+            duration: 20,
+            locationLineageKey: locationId,
+            practitionerLineageKey: practitionerId,
+            practitionerName: "Dr. Chain",
+            startTime: start,
+          },
+          {
+            calendarResourceColumn: "ekg",
+            duration: 20,
+            locationLineageKey: locationId,
+            startTime: start,
+          },
+        ],
+        locationId,
+        patientId,
+        practiceId,
+        ruleSetId,
+      },
+    );
+
+    expect(decisions).toEqual([
+      expect.objectContaining({
+        practitionerLineageKey: practitionerId,
+        provenance: "schedulerUnavailable",
+        reason:
+          "Für diesen Patienten muss zuerst ein Behandler festgelegt werden.",
+        status: "unavailable",
+      }),
+      expect.objectContaining({
+        calendarResourceColumn: "ekg",
+        provenance: "schedulerUnavailable",
+        reason:
+          "Für diesen Patienten muss zuerst ein Behandler festgelegt werden.",
+        status: "unavailable",
+      }),
+    ]);
+  });
+
   test("series next-available search skips practitioners disallowed for the root type", async () => {
     const t = createAuthedTestContext();
     const { locationId, practiceId, practitionerId, ruleSetId } =
