@@ -21,9 +21,24 @@ export interface AppointmentConflictCandidate {
 }
 export type AppointmentOccupancyView = "draftEffective" | "live";
 
-type CalendarOccupancyConflict =
+export type CalendarOccupancyConflict =
   | { kind: "appointment"; record: Doc<"appointments"> }
   | { kind: "blockedSlot"; record: Doc<"blockedSlots"> };
+
+export interface CalendarOccupancyConflictSet {
+  appointments: Doc<"appointments">[];
+  blockedSlots: Doc<"blockedSlots">[];
+}
+
+export type CalendarOccupancyConflictSetCache = Map<
+  string,
+  Promise<CalendarOccupancyConflictSet>
+>;
+
+export interface CalendarOccupancyQueryWindow {
+  queryEnd: string;
+  queryStart: string;
+}
 
 type DatabaseLike =
   | GenericDatabaseReader<DataModel>
@@ -72,48 +87,112 @@ export async function findConflictingCalendarOccupancy(
     practiceId: Id<"practices">;
   },
 ): Promise<CalendarOccupancyConflict | null> {
-  const { queryEnd, queryStart } = getCalendarOccupancyQueryWindow(
-    args.candidate,
-  );
-  const [rawAppointments, rawBlockedSlots] = await Promise.all([
-    db
-      .query("appointments")
-      .withIndex("by_practiceId_start", (q) =>
-        q
-          .eq("practiceId", args.practiceId)
-          .gte("start", queryStart)
-          .lt("start", queryEnd),
-      )
-      .collect(),
-    db
-      .query("blockedSlots")
-      .withIndex("by_practiceId_start", (q) =>
-        q
-          .eq("practiceId", args.practiceId)
-          .gte("start", queryStart)
-          .lt("start", queryEnd),
-      )
-      .collect(),
-  ]);
-  const appointments = await loadAppointmentsForOccupancyView(db, {
+  const conflictSet = await loadCalendarOccupancyConflictSet(db, {
     ...(args.draftRuleSetId === undefined
       ? {}
       : { draftRuleSetId: args.draftRuleSetId }),
-    localAppointments: rawAppointments,
     occupancyView: args.occupancyView,
     practiceId: args.practiceId,
+    queryWindow: getCalendarOccupancyQueryWindow(args.candidate),
   });
+  return findConflictingCalendarOccupancyInSet({
+    candidate: args.candidate,
+    conflictSet,
+    ...(args.excludeAppointmentIds === undefined
+      ? {}
+      : { excludeAppointmentIds: args.excludeAppointmentIds }),
+    ...(args.excludeBlockedSlotIds === undefined
+      ? {}
+      : { excludeBlockedSlotIds: args.excludeBlockedSlotIds }),
+  });
+}
 
+export function findConflictingCalendarOccupancyInSet(args: {
+  candidate: AppointmentConflictCandidate;
+  conflictSet: CalendarOccupancyConflictSet;
+  excludeAppointmentIds?: Id<"appointments">[];
+  excludeBlockedSlotIds?: Id<"blockedSlots">[];
+}): CalendarOccupancyConflict | null {
   return findFirstCalendarOccupancyConflict({
-    appointments,
-    blockedSlots: getEffectiveBlockedSlotsForOccupancyView(
-      rawBlockedSlots,
-      args.occupancyView,
-    ),
+    appointments: args.conflictSet.appointments,
+    blockedSlots: args.conflictSet.blockedSlots,
     candidate: args.candidate,
     excludeAppointmentIds: new Set(args.excludeAppointmentIds),
     excludeBlockedSlotIds: new Set(args.excludeBlockedSlotIds),
   });
+}
+
+export async function findConflictingCalendarOccupancyWithCache(
+  db: DatabaseLike,
+  args: {
+    candidate: AppointmentConflictCandidate;
+    conflictSetsByWindow: CalendarOccupancyConflictSetCache;
+    draftRuleSetId?: Id<"ruleSets">;
+    excludeAppointmentIds?: Id<"appointments">[];
+    excludeBlockedSlotIds?: Id<"blockedSlots">[];
+    occupancyView: AppointmentOccupancyView;
+    practiceId: Id<"practices">;
+  },
+): Promise<CalendarOccupancyConflict | null> {
+  const queryWindow = getCalendarOccupancyQueryWindow(args.candidate);
+  const cacheKey = calendarOccupancyConflictSetCacheKey({
+    ...(args.draftRuleSetId === undefined
+      ? {}
+      : { draftRuleSetId: args.draftRuleSetId }),
+    occupancyView: args.occupancyView,
+    practiceId: args.practiceId,
+    queryEnd: queryWindow.queryEnd,
+    queryStart: queryWindow.queryStart,
+  });
+  let conflictSetPromise = args.conflictSetsByWindow.get(cacheKey);
+  if (conflictSetPromise === undefined) {
+    conflictSetPromise = loadCalendarOccupancyConflictSet(db, {
+      ...(args.draftRuleSetId === undefined
+        ? {}
+        : { draftRuleSetId: args.draftRuleSetId }),
+      occupancyView: args.occupancyView,
+      practiceId: args.practiceId,
+      queryWindow,
+    });
+    args.conflictSetsByWindow.set(cacheKey, conflictSetPromise);
+  }
+
+  const conflictSet = await conflictSetPromise;
+  return findConflictingCalendarOccupancyInSet({
+    candidate: args.candidate,
+    conflictSet,
+    ...(args.excludeAppointmentIds === undefined
+      ? {}
+      : { excludeAppointmentIds: args.excludeAppointmentIds }),
+    ...(args.excludeBlockedSlotIds === undefined
+      ? {}
+      : { excludeBlockedSlotIds: args.excludeBlockedSlotIds }),
+  });
+}
+
+export function getCalendarOccupancyQueryWindow(
+  candidate: AppointmentConflictCandidate,
+): CalendarOccupancyQueryWindow {
+  const windowStart = Temporal.ZonedDateTime.from(candidate.start);
+  const windowEnd = Temporal.ZonedDateTime.from(candidate.end);
+  return {
+    queryEnd: windowEnd
+      .toPlainDate()
+      .add({ days: 2 })
+      .toZonedDateTime({
+        plainTime: new Temporal.PlainTime(0, 0),
+        timeZone: windowEnd.timeZoneId,
+      })
+      .toString(),
+    queryStart: windowStart
+      .toPlainDate()
+      .add({ days: -1 })
+      .toZonedDateTime({
+        plainTime: new Temporal.PlainTime(0, 0),
+        timeZone: windowStart.timeZoneId,
+      })
+      .toString(),
+  };
 }
 
 export function getEffectiveAppointmentsForOccupancyView(
@@ -181,6 +260,69 @@ export function getOccupancyViewForBookingScope(
   return scope === "simulation" ? "draftEffective" : "live";
 }
 
+export async function loadCalendarOccupancyConflictSet(
+  db: DatabaseLike,
+  args: {
+    draftRuleSetId?: Id<"ruleSets">;
+    occupancyView: AppointmentOccupancyView;
+    practiceId: Id<"practices">;
+    queryWindow: CalendarOccupancyQueryWindow;
+  },
+): Promise<CalendarOccupancyConflictSet> {
+  const [rawAppointments, rawBlockedSlots] = await Promise.all([
+    db
+      .query("appointments")
+      .withIndex("by_practiceId_start", (q) =>
+        q
+          .eq("practiceId", args.practiceId)
+          .gte("start", args.queryWindow.queryStart)
+          .lt("start", args.queryWindow.queryEnd),
+      )
+      .collect(),
+    db
+      .query("blockedSlots")
+      .withIndex("by_practiceId_start", (q) =>
+        q
+          .eq("practiceId", args.practiceId)
+          .gte("start", args.queryWindow.queryStart)
+          .lt("start", args.queryWindow.queryEnd),
+      )
+      .collect(),
+  ]);
+  const appointments = await loadAppointmentsForOccupancyView(db, {
+    ...(args.draftRuleSetId === undefined
+      ? {}
+      : { draftRuleSetId: args.draftRuleSetId }),
+    localAppointments: rawAppointments,
+    occupancyView: args.occupancyView,
+    practiceId: args.practiceId,
+  });
+
+  return {
+    appointments,
+    blockedSlots: getEffectiveBlockedSlotsForOccupancyView(
+      rawBlockedSlots,
+      args.occupancyView,
+    ),
+  };
+}
+
+function calendarOccupancyConflictSetCacheKey(args: {
+  draftRuleSetId?: Id<"ruleSets">;
+  occupancyView: AppointmentOccupancyView;
+  practiceId: Id<"practices">;
+  queryEnd: string;
+  queryStart: string;
+}): string {
+  return [
+    args.practiceId,
+    args.occupancyView,
+    args.draftRuleSetId ?? "active",
+    args.queryStart,
+    args.queryEnd,
+  ].join("|");
+}
+
 function dedupeAppointmentsById(
   appointments: Doc<"appointments">[],
 ): Doc<"appointments">[] {
@@ -223,31 +365,6 @@ function findFirstCalendarOccupancyConflict(args: {
   return blockedSlotConflict
     ? { kind: "blockedSlot", record: blockedSlotConflict }
     : null;
-}
-
-function getCalendarOccupancyQueryWindow(
-  candidate: AppointmentConflictCandidate,
-) {
-  const windowStart = Temporal.ZonedDateTime.from(candidate.start);
-  const windowEnd = Temporal.ZonedDateTime.from(candidate.end);
-  return {
-    queryEnd: windowEnd
-      .toPlainDate()
-      .add({ days: 2 })
-      .toZonedDateTime({
-        plainTime: new Temporal.PlainTime(0, 0),
-        timeZone: windowEnd.timeZoneId,
-      })
-      .toString(),
-    queryStart: windowStart
-      .toPlainDate()
-      .add({ days: -1 })
-      .toZonedDateTime({
-        plainTime: new Temporal.PlainTime(0, 0),
-        timeZone: windowStart.timeZoneId,
-      })
-      .toString(),
-  };
 }
 
 function getEffectiveBlockedSlotsForOccupancyView(

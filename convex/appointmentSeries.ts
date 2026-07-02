@@ -16,8 +16,11 @@ import { internal } from "./_generated/api";
 import { resolveAppointmentColorForType } from "./appointmentColors";
 import {
   type AppointmentBookingScope,
+  type AppointmentConflictCandidate,
   appointmentOverlapsCandidate,
+  type CalendarOccupancyConflictSetCache,
   findConflictingCalendarOccupancy,
+  findConflictingCalendarOccupancyWithCache,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import {
@@ -145,6 +148,7 @@ type SeriesPlannerCtx =
 interface SeriesPlanningState {
   baseSchedulesByRuleSet: Map<Id<"ruleSets">, Promise<Doc<"baseSchedules">[]>>;
   eligibleWeekdays: Map<string, number[]>;
+  occupancyConflictSetsByWindow: CalendarOccupancyConflictSetCache;
   slotCache: Map<string, InternalSchedulingResultSlot[]>;
 }
 
@@ -396,6 +400,7 @@ export function createSeriesPlanningState(): SeriesPlanningState {
   return {
     baseSchedulesByRuleSet: new Map(),
     eligibleWeekdays: new Map(),
+    occupancyConflictSetsByWindow: new Map(),
     slotCache: new Map(),
   };
 }
@@ -977,6 +982,7 @@ async function buildPlannedStepIfAvailable(
     locationId: Id<"locations">;
     occupancy: ResolvedPlanOccupancy;
     plannedSteps: PlannedSeriesStep[];
+    planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     rootStep: PlannedSeriesStep;
     scope?: AppointmentBookingScope;
@@ -1007,22 +1013,24 @@ async function buildPlannedStepIfAvailable(
     };
   }
 
-  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
-    candidate: {
-      end: candidate.end,
-      locationLineageKey: candidate.locationLineageKey,
-      occupancyScope: candidate.occupancyScope,
-      start: candidate.start,
-    },
-    ...(args.simulationRuleSetId && {
-      draftRuleSetId: args.simulationRuleSetId,
-    }),
-    ...(args.excludedAppointmentIds && {
-      excludeAppointmentIds: args.excludedAppointmentIds,
-    }),
-    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
-    practiceId: args.practiceId,
-  });
+  const conflictingOccupancy =
+    await findConflictingCalendarOccupancyForSeriesPlanning(ctx, {
+      candidate: {
+        end: candidate.end,
+        locationLineageKey: candidate.locationLineageKey,
+        occupancyScope: candidate.occupancyScope,
+        start: candidate.start,
+      },
+      ...(args.excludedAppointmentIds && {
+        excludeAppointmentIds: args.excludedAppointmentIds,
+      }),
+      planningState: args.planningState,
+      practiceId: args.practiceId,
+      ...(args.scope && { scope: args.scope }),
+      ...(args.simulationRuleSetId && {
+        simulationRuleSetId: args.simulationRuleSetId,
+      }),
+    });
 
   return conflictingOccupancy
     ? {
@@ -1100,6 +1108,31 @@ function findAnchorStep(
     );
   }
   return step;
+}
+
+async function findConflictingCalendarOccupancyForSeriesPlanning(
+  ctx: SeriesPlannerCtx,
+  args: {
+    candidate: AppointmentConflictCandidate;
+    excludeAppointmentIds?: Id<"appointments">[];
+    planningState: SeriesPlanningState;
+    practiceId: Id<"practices">;
+    scope?: AppointmentBookingScope;
+    simulationRuleSetId?: Id<"ruleSets">;
+  },
+) {
+  return await findConflictingCalendarOccupancyWithCache(ctx.db, {
+    candidate: args.candidate,
+    conflictSetsByWindow: args.planningState.occupancyConflictSetsByWindow,
+    ...(args.simulationRuleSetId && {
+      draftRuleSetId: args.simulationRuleSetId,
+    }),
+    ...(args.excludeAppointmentIds && {
+      excludeAppointmentIds: args.excludeAppointmentIds,
+    }),
+    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
+    practiceId: args.practiceId,
+  });
 }
 
 async function findFirstAvailableStepStart(
@@ -1234,6 +1267,7 @@ async function findFirstAvailableStepStartOnOrAfter(
           locationId: args.locationId,
           occupancy: args.occupancy,
           plannedSteps: args.plannedSteps,
+          planningState: args.planningState,
           practiceId: args.practiceId,
           rootStep: args.rootStep,
           ...(args.scope && { scope: args.scope }),
@@ -1903,6 +1937,7 @@ async function planAppointmentPlanStep(
   return await buildPlannedStepIfAvailable(ctx, {
     ...args,
     occupancy,
+    planningState: args.planningState,
     start,
   });
 }
@@ -2537,22 +2572,24 @@ async function validateRootCandidate(
     }
   }
 
-  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
-    candidate: {
-      end: calculateEndTime(args.start, args.rootDurationMinutes),
-      locationLineageKey: rootLocationLineageKey,
-      occupancyScope: args.rootOccupancy.occupancyScope,
-      start: args.start,
-    },
-    ...(args.simulationRuleSetId && {
-      draftRuleSetId: args.simulationRuleSetId,
-    }),
-    ...(args.excludedAppointmentIds && {
-      excludeAppointmentIds: args.excludedAppointmentIds,
-    }),
-    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
-    practiceId: args.practiceId,
-  });
+  const conflictingOccupancy =
+    await findConflictingCalendarOccupancyForSeriesPlanning(ctx, {
+      candidate: {
+        end: calculateEndTime(args.start, args.rootDurationMinutes),
+        locationLineageKey: rootLocationLineageKey,
+        occupancyScope: args.rootOccupancy.occupancyScope,
+        start: args.start,
+      },
+      ...(args.excludedAppointmentIds && {
+        excludeAppointmentIds: args.excludedAppointmentIds,
+      }),
+      planningState: args.planningState,
+      practiceId: args.practiceId,
+      ...(args.scope && { scope: args.scope }),
+      ...(args.simulationRuleSetId && {
+        simulationRuleSetId: args.simulationRuleSetId,
+      }),
+    });
 
   if (conflictingOccupancy) {
     return blockedSeriesPlanningResult({

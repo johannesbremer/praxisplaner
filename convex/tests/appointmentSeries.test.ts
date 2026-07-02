@@ -1596,19 +1596,14 @@ describe("appointment series", () => {
       api.appointments.getCandidateSlotDecisionsForStaffPlacement,
       {
         appointmentTypeId: rootAppointmentTypeId,
-        candidates: [
-          {
-            duration: 15,
-            locationLineageKey: locationId,
-            practitionerLineageKey: practitionerId,
-            practitionerName: "Dr. Chain",
-            startTime: rootStart,
-          },
-        ],
+        date: Temporal.ZonedDateTime.from(rootStart).toPlainDate().toString(),
         locationId,
         practiceId,
         ruleSetId,
         userId,
+        visibleEndMinute: 16 * 60 + 50,
+        visiblePractitionerLineageKeys: [practitionerId],
+        visibleStartMinute: 16 * 60 + 45,
       },
     );
 
@@ -1854,19 +1849,14 @@ describe("appointment series", () => {
       api.appointments.getCandidateSlotDecisionsForStaffPlacement,
       {
         appointmentTypeId: rootAppointmentTypeId,
-        candidates: [
-          {
-            duration: 10,
-            locationLineageKey: locationId,
-            practitionerLineageKey: practitionerId,
-            practitionerName: "Dr. Chain",
-            startTime: rootStart,
-          },
-        ],
+        date: Temporal.ZonedDateTime.from(rootStart).toPlainDate().toString(),
         locationId,
         practiceId,
         ruleSetId,
         userId,
+        visibleEndMinute: 9 * 60 + 5,
+        visiblePractitionerLineageKeys: [practitionerId],
+        visibleStartMinute: 9 * 60,
       },
     );
 
@@ -5876,22 +5866,89 @@ describe("appointment series", () => {
       api.appointments.getCandidateSlotDecisionsForStaffPlacement,
       {
         appointmentTypeId: appointmentType.entityId,
-        candidates: [
-          {
-            duration: 20,
-            locationLineageKey: locationId,
-            practitionerLineageKey: practitionerId,
-            practitionerName: "Dr. Deleted",
-            startTime: start,
-          },
-        ],
+        date: Temporal.ZonedDateTime.from(start).toPlainDate().toString(),
         locationId,
         practiceId,
         ruleSetId: deletedAppointmentType.ruleSetId,
+        visibleEndMinute: 9 * 60 + 5,
+        visiblePractitionerLineageKeys: [practitionerId],
+        visibleStartMinute: 9 * 60,
       },
     );
 
     expect(decisions).toEqual([]);
+  });
+
+  test("candidate slot decisions reject invalid visible windows", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const appointmentType = await t.mutation(
+      api.entities.createAppointmentType,
+      {
+        appointmentPlan: { steps: [] },
+        defaultOccupancy: { kind: "selectedPractitioner" },
+        duration: 20,
+        expectedDraftRevision: null,
+        name: "Single Day Type",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      },
+    );
+    await expect(
+      t.query(api.appointments.getCandidateSlotDecisionsForStaffPlacement, {
+        appointmentTypeId: appointmentType.entityId,
+        date: nextWeekday(1).toString(),
+        locationId,
+        practiceId,
+        ruleSetId,
+        visibleEndMinute: 9 * 60,
+        visiblePractitionerLineageKeys: [practitionerId],
+        visibleStartMinute: 9 * 60,
+      }),
+    ).rejects.toThrow(
+      "Staff-placement visible window must have positive duration.",
+    );
+  });
+
+  test("candidate slot decisions reject oversized visible practitioner scopes", async () => {
+    const t = createAuthedTestContext();
+    const { locationId, practiceId, practitionerId, ruleSetId } =
+      await createBasePractice(t);
+
+    const appointmentType = await t.mutation(
+      api.entities.createAppointmentType,
+      {
+        appointmentPlan: { steps: [] },
+        defaultOccupancy: { kind: "selectedPractitioner" },
+        duration: 20,
+        expectedDraftRevision: null,
+        name: "Bounded Grid Type",
+        practiceId,
+        practitionerIds: [practitionerId],
+        selectedRuleSetId: ruleSetId,
+      },
+    );
+
+    await expect(
+      t.query(api.appointments.getCandidateSlotDecisionsForStaffPlacement, {
+        appointmentTypeId: appointmentType.entityId,
+        date: nextWeekday(1).toString(),
+        locationId,
+        practiceId,
+        ruleSetId,
+        visibleEndMinute: 9 * 60 + 5,
+        visiblePractitionerLineageKeys: Array.from(
+          { length: 65 },
+          () => practitionerId,
+        ),
+        visibleStartMinute: 9 * 60,
+      }),
+    ).rejects.toThrow(
+      "Staff-placement supports at most 64 visible practitioner columns.",
+    );
   });
 
   test("candidate slot decisions mark stale practitioners unavailable", async () => {
@@ -5943,18 +6000,13 @@ describe("appointment series", () => {
       api.appointments.getCandidateSlotDecisionsForStaffPlacement,
       {
         appointmentTypeId,
-        candidates: [
-          {
-            duration: 20,
-            locationLineageKey: locationId,
-            practitionerLineageKey: stalePractitionerId,
-            practitionerName: "Dr. Stale",
-            startTime: start,
-          },
-        ],
+        date: Temporal.ZonedDateTime.from(start).toPlainDate().toString(),
         locationId,
         practiceId,
         ruleSetId,
+        visibleEndMinute: 9 * 60 + 5,
+        visiblePractitionerLineageKeys: [stalePractitionerId],
+        visibleStartMinute: 9 * 60,
       },
     );
 
@@ -6011,18 +6063,13 @@ describe("appointment series", () => {
     await expect(
       t.query(api.appointments.getCandidateSlotDecisionsForStaffPlacement, {
         appointmentTypeId,
-        candidates: [
-          {
-            duration: 20,
-            locationLineageKey: locationId,
-            practitionerLineageKey: corruptedPractitionerId,
-            practitionerName: "Dr. Corrupt",
-            startTime: start,
-          },
-        ],
+        date: Temporal.ZonedDateTime.from(start).toPlainDate().toString(),
         locationId,
         practiceId,
         ruleSetId,
+        visibleEndMinute: 9 * 60 + 5,
+        visiblePractitionerLineageKeys: [corruptedPractitionerId],
+        visibleStartMinute: 9 * 60,
       }),
     ).rejects.toThrow("[INVARIANT:LINEAGE_KEY_MISSING]");
   });

@@ -20,7 +20,9 @@ import {
 import {
   type AppointmentBookingScope,
   appointmentOverlapsCandidate,
+  type CalendarOccupancyConflictSet,
   findConflictingCalendarOccupancy,
+  findConflictingCalendarOccupancyWithCache,
   getOccupancyViewForBookingScope,
 } from "./appointmentConflicts";
 import {
@@ -2827,18 +2829,18 @@ export const previewAppointmentSeries = query({
   returns: appointmentSeriesPreviewResultValidator,
 });
 
-const appointmentSeriesRootSlotCandidateValidator = v.object({
-  calendarResourceColumn: v.optional(calendarResourceColumnValidator),
-  duration: v.number(),
-  locationLineageKey: v.id("locations"),
-  practitionerLineageKey: v.optional(v.id("practitioners")),
-  practitionerName: v.optional(v.string()),
-  startTime: v.string(),
-});
+interface AppointmentSeriesRootSlotCandidate {
+  calendarResourceColumn?: CalendarResourceColumn;
+  duration: number;
+  locationLineageKey: LocationLineageKey;
+  practitionerLineageKey?: Id<"practitioners">;
+  practitionerName?: string;
+  startTime: string;
+}
 
-type AppointmentSeriesRootSlotCandidate = Infer<
-  typeof appointmentSeriesRootSlotCandidateValidator
->;
+const STAFF_PLACEMENT_GRID_SLOT_MINUTES = 5;
+const STAFF_PLACEMENT_MAX_VISIBLE_PRACTITIONER_COLUMNS = 64;
+const STAFF_PLACEMENT_MAX_VISIBLE_MINUTES = 24 * 60;
 
 const candidateSlotUnavailableProvenanceValidator = v.union(
   appointmentSeriesPlanningFailureKindValidator,
@@ -2866,7 +2868,7 @@ type CandidateSlotDecision = Infer<typeof candidateSlotDecisionValidator>;
 const NEXT_AVAILABLE_CANDIDATE_SEARCH_DAYS = 90;
 
 function availableCandidateSlotDecision(args: {
-  candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+  candidate: AppointmentSeriesRootSlotCandidate;
   locationLineageKey: LocationLineageKey;
   seriesBlueprint?: CandidateSlotDecision["seriesBlueprint"];
 }): CandidateSlotDecision {
@@ -2946,8 +2948,49 @@ function buildNextAvailableCandidateSlots(args: {
   );
 }
 
+function buildStaffPlacementCandidateGrid(args: {
+  appointmentType: Doc<"appointmentTypes">;
+  date: IsoDateString;
+  locationLineageKey: LocationLineageKey;
+  visibleEndMinute: number;
+  visiblePractitionerLineageKeys: PractitionerLineageKey[];
+  visibleStartMinute: number;
+}): AppointmentSeriesRootSlotCandidate[] {
+  const defaultOccupancy = normalizeDefaultOccupancy(
+    args.appointmentType.defaultOccupancy,
+  );
+  const startTimes: string[] = [];
+  for (
+    let minute = args.visibleStartMinute;
+    minute < args.visibleEndMinute;
+    minute += STAFF_PLACEMENT_GRID_SLOT_MINUTES
+  ) {
+    startTimes.push(
+      staffPlacementStartTimeFromVisibleMinute({ date: args.date, minute }),
+    );
+  }
+
+  if (defaultOccupancy.kind === "resourceColumn") {
+    return startTimes.map((startTime) => ({
+      calendarResourceColumn: defaultOccupancy.calendarResourceColumn,
+      duration: args.appointmentType.duration,
+      locationLineageKey: args.locationLineageKey,
+      startTime,
+    }));
+  }
+
+  return args.visiblePractitionerLineageKeys.flatMap((practitionerLineageKey) =>
+    startTimes.map((startTime) => ({
+      duration: args.appointmentType.duration,
+      locationLineageKey: args.locationLineageKey,
+      practitionerLineageKey,
+      startTime,
+    })),
+  );
+}
+
 function candidateSlotDecisionBase(args: {
-  candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+  candidate: AppointmentSeriesRootSlotCandidate;
   locationLineageKey: LocationLineageKey;
 }): Omit<CandidateSlotDecision, "canOverride" | "status"> {
   return {
@@ -2975,12 +3018,16 @@ async function evaluateSingleAppointmentCandidateSlot(
   args: {
     allowPlannerRuleOverride?: boolean;
     appointmentType: Doc<"appointmentTypes">;
-    candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+    candidate: AppointmentSeriesRootSlotCandidate;
     durationMinutes?: number;
     excludedAppointmentIds?: Id<"appointments">[];
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     locationLineageKey: LocationLineageKey;
+    occupancyConflictSetsByWindow?: Map<
+      string,
+      Promise<CalendarOccupancyConflictSet>
+    >;
     patientDateOfBirth?: IsoDateString;
     planningState: ReturnType<typeof createSeriesPlanningState>;
     practiceId: Id<"practices">;
@@ -3036,23 +3083,38 @@ async function evaluateSingleAppointmentCandidateSlot(
     asZonedDateTimeString(args.candidate.startTime),
     durationMinutes,
   );
+  const conflictCandidate = {
+    end: candidateEnd,
+    locationLineageKey: storedReferences.locationLineageKey,
+    occupancyScope,
+    start: args.candidate.startTime,
+  };
 
-  const conflictingOccupancy = await findConflictingCalendarOccupancy(ctx.db, {
-    candidate: {
-      end: candidateEnd,
-      locationLineageKey: storedReferences.locationLineageKey,
-      occupancyScope,
-      start: args.candidate.startTime,
-    },
-    ...(args.simulationRuleSetId === undefined
-      ? {}
-      : { draftRuleSetId: args.simulationRuleSetId }),
-    ...(args.excludedAppointmentIds === undefined
-      ? {}
-      : { excludeAppointmentIds: args.excludedAppointmentIds }),
-    occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
-    practiceId: args.practiceId,
-  });
+  const conflictingOccupancy =
+    args.occupancyConflictSetsByWindow === undefined
+      ? await findConflictingCalendarOccupancy(ctx.db, {
+          candidate: conflictCandidate,
+          ...(args.simulationRuleSetId === undefined
+            ? {}
+            : { draftRuleSetId: args.simulationRuleSetId }),
+          ...(args.excludedAppointmentIds === undefined
+            ? {}
+            : { excludeAppointmentIds: args.excludedAppointmentIds }),
+          occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
+          practiceId: args.practiceId,
+        })
+      : await findConflictingCalendarOccupancyWithCache(ctx.db, {
+          candidate: conflictCandidate,
+          conflictSetsByWindow: args.occupancyConflictSetsByWindow,
+          ...(args.simulationRuleSetId === undefined
+            ? {}
+            : { draftRuleSetId: args.simulationRuleSetId }),
+          ...(args.excludedAppointmentIds === undefined
+            ? {}
+            : { excludeAppointmentIds: args.excludedAppointmentIds }),
+          occupancyView: getOccupancyViewForBookingScope(args.scope ?? "real"),
+          practiceId: args.practiceId,
+        });
 
   if (conflictingOccupancy) {
     return unavailableCandidateSlotDecision({
@@ -3306,6 +3368,66 @@ function isSchedulerSlotBlockedOnlyByAppointmentOccupancy(slot: {
   );
 }
 
+function requireStaffPlacementVisibleMinute(value: number, fieldName: string) {
+  if (!Number.isInteger(value)) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: `${fieldName} must be an integer minute offset.`,
+    });
+  }
+  if (value < 0 || value > STAFF_PLACEMENT_MAX_VISIBLE_MINUTES) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: `${fieldName} must be within the requested calendar day.`,
+    });
+  }
+  if (value % STAFF_PLACEMENT_GRID_SLOT_MINUTES !== 0) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: `${fieldName} must align to the staff-placement slot size.`,
+    });
+  }
+}
+
+function requireStaffPlacementVisiblePractitionerLineageKeys(
+  lineageKeys: Id<"practitioners">[],
+) {
+  if (lineageKeys.length > STAFF_PLACEMENT_MAX_VISIBLE_PRACTITIONER_COLUMNS) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: `Staff-placement supports at most ${STAFF_PLACEMENT_MAX_VISIBLE_PRACTITIONER_COLUMNS} visible practitioner columns.`,
+    });
+  }
+  const uniqueLineageKeys = new Set(lineageKeys);
+  return Array.from(uniqueLineageKeys, asPractitionerLineageKey);
+}
+
+function requireStaffPlacementVisibleWindow(args: {
+  visibleEndMinute: number;
+  visibleStartMinute: number;
+}) {
+  requireStaffPlacementVisibleMinute(
+    args.visibleStartMinute,
+    "visibleStartMinute",
+  );
+  requireStaffPlacementVisibleMinute(args.visibleEndMinute, "visibleEndMinute");
+  if (args.visibleEndMinute <= args.visibleStartMinute) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "Staff-placement visible window must have positive duration.",
+    });
+  }
+  if (
+    args.visibleEndMinute - args.visibleStartMinute >
+    STAFF_PLACEMENT_MAX_VISIBLE_MINUTES
+  ) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "Staff-placement visible window cannot exceed one calendar day.",
+    });
+  }
+}
+
 async function resolveCandidatePractitionerIdForStaffPlacement(
   db: DatabaseReader,
   args: {
@@ -3332,6 +3454,10 @@ async function resolveCandidateSlotDecisionForStaffPlacement(
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     locationLineageKey: LocationLineageKey;
+    occupancyConflictSetsByWindow?: Map<
+      string,
+      Promise<CalendarOccupancyConflictSet>
+    >;
     patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
     planningState: ReturnType<typeof createSeriesPlanningState>;
@@ -3453,6 +3579,9 @@ async function resolveCandidateSlotDecisionForStaffPlacement(
       : { isNewPatient: args.isNewPatient }),
     locationId: args.locationId,
     locationLineageKey: args.locationLineageKey,
+    ...(args.occupancyConflictSetsByWindow === undefined
+      ? {}
+      : { occupancyConflictSetsByWindow: args.occupancyConflictSetsByWindow }),
     ...(args.patientDateOfBirth === undefined
       ? {}
       : { patientDateOfBirth: args.patientDateOfBirth }),
@@ -3504,10 +3633,25 @@ function schedulingProvenanceForSlot(
   };
 }
 
+function staffPlacementStartTimeFromVisibleMinute(args: {
+  date: IsoDateString;
+  minute: number;
+}) {
+  return Temporal.PlainDate.from(args.date)
+    .toZonedDateTime({
+      plainTime: Temporal.PlainTime.from({
+        hour: Math.floor(args.minute / 60),
+        minute: args.minute % 60,
+      }),
+      timeZone: APPOINTMENT_TIMEZONE,
+    })
+    .toString();
+}
+
 function unavailableCandidateSlotDecision(args: {
   blockingBlockedSlotId?: Id<"blockedSlots">;
   blockingRuleIds?: Id<"ruleConditions">[];
-  candidate: Infer<typeof appointmentSeriesRootSlotCandidateValidator>;
+  candidate: AppointmentSeriesRootSlotCandidate;
   canOverride?: boolean;
   locationLineageKey: LocationLineageKey;
   provenance: Exclude<CandidateSlotDecision["provenance"], undefined>;
@@ -3531,7 +3675,7 @@ function unavailableCandidateSlotDecision(args: {
 export const getCandidateSlotDecisionsForStaffPlacement = query({
   args: {
     appointmentTypeId: v.id("appointmentTypes"),
-    candidates: v.array(appointmentSeriesRootSlotCandidateValidator),
+    date: v.string(),
     excludedAppointmentIds: v.optional(v.array(v.id("appointments"))),
     isNewPatient: v.optional(v.boolean()),
     locationId: v.id("locations"),
@@ -3541,6 +3685,9 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
     ruleSetId: v.id("ruleSets"),
     scope: v.optional(v.union(v.literal("real"), v.literal("simulation"))),
     userId: v.optional(v.id("users")),
+    visibleEndMinute: v.number(),
+    visiblePractitionerLineageKeys: v.array(v.id("practitioners")),
+    visibleStartMinute: v.number(),
   },
   handler: async (ctx, args) => {
     await ensureAuthenticatedIdentity(ctx);
@@ -3550,6 +3697,15 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
       ...(args.patientId === undefined ? {} : { patientId: args.patientId }),
       ...(args.userId === undefined ? {} : { userId: args.userId }),
     });
+    const requestedDate = asIsoDateString(args.date);
+    requireStaffPlacementVisibleWindow({
+      visibleEndMinute: args.visibleEndMinute,
+      visibleStartMinute: args.visibleStartMinute,
+    });
+    const visiblePractitionerLineageKeys =
+      requireStaffPlacementVisiblePractitionerLineageKeys(
+        args.visiblePractitionerLineageKeys,
+      );
 
     const appointmentType = await ctx.db.get(
       "appointmentTypes",
@@ -3567,6 +3723,14 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
       ctx.db,
       asLocationId(args.locationId),
     );
+    const candidates = buildStaffPlacementCandidateGrid({
+      appointmentType,
+      date: requestedDate,
+      locationLineageKey,
+      visibleEndMinute: args.visibleEndMinute,
+      visiblePractitionerLineageKeys,
+      visibleStartMinute: args.visibleStartMinute,
+    });
     const patientDateOfBirth =
       args.patientDateOfBirth === undefined
         ? args.patientId === undefined
@@ -3587,11 +3751,11 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
       PractitionerLineageKey,
       Id<"practitioners">
     >();
-    for (const candidate of args.candidates) {
-      if (candidate.locationLineageKey !== locationLineageKey) {
-        continue;
-      }
-
+    const occupancyConflictSetsByWindow = new Map<
+      string,
+      Promise<CalendarOccupancyConflictSet>
+    >();
+    for (const candidate of candidates) {
       const decision = await resolveCandidateSlotDecisionForStaffPlacement(
         ctx,
         {
@@ -3609,6 +3773,7 @@ export const getCandidateSlotDecisionsForStaffPlacement = query({
           ...(args.patientId === undefined
             ? {}
             : { patientId: args.patientId }),
+          occupancyConflictSetsByWindow,
           planningState,
           practiceId: args.practiceId,
           practitionerIdsByLineageKey,

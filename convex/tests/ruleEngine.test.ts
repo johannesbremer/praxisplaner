@@ -2990,25 +2990,13 @@ describe("E2E: Slot Generation with Rules", () => {
       api.appointments.getCandidateSlotDecisionsForStaffPlacement,
       {
         appointmentTypeId: longTypeId,
-        candidates: [
-          {
-            duration: 10,
-            locationLineageKey: locationId,
-            practitionerLineageKey: practitionerId,
-            practitionerName: "JW",
-            startTime: "2025-10-27T09:00:00+01:00[Europe/Berlin]",
-          },
-          {
-            duration: 10,
-            locationLineageKey: locationId,
-            practitionerLineageKey: practitionerId,
-            practitionerName: "JW",
-            startTime: "2025-10-27T09:05:00+01:00[Europe/Berlin]",
-          },
-        ],
+        date: "2025-10-27",
         locationId,
         practiceId,
         ruleSetId,
+        visibleEndMinute: 9 * 60 + 10,
+        visiblePractitionerLineageKeys: [practitionerId],
+        visibleStartMinute: 9 * 60,
       },
     );
 
@@ -3125,25 +3113,13 @@ describe("E2E: Slot Generation with Rules", () => {
       api.appointments.getCandidateSlotDecisionsForStaffPlacement,
       {
         appointmentTypeId: speedTypeId,
-        candidates: [
-          {
-            duration: 5,
-            locationLineageKey: locationId,
-            practitionerLineageKey: drRightId,
-            practitionerName: "MT",
-            startTime: "2025-10-27T09:05:00+01:00[Europe/Berlin]",
-          },
-          {
-            duration: 5,
-            locationLineageKey: locationId,
-            practitionerLineageKey: drRightId,
-            practitionerName: "MT",
-            startTime: "2025-10-27T09:10:00+01:00[Europe/Berlin]",
-          },
-        ],
+        date: "2025-10-27",
         locationId,
         practiceId,
         ruleSetId,
+        visibleEndMinute: 9 * 60 + 15,
+        visiblePractitionerLineageKeys: [drRightId],
+        visibleStartMinute: 9 * 60 + 5,
       },
     );
 
