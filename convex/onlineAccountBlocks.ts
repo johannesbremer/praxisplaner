@@ -7,6 +7,7 @@ import type { DataModel, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import {
   requirePracticeManager,
+  requirePracticeStaff,
   requirePracticeStaffForMutation,
 } from "./practiceAccess";
 import { requireAuthenticatedUserIdForQuery } from "./userIdentity";
@@ -98,7 +99,7 @@ export const getStatusForBookingIdentity = query({
     practiceId: v.id("practices"),
   },
   handler: async (ctx, args) => {
-    await requirePracticeManager(ctx, args.practiceId);
+    await requirePracticeStaff(ctx, args.practiceId);
     const bookingIdentity = await ctx.db.get(
       "bookingIdentities",
       args.bookingIdentityId,
