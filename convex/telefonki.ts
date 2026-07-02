@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
+import type { KnownInsuranceStatus } from "../lib/insurance-status";
 import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -40,7 +41,7 @@ import {
   asZonedDateTimeString,
   type ZonedDateTimeString,
 } from "./typedDtos";
-import { simulatedContextValidator } from "./validators";
+import { knownInsuranceStatusValidator } from "./validators";
 
 const SEARCH_TIMEZONE = "Europe/Berlin";
 const DEFAULT_LIMIT = 10;
@@ -68,12 +69,25 @@ const telefonkiAppointmentValidator = v.object({
   title: v.string(),
 });
 
+const telefonkiSimulatedContextValidator = v.object({
+  appointmentTypeLineageKey: v.optional(v.id("appointmentTypes")),
+  clientType: v.optional(v.string()),
+  locationLineageKey: v.optional(v.id("locations")),
+  patient: v.object({
+    dateOfBirth: v.optional(v.string()),
+    insuranceStatus: knownInsuranceStatusValidator,
+    isNew: v.boolean(),
+  }),
+  practitionerLineageKey: v.optional(v.id("practitioners")),
+  requestedAt: v.optional(v.string()),
+});
+
 const availabilityArgs = {
   date: v.optional(v.string()),
   integrationSecret: v.optional(v.string()),
   limit: v.optional(v.number()),
   practiceId: v.id("practices"),
-  simulatedContext: simulatedContextValidator,
+  simulatedContext: telefonkiSimulatedContextValidator,
 };
 
 interface ActivePracticeContext {
@@ -93,6 +107,7 @@ interface AvailabilityArgs {
     locationLineageKey?: Id<"locations">;
     patient: {
       dateOfBirth?: string;
+      insuranceStatus: KnownInsuranceStatus;
       isNew: boolean;
     };
     practitionerLineageKey?: Id<"practitioners">;
@@ -320,6 +335,7 @@ async function requireAvailableSelectedSlot(
     appointmentTypeLineageKey: Id<"appointmentTypes">;
     locationLineageKey: Id<"locations">;
     patientDateOfBirth?: string;
+    patientInsuranceStatus: KnownInsuranceStatus;
     patientIsNew: boolean;
     practiceId: Id<"practices">;
     practitionerLineageKey: Id<"practitioners">;
@@ -354,6 +370,7 @@ async function requireAvailableSelectedSlot(
           ...(args.patientDateOfBirth !== undefined && {
             dateOfBirth: args.patientDateOfBirth,
           }),
+          insuranceStatus: args.patientInsuranceStatus,
           isNew: args.patientIsNew,
         },
       },
@@ -740,6 +757,7 @@ export const book = mutation({
     patient: v.object({
       dateOfBirth: v.optional(v.string()),
       firstName: v.string(),
+      insuranceStatus: knownInsuranceStatusValidator,
       isNew: v.boolean(),
       lastName: v.string(),
       phoneNumber: v.optional(v.string()),
@@ -804,6 +822,7 @@ export const book = mutation({
       ...(args.patient.dateOfBirth !== undefined && {
         patientDateOfBirth: args.patient.dateOfBirth,
       }),
+      patientInsuranceStatus: args.patient.insuranceStatus,
       patientIsNew: args.patient.isNew,
       practiceId: active.practiceId,
       practitionerLineageKey: args.practitionerLineageKey,
@@ -824,6 +843,7 @@ export const book = mutation({
       rawPatientPhoneNumber,
     );
     const temporaryPatientId = await createTemporaryPatientRecord(ctx, {
+      insuranceStatus: args.patient.insuranceStatus,
       name: patientName,
       phoneNumber: patientPhoneNumber,
       practiceId: active.practiceId,
@@ -836,6 +856,7 @@ export const book = mutation({
         patientDateOfBirth: args.patient.dateOfBirth,
       }),
       patientId: temporaryPatientId,
+      patientInsuranceStatus: args.patient.insuranceStatus,
       phoneBookingIdentityId: args.phoneBookingIdentityId,
       practiceId: active.practiceId,
       practitionerId,

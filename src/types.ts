@@ -82,6 +82,9 @@ export type PracticePatientSelection =
     }
   | {
       info: TemporaryPatientInfo;
+    }
+  | {
+      info: UserPatientInfo;
     };
 
 // Browser permission state

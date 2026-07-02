@@ -700,46 +700,56 @@ function RightSidebarContent({
               </p>
             )}
 
-            {practiceId !== undefined &&
-              patient.convexPatientId !== undefined && (
-                <div className="space-y-1.5">
-                  <p className="text-sm font-medium">Versicherung</p>
-                  <Select
-                    onValueChange={(value) => {
-                      const insuranceStatus = parseInsuranceStatus(value);
-                      if (insuranceStatus === undefined) {
-                        return;
-                      }
-                      const patientId = patient.convexPatientId;
-                      if (patientId === undefined) {
-                        return;
-                      }
+            {practiceId !== undefined && onPatientSelected !== undefined && (
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">Versicherung</p>
+                <Select
+                  onValueChange={(value) => {
+                    const insuranceStatus = parseInsuranceStatus(value);
+                    if (insuranceStatus === undefined) {
+                      return;
+                    }
+                    const patientId = patient.convexPatientId;
+                    if (patientId !== undefined) {
                       void updatePatientInsuranceStatus({
                         insuranceStatus,
                         patientId,
                         practiceId,
                       }).then(() => {
-                        onPatientSelected?.({
+                        onPatientSelected({
                           id: patientId,
                           info: { ...patient, insuranceStatus },
                         });
                       });
-                    }}
-                    value={patient.insuranceStatus}
-                  >
-                    <SelectTrigger className="h-8 w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {INSURANCE_STATUS_VALUES.map((status) => (
-                        <SelectItem key={status} value={status}>
-                          {INSURANCE_STATUS_LABELS[status]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+                      return;
+                    }
+
+                    if (patient.userId !== undefined) {
+                      onPatientSelected({
+                        info: { ...patient, insuranceStatus },
+                      });
+                      return;
+                    }
+
+                    onPatientSelected({
+                      info: { ...patient, insuranceStatus },
+                    });
+                  }}
+                  value={patient.insuranceStatus ?? "unknown"}
+                >
+                  <SelectTrigger className="h-8 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {INSURANCE_STATUS_VALUES.map((status) => (
+                      <SelectItem key={status} value={status}>
+                        {INSURANCE_STATUS_LABELS[status]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {/* Open in PVS Button */}
             {patient.patientId !== undefined && (

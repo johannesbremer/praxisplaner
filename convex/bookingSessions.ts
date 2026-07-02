@@ -5,8 +5,9 @@ import { z } from "zod";
 import type { Doc, Id } from "./_generated/dataModel";
 
 import {
-  type InsuranceStatus,
   insuranceStatusFromBookingInsuranceType,
+  isKnownInsuranceStatus,
+  type KnownInsuranceStatus,
 } from "../lib/insurance-status";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
@@ -167,7 +168,7 @@ async function assertSlotAllowedByRules(
     appointmentTypeId: Id<"appointmentTypes">;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth: string;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus: KnownInsuranceStatus;
     practitionerLineageKey: PractitionerLineageKey;
     scope: PatientBookingScope;
     startTime: ZonedDateTimeString;
@@ -193,9 +194,7 @@ async function assertSlotAllowedByRules(
         dateTime: args.startTime,
         locationId,
         patientDateOfBirth: args.patientDateOfBirth,
-        ...(args.patientInsuranceStatus === undefined
-          ? {}
-          : { patientInsuranceStatus: args.patientInsuranceStatus }),
+        patientInsuranceStatus: args.patientInsuranceStatus,
         practiceId: args.scope.practiceId,
         practitionerId,
         requestedAt: Temporal.Now.instant()
@@ -1689,7 +1688,7 @@ async function requireOfferedNewPatientSlot(
     appointmentTypeLineageKey: Id<"appointmentTypes">;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth: string;
-    patientInsuranceStatus: InsuranceStatus;
+    patientInsuranceStatus: KnownInsuranceStatus;
     scope: PatientBookingScope;
     selectedSlot: {
       practitionerLineageKey: Id<"practitioners">;
@@ -1720,7 +1719,7 @@ async function requireOfferedPatientSlot(
     isNewPatient: boolean;
     locationLineageKey: LocationLineageKey;
     patientDateOfBirth: string;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus: KnownInsuranceStatus;
     practitionerLineageKey: PractitionerLineageKey;
     scope: PatientBookingScope;
     startTime: ZonedDateTimeString;
@@ -1743,9 +1742,7 @@ async function requireOfferedPatientSlot(
         locationLineageKey: args.locationLineageKey,
         patient: {
           dateOfBirth: args.patientDateOfBirth,
-          ...(args.patientInsuranceStatus === undefined
-            ? {}
-            : { insuranceStatus: args.patientInsuranceStatus }),
+          insuranceStatus: args.patientInsuranceStatus,
           isNew: args.isNewPatient,
         },
       },
@@ -1842,7 +1839,7 @@ async function resolveLocationNameForPublicState(
 async function resolveOnlineExistingPatientInsuranceStatus(
   ctx: MutationCtx | QueryCtx,
   flowKey: BookingFlowKey,
-): Promise<InsuranceStatus | undefined> {
+): Promise<KnownInsuranceStatus | undefined> {
   const bookingIdentities = await ctx.db
     .query("bookingIdentities")
     .withIndex("by_userId", (q) => q.eq("userId", flowKey.userId))
@@ -1869,7 +1866,10 @@ async function resolveOnlineExistingPatientInsuranceStatus(
       continue;
     }
     const patient = await ctx.db.get("patients", patientId);
-    if (patient?.practiceId === flowKey.practiceId) {
+    if (
+      patient?.practiceId === flowKey.practiceId &&
+      isKnownInsuranceStatus(patient.insuranceStatus)
+    ) {
       return patient.insuranceStatus;
     }
   }
@@ -2806,6 +2806,7 @@ export const selectExistingPatientSlot = mutation({
     assertSlotStartIsInFuture(selectedSlot.startTime);
     const patientInsuranceStatus =
       await resolveOnlineExistingPatientInsuranceStatus(ctx, flowKey);
+    const resolvedPatientInsuranceStatus = patientInsuranceStatus ?? "public";
 
     const appointmentTypeId = await resolveAppointmentTypeIdForRuleSetByLineage(
       ctx.db,
@@ -2826,9 +2827,7 @@ export const selectExistingPatientSlot = mutation({
         rows.location.locationLineageKey,
       ),
       patientDateOfBirth: personalData.dateOfBirth,
-      ...(patientInsuranceStatus === undefined
-        ? {}
-        : { patientInsuranceStatus }),
+      patientInsuranceStatus: resolvedPatientInsuranceStatus,
       practitionerLineageKey: asPractitionerLineageKey(
         rows.existingDoctor.practitionerLineageKey,
       ),
@@ -2843,9 +2842,7 @@ export const selectExistingPatientSlot = mutation({
         rows.location.locationLineageKey,
       ),
       patientDateOfBirth: personalData.dateOfBirth,
-      ...(patientInsuranceStatus === undefined
-        ? {}
-        : { patientInsuranceStatus }),
+      patientInsuranceStatus: resolvedPatientInsuranceStatus,
       practitionerLineageKey: asPractitionerLineageKey(
         rows.existingDoctor.practitionerLineageKey,
       ),
@@ -2872,9 +2869,7 @@ export const selectExistingPatientSlot = mutation({
       isNewPatient: false,
       locationId,
       patientDateOfBirth: personalData.dateOfBirth,
-      ...(patientInsuranceStatus === undefined
-        ? {}
-        : { patientInsuranceStatus }),
+      patientInsuranceStatus: resolvedPatientInsuranceStatus,
       practiceId: flowKey.practiceId,
       practitionerId,
       start: selectedSlot.startTime,

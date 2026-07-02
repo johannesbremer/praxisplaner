@@ -5,6 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader, QueryCtx } from "./_generated/server";
 import type { AppointmentBookingScope } from "./appointmentConflicts";
 
+import { isKnownInsuranceStatus } from "../lib/insurance-status";
 import {
   getPractitionerVacationRangesForDate,
   type MinuteRange,
@@ -50,6 +51,76 @@ export interface CandidateSlot {
   reason?: string;
   startTime: string;
   status: "AVAILABLE" | "BLOCKED";
+}
+
+function getKnownSimulatedPatientInsuranceStatus(
+  simulatedContext: SimulatedContextInput,
+) {
+  const insuranceStatus = simulatedContext.patient.insuranceStatus;
+  return isKnownInsuranceStatus(insuranceStatus) ? insuranceStatus : undefined;
+}
+
+function omitInsuranceStatusRulesWhenPatientStatusMissing<
+  TRulesData extends {
+    conditions: Doc<"ruleConditions">[];
+    conditionsMap: Map<Id<"ruleConditions">, Doc<"ruleConditions">>;
+    dayInvariantCount?: number;
+    rules: { _id: Id<"ruleConditions">; isDayInvariant: boolean }[];
+  },
+>(args: {
+  rulesData: TRulesData;
+  simulatedContext: SimulatedContextInput;
+}): TRulesData {
+  if (
+    getKnownSimulatedPatientInsuranceStatus(args.simulatedContext) !== undefined
+  ) {
+    return args.rulesData;
+  }
+
+  const rules = args.rulesData.rules.filter(
+    (rule) =>
+      !ruleTreeContainsInsuranceStatus({
+        allConditions: args.rulesData.conditions,
+        conditionId: rule._id,
+        conditionsMap: args.rulesData.conditionsMap,
+      }),
+  );
+
+  return {
+    ...args.rulesData,
+    ...(args.rulesData.dayInvariantCount === undefined
+      ? {}
+      : {
+          dayInvariantCount: rules.filter((rule) => rule.isDayInvariant).length,
+        }),
+    rules,
+  };
+}
+
+function ruleTreeContainsInsuranceStatus(args: {
+  allConditions: Doc<"ruleConditions">[];
+  conditionId: Id<"ruleConditions">;
+  conditionsMap: Map<Id<"ruleConditions">, Doc<"ruleConditions">>;
+}): boolean {
+  const condition = args.conditionsMap.get(args.conditionId);
+  if (condition === undefined) {
+    return false;
+  }
+  if (
+    condition.nodeType === "CONDITION" &&
+    condition.conditionType === "INSURANCE_STATUS"
+  ) {
+    return true;
+  }
+  return args.allConditions
+    .filter((candidate) => candidate.parentConditionId === args.conditionId)
+    .some((child) =>
+      ruleTreeContainsInsuranceStatus({
+        allConditions: args.allConditions,
+        conditionId: child._id,
+        conditionsMap: args.conditionsMap,
+      }),
+    );
 }
 
 const DEFAULT_SLOT_DURATION_MINUTES = 5;
@@ -216,7 +287,7 @@ export async function evaluateCandidateSlotsForDay(
   const conditionsMap = new Map<Id<"ruleConditions">, Doc<"ruleConditions">>(
     rulesResultRaw.conditions.map((condition) => [condition._id, condition]),
   );
-  const rulesData = {
+  const loadedRulesData = {
     conditions: rulesResultRaw.conditions,
     conditionsMap,
     dayInvariantCount: rulesResultRaw.dayInvariantCount,
@@ -224,6 +295,10 @@ export async function evaluateCandidateSlotsForDay(
     timeVariantCount: rulesResultRaw.timeVariantCount,
     totalConditions: rulesResultRaw.totalConditions,
   };
+  const rulesData = omitInsuranceStatusRulesWhenPatientStatusMissing({
+    rulesData: loadedRulesData,
+    simulatedContext: args.bookingContext.simulatedContext,
+  });
   diagnostics.ruleConditionsLoaded = rulesData.totalConditions;
   diagnostics.rulesLoaded = rulesData.rules.length;
 
@@ -892,6 +967,10 @@ function markSlotsBlockedByRules(
         "clientType is required in simulatedContext for scheduling rule evaluation",
       );
     }
+    const patientInsuranceStatus =
+      getKnownSimulatedPatientInsuranceStatus(
+        args.bookingContext.simulatedContext,
+      ) ?? "public";
     const appointmentContext = {
       appointmentTypeId: args.bookingContext.appointmentTypeId,
       clientType,
@@ -900,11 +979,8 @@ function markSlotsBlockedByRules(
         patientDateOfBirth:
           args.bookingContext.simulatedContext.patient.dateOfBirth,
       }),
-      ...(args.bookingContext.simulatedContext.patient.insuranceStatus && {
-        patientInsuranceStatus:
-          args.bookingContext.simulatedContext.patient.insuranceStatus,
-      }),
       locationId: displayReferences.locationId,
+      patientInsuranceStatus,
       practiceId: args.practiceId,
       practitionerId: displayReferences.practitionerId,
       requestedAt: getRequestedAtForRuleEvaluation(
@@ -958,6 +1034,10 @@ function preEvaluateCandidateDayRules(args: {
       "clientType is required in simulatedContext for scheduling rule evaluation",
     );
   }
+  const patientInsuranceStatus =
+    getKnownSimulatedPatientInsuranceStatus(
+      args.bookingContext.simulatedContext,
+    ) ?? "public";
   const dayContext = {
     appointmentTypeId: args.bookingContext.appointmentTypeId,
     clientType,
@@ -966,11 +1046,8 @@ function preEvaluateCandidateDayRules(args: {
       patientDateOfBirth:
         args.bookingContext.simulatedContext.patient.dateOfBirth,
     }),
-    ...(args.bookingContext.simulatedContext.patient.insuranceStatus && {
-      patientInsuranceStatus:
-        args.bookingContext.simulatedContext.patient.insuranceStatus,
-    }),
     locationId: firstSlotDisplayReferences.locationId,
+    patientInsuranceStatus,
     practiceId: args.practiceId,
     practitionerId: firstSlotDisplayReferences.practitionerId,
     requestedAt: getRequestedAtForRuleEvaluation(

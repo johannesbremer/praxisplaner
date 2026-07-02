@@ -4,11 +4,23 @@
 import { AuthKit } from "@convex-dev/workos-authkit";
 import { type Infer, v } from "convex/values";
 
-import { INSURANCE_STATUS_VALUES } from "../lib/insurance-status";
+import {
+  INSURANCE_STATUS_VALUES,
+  type KnownInsuranceStatus,
+} from "../lib/insurance-status";
 
 // Common reusable validators based on schema definitions
 export const insuranceStatusValidator = v.union(
   ...INSURANCE_STATUS_VALUES.map((value) => v.literal(value)),
+);
+
+const KNOWN_INSURANCE_STATUS_VALUES = [
+  "private",
+  "public",
+] as const satisfies readonly KnownInsuranceStatus[];
+
+export const knownInsuranceStatusValidator = v.union(
+  ...KNOWN_INSURANCE_STATUS_VALUES.map((value) => v.literal(value)),
 );
 
 // Date range validator (used in scheduling and other places)

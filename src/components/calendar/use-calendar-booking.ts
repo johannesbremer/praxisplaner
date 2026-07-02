@@ -1,9 +1,11 @@
 import { Temporal } from "temporal-polyfill";
 
 import type { Id } from "../../../convex/_generated/dataModel";
+import type { KnownInsuranceStatus } from "../../../lib/insurance-status";
 import type { PatientInfo } from "../../types";
 import type { CalendarAppointmentPlacement } from "./types";
 
+import { isKnownInsuranceStatus } from "../../../lib/insurance-status";
 import { TIMEZONE } from "./use-calendar-logic-helpers";
 
 export type CalendarAppointmentCreateResult =
@@ -34,7 +36,7 @@ interface CreateAppointmentArgs {
   isSimulation: boolean;
   patientDateOfBirth?: string;
   patientId?: Id<"patients">;
-  patientInsuranceStatus?: NonNullable<PatientInfo["insuranceStatus"]>;
+  patientInsuranceStatus: KnownInsuranceStatus;
   placement: CalendarAppointmentPlacement;
   practiceId: Id<"practices">;
   start: string;
@@ -134,6 +136,24 @@ export function buildCalendarAppointmentRequest(args: {
     };
   }
 
+  const patient = args.patient;
+  if (patient === undefined) {
+    return {
+      kind: "error",
+      message: "Bitte wählen Sie zuerst einen Patienten aus.",
+    };
+  }
+
+  const patientInsuranceStatus = isKnownInsuranceStatus(patient.insuranceStatus)
+    ? patient.insuranceStatus
+    : undefined;
+  if (patientInsuranceStatus === undefined) {
+    return {
+      kind: "error",
+      message: "Bitte wählen Sie zuerst den Versicherungsstatus.",
+    };
+  }
+
   return {
     kind: "ok",
     request: {
@@ -143,15 +163,13 @@ export function buildCalendarAppointmentRequest(args: {
       appointmentTypeId: args.appointmentTypeId,
       isNewPatient: args.isNewPatient,
       isSimulation: args.mode === "simulation",
-      ...(args.patient?.dateOfBirth && {
-        patientDateOfBirth: args.patient.dateOfBirth,
+      ...(patient.dateOfBirth && {
+        patientDateOfBirth: patient.dateOfBirth,
       }),
-      ...(args.patient?.convexPatientId && {
-        patientId: args.patient.convexPatientId,
+      ...(patient.convexPatientId && {
+        patientId: patient.convexPatientId,
       }),
-      ...(args.patient?.insuranceStatus === undefined
-        ? {}
-        : { patientInsuranceStatus: args.patient.insuranceStatus }),
+      patientInsuranceStatus,
       placement: args.placement,
       practiceId: args.practiceId,
       start: startISO,
@@ -162,7 +180,7 @@ export function buildCalendarAppointmentRequest(args: {
           }
         : {}),
       title,
-      ...(args.patient?.userId && { userId: args.patient.userId }),
+      ...(patient.userId && { userId: patient.userId }),
     },
   };
 }

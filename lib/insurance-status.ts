@@ -5,6 +5,7 @@ export const INSURANCE_STATUS_VALUES = [
 ] as const;
 
 export type InsuranceStatus = (typeof INSURANCE_STATUS_VALUES)[number];
+export type KnownInsuranceStatus = Exclude<InsuranceStatus, "unknown">;
 
 export const INSURANCE_STATUS_LABELS: Record<InsuranceStatus, string> = {
   private: "Privat",
@@ -14,6 +15,12 @@ export const INSURANCE_STATUS_LABELS: Record<InsuranceStatus, string> = {
 
 export function insuranceStatusFromBookingInsuranceType(
   insuranceType: "gkv" | "pkv",
-): Extract<InsuranceStatus, "private" | "public"> {
+): KnownInsuranceStatus {
   return insuranceType === "pkv" ? "private" : "public";
+}
+
+export function isKnownInsuranceStatus(
+  status: InsuranceStatus | undefined,
+): status is KnownInsuranceStatus {
+  return status === "private" || status === "public";
 }

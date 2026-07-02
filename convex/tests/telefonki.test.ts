@@ -206,6 +206,7 @@ function simulatedContext(args: {
     locationLineageKey: args.locationId,
     patient: {
       dateOfBirth: "1980-01-01",
+      insuranceStatus: "public" as const,
       isNew: false,
     },
   };
@@ -807,6 +808,7 @@ describe("TelefonKI booking ownership", () => {
         patient: {
           dateOfBirth: "1980-01-01",
           firstName: "Ada",
+          insuranceStatus: "public" as const,
           isNew: false,
           lastName: "Lovelace",
           phoneNumber: "+491701234567",
@@ -844,6 +846,7 @@ describe("TelefonKI booking ownership", () => {
           patient: {
             dateOfBirth: "1980-01-01",
             firstName: "Ada",
+            insuranceStatus: "public" as const,
             isNew: false,
             lastName: "Lovelace",
             phoneNumber: "+491701234567",
@@ -933,6 +936,7 @@ describe("TelefonKI booking ownership", () => {
       patient: {
         dateOfBirth: "1980-01-01",
         firstName: "Grace",
+        insuranceStatus: "public" as const,
         isNew: false,
         lastName: "Hopper",
         phoneNumber: "+491709999999",
@@ -999,6 +1003,7 @@ describe("TelefonKI booking ownership", () => {
           patient: {
             dateOfBirth: "1980-01-01",
             firstName: "Ada",
+            insuranceStatus: "public" as const,
             isNew: false,
             lastName: "Lovelace",
             phoneNumber: "01701234567",
@@ -1059,6 +1064,7 @@ describe("TelefonKI booking ownership", () => {
         patient: {
           dateOfBirth: "1980-01-01",
           firstName: "Ada",
+          insuranceStatus: "public" as const,
           isNew: false,
           lastName: "Lovelace",
           phoneNumber: "+491701234567",

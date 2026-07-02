@@ -21,7 +21,7 @@ import type {
   ConditionTreeNode,
   LogicalNode,
 } from "../lib/condition-tree.js";
-import type { InsuranceStatus } from "../lib/insurance-status";
+import type { KnownInsuranceStatus } from "../lib/insurance-status";
 import type { IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DatabaseReader } from "./_generated/server";
@@ -49,6 +49,7 @@ import { getEffectiveAppointmentsForOccupancyView } from "./appointmentConflicts
 import { getAppointmentPractitionerLineageKey } from "./appointmentOccupancy";
 import { requireLineageKey } from "./lineage";
 import { createDepthBoundedRecursiveUnionValidator } from "./recursiveValidator";
+import { knownInsuranceStatusValidator } from "./validators";
 
 // ============================================================================
 // Pre-loaded Data Types and Builder
@@ -453,9 +454,7 @@ export const appointmentContextValidator = v.object({
   locationId: v.optional(v.id("locations")),
   // Patient birth date as YYYY-MM-DD
   patientDateOfBirth: v.optional(v.string()),
-  patientInsuranceStatus: v.optional(
-    v.union(v.literal("private"), v.literal("public"), v.literal("unknown")),
-  ),
+  patientInsuranceStatus: knownInsuranceStatusValidator,
   practiceId: v.id("practices"),
   practitionerId: v.optional(v.id("practitioners")),
   // For DAYS_AHEAD / HOURS_AHEAD conditions: when was this appointment requested
@@ -474,7 +473,7 @@ export type AppointmentContext = Omit<
 > & {
   dateTime: RuleEngineZonedDateTimeString;
   patientDateOfBirth?: IsoDateString;
-  patientInsuranceStatus?: InsuranceStatus;
+  patientInsuranceStatus: KnownInsuranceStatus;
   requestedAt?: RuleEngineZonedDateTimeString;
 };
 
@@ -506,7 +505,7 @@ export function asAppointmentContextInput(
     ...(rawPatientDateOfBirth !== undefined && {
       patientDateOfBirth: rawPatientDateOfBirth,
     }),
-    patientInsuranceStatus: rest.patientInsuranceStatus ?? "unknown",
+    patientInsuranceStatus: rest.patientInsuranceStatus,
     ...(requestedAt !== undefined && { requestedAt }),
   };
 }
@@ -524,15 +523,6 @@ function asRuleEngineZonedDateTimeString(
   } catch {
     throw new Error(`Expected ISO zoned datetime string, got "${value}".`);
   }
-}
-
-function normalizeAppointmentContext(
-  context: AppointmentContext,
-): AppointmentContext {
-  return {
-    ...context,
-    patientInsuranceStatus: context.patientInsuranceStatus ?? "unknown",
-  };
 }
 
 /**
@@ -973,8 +963,6 @@ function evaluateConditionTree(
   conditionsMap: Map<Id<"ruleConditions">, Doc<"ruleConditions">>,
   allConditions: Doc<"ruleConditions">[],
 ): boolean {
-  const normalizedContext = normalizeAppointmentContext(context);
-
   // Inner recursive function that uses the preloaded data
   const evaluateTreeInternal = (id: Id<"ruleConditions">): boolean => {
     // Use cached node from conditionsMap
@@ -988,7 +976,7 @@ function evaluateConditionTree(
 
     // If this is a leaf condition, evaluate it directly
     if (node.nodeType === "CONDITION") {
-      return evaluateCondition(node, normalizedContext, preloadedData);
+      return evaluateCondition(node, context, preloadedData);
     }
 
     // Get ordered children from pre-loaded conditions
@@ -1554,10 +1542,10 @@ function isRuleTreeDayInvariant(
 }
 
 /**
- * Helper to recursively determine if a rule tree is independent of appointment type.
- * A tree is appointment-type-independent if it contains NO APPOINTMENT_TYPE conditions.
+ * Helper to recursively determine if a rule tree can be evaluated before the
+ * user selects an appointment type and patient insurance status.
  */
-function isRuleTreeAppointmentTypeIndependent(
+function isRuleTreePreselectionIndependent(
   nodeId: Id<"ruleConditions">,
   conditionsMap: Map<Id<"ruleConditions">, Doc<"ruleConditions">>,
   allConditions: Doc<"ruleConditions">[],
@@ -1572,7 +1560,10 @@ function isRuleTreeAppointmentTypeIndependent(
 
   // If this is a leaf condition, check if it's NOT appointment type
   if (node.nodeType === "CONDITION") {
-    return node.conditionType !== "APPOINTMENT_TYPE";
+    return (
+      node.conditionType !== "APPOINTMENT_TYPE" &&
+      node.conditionType !== "INSURANCE_STATUS"
+    );
   }
 
   // For AND/NOT nodes, check all children recursively
@@ -1586,11 +1577,7 @@ function isRuleTreeAppointmentTypeIndependent(
 
   // A tree is appointment-type-independent only if ALL children are
   return children.every((child) =>
-    isRuleTreeAppointmentTypeIndependent(
-      child._id,
-      conditionsMap,
-      allConditions,
-    ),
+    isRuleTreePreselectionIndependent(child._id, conditionsMap, allConditions),
   );
 }
 
@@ -1677,8 +1664,8 @@ export const loadRulesForRuleSet = internalQuery({
 });
 
 /**
- * Load rules that are independent of appointment type.
- * These rules can be evaluated and displayed even before a user selects an appointment type.
+ * Load rules that are independent of appointment type and patient insurance status.
+ * These rules can be evaluated and displayed before a user selects a patient.
  */
 export const loadAppointmentTypeIndependentRules = internalQuery({
   args: {
@@ -1711,7 +1698,7 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
       conditionsMap.set(condition._id, condition);
     }
 
-    // Filter rules that are appointment-type-independent
+    // Filter rules that are safe to evaluate before patient-specific context exists.
     const appointmentTypeIndependentRules = rules.filter((r) => {
       const rootChildren = allConditions.filter(
         (c) => c.parentConditionId === r._id,
@@ -1720,7 +1707,7 @@ export const loadAppointmentTypeIndependentRules = internalQuery({
       return (
         rootChildren.length === 1 &&
         firstChild !== undefined &&
-        isRuleTreeAppointmentTypeIndependent(
+        isRuleTreePreselectionIndependent(
           firstChild._id,
           conditionsMap,
           allConditions,
@@ -1803,7 +1790,6 @@ export function preEvaluateDayInvariantRulesHelper(
   blockedByRuleIds: Id<"ruleConditions">[];
   evaluatedCount: number;
 } {
-  const normalizedContext = normalizeAppointmentContext(context);
   const blockedRuleIds: Id<"ruleConditions">[] = [];
 
   // Helper to get condition from the pre-loaded map
@@ -1832,7 +1818,7 @@ export function preEvaluateDayInvariantRulesHelper(
 
     // If this is a leaf condition, evaluate it directly
     if (node.nodeType === "CONDITION") {
-      return evaluateCondition(node, normalizedContext, preloadedData);
+      return evaluateCondition(node, context, preloadedData);
     }
 
     // Get ordered children
@@ -1938,7 +1924,6 @@ export function evaluateLoadedRulesHelper(
   isBlocked: boolean;
   timeVariantEvaluated: number;
 } {
-  const normalizedContext = normalizeAppointmentContext(context);
   const blockedByRuleIds: Id<"ruleConditions">[] = [];
 
   // Start with pre-evaluated day-invariant rules if provided
@@ -1975,7 +1960,7 @@ export function evaluateLoadedRulesHelper(
 
     // If this is a leaf condition, evaluate it directly
     if (node.nodeType === "CONDITION") {
-      return evaluateCondition(node, normalizedContext, preloadedData);
+      return evaluateCondition(node, context, preloadedData);
     }
 
     // Get ordered children

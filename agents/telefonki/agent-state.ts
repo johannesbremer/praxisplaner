@@ -1,6 +1,8 @@
 import { Temporal } from "temporal-polyfill";
 import { z } from "zod";
 
+import type { KnownInsuranceStatus } from "../../lib/insurance-status";
+
 export interface ActiveTelefonkiOffers<T extends OfferedTelefonkiSlot> {
   generatedAt: number | undefined;
   offers: Map<string, StoredTelefonkiOffer<T>>;
@@ -27,6 +29,7 @@ export interface StoredTelefonkiOffer<T extends OfferedTelefonkiSlot> {
 export interface TelefonkiOfferCriteria {
   appointmentTypeLineageKey: string;
   birthDate?: string;
+  insuranceStatus: KnownInsuranceStatus;
   isNewPatient: boolean;
   locationLineageKey: string;
   practitionerLineageKey?: string;
@@ -49,6 +52,7 @@ interface BookingPrerequisiteState {
   appointmentType?: unknown;
   birthDate?: string;
   firstName?: string;
+  insuranceStatus?: KnownInsuranceStatus;
   isNewPatient?: boolean;
   lastName?: string;
   location?: unknown;
@@ -78,6 +82,7 @@ export function buildOfferedSlotId(slot: OfferedTelefonkiSlot): string {
 export function buildTelefonkiOfferCriteria(args: {
   appointmentTypeLineageKey: string;
   birthDate?: string;
+  insuranceStatus: KnownInsuranceStatus;
   isNewPatient: boolean;
   locationLineageKey: string;
   practitionerLineageKey?: string;
@@ -85,6 +90,7 @@ export function buildTelefonkiOfferCriteria(args: {
   return {
     appointmentTypeLineageKey: args.appointmentTypeLineageKey,
     ...(args.birthDate ? { birthDate: args.birthDate } : {}),
+    insuranceStatus: args.insuranceStatus,
     isNewPatient: args.isNewPatient,
     locationLineageKey: args.locationLineageKey,
     ...(args.practitionerLineageKey
@@ -99,6 +105,7 @@ export function buildTelefonkiOfferCriteriaFingerprint(
   return [
     criteria.appointmentTypeLineageKey,
     criteria.birthDate ?? "",
+    criteria.insuranceStatus,
     criteria.isNewPatient ? "new" : "known",
     criteria.locationLineageKey,
     criteria.practitionerLineageKey ?? "",
@@ -163,6 +170,9 @@ export function listMissingBookingPrerequisites(
   }
   if (!state.location) {
     missing.push("Standort");
+  }
+  if (!state.insuranceStatus) {
+    missing.push("Versicherungsstatus");
   }
   if (!state.practitionerSelection) {
     missing.push("Behandler");

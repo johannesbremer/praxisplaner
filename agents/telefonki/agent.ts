@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 import type { Id } from "../../convex/_generated/dataModel";
+import type { KnownInsuranceStatus } from "../../lib/insurance-status";
 
 import { api as convexApi } from "../../convex/_generated/api";
 import {
@@ -51,6 +52,7 @@ interface BookingIntentState {
   appointmentType?: AppointmentTypeChoice;
   birthDate?: string;
   firstName?: string;
+  insuranceStatus?: KnownInsuranceStatus;
   isNewPatient?: boolean;
   lastName?: string;
   location?: LocationChoice;
@@ -90,10 +92,16 @@ function buildCurrentOfferCriteria(state: BookingIntentState) {
       "Patientenstatus muss vor der Terminsuche gespeichert sein.",
     );
   }
+  if (state.insuranceStatus === undefined) {
+    throw new Error(
+      "Versicherungsstatus muss vor der Terminsuche gespeichert sein.",
+    );
+  }
 
   return buildTelefonkiOfferCriteria({
     appointmentTypeLineageKey: state.appointmentType.lineageKey,
     ...(state.birthDate ? { birthDate: state.birthDate } : {}),
+    insuranceStatus: state.insuranceStatus,
     isNewPatient: state.isNewPatient,
     locationLineageKey: state.location.lineageKey,
     ...(state.practitionerSelection?.kind === "known"
@@ -111,6 +119,11 @@ function buildSimulatedContext(state: BookingIntentState) {
       "Terminart und Standort müssen vor der Terminsuche gespeichert sein.",
     );
   }
+  if (state.insuranceStatus === undefined) {
+    throw new Error(
+      "Versicherungsstatus muss vor der Terminsuche gespeichert sein.",
+    );
+  }
 
   return {
     appointmentTypeLineageKey: state.appointmentType.lineageKey,
@@ -118,6 +131,7 @@ function buildSimulatedContext(state: BookingIntentState) {
     locationLineageKey: state.location.lineageKey,
     patient: {
       ...(state.birthDate && { dateOfBirth: state.birthDate }),
+      insuranceStatus: state.insuranceStatus,
       isNew: state.isNewPatient ?? false,
     },
     ...(state.practitionerSelection?.kind === "known" && {
@@ -700,6 +714,7 @@ export default defineAgent({
               !state.bookingIntent.location ||
               !state.bookingIntent.firstName ||
               !state.bookingIntent.lastName ||
+              state.bookingIntent.insuranceStatus === undefined ||
               state.bookingIntent.isNewPatient === undefined
             ) {
               return "Fehler: Es fehlen gespeicherte Pflichtdaten.";
@@ -744,6 +759,7 @@ export default defineAgent({
                     dateOfBirth: state.bookingIntent.birthDate,
                   }),
                   firstName: state.bookingIntent.firstName,
+                  insuranceStatus: state.bookingIntent.insuranceStatus,
                   isNew: state.bookingIntent.isNewPatient,
                   lastName: state.bookingIntent.lastName,
                   ...(state.bookingIntent.phoneNumber && {
@@ -908,6 +924,25 @@ export default defineAgent({
           },
           parameters: z.object({
             date: z.string().describe("Datum im Format JJJJ-MM-TT."),
+          }),
+        }),
+        versicherungsstatus_speichern: llm.tool({
+          description:
+            "Speichert den Versicherungsstatus des Patienten. private bedeutet privat versichert; public bedeutet gesetzlich versichert.",
+          execute: async ({ insuranceStatus }) => {
+            await markAsyncBoundary();
+            state.bookingIntent.insuranceStatus = insuranceStatus;
+            invalidateOffersForCriteriaChange(state, ctx.job.id);
+            return insuranceStatus === "private"
+              ? "Privatversicherung ist gespeichert."
+              : "Gesetzliche Versicherung ist gespeichert.";
+          },
+          parameters: z.object({
+            insuranceStatus: z
+              .enum(["private", "public"])
+              .describe(
+                "private = privat versichert; public = gesetzlich versichert.",
+              ),
           }),
         }),
       } as const;

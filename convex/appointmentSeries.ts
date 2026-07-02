@@ -1,7 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { Temporal } from "temporal-polyfill";
 
-import type { InsuranceStatus } from "../lib/insurance-status";
 import type { InstantString, IsoDateString } from "../lib/typed-regex";
 import type { Doc, Id } from "./_generated/dataModel";
 import type {
@@ -13,6 +12,10 @@ import type { InternalSchedulingResultSlot } from "./scheduling";
 import type { AppointmentColor, AppointmentSmiley } from "./schema";
 import type { ZonedDateTimeString } from "./typedDtos";
 
+import {
+  isKnownInsuranceStatus,
+  type KnownInsuranceStatus,
+} from "../lib/insurance-status";
 import { internal } from "./_generated/api";
 import { resolveAppointmentColorForType } from "./appointmentColors";
 import {
@@ -67,7 +70,7 @@ import {
   asOptionalIsoDateString,
   asZonedDateTimeString,
 } from "./typedDtos";
-import { insuranceStatusValidator } from "./validators";
+import { knownInsuranceStatusValidator } from "./validators";
 
 const MAX_SERIES_SEARCH_DAYS = 370;
 
@@ -104,7 +107,7 @@ export const appointmentSeriesArgsValidator = {
   locationId: v.id("locations"),
   patientDateOfBirth: v.optional(v.string()),
   patientId: v.optional(v.id("patients")),
-  patientInsuranceStatus: v.optional(insuranceStatusValidator),
+  patientInsuranceStatus: v.optional(knownInsuranceStatusValidator),
   practiceId: v.id("practices"),
   practitionerId: v.optional(v.id("practitioners")),
   rootAppointmentTypeId: v.id("appointmentTypes"),
@@ -132,7 +135,7 @@ interface RootSeriesCandidate {
   locationId: Id<"locations">;
   patientDateOfBirth?: IsoDateString;
   patientId?: Id<"patients">;
-  patientInsuranceStatus?: InsuranceStatus;
+  patientInsuranceStatus?: KnownInsuranceStatus;
   practiceId: Id<"practices">;
   practitionerId?: Id<"practitioners">;
   scope?: AppointmentBookingScope;
@@ -182,7 +185,7 @@ export async function createAppointmentSeries(
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus?: KnownInsuranceStatus;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     rootAppointmentTypeId: Id<"appointmentTypes">;
@@ -416,7 +419,7 @@ export async function hasExactSeriesStepSchedulerAvailability(
     locationId: Id<"locations">;
     occupancyScope: AppointmentOccupancyScope;
     patientDateOfBirth?: IsoDateString;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus?: KnownInsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     requestedAt: InstantString;
@@ -494,7 +497,7 @@ export async function hasResourceRootSchedulerAvailability(
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus?: KnownInsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     requestedAt: InstantString;
@@ -743,7 +746,7 @@ export async function previewAppointmentSeries(
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
     patientId?: Id<"patients">;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus?: KnownInsuranceStatus;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
     rootAppointmentTypeId: Id<"appointmentTypes">;
@@ -787,7 +790,7 @@ export async function previewAppointmentSeries(
       locationId: args.locationId,
       ...(patientDateOfBirth && { patientDateOfBirth }),
       ...(args.patientId && { patientId: args.patientId }),
-      ...(patientInsuranceStatus && { patientInsuranceStatus }),
+      patientInsuranceStatus,
       practiceId: args.practiceId,
       ...(args.calendarResourceColumn && {
         calendarResourceColumn: args.calendarResourceColumn,
@@ -1137,7 +1140,7 @@ async function findFirstAvailableStepStart(
     locationId: Id<"locations">;
     occupancy: ResolvedPlanOccupancy;
     patientDateOfBirth?: IsoDateString;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus?: KnownInsuranceStatus;
     plannedSteps: PlannedSeriesStep[];
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
@@ -1181,7 +1184,7 @@ async function findFirstAvailableStepStartOnOrAfter(
     locationId: Id<"locations">;
     occupancy: ResolvedPlanOccupancy;
     patientDateOfBirth?: IsoDateString;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus?: KnownInsuranceStatus;
     plannedSteps: PlannedSeriesStep[];
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
@@ -1503,7 +1506,7 @@ async function getExactPractitionerSlotAvailability(
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus?: KnownInsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     practitionerId: Id<"practitioners">;
@@ -1589,7 +1592,7 @@ async function getExactResourceSlotAvailability(
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus?: KnownInsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     requestedAt: InstantString;
@@ -1863,7 +1866,7 @@ async function planAppointmentPlanStep(
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus?: KnownInsuranceStatus;
     plannedSteps: PlannedSeriesStep[];
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
@@ -1962,7 +1965,7 @@ async function queryAvailableSlotsForDay(
     isNewPatient?: boolean;
     locationId?: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus?: KnownInsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
@@ -1993,7 +1996,7 @@ async function querySchedulingSlotsForDay(
     isNewPatient?: boolean;
     locationId?: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus?: KnownInsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
@@ -2204,15 +2207,23 @@ async function resolvePatientInsuranceStatus(
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
   args: {
     patientId?: Id<"patients">;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus?: KnownInsuranceStatus;
   },
-): Promise<InsuranceStatus | undefined> {
-  if (args.patientId) {
-    const patient = await ctx.db.get("patients", args.patientId);
-    return patient?.insuranceStatus;
+): Promise<KnownInsuranceStatus> {
+  const patient =
+    args.patientId === undefined
+      ? null
+      : await ctx.db.get("patients", args.patientId);
+  const insuranceStatus =
+    args.patientId === undefined
+      ? args.patientInsuranceStatus
+      : patient?.insuranceStatus;
+
+  if (isKnownInsuranceStatus(insuranceStatus)) {
+    return insuranceStatus;
   }
 
-  return args.patientInsuranceStatus;
+  return "public";
 }
 
 async function resolvePractitionerOccupancy(
@@ -2440,7 +2451,7 @@ async function validateRootCandidate(
     isNewPatient?: boolean;
     locationId: Id<"locations">;
     patientDateOfBirth?: IsoDateString;
-    patientInsuranceStatus?: InsuranceStatus;
+    patientInsuranceStatus?: KnownInsuranceStatus;
     planningState: SeriesPlanningState;
     practiceId: Id<"practices">;
     requestedAt: InstantString;
