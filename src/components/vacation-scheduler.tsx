@@ -82,6 +82,7 @@ import {
   formatDateFull,
   zonedDateTimeStringResult,
 } from "../utils/time-calculations";
+import { Combobox, type ComboboxOption } from "./combobox";
 
 type AppointmentConflict = Pick<
   AppointmentResult,
@@ -94,6 +95,7 @@ interface ConflictDialogState {
   date: Temporal.PlainDate;
   mode: "create" | "inspect";
   portion: VacationPortion;
+  reason: "" | VacationReason;
   replacingSnapshots: VacationReplaySnapshot[];
   staff: StaffRow;
 }
@@ -127,10 +129,19 @@ type StaffRow =
     };
 
 type VacationPortion = "afternoon" | "full" | "morning";
+type VacationReason =
+  | "birthday"
+  | "child-sick"
+  | "other"
+  | "overtime"
+  | "sick"
+  | "training"
+  | "vacation";
 
 interface VacationReplaySnapshot {
   lineageKey: Id<"vacations">;
   portion: VacationPortion;
+  reason: VacationReason;
 }
 
 interface VacationSchedulerProps {
@@ -165,6 +176,46 @@ const PORTION_META: Record<
 };
 
 const ORDERED_PORTIONS: VacationPortion[] = ["full", "morning", "afternoon"];
+
+const ABSENCE_REASON_OPTIONS = [
+  { label: "Urlaub", short: "U", value: "vacation" },
+  { label: "Krank", short: "K", value: "sick" },
+  { label: "Überstunden", short: "Ü", value: "overtime" },
+  { label: "Fortbildung", short: "F", value: "training" },
+  { label: "Kinderkrank", short: "KK", value: "child-sick" },
+  { label: "Sonstiges", short: "S", value: "other" },
+  { label: "Geburtstag", short: "G", value: "birthday" },
+] as const satisfies readonly {
+  label: string;
+  short: string;
+  value: VacationReason;
+}[];
+
+const ABSENCE_REASON_META: Record<
+  VacationReason,
+  { label: string; short: string }
+> = {
+  birthday: { label: "Geburtstag", short: "G" },
+  "child-sick": { label: "Kinderkrank", short: "KK" },
+  other: { label: "Sonstiges", short: "S" },
+  overtime: { label: "Überstunden", short: "Ü" },
+  sick: { label: "Krank", short: "K" },
+  training: { label: "Fortbildung", short: "F" },
+  vacation: { label: "Urlaub", short: "U" },
+};
+
+const ABSENCE_REASON_COMBOBOX_OPTIONS: ComboboxOption[] =
+  ABSENCE_REASON_OPTIONS.map((option) => ({
+    label: `${option.short} - ${option.label}`,
+    searchText: option.label,
+    value: option.value,
+  }));
+
+const VACATION_PORTION_COMBOBOX_OPTIONS: ComboboxOption[] = [
+  { label: "Ganztägig", value: "full" },
+  { label: "Vormittag", value: "morning" },
+  { label: "Nachmittag", value: "afternoon" },
+];
 
 export function VacationScheduler({
   editable,
@@ -262,6 +313,9 @@ export function VacationScheduler({
   const deleteVacation = useMutation(api.vacations.deleteVacation);
 
   const [newMfaName, setNewMfaName] = useState("");
+  const [selectedQuickReason, setSelectedQuickReason] = useState<
+    "" | VacationReason
+  >("");
   const [holidayDataLoaded, setHolidayDataLoaded] = useState(false);
   const [conflictDialog, setConflictDialog] =
     useState<ConflictDialogState | null>(null);
@@ -432,6 +486,25 @@ export function VacationScheduler({
     return activePortions[0] ?? null;
   };
 
+  const getDisplayedReasonForCellFromRows = (
+    vacationRows: NonNullable<typeof vacations>,
+    staff: StaffRow,
+    date: Temporal.PlainDate,
+  ): null | VacationReason => {
+    const vacation = vacationRows.find((candidate) => {
+      const staffId =
+        candidate.staffType === "practitioner"
+          ? candidate.practitionerLineageKey
+          : candidate.mfaLineageKey;
+      return (
+        candidate.staffType === staff.kind &&
+        staffId === staff.lineageKey &&
+        candidate.date === date.toString()
+      );
+    });
+    return vacation?.reason ?? null;
+  };
+
   const getActiveVacationSnapshotsForCellFromRows = (
     vacationRows: NonNullable<typeof vacations>,
     staff: StaffRow,
@@ -459,6 +532,7 @@ export function VacationScheduler({
         {
           lineageKey: vacation.lineageKey,
           portion: vacation.portion,
+          reason: vacation.reason,
         },
       ];
     });
@@ -617,6 +691,7 @@ export function VacationScheduler({
     options?: {
       clearSnapshots?: VacationReplaySnapshot[];
       createSnapshots?: VacationReplaySnapshot[];
+      reason?: VacationReason;
     },
   ): Promise<VacationReplaySnapshot[]> => {
     await clearVacationsForDay(staff, date, options?.clearSnapshots);
@@ -626,6 +701,12 @@ export function VacationScheduler({
       const existingSnapshot = options?.createSnapshots?.find(
         (snapshot) => snapshot.portion === portion,
       );
+      const reason = existingSnapshot?.reason ?? options?.reason;
+      if (!reason) {
+        return await Promise.reject(
+          new Error("Bitte einen Abwesenheitsgrund auswählen."),
+        );
+      }
       const result = await createVacation({
         date: date.toString(),
         ...(existingSnapshot
@@ -634,6 +715,7 @@ export function VacationScheduler({
         ...vacationStaffMutationArgs(staff),
         portion,
         practiceId,
+        reason,
         staffType: staff.kind,
         ...getCowMutationArgs(),
       });
@@ -641,6 +723,7 @@ export function VacationScheduler({
       createdSnapshots.push({
         lineageKey: result.entityId,
         portion,
+        reason,
       });
     }
 
@@ -651,6 +734,7 @@ export function VacationScheduler({
     staff: StaffRow,
     date: Temporal.PlainDate,
     nextPortions: VacationPortion[],
+    reason: undefined | VacationReason,
     label: string,
   ) => {
     const previousSnapshots = getActiveVacationSnapshotsForCellFromRows(
@@ -660,6 +744,7 @@ export function VacationScheduler({
     );
     const nextSnapshots = await setVacationsForDay(staff, date, nextPortions, {
       clearSnapshots: previousSnapshots,
+      ...(reason ? { reason } : {}),
     });
     const beforeSnapshot = encodeRuleSetSnapshot({
       date: date.toString(),
@@ -926,6 +1011,11 @@ export function VacationScheduler({
     portion: VacationPortion,
   ) => {
     const displayedPortion = getDisplayedPortionForCell(staff, date);
+    const displayedReason = getDisplayedReasonForCellFromRows(
+      vacations ?? [],
+      staff,
+      date,
+    );
     const currentlyActive = displayedPortion !== null;
     const conflicts = getAppointmentConflicts(staff, date, portion);
 
@@ -935,6 +1025,7 @@ export function VacationScheduler({
           date,
           mode: "inspect",
           portion: displayedPortion,
+          reason: displayedReason ?? "",
           replacingSnapshots: getActiveVacationSnapshotsForCellFromRows(
             vacationsRef.current,
             staff,
@@ -945,20 +1036,39 @@ export function VacationScheduler({
         return;
       }
 
-      if (conflicts.length > 0) {
+      if (!selectedQuickReason) {
         setConflictDialog({
           date,
           mode: "create",
           portion,
+          reason: "",
           replacingSnapshots: [],
           staff,
         });
         return;
       }
 
-      await commitVacationChange(staff, date, [portion], "Urlaub eingetragen");
+      if (conflicts.length > 0) {
+        setConflictDialog({
+          date,
+          mode: "create",
+          portion,
+          reason: selectedQuickReason,
+          replacingSnapshots: [],
+          staff,
+        });
+        return;
+      }
+
+      await commitVacationChange(
+        staff,
+        date,
+        [portion],
+        selectedQuickReason,
+        "Abwesenheit eingetragen",
+      );
     } catch (error) {
-      toast.error("Urlaub konnte nicht aktualisiert werden", {
+      toast.error("Abwesenheit konnte nicht aktualisiert werden", {
         description:
           error instanceof Error ? error.message : "Unbekannter Fehler",
       });
@@ -982,6 +1092,9 @@ export function VacationScheduler({
       date,
       mode: "inspect",
       portion,
+      reason:
+        getDisplayedReasonForCellFromRows(vacationsRef.current, staff, date) ??
+        "",
       replacingSnapshots: getActiveVacationSnapshotsForCellFromRows(
         vacationsRef.current,
         staff,
@@ -1205,6 +1318,11 @@ export function VacationScheduler({
 
   const renderCell = (staff: StaffRow, date: Temporal.PlainDate) => {
     const displayedPortion = getDisplayedPortionForCell(staff, date);
+    const displayedReason = getDisplayedReasonForCellFromRows(
+      vacations ?? [],
+      staff,
+      date,
+    );
     const holidayName = holidayDataLoaded
       ? getPublicHolidayName(date)
       : undefined;
@@ -1243,7 +1361,7 @@ export function VacationScheduler({
               size="sm"
               variant="secondary"
             >
-              {PORTION_META[displayedPortion].short}
+              {ABSENCE_REASON_META[displayedReason ?? "vacation"].short}
             </Button>
           </div>
         );
@@ -1267,7 +1385,7 @@ export function VacationScheduler({
             size="sm"
             variant="default"
           >
-            {PORTION_META[displayedPortion].short}
+            {ABSENCE_REASON_META[displayedReason ?? "vacation"].short}
           </Button>
         ) : (
           <Button
@@ -1278,7 +1396,9 @@ export function VacationScheduler({
             size="sm"
             variant="outline"
           >
-            G
+            {selectedQuickReason
+              ? ABSENCE_REASON_META[selectedQuickReason].short
+              : "+"}
           </Button>
         )}
       </div>
@@ -1386,130 +1506,150 @@ export function VacationScheduler({
             Urlaubsdaten werden geladen.
           </div>
         ) : (
-          <ScrollArea className="w-full rounded-md border" ref={scrollAreaRef}>
-            <div className="min-w-max">
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr>
-                    <th
-                      className="sticky left-0 z-20 min-w-24 border-b bg-background px-2 py-3 text-left sm:min-w-32"
-                      data-vacation-staff-column="true"
-                    >
-                      Mitarbeiter
-                    </th>
-                    {days.map((date) => {
-                      const weekend = isWeekend(date);
-                      const holidayName = holidayDataLoaded
-                        ? getPublicHolidayName(date)
-                        : undefined;
-                      return (
-                        <th
-                          className={cn(
-                            "border-b border-l p-2 text-center align-top",
-                            holidayName ? "min-w-28" : "min-w-16",
-                            weekend && "bg-muted/60",
-                          )}
-                          data-vacation-today-column={
-                            Temporal.PlainDate.compare(date, today) === 0
-                              ? "true"
-                              : undefined
-                          }
-                          key={date.toString()}
-                        >
-                          <div className="font-medium">{date.day}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {date.toLocaleString("de-DE", {
-                              weekday: "short",
-                            })}
-                          </div>
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {combinedRows.map(({ isFirstMfaRow, staff }) => (
-                    <tr key={`${staff.kind}-${staff.id}`}>
-                      <td
-                        className={cn(
-                          "sticky left-0 z-10 border-b bg-background px-2 py-3 align-top",
-                          isFirstMfaRow && "border-t-2",
-                        )}
+          <div className="space-y-3">
+            {editable && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Combobox
+                  className="w-52"
+                  emptyMessage="Kein Grund gefunden."
+                  onValueChange={(value) => {
+                    setSelectedQuickReason(parseVacationReason(value));
+                  }}
+                  options={ABSENCE_REASON_COMBOBOX_OPTIONS}
+                  placeholder="Grund auswählen"
+                  searchPlaceholder="Grund suchen..."
+                  value={selectedQuickReason}
+                />
+              </div>
+            )}
+            <ScrollArea
+              className="w-full rounded-md border"
+              ref={scrollAreaRef}
+            >
+              <div className="min-w-max">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr>
+                      <th
+                        className="sticky left-0 z-20 min-w-24 border-b bg-background px-2 py-3 text-left sm:min-w-32"
+                        data-vacation-staff-column="true"
                       >
-                        <div className="flex items-start gap-2">
-                          {staff.kind === "practitioner" ? (
-                            <Stethoscope className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <BriefcaseMedical className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                          )}
-                          <div
+                        Mitarbeiter
+                      </th>
+                      {days.map((date) => {
+                        const weekend = isWeekend(date);
+                        const holidayName = holidayDataLoaded
+                          ? getPublicHolidayName(date)
+                          : undefined;
+                        return (
+                          <th
                             className={cn(
-                              "font-medium",
-                              staff.kind === "mfa" && editable && "flex-1",
+                              "border-b border-l p-2 text-center align-top",
+                              holidayName ? "min-w-28" : "min-w-16",
+                              weekend && "bg-muted/60",
                             )}
+                            data-vacation-today-column={
+                              Temporal.PlainDate.compare(date, today) === 0
+                                ? "true"
+                                : undefined
+                            }
+                            key={date.toString()}
                           >
-                            <div className="font-medium">{staff.name}</div>
-                          </div>
-                          {staff.kind === "mfa" && editable && (
-                            <Button
-                              aria-label="MFA entfernen"
-                              onClick={() => {
-                                void handleRemoveMfa(staff.id);
-                              }}
-                              size="icon"
-                              title="MFA entfernen"
-                              variant="ghost"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <div className="font-medium">{date.day}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {date.toLocaleString("de-DE", {
+                                weekday: "short",
+                              })}
+                            </div>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {combinedRows.map(({ isFirstMfaRow, staff }) => (
+                      <tr key={`${staff.kind}-${staff.id}`}>
+                        <td
+                          className={cn(
+                            "sticky left-0 z-10 border-b bg-background px-2 py-3 align-top",
+                            isFirstMfaRow && "border-t-2",
                           )}
-                        </div>
-                      </td>
-                      {days.map((date) =>
-                        (() => {
-                          const holidayName = holidayDataLoaded
-                            ? getPublicHolidayName(date)
-                            : undefined;
+                        >
+                          <div className="flex items-start gap-2">
+                            {staff.kind === "practitioner" ? (
+                              <Stethoscope className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <BriefcaseMedical className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                            )}
+                            <div
+                              className={cn(
+                                "font-medium",
+                                staff.kind === "mfa" && editable && "flex-1",
+                              )}
+                            >
+                              <div className="font-medium">{staff.name}</div>
+                            </div>
+                            {staff.kind === "mfa" && editable && (
+                              <Button
+                                aria-label="MFA entfernen"
+                                onClick={() => {
+                                  void handleRemoveMfa(staff.id);
+                                }}
+                                size="icon"
+                                title="MFA entfernen"
+                                variant="ghost"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                        {days.map((date) =>
+                          (() => {
+                            const holidayName = holidayDataLoaded
+                              ? getPublicHolidayName(date)
+                              : undefined;
 
-                          if (holidayName) {
-                            if (staff.id !== firstBodyRowStaffId) {
-                              return null;
+                            if (holidayName) {
+                              if (staff.id !== firstBodyRowStaffId) {
+                                return null;
+                              }
+
+                              return (
+                                <td
+                                  className="border-b border-l bg-muted/30 p-0 align-middle"
+                                  key={`${staff.id}-${date.toString()}`}
+                                  rowSpan={totalBodyRowCount}
+                                >
+                                  <div className="sticky top-1/2 -translate-y-1/2 px-3 py-2 text-center text-xs text-muted-foreground">
+                                    {holidayName}
+                                  </div>
+                                </td>
+                              );
                             }
 
                             return (
                               <td
-                                className="border-b border-l bg-muted/30 p-0 align-middle"
+                                className={cn(
+                                  "min-w-16 border-b border-l p-2 align-top",
+                                  isFirstMfaRow && "border-t-2",
+                                  isWeekend(date) && "bg-muted/30",
+                                )}
                                 key={`${staff.id}-${date.toString()}`}
-                                rowSpan={totalBodyRowCount}
                               >
-                                <div className="sticky top-1/2 -translate-y-1/2 px-3 py-2 text-center text-xs text-muted-foreground">
-                                  {holidayName}
-                                </div>
+                                {renderCell(staff, date)}
                               </td>
                             );
-                          }
-
-                          return (
-                            <td
-                              className={cn(
-                                "min-w-16 border-b border-l p-2 align-top",
-                                isFirstMfaRow && "border-t-2",
-                                isWeekend(date) && "bg-muted/30",
-                              )}
-                              key={`${staff.id}-${date.toString()}`}
-                            >
-                              {renderCell(staff, date)}
-                            </td>
-                          );
-                        })(),
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <ScrollBar orientation="horizontal" />
-          </ScrollArea>
+                          })(),
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
+          </div>
         )}
       </CardContent>
 
@@ -1579,34 +1719,52 @@ export function VacationScheduler({
                 )}
 
               {editable && (
-                <div className="flex items-center gap-2">
-                  {dialogPortionOptions.map((portion) => (
-                    <Button
-                      key={portion}
-                      onClick={() => {
-                        setConflictDialog((current) =>
-                          current
-                            ? {
-                                ...current,
-                                portion,
-                              }
-                            : current,
-                        );
-                      }}
-                      size="sm"
-                      variant={
-                        conflictDialog.portion === portion
-                          ? "default"
-                          : "outline"
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Combobox
+                    className="w-full"
+                    emptyMessage="Kein Grund gefunden."
+                    onValueChange={(value) => {
+                      setConflictDialog((current) =>
+                        current
+                          ? {
+                              ...current,
+                              reason: parseVacationReason(value),
+                            }
+                          : current,
+                      );
+                    }}
+                    options={ABSENCE_REASON_COMBOBOX_OPTIONS}
+                    placeholder="Grund auswählen"
+                    searchPlaceholder="Grund suchen..."
+                    value={conflictDialog.reason}
+                  />
+                  <Combobox
+                    className="w-full"
+                    emptyMessage="Kein Tagesabschnitt gefunden."
+                    onValueChange={(value) => {
+                      const portion = parseVacationPortion(value);
+                      if (!portion) {
+                        return;
                       }
-                    >
-                      {portion === "full"
-                        ? "Ganztägig"
-                        : portion === "morning"
-                          ? "Vormittag"
-                          : "Nachmittag"}
-                    </Button>
-                  ))}
+                      setConflictDialog((current) =>
+                        current
+                          ? {
+                              ...current,
+                              portion,
+                            }
+                          : current,
+                      );
+                    }}
+                    options={VACATION_PORTION_COMBOBOX_OPTIONS.filter(
+                      (option) =>
+                        dialogPortionOptions.includes(
+                          parseVacationPortion(option.value) ?? "full",
+                        ),
+                    )}
+                    placeholder="Tagesabschnitt auswählen"
+                    searchPlaceholder="Tagesabschnitt suchen..."
+                    value={conflictDialog.portion}
+                  />
                 </div>
               )}
 
@@ -1703,18 +1861,22 @@ export function VacationScheduler({
                         conflictDialog.staff,
                         conflictDialog.date,
                         [],
-                        "Urlaub entfernt",
+                        undefined,
+                        "Abwesenheit entfernt",
                       )
                         .then(() => {
                           setConflictDialog(null);
                         })
                         .catch((error: unknown) => {
-                          toast.error("Urlaub konnte nicht entfernt werden", {
-                            description:
-                              error instanceof Error
-                                ? error.message
-                                : "Unbekannter Fehler",
-                          });
+                          toast.error(
+                            "Abwesenheit konnte nicht entfernt werden",
+                            {
+                              description:
+                                error instanceof Error
+                                  ? error.message
+                                  : "Unbekannter Fehler",
+                            },
+                          );
                         });
                     }}
                     variant="destructive"
@@ -1725,10 +1887,15 @@ export function VacationScheduler({
                 {editable && conflictDialog.mode === "create" && (
                   <Button
                     disabled={
-                      conflictDialog.staff.kind === "practitioner" &&
-                      coveragePreview === undefined
+                      !conflictDialog.reason ||
+                      (conflictDialog.staff.kind === "practitioner" &&
+                        coveragePreview === undefined)
                     }
                     onClick={() => {
+                      if (!conflictDialog.reason) {
+                        return;
+                      }
+                      const reason = conflictDialog.reason;
                       const applyChange =
                         conflictDialog.staff.kind === "practitioner" &&
                         coveragePreview
@@ -1741,6 +1908,7 @@ export function VacationScheduler({
                               portion: conflictDialog.portion,
                               practiceId,
                               practitionerId: conflictDialog.staff.id,
+                              reason,
                               reassignments:
                                 coveragePreview.suggestions.flatMap(
                                   (suggestion) =>
@@ -1768,7 +1936,8 @@ export function VacationScheduler({
                               conflictDialog.staff,
                               conflictDialog.date,
                               [conflictDialog.portion],
-                              "Urlaub eingetragen",
+                              reason,
+                              "Abwesenheit eingetragen",
                             );
 
                       void applyChange
@@ -1777,7 +1946,7 @@ export function VacationScheduler({
                         })
                         .catch((error: unknown) => {
                           toast.error(
-                            "Urlaub konnte nicht eingetragen werden",
+                            "Abwesenheit konnte nicht eingetragen werden",
                             {
                               description:
                                 error instanceof Error
@@ -1791,18 +1960,23 @@ export function VacationScheduler({
                     {coveragePreview &&
                     conflictDialog.staff.kind === "practitioner"
                       ? coveragePreview.movableCount > 0
-                        ? `Urlaub eintragen und ${coveragePreview.movableCount} Termine verschieben`
-                        : "Urlaub mit Restkonflikten eintragen"
+                        ? `Abwesenheit eintragen und ${coveragePreview.movableCount} Termine verschieben`
+                        : "Abwesenheit mit Restkonflikten eintragen"
                       : "Trotzdem eintragen"}
                   </Button>
                 )}
                 {editable && conflictDialog.mode === "inspect" && (
                   <Button
                     disabled={
-                      conflictDialog.staff.kind === "practitioner" &&
-                      coveragePreview === undefined
+                      !conflictDialog.reason ||
+                      (conflictDialog.staff.kind === "practitioner" &&
+                        coveragePreview === undefined)
                     }
                     onClick={() => {
+                      if (!conflictDialog.reason) {
+                        return;
+                      }
+                      const reason = conflictDialog.reason;
                       const applyChange =
                         conflictDialog.staff.kind === "practitioner" &&
                         coveragePreview
@@ -1815,6 +1989,7 @@ export function VacationScheduler({
                               portion: conflictDialog.portion,
                               practiceId,
                               practitionerId: conflictDialog.staff.id,
+                              reason,
                               reassignments:
                                 coveragePreview.suggestions.flatMap(
                                   (suggestion) =>
@@ -1842,7 +2017,8 @@ export function VacationScheduler({
                               conflictDialog.staff,
                               conflictDialog.date,
                               [conflictDialog.portion],
-                              "Urlaub geändert",
+                              reason,
+                              "Abwesenheit geändert",
                             );
 
                       void applyChange
@@ -1850,21 +2026,24 @@ export function VacationScheduler({
                           setConflictDialog(null);
                         })
                         .catch((error: unknown) => {
-                          toast.error("Urlaub konnte nicht geändert werden", {
-                            description:
-                              error instanceof Error
-                                ? error.message
-                                : "Unbekannter Fehler",
-                          });
+                          toast.error(
+                            "Abwesenheit konnte nicht geändert werden",
+                            {
+                              description:
+                                error instanceof Error
+                                  ? error.message
+                                  : "Unbekannter Fehler",
+                            },
+                          );
                         });
                     }}
                   >
                     {coveragePreview &&
                     conflictDialog.staff.kind === "practitioner"
                       ? coveragePreview.movableCount > 0
-                        ? `Urlaub ändern und ${coveragePreview.movableCount} Termine verschieben`
-                        : "Urlaub mit Restkonflikten ändern"
-                      : "Urlaub ändern"}
+                        ? `Abwesenheit ändern und ${coveragePreview.movableCount} Termine verschieben`
+                        : "Abwesenheit mit Restkonflikten ändern"
+                      : "Abwesenheit ändern"}
                   </Button>
                 )}
               </DialogFooter>
@@ -1923,6 +2102,33 @@ function isMissingMfaError(error: unknown) {
 
 function isWeekend(date: Temporal.PlainDate) {
   return date.dayOfWeek === 6 || date.dayOfWeek === 7;
+}
+
+function parseVacationPortion(value: string): undefined | VacationPortion {
+  switch (value) {
+    case "afternoon":
+    case "full":
+    case "morning": {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function parseVacationReason(value: string): "" | VacationReason {
+  switch (value) {
+    case "":
+    case "birthday":
+    case "child-sick":
+    case "other":
+    case "overtime":
+    case "sick":
+    case "training":
+    case "vacation": {
+      return value;
+    }
+  }
+  return "";
 }
 
 function startOfMonth(date: Temporal.PlainDate): Temporal.PlainDate {

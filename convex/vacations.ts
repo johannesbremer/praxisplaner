@@ -58,6 +58,16 @@ const vacationPortionValidator = v.union(
   v.literal("afternoon"),
 );
 
+const vacationReasonValidator = v.union(
+  v.literal("vacation"),
+  v.literal("sick"),
+  v.literal("overtime"),
+  v.literal("training"),
+  v.literal("child-sick"),
+  v.literal("other"),
+  v.literal("birthday"),
+);
+
 const staffTypeValidator = v.union(v.literal("mfa"), v.literal("practitioner"));
 const expectedDraftRevisionValidator = v.union(v.number(), v.null());
 
@@ -389,6 +399,7 @@ export const createVacation = mutation({
     portion: vacationPortionValidator,
     practiceId: v.id("practices"),
     practitionerId: v.optional(v.id("practitioners")),
+    reason: vacationReasonValidator,
     selectedRuleSetId: v.id("ruleSets"),
     staffType: staffTypeValidator,
   },
@@ -424,6 +435,7 @@ export const createVacation = mutation({
         existingByLineage.practiceId !== args.practiceId ||
         existingByLineage.date !== args.date ||
         existingByLineage.portion !== args.portion ||
+        existingByLineage.reason !== args.reason ||
         existingByLineage.staffType !== args.staffType ||
         (args.staffType === "practitioner"
           ? existingByLineage.practitionerLineageKey !==
@@ -491,6 +503,7 @@ export const createVacation = mutation({
         ...(resolved.practitionerLineageKey
           ? { practitionerLineageKey: resolved.practitionerLineageKey }
           : {}),
+        reason: args.reason,
         ruleSetId,
         staffType: args.staffType,
       });
@@ -512,6 +525,14 @@ async function createVacationInDraft(
     portion: "afternoon" | "full" | "morning";
     practiceId: Id<"practices">;
     practitionerId?: Id<"practitioners">;
+    reason:
+      | "birthday"
+      | "child-sick"
+      | "other"
+      | "overtime"
+      | "sick"
+      | "training"
+      | "vacation";
     resolvedRuleSetId?: Id<"ruleSets">;
     selectedRuleSetId: Id<"ruleSets">;
     staffType: "mfa" | "practitioner";
@@ -549,6 +570,7 @@ async function createVacationInDraft(
       existingByLineage.practiceId !== args.practiceId ||
       existingByLineage.date !== args.date ||
       existingByLineage.portion !== args.portion ||
+      existingByLineage.reason !== args.reason ||
       existingByLineage.staffType !== args.staffType ||
       (args.staffType === "practitioner"
         ? existingByLineage.practitionerLineageKey !==
@@ -616,6 +638,7 @@ async function createVacationInDraft(
       ...(resolved.practitionerLineageKey
         ? { practitionerLineageKey: resolved.practitionerLineageKey }
         : {}),
+      reason: args.reason,
       ruleSetId,
       staffType: args.staffType,
     });
@@ -632,6 +655,7 @@ export const createVacationWithCoverageAdjustments = mutation({
     portion: vacationPortionValidator,
     practiceId: v.id("practices"),
     practitionerId: v.id("practitioners"),
+    reason: vacationReasonValidator,
     reassignments: v.array(vacationCoverageReassignmentValidator),
     replacingVacationLineageKeys: v.optional(v.array(v.id("vacations"))),
     selectedRuleSetId: v.id("ruleSets"),
@@ -686,6 +710,7 @@ export const createVacationWithCoverageAdjustments = mutation({
       portion: args.portion,
       practiceId: args.practiceId,
       practitionerId: args.practitionerId,
+      reason: args.reason,
       resolvedRuleSetId: ruleSetId,
       selectedRuleSetId: ruleSetId,
       staffType: "practitioner",

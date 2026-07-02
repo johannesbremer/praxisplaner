@@ -1008,6 +1008,15 @@ export default defineSchema({
     ),
     practiceId: v.id("practices"),
     practitionerLineageKey: v.optional(v.id("practitioners")),
+    reason: v.union(
+      v.literal("vacation"),
+      v.literal("sick"),
+      v.literal("overtime"),
+      v.literal("training"),
+      v.literal("child-sick"),
+      v.literal("other"),
+      v.literal("birthday"),
+    ),
     ruleSetId: v.id("ruleSets"),
     staffType: v.union(v.literal("mfa"), v.literal("practitioner")),
   })

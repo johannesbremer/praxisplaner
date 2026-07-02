@@ -2784,6 +2784,7 @@ describe("appointments update safety", () => {
         portion: "morning",
         practiceId: baseData.practiceId,
         practitionerLineageKey: baseData.practitionerId,
+        reason: "vacation",
         ruleSetId: unsavedRuleSetId,
         staffType: "practitioner",
       });

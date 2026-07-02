@@ -574,6 +574,7 @@ export async function copyVacations(
       ...(source.mfaLineageKey ? { mfaLineageKey: source.mfaLineageKey } : {}),
       portion: source.portion,
       practiceId,
+      reason: source.reason,
       ...(source.practitionerLineageKey
         ? { practitionerLineageKey: source.practitionerLineageKey }
         : {}),

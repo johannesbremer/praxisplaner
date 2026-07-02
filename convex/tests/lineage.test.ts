@@ -190,6 +190,7 @@ describe("lineage invariants", () => {
         mfaLineageKey: mfaId,
         portion: "morning",
         practiceId,
+        reason: "vacation",
         ruleSetId,
         staffType: "mfa",
       });
