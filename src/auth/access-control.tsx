@@ -1,6 +1,6 @@
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useAuth } from "@workos-inc/authkit-react";
-import { useConvexAuth } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import {
   type ReactElement,
   type ReactNode,
@@ -19,6 +19,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
+import { api } from "@/convex/_generated/api";
 
 import { isAuthBypassEnabled } from "./auth-bypass";
 import {
@@ -220,7 +221,11 @@ export function PatientAuthGate({
 }: {
   children: ReactNode;
 }): ReactElement {
-  return <AuthenticatedGate devPersona="patient">{children}</AuthenticatedGate>;
+  return (
+    <AuthenticatedGate devPersona="patient">
+      <BlockedPatientGate>{children}</BlockedPatientGate>
+    </AuthenticatedGate>
+  );
 }
 
 export function PraxismanagerAuthGate({
@@ -287,11 +292,57 @@ function AuthorizedGate({
   );
 }
 
+function BlockedPatientGate({
+  children,
+}: {
+  children: ReactNode;
+}): ReactElement {
+  const practiceSlug = getBookingPracticeSlugFromPath();
+  const block = useQuery(
+    api.onlineAccountBlocks.getCurrentUserBlockByPracticeSlug,
+    practiceSlug ? { practiceSlug } : "skip",
+  );
+
+  if (!practiceSlug) {
+    return <>{children}</>;
+  }
+
+  if (block === undefined) {
+    return <AuthLoadingScreen />;
+  }
+
+  if (block) {
+    return <BlockedPatientScreen />;
+  }
+
+  return <>{children}</>;
+}
+
+function BlockedPatientScreen(): ReactElement {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <Card className="max-w-md">
+        <CardContent className="space-y-1 py-6 text-sm leading-6">
+          <p>Sehr geehrte/r Patient/in,</p>
+          <p>aufgrund Ihrer individuellen Anforderungen bitten wir Sie,</p>
+          <p>Ihre Termine zukünftig telefonischzu vereinbaren.</p>
+          <p>Auf diesem Wege können wir sicherstellen,</p>
+          <p>dass wir Ihren Bedürfnissen bestmöglich gerecht werden.</p>
+          <p>Vielen Dank für Ihr Verständnis.</p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function getAuthReturnToPath(): string {
   return `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
 }
 
 function getBookingPracticeSlugFromPath(): null | string {
+  if (import.meta.env.SSR) {
+    return null;
+  }
   const pathSegments = globalThis.location.pathname.split("/").filter(Boolean);
   const [practiceSlug] = pathSegments;
   return pathSegments.length === 1 && practiceSlug ? practiceSlug : null;

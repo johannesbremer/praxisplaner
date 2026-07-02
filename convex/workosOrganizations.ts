@@ -359,7 +359,19 @@ export const listCurrentUserOrganizations = action({
     });
     return await Promise.all(
       memberships.map(async (membership) => {
-        return await loadWorkOSOrganization(membership.organizationId);
+        const [organization, practiceId] = await Promise.all([
+          loadWorkOSOrganization(membership.organizationId),
+          ctx.runQuery(
+            internal.workosOrganizations.getPracticeIdByWorkOSOrganizationId,
+            {
+              organizationId: membership.organizationId,
+            },
+          ),
+        ]);
+        return {
+          ...organization,
+          ...(practiceId === null ? {} : { practiceId }),
+        };
       }),
     );
   },

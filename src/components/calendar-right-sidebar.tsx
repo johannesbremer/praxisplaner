@@ -3,11 +3,13 @@
 import { useMutation, useQuery } from "convex/react";
 import {
   AlertCircle,
+  Ban,
   Calendar,
   ExternalLink,
   Link2,
   PanelRightIcon,
   Plus,
+  Unlock,
   X,
 } from "lucide-react";
 import { err, ok, type Result } from "neverthrow";
@@ -16,6 +18,14 @@ import * as React from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Popover,
   PopoverContent,
@@ -563,6 +573,32 @@ function RightSidebarContent({
 }) {
   const [pendingSmileyAppointmentId, startSmileyTransition] =
     React.useTransition();
+  const [blockReason, setBlockReason] = React.useState("");
+  const [blockError, setBlockError] = React.useState<null | string>(null);
+  const [blockModalOpen, setBlockModalOpen] = React.useState(false);
+  const [isBlockPending, startBlockTransition] = React.useTransition();
+  const [unblockError, setUnblockError] = React.useState<null | string>(null);
+  const [isUnblockPending, startUnblockTransition] = React.useTransition();
+  const bookingIdentityId = getPatientBookingIdentityId(patient);
+  const onlineBookingUserId = getPatientOnlineBookingUserId(patient);
+  const bookingIdentityBlockStatus = useQuery(
+    api.onlineAccountBlocks.getStatusForBookingIdentity,
+    practiceId !== undefined && bookingIdentityId !== undefined
+      ? { bookingIdentityId, practiceId }
+      : "skip",
+  );
+  const userBlockStatus = useQuery(
+    api.onlineAccountBlocks.getStatusForUser,
+    practiceId !== undefined &&
+      bookingIdentityId === undefined &&
+      onlineBookingUserId !== undefined
+      ? { practiceId, userId: onlineBookingUserId }
+      : "skip",
+  );
+  const onlineAccountBlockStatus =
+    bookingIdentityId === undefined
+      ? userBlockStatus
+      : bookingIdentityBlockStatus;
   const appointmentSmileyOptionsRuleSetId =
     resolveAppointmentSmileyOptionsRuleSetId({
       defaultRuleSetId: ruleSetId,
@@ -587,8 +623,22 @@ function RightSidebarContent({
   const updateAppointmentSmiley = useMutation(
     api.appointments.updateAppointmentSmiley,
   );
+  const blockBookingIdentity = useMutation(
+    api.onlineAccountBlocks.blockBookingIdentity,
+  );
+  const blockUser = useMutation(api.onlineAccountBlocks.blockUser);
+  const unblock = useMutation(api.onlineAccountBlocks.unblock);
   const bookingFieldEntries =
     patient?.userId === undefined ? [] : getBookingFieldEntries(patient);
+  const trimmedBlockReason = blockReason.trim();
+  const canSubmitBlock =
+    practiceId !== undefined &&
+    (bookingIdentityId !== undefined || onlineBookingUserId !== undefined) &&
+    trimmedBlockReason.length >= 3 &&
+    !isBlockPending;
+  const showBlockPatientButton = onlineAccountBlockStatus?.canBlock === true;
+  const activeOnlineAccountBlock = onlineAccountBlockStatus?.block ?? null;
+  const isPatientBlocked = activeOnlineAccountBlock !== null;
 
   return (
     <ScrollArea className="flex-1">
@@ -678,6 +728,171 @@ function RightSidebarContent({
                 {patient.isNewPatient ? "Neupatient" : "Bestandspatient"}
               </p>
             )}
+
+            {showBlockPatientButton ? (
+              <>
+                {isPatientBlocked ? (
+                  <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
+                    <p>
+                      Online-Buchung gesperrt: {activeOnlineAccountBlock.reason}
+                    </p>
+                    {unblockError ? (
+                      <p className="text-xs text-destructive">{unblockError}</p>
+                    ) : null}
+                    <Button
+                      className="w-full gap-1.5"
+                      disabled={isUnblockPending}
+                      onClick={() => {
+                        if (practiceId === undefined) {
+                          return;
+                        }
+                        setUnblockError(null);
+                        startUnblockTransition(() => {
+                          unblock({
+                            blockId: activeOnlineAccountBlock._id,
+                            practiceId,
+                          }).catch((error: unknown) => {
+                            setUnblockError(
+                              error instanceof Error
+                                ? error.message
+                                : "Patient konnte nicht entsperrt werden.",
+                            );
+                          });
+                        });
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      <Unlock className="h-3.5 w-3.5" />
+                      {isUnblockPending
+                        ? "Entsperren..."
+                        : "Online-Buchung entsperren"}
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    className="w-full gap-1.5"
+                    onClick={() => {
+                      setBlockError(null);
+                      setBlockReason("");
+                      setBlockModalOpen(true);
+                    }}
+                    size="sm"
+                    type="button"
+                    variant="destructive"
+                  >
+                    <Ban className="h-3.5 w-3.5" />
+                    Online-Buchung sperren
+                  </Button>
+                )}
+
+                <Dialog
+                  onOpenChange={(open) => {
+                    setBlockModalOpen(open);
+                    if (!open) {
+                      setBlockError(null);
+                    }
+                  }}
+                  open={blockModalOpen}
+                >
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Online-Buchung sperren</DialogTitle>
+                      <DialogDescription>
+                        Die Patientin oder der Patient kann danach keine
+                        Online-Termine mehr für diese Praxis buchen.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2">
+                      <label
+                        className="text-sm font-medium"
+                        htmlFor="patient-block-reason"
+                      >
+                        Grund
+                      </label>
+                      <textarea
+                        className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-24 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                        id="patient-block-reason"
+                        onChange={(event) => {
+                          setBlockReason(event.target.value);
+                          setBlockError(null);
+                        }}
+                        value={blockReason}
+                      />
+                      {trimmedBlockReason.length > 0 &&
+                      trimmedBlockReason.length < 3 ? (
+                        <p className="text-xs text-destructive">
+                          Der Grund muss mindestens 3 Zeichen enthalten.
+                        </p>
+                      ) : null}
+                      {blockError ? (
+                        <p className="text-xs text-destructive">{blockError}</p>
+                      ) : null}
+                    </div>
+                    <DialogFooter>
+                      <Button
+                        disabled={isBlockPending}
+                        onClick={() => {
+                          setBlockModalOpen(false);
+                        }}
+                        type="button"
+                        variant="outline"
+                      >
+                        Abbrechen
+                      </Button>
+                      <Button
+                        disabled={!canSubmitBlock}
+                        onClick={() => {
+                          if (
+                            practiceId === undefined ||
+                            (bookingIdentityId === undefined &&
+                              onlineBookingUserId === undefined)
+                          ) {
+                            return;
+                          }
+                          startBlockTransition(() => {
+                            const blockPromise =
+                              bookingIdentityId === undefined
+                                ? onlineBookingUserId === undefined
+                                  ? null
+                                  : blockUser({
+                                      practiceId,
+                                      reason: trimmedBlockReason,
+                                      userId: onlineBookingUserId,
+                                    })
+                                : blockBookingIdentity({
+                                    bookingIdentityId,
+                                    practiceId,
+                                    reason: trimmedBlockReason,
+                                  });
+                            if (blockPromise === null) {
+                              return;
+                            }
+                            blockPromise
+                              .then(() => {
+                                setBlockModalOpen(false);
+                                setBlockReason("");
+                              })
+                              .catch((error: unknown) => {
+                                setBlockError(
+                                  error instanceof Error
+                                    ? error.message
+                                    : "Patient konnte nicht gesperrt werden.",
+                                );
+                              });
+                          });
+                        }}
+                        type="button"
+                        variant="destructive"
+                      >
+                        Sperren
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </>
+            ) : null}
 
             {/* Open in PVS Button */}
             {patient.patientId !== undefined && (
@@ -879,3 +1094,18 @@ function getBookingFieldEntries(patient: PatientInfo): {
 
 // Helper to format appointment date/time for the list in German
 const formatAppointmentDateTime = formatZonedDateTimeDE;
+
+function getPatientBookingIdentityId(
+  patient: PatientInfo | undefined,
+): Id<"bookingIdentities"> | undefined {
+  if (!patient || !("bookingIdentityId" in patient)) {
+    return undefined;
+  }
+  return patient.bookingIdentityId;
+}
+
+function getPatientOnlineBookingUserId(
+  patient: PatientInfo | undefined,
+): Id<"users"> | undefined {
+  return patient?.userId;
+}

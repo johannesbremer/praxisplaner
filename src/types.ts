@@ -25,6 +25,7 @@ type PvsPatientInfo = Omit<
     Pick<Doc<"patients">, "city" | "dateOfBirth" | "patientId" | "street">,
   "dateOfBirth"
 > & {
+  bookingIdentityId?: Id<"bookingIdentities">;
   convexPatientId: Id<"patients">;
   dateOfBirth?: IsoDateString;
   isNewPatient: boolean;

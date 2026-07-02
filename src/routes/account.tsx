@@ -1,8 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@workos-inc/authkit-react";
 import { UsersManagement, WorkOsWidgets } from "@workos-inc/widgets";
-import { useAction, useQuery } from "convex/react";
-import { AlertTriangle, Building2, Loader2, UsersRound } from "lucide-react";
+import { useAction, useMutation, useQuery } from "convex/react";
+import {
+  AlertTriangle,
+  Ban,
+  Building2,
+  Loader2,
+  RotateCcw,
+  UsersRound,
+} from "lucide-react";
 import {
   type BaseSyntheticEvent,
   useCallback,
@@ -15,9 +22,16 @@ import type { Id } from "../../convex/_generated/dataModel";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "../../components/ui/tabs";
 import { api } from "../../convex/_generated/api";
 import { AccountAuthGate } from "../auth/access-control";
 import { isAuthBypassEnabled } from "../auth/auth-bypass";
+import { useRegisterGlobalUndoRedoControls } from "../hooks/use-global-undo-redo-controls";
 
 function getAuthReturnToPath(): string {
   return `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
@@ -26,6 +40,26 @@ function getAuthReturnToPath(): string {
 export const Route = createFileRoute("/account")({
   component: AccountRoute,
 });
+
+interface BlockHistoryCommand {
+  block: OnlineAccountBlock;
+  deletionSnapshotId?: Id<"onlineAccountBlockDeletionSnapshots">;
+  kind: "unblock";
+}
+
+interface OnlineAccountBlock {
+  _id: Id<"onlineAccountBlocks">;
+  bookingIdentityId?: Id<"bookingIdentities">;
+  createdAt: bigint;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  legacyUserId?: string;
+  practiceId: Id<"practices">;
+  reason: string;
+  sourceSystem: "legacy-online" | "online";
+  userId: Id<"users">;
+}
 
 interface WorkOSOrganizationOption {
   id: string;
@@ -58,6 +92,7 @@ function AccountPage() {
     WorkOSOrganizationOption[]
   >([]);
   const [practiceName, setPracticeName] = useState("");
+  const [selectedTab, setSelectedTab] = useState("team");
 
   const refreshOrganizations = useCallback(() => {
     listCurrentUserOrganizations({})
@@ -259,22 +294,37 @@ function AccountPage() {
               </div>
             </aside>
 
-            <div className="min-w-0 space-y-4">
-              <div className="rounded-md border bg-card p-4">
-                {organization && authBypassEnabled ? (
-                  <BypassOrganizationMembers
-                    practiceId={organization.practiceId}
-                  />
-                ) : organization && !hasMultipleOrganizations ? (
-                  <UsersManagementForOrganization
-                    organizationId={organization.id}
-                  />
-                ) : (
-                  <div className="text-sm text-muted-foreground">
-                    Legen Sie eine Praxis an, um Teammitglieder zu verwalten.
+            <div className="min-w-0">
+              <Tabs onValueChange={setSelectedTab} value={selectedTab}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="team">Team</TabsTrigger>
+                  <TabsTrigger value="blocked">Gesperrte Konten</TabsTrigger>
+                </TabsList>
+                <TabsContent className="mt-4" value="team">
+                  <div className="rounded-md border bg-card p-4">
+                    {organization && authBypassEnabled ? (
+                      <BypassOrganizationMembers
+                        practiceId={organization.practiceId}
+                      />
+                    ) : organization && !hasMultipleOrganizations ? (
+                      <UsersManagementForOrganization
+                        organizationId={organization.id}
+                      />
+                    ) : (
+                      <div className="text-sm text-muted-foreground">
+                        Legen Sie eine Praxis an, um Teammitglieder zu
+                        verwalten.
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </TabsContent>
+                <TabsContent className="mt-4" value="blocked">
+                  <BlockedAccountsTab
+                    enabled={selectedTab === "blocked"}
+                    practiceId={organization?.practiceId}
+                  />
+                </TabsContent>
+              </Tabs>
             </div>
           </section>
         </div>
@@ -288,6 +338,242 @@ function AccountRoute() {
     <AccountAuthGate>
       <AccountPage />
     </AccountAuthGate>
+  );
+}
+
+function BlockedAccountsTab({
+  enabled,
+  practiceId,
+}: {
+  enabled: boolean;
+  practiceId: Id<"practices"> | undefined;
+}) {
+  const blocks = useQuery(
+    api.onlineAccountBlocks.listForPractice,
+    practiceId ? { practiceId } : "skip",
+  );
+  const restoreDeletedSnapshot = useMutation(
+    api.onlineAccountBlocks.restoreDeletedSnapshot,
+  );
+  const unblock = useMutation(api.onlineAccountBlocks.unblock);
+  const [history, setHistory] = useState<{
+    future: BlockHistoryCommand[];
+    past: BlockHistoryCommand[];
+  }>({ future: [], past: [] });
+  const [pendingBlockId, setPendingBlockId] =
+    useState<Id<"onlineAccountBlocks"> | null>(null);
+  const [operationError, setOperationError] = useState<null | string>(null);
+
+  const restoreBlock = useCallback(
+    async (
+      command: BlockHistoryCommand,
+    ): Promise<null | OnlineAccountBlock> => {
+      if (!practiceId) {
+        setOperationError("Keine Praxis ausgewählt.");
+        return null;
+      }
+      if (command.deletionSnapshotId === undefined) {
+        setOperationError("Keine Wiederherstellung verfügbar.");
+        return null;
+      }
+      const restoredId = await restoreDeletedSnapshot({
+        deletionSnapshotId: command.deletionSnapshotId,
+        practiceId,
+      });
+      return {
+        ...command.block,
+        _id: restoredId,
+      };
+    },
+    [practiceId, restoreDeletedSnapshot],
+  );
+
+  const runUnblock = useCallback(
+    async (block: OnlineAccountBlock): Promise<BlockHistoryCommand | null> => {
+      if (!practiceId || pendingBlockId) {
+        return null;
+      }
+      setPendingBlockId(block._id);
+      setOperationError(null);
+      try {
+        const result = await unblock({ blockId: block._id, practiceId });
+        return {
+          block,
+          deletionSnapshotId: result.deletionSnapshotId,
+          kind: "unblock",
+        };
+      } catch (error) {
+        setOperationError(
+          error instanceof Error
+            ? error.message
+            : "Konto konnte nicht entsperrt werden.",
+        );
+        return null;
+      } finally {
+        setPendingBlockId(null);
+      }
+    },
+    [pendingBlockId, practiceId, unblock],
+  );
+
+  const undo = useCallback(async () => {
+    const command = history.past.at(-1);
+    if (!command || pendingBlockId) {
+      return;
+    }
+    setPendingBlockId(command.block._id);
+    setOperationError(null);
+    try {
+      const restoredBlock = await restoreBlock(command);
+      if (!restoredBlock) {
+        return;
+      }
+      setHistory((current) => ({
+        future: [{ ...command, block: restoredBlock }, ...current.future],
+        past: current.past.slice(0, -1),
+      }));
+    } catch (error) {
+      setOperationError(
+        error instanceof Error
+          ? error.message
+          : "Sperre konnte nicht wiederhergestellt werden.",
+      );
+    } finally {
+      setPendingBlockId(null);
+    }
+  }, [history.past, pendingBlockId, restoreBlock]);
+
+  const redo = useCallback(async () => {
+    const command = history.future.at(0);
+    if (!command || pendingBlockId) {
+      return;
+    }
+    const appliedCommand = await runUnblock(command.block);
+    if (!appliedCommand) {
+      return;
+    }
+    setHistory((current) => ({
+      future: current.future.slice(1),
+      past: [...current.past, appliedCommand],
+    }));
+  }, [history.future, pendingBlockId, runUnblock]);
+
+  useRegisterGlobalUndoRedoControls(
+    enabled
+      ? {
+          canRedo: history.future.length > 0 && pendingBlockId === null,
+          canUndo: history.past.length > 0 && pendingBlockId === null,
+          onRedo: redo,
+          onUndo: undo,
+        }
+      : null,
+  );
+
+  if (!practiceId) {
+    return (
+      <div className="rounded-md border bg-card p-4 text-sm text-muted-foreground">
+        Legen Sie zuerst eine Praxis an.
+      </div>
+    );
+  }
+
+  if (blocks === undefined) {
+    return (
+      <div className="rounded-md border bg-card p-4">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Gesperrte Konten werden geladen...</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border bg-card p-4">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-medium">Gesperrte Online-Konten</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Diese Konten können keine Online-Termine buchen.
+          </p>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            disabled={history.past.length === 0 || pendingBlockId !== null}
+            onClick={() => {
+              void undo();
+            }}
+            size="icon"
+            title="Entsperren rückgängig machen"
+            type="button"
+            variant="ghost"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+          <Button
+            disabled={history.future.length === 0 || pendingBlockId !== null}
+            onClick={() => {
+              void redo();
+            }}
+            size="icon"
+            title="Entsperren wiederholen"
+            type="button"
+            variant="ghost"
+          >
+            <RotateCcw className="h-4 w-4 scale-x-[-1]" />
+          </Button>
+        </div>
+      </div>
+      {operationError ? (
+        <p className="mb-3 text-sm text-destructive">{operationError}</p>
+      ) : null}
+      {blocks.length === 0 ? (
+        <div className="flex items-center gap-2 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+          <Ban className="h-4 w-4" />
+          <span>Keine gesperrten Konten.</span>
+        </div>
+      ) : (
+        <div className="divide-y rounded-md border">
+          {blocks.map((block) => (
+            <div
+              className="flex flex-col gap-3 p-3 sm:flex-row sm:items-start sm:justify-between"
+              key={block._id}
+            >
+              <div className="min-w-0 space-y-1">
+                <div className="truncate text-sm font-medium">
+                  {formatBlockedAccountName(block)}
+                </div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {block.email}
+                </div>
+                <p className="text-sm">{block.reason}</p>
+              </div>
+              <Button
+                disabled={pendingBlockId !== null}
+                onClick={() => {
+                  void runUnblock(block).then((command) => {
+                    if (!command) {
+                      return;
+                    }
+                    setHistory((current) => ({
+                      future: [],
+                      past: [...current.past, command],
+                    }));
+                  });
+                }}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {pendingBlockId === block._id
+                  ? "Wird entsperrt..."
+                  : "Entsperren"}
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -347,6 +633,12 @@ function BypassOrganizationMembers({
         </div>
       ))}
     </div>
+  );
+}
+
+function formatBlockedAccountName(block: OnlineAccountBlock): string {
+  return (
+    [block.firstName, block.lastName].filter(Boolean).join(" ") || block.email
   );
 }
 
